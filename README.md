@@ -46,11 +46,17 @@ On the SOURCE machine (re-snapshot after rice changes):
 ./install.sh --export
 ```
 
-## Large binaries (payload-large/, NOT in git)
+## Large binaries (payload-large/, Git LFS)
 
-GitHub can't hold these, so they live in `payload-large/` (gitignored).
-Copy the directory to the target at the same relative path
-(`<repo>/payload-large/`) via USB/rsync:
+Wallpapers + zed binaries are too big for plain git (GitHub hard-rejects
+files >100MB), so they live in `payload-large/` tracked via **Git LFS**.
+A plain clone replicates everything — no USB/rsync needed:
+
+```bash
+git clone <this-repo> ~/src/ricefarms   # smudge filter fetches LFS files
+cd ~/src/ricefarms && git lfs pull      # if your clone skipped them
+./install.sh --yes
+```
 
 - `wallpapers-matugen.tar.zst` (~700M → `~/Pictures/wallpapers/matugen`)
 - `bucklespring-kalih-box-white.tar.zst` (~17M → `~/.local/share/bucklespring`)

@@ -258,6 +258,18 @@ assert_file_has "install.sh supports --only" "$REPO_DIR/install.sh" "--only"
 assert_file_has "install.sh supports --dry-run" "$REPO_DIR/install.sh" "--dry-run"
 assert_file_has "install.sh supports --export" "$REPO_DIR/install.sh" "--export"
 assert_true "payload-large README exists" test -f "$REPO_DIR/payload-large/README.md"
+assert_file_has "gitattributes LFS-tracks tarballs" "$REPO_DIR/.gitattributes" "payload-large/*.tar.zst filter=lfs"
+for _tb in wallpapers-matugen.tar.zst bucklespring-kalih-box-white.tar.zst zed-custom.tar.zst; do
+  # NOTE: working tree holds real binaries; the committed form is the LFS
+  # pointer in the index — assert on staged content, not the file.
+  # NOTE: tests mock $PATH git — use the real binary for index inspection.
+  if [[ "$(/usr/bin/git -C "$REPO_DIR" show ":payload-large/$_tb" 2>/dev/null | head -n 1)" == *"git-lfs.github.com/spec/v1"* ]]; then
+    PASS=$((PASS+1)); echo "ok - LFS pointer staged: $_tb"
+  else FAIL=$((FAIL+1)); echo "NOT OK - LFS pointer staged: $_tb"; fi
+  if [[ "$(/usr/bin/git -C "$REPO_DIR" check-attr filter -- "payload-large/$_tb" 2>/dev/null)" == *"filter: lfs"* ]]; then
+    PASS=$((PASS+1)); echo "ok - LFS filter set: $_tb"
+  else FAIL=$((FAIL+1)); echo "NOT OK - LFS filter set: $_tb"; fi
+done
 
 echo ""
 echo "RESULT: $PASS passed, $FAIL failed"
