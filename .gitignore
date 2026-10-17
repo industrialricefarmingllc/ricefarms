@@ -1,6 +1,6 @@
-# large binaries — transferred via usb/rsync, never committed
-payload-large/
-*.tar.zst
+# large binaries live in payload-large/ via Git LFS (see .gitattributes) —
+# clone with `git lfs pull` (or plain `git clone`, smudge does it) and the
+# installer finds them. Do NOT add raw tarballs outside LFS.
 # hyprland crash reports / caches accidentally exported
 payload/**/hyprlandCrashReport*.txt
 # OS dreck
