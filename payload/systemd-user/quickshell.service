@@ -1,0 +1,19 @@
+[Unit]
+Description=Quickshell - QML Wayland shell (Lucid)
+PartOf=graphical-session.target
+After=graphical-session.target
+Wants=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+# Systemd fallback - hyprland.lua watchdog is primary (5s repeat + pgrep guard)
+# If you use this service, run: systemctl --user start quickshell
+# Do not enable with hyprland.lua active to avoid duplicate managers
+ExecStart=/usr/bin/qs
+Restart=on-failure
+RestartSec=2
+Environment=QT_QPA_PLATFORM=wayland
+
+[Install]
+WantedBy=graphical-session.target

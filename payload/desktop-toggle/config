@@ -1,0 +1,19 @@
+# desktop-toggle config — override defaults
+# This file is sourced by /usr/local/bin/desktop-toggle (sh)
+# Change these once you settle on a hotkey.
+
+# VT numbers (1=kmscon, 7=sway). Keep 7 outside systemd NAutoVTs=6 to avoid conflict.
+DESK_VT=7
+KM_VT=1
+
+# HOTKEY placeholder for desktop-hotkey-daemon (evdev)
+# Format: evdev key names, see `evtest` or `wev`. Examples:
+#   HOTKEY="KEY_LEFTMETA+KEY_T"          # Super+T
+#   HOTKEY="KEY_LEFTCTRL+KEY_LEFTALT+KEY_T"
+#   HOTKEY="KEY_LEFTMETA+KEY_GRAVE"      # Super+`
+HOTKEY="KEY_LEFTCTRL+KEY_LEFTALT+KEY_T"
+
+# Hotkey daemon behavior
+# If KMSCON_GRAB=1, daemon tries EVIOCGRAB (exclusive). Default 0 (shared, may be blocked by kmscon).
+# KMSCON_GRAB=0 means daemon will not receive keys if kmscon does exclusive grab — see README.
+KMSCON_GRAB=0

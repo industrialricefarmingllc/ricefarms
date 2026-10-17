@@ -1,0 +1,84 @@
+#!/bin/sh
+# Wrapper for carbonyl: auto-prepend https://, alias `ca`, ?query -> DuckDuckGo, dark mode default
+# cargo: ca ?hello world -> https://duckduckgo.com/?q=hello+world
+#        ca duckduckgo.com -> https://duckduckgo.com
+#        ca https://example.com -> unchanged
+
+# Dark mode flags - verified: --blink-settings actually inverts page to dark (48;2;40;40;40 vs 238;238;238 light)
+# Browser chrome (address bar) stays white in carbonyl 0.0.2 - only web content is dark
+DARK_FLAGS="--blink-settings=forceDarkModeEnabled=true"
+
+# --- ? prefix -> DuckDuckGo search ---
+# Detect if first arg is "?" or starts with "?"
+if [ $# -gt 0 ]; then
+  first="$1"
+  case "$first" in
+    "?"|\?*)
+      # Build query from all args, stripping leading "?"
+      query=""
+      first_arg=1
+      for a in "$@"; do
+        if [ $first_arg -eq 1 ]; then
+          # Strip leading ? from first arg
+          if [ "$a" = "?" ]; then
+            a=""
+          else
+            a="${a#\?}"
+          fi
+          first_arg=0
+        fi
+        # also strip leading "?" if user did "?query" as single arg, already handled
+        # keep rest as-is
+        if [ -n "$a" ]; then
+          if [ -z "$query" ]; then
+            query="$a"
+          else
+            query="$query $a"
+          fi
+        fi
+      done
+      # Trim leading/trailing spaces
+      query=$(echo "$query" | sed 's/^ *//;s/ *$//')
+      if [ -n "$query" ]; then
+        enc=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote_plus(sys.argv[1]))" "$query" 2>/dev/null)
+        if [ -z "$enc" ]; then
+          enc=$(echo "$query" | sed 's/ /+/g')
+        fi
+        url="https://duckduckgo.com/?q=$enc"
+        exec bunx carbonyl $DARK_FLAGS "$url"
+      else
+        # just "?" with no query -> go to DDG homepage
+        exec bunx carbonyl $DARK_FLAGS "https://duckduckgo.com"
+      fi
+      ;;
+  esac
+fi
+
+# --- normal URL handling ---
+args=""
+for a in "$@"; do
+  case "$a" in
+    -*) # option flag
+      args="$args \"$a\""
+      ;;
+    *://*|file:*|about:*|data:*)
+      args="$args \"$a\""
+      ;;
+    *.*)
+      if [ -e "$a" ]; then
+        args="$args \"$a\""
+      else
+        args="$args \"https://$a\""
+      fi
+      ;;
+    *)
+      args="$args \"$a\""
+      ;;
+  esac
+done
+
+if [ -z "$args" ]; then
+  exec bunx carbonyl $DARK_FLAGS
+else
+  eval exec bunx carbonyl $DARK_FLAGS "$args"
+fi

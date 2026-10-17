@@ -1,0 +1,13 @@
+[Unit]
+Description=VAC exclusive-access enforcer (headless)
+After=pipewire.service vac.service
+BindsTo=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=%h/audio-stack/vac-gui.py --enforce
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

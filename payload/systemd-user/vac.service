@@ -1,0 +1,13 @@
+[Unit]
+Description=Virtual Audio Cable (VST_OUT + VST_Mic, low latency)
+After=pipewire.service pipewire-pulse.service wireplumber.service
+BindsTo=pipewire.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=%h/audio-stack/vac-up.sh
+ExecStop=%h/audio-stack/vac-down.sh
+
+[Install]
+WantedBy=default.target

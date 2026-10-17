@@ -1,0 +1,206 @@
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "defs": {},
+  "theme": {
+    "primary": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "secondary": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "accent": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "error": {
+      "dark": "{{colors.error.dark.hex}}",
+      "light": "{{colors.error.light.hex}}"
+    },
+    "warning": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "success": {
+      "dark": "{{colors.tertiary.dark.hex}}",
+      "light": "{{colors.tertiary.light.hex}}"
+    },
+    "info": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "text": {
+      "dark": "{{colors.on_surface.dark.hex}}",
+      "light": "{{colors.on_surface.light.hex}}"
+    },
+    "textMuted": {
+      "dark": "{{colors.on_surface_variant.dark.hex}}",
+      "light": "{{colors.on_surface_variant.light.hex}}"
+    },
+    "background": {
+      "dark": "{{colors.surface.dark.hex}}",
+      "light": "{{colors.surface.light.hex}}"
+    },
+    "backgroundPanel": {
+      "dark": "{{colors.surface.dark.hex}}",
+      "light": "{{colors.surface.light.hex}}"
+    },
+    "backgroundElement": {
+      "dark": "{{colors.surface.dark.hex}}",
+      "light": "{{colors.surface.light.hex}}"
+    },
+    "border": {
+      "dark": "{{colors.outline_variant.dark.hex}}",
+      "light": "{{colors.outline_variant.light.hex}}"
+    },
+    "borderActive": {
+      "dark": "{{colors.outline.dark.hex}}",
+      "light": "{{colors.outline.light.hex}}"
+    },
+    "borderSubtle": {
+      "dark": "{{colors.outline_variant.dark.hex}}",
+      "light": "{{colors.outline_variant.light.hex}}"
+    },
+    "diffAdded": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "diffRemoved": {
+      "dark": "{{colors.error.dark.hex}}",
+      "light": "{{colors.error.light.hex}}"
+    },
+    "diffContext": {
+      "dark": "{{colors.on_surface_variant.dark.hex}}",
+      "light": "{{colors.on_surface_variant.light.hex}}"
+    },
+    "diffHunkHeader": {
+      "dark": "{{colors.on_surface_variant.dark.hex}}",
+      "light": "{{colors.on_surface_variant.light.hex}}"
+    },
+    "diffHighlightAdded": {
+      "dark": "{{colors.secondary_container.dark.hex}}",
+      "light": "{{colors.secondary_container.light.hex}}"
+    },
+    "diffHighlightRemoved": {
+      "dark": "{{colors.error_container.dark.hex}}",
+      "light": "{{colors.error_container.light.hex}}"
+    },
+    "diffAddedBg": {
+      "dark": "{{colors.secondary_container.dark.hex}}",
+      "light": "{{colors.secondary_container.light.hex}}"
+    },
+    "diffRemovedBg": {
+      "dark": "{{colors.error_container.dark.hex}}",
+      "light": "{{colors.error_container.light.hex}}"
+    },
+    "diffContextBg": {
+      "dark": "{{colors.surface.dark.hex}}",
+      "light": "{{colors.surface.light.hex}}"
+    },
+    "diffLineNumber": {
+      "dark": "{{colors.on_surface_variant.dark.hex}}",
+      "light": "{{colors.on_surface_variant.light.hex}}"
+    },
+    "diffAddedLineNumberBg": {
+      "dark": "{{colors.secondary_container.dark.hex}}",
+      "light": "{{colors.secondary_container.light.hex}}"
+    },
+    "diffRemovedLineNumberBg": {
+      "dark": "{{colors.error_container.dark.hex}}",
+      "light": "{{colors.error_container.light.hex}}"
+    },
+    "markdownText": {
+      "dark": "{{colors.on_surface.dark.hex}}",
+      "light": "{{colors.on_surface.light.hex}}"
+    },
+    "markdownHeading": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "markdownLink": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "markdownLinkText": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "markdownCode": {
+      "dark": "{{colors.tertiary.dark.hex}}",
+      "light": "{{colors.tertiary.light.hex}}"
+    },
+    "markdownBlockQuote": {
+      "dark": "{{colors.on_surface_variant.dark.hex}}",
+      "light": "{{colors.on_surface_variant.light.hex}}"
+    },
+    "markdownEmph": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "markdownStrong": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "markdownHorizontalRule": {
+      "dark": "{{colors.outline_variant.dark.hex}}",
+      "light": "{{colors.outline_variant.light.hex}}"
+    },
+    "markdownListItem": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "markdownListEnumeration": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "markdownImage": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "markdownImageText": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "markdownCodeBlock": {
+      "dark": "{{colors.on_surface.dark.hex}}",
+      "light": "{{colors.on_surface.light.hex}}"
+    },
+    "syntaxComment": {
+      "dark": "{{colors.on_surface_variant.dark.hex}}",
+      "light": "{{colors.on_surface_variant.light.hex}}"
+    },
+    "syntaxKeyword": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "syntaxFunction": {
+      "dark": "{{colors.secondary.dark.hex}}",
+      "light": "{{colors.secondary.light.hex}}"
+    },
+    "syntaxVariable": {
+      "dark": "{{colors.on_surface.dark.hex}}",
+      "light": "{{colors.on_surface.light.hex}}"
+    },
+    "syntaxString": {
+      "dark": "{{colors.tertiary.dark.hex}}",
+      "light": "{{colors.tertiary.light.hex}}"
+    },
+    "syntaxNumber": {
+      "dark": "{{colors.tertiary.dark.hex}}",
+      "light": "{{colors.tertiary.light.hex}}"
+    },
+    "syntaxType": {
+      "dark": "{{colors.primary.dark.hex}}",
+      "light": "{{colors.primary.light.hex}}"
+    },
+    "syntaxOperator": {
+      "dark": "{{colors.on_surface.dark.hex}}",
+      "light": "{{colors.on_surface.light.hex}}"
+    },
+    "syntaxPunctuation": {
+      "dark": "{{colors.on_surface_variant.dark.hex}}",
+      "light": "{{colors.on_surface_variant.light.hex}}"
+    }
+  }
+}

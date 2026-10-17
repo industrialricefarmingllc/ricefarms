@@ -1,0 +1,6 @@
+#!/bin/bash
+# build-in-slice - run heavy builds deprioritized so Hyprland input preempts them.
+# Example: build-in-slice cargo build -p pibble
+#          build-in-slice bun run build
+set -u
+exec systemd-run --user --slice=build.slice --same-dir --wait --collect --service-type=exec nice -n 10 ionice -c3 "$@"

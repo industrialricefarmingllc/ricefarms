@@ -1,0 +1,14 @@
+[Unit]
+Description=Desktop hotkey daemon (kmscon <-> sway toggle)
+After=default.target
+Wants=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/desktop-hotkey-daemon
+Restart=always
+RestartSec=2
+# Needs input group for /dev/input/event*
+
+[Install]
+WantedBy=default.target

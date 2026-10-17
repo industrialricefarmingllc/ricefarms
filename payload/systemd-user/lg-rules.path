@@ -1,0 +1,9 @@
+[Unit]
+Description=Re-apply liquid-glass rules when the compositor (re)starts
+
+[Path]
+PathModified=/run/user/1000/hypr
+Unit=lg-rules.service
+
+[Install]
+WantedBy=paths.target

@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+import os, glob, struct, select, subprocess, time, re
+from pathlib import Path
+CONFIG_PATH = Path.home() / ".config/desktop-toggle/config"
+HOTKEY_STR = "KEY_F15"
+if CONFIG_PATH.exists():
+    for line in CONFIG_PATH.read_text().splitlines():
+        line=line.strip()
+        if line.startswith("HOTKEY="):
+            HOTKEY_STR = line.split("=",1)[1].strip().strip('"').strip("'")
+            break
+codes = []
+F15_CODE=185
+has_f15_fallback=False
+if HOTKEY_STR == "KEY_F15":
+    codes = [F15_CODE]
+else:
+    parts = [p.strip() for p in HOTKEY_STR.split("+")]
+    m = {"KEY_F15":185,"KEY_F14":184,"KEY_F13":183,"KEY_ESC":1,"KEY_LEFTMETA":125,"KEY_LEFTCTRL":29,"KEY_LEFTALT":56,"KEY_T":20,"KEY_RIGHTCTRL":97,"KEY_RIGHTALT":100}
+    for k in parts:
+        if not k.startswith("KEY_"):
+            k="KEY_"+k
+        c=m.get(k)
+        if c is not None:
+            codes.append(c)
+    if F15_CODE not in codes:
+        print(f"[daemon] also watching F15 {F15_CODE} as fallback (ROCCAT-independent)", flush=True)
+        has_f15_fallback = True
+    else:
+        has_f15_fallback = False
+print(f"[daemon] HOTKEY={HOTKEY_STR} -> {codes} F15_fallback={has_f15_fallback}", flush=True)
+EV_KEY=1
+fmt="llHHI"
+size=struct.calcsize(fmt)
+devices=[]  # list of (path, fd)
+fd_to_path={}
+
+def get_desired_kbd_paths():
+    kbd_events=set()
+    try:
+        text=open("/proc/bus/input/devices").read()
+        for mm in re.finditer(r"Handlers=.*kbd.*event(\d+)", text):
+            kbd_events.add(f"/dev/input/event{mm.group(1)}")
+    except Exception as e:
+        print(f"[daemon] get_kbd_events failed {e}", flush=True)
+    desired=set()
+    for path in glob.glob("/dev/input/event*"):
+        if kbd_events and path not in kbd_events:
+            continue
+        try:
+            mm=re.search(r"event(\d+)", path)
+            if mm:
+                num=mm.group(1)
+                name_path=f"/sys/class/input/event{num}/device/name"
+                try:
+                    name=open(name_path).read().strip()
+                    if "Mouse" in name and "Keyboard" not in name:
+                        continue
+                except:
+                    pass
+        except:
+            pass
+        desired.add(path)
+    return desired
+
+def open_device(path):
+    try:
+        fd=os.open(path, os.O_RDONLY|os.O_NONBLOCK)
+        return fd
+    except Exception as e:
+        print(f"[daemon] open {path} failed: {e}", flush=True)
+        return None
+
+def refresh_devices():
+    global devices, fd_to_path
+    desired=get_desired_kbd_paths()
+    current={path:fd for path,fd in devices}
+    for path in sorted(desired - set(current.keys())):
+        fd=open_device(path)
+        if fd is not None:
+            devices.append((path,fd))
+            fd_to_path[fd]=path
+            print(f"[daemon] watching {path} fd {fd} (hotplug add)", flush=True)
+    new_devices=[]
+    new_fd_to_path={}
+    for path,fd in devices:
+        if path not in desired:
+            print(f"[daemon] unwatch {path} fd {fd} (no longer kbd/desired)", flush=True)
+            try: os.close(fd)
+            except: pass
+            continue
+        stale=False
+        reason=""
+        try:
+            try:
+                link=os.readlink(f"/proc/self/fd/{fd}")
+                if "(deleted)" in link:
+                    stale=True; reason=f"deleted ({link})"
+            except FileNotFoundError:
+                stale=True; reason="fd vanished"
+            if not stale:
+                try:
+                    st_path=os.stat(path)
+                    st_fd=os.fstat(fd)
+                    if st_path.st_ino != st_fd.st_ino or st_path.st_dev != st_fd.st_dev:
+                        stale=True; reason=f"inode change {st_fd.st_ino}->{st_path.st_ino}"
+                except FileNotFoundError:
+                    stale=True; reason="path gone"
+                except OSError as e:
+                    stale=True; reason=f"fstat failed {e}"
+        except Exception as e:
+            print(f"[daemon] stale check {path} fd {fd} error {e}", flush=True)
+        if stale:
+            print(f"[daemon] device {path} fd {fd} stale ({reason}), reopening", flush=True)
+            try: os.close(fd)
+            except: pass
+            nfd=open_device(path)
+            if nfd is not None:
+                new_devices.append((path,nfd))
+                new_fd_to_path[nfd]=path
+                print(f"[daemon] rewatch {path} fd {nfd}", flush=True)
+            else:
+                print(f"[daemon] rewatch failed {path}", flush=True)
+            continue
+        new_devices.append((path,fd))
+        new_fd_to_path[fd]=path
+    devices[:]=new_devices
+    fd_to_path=new_fd_to_path
+    if not devices:
+        print(f"[daemon] no kbd devices after refresh, desired={sorted(desired)}", flush=True)
+
+refresh_devices()
+if not devices:
+    print("[daemon] no devices at start, will retry on hotplug", flush=True)
+
+pressed=set()
+def trigger():
+    # use desktop-toggle for proper hypr dpms + kmscon handling (fast toggle_visibility)
+    print(f"[daemon] HOTKEY {HOTKEY_STR} -> desktop-toggle", flush=True)
+    try:
+        subprocess.Popen(["/usr/local/bin/desktop-toggle"], start_new_session=True)
+    except Exception as e:
+        print(f"[daemon] trigger failed {e}", flush=True)
+        try:
+            cur=open("/sys/class/tty/tty0/active").read().strip()
+        except:
+            cur="tty1"
+        tgt="1" if cur=="tty7" else "7"
+        try:
+            subprocess.Popen(["/usr/local/bin/chvt-fast", tgt], start_new_session=True)
+        except:
+            pass
+
+print(f"[daemon] listening for {HOTKEY_STR} on {len(devices)} devices...", flush=True)
+last_refresh=time.time()
+while True:
+    try:
+        now=time.time()
+        if now - last_refresh >= 1.0:
+            refresh_devices()
+            last_refresh=now
+        if not devices:
+            time.sleep(1)
+            refresh_devices()
+            last_refresh=time.time()
+            continue
+        r,_,_=select.select([fd for _,fd in devices],[],[],1)
+        if not r:
+            continue
+        for fd in r:
+            path=fd_to_path.get(fd, f"fd{fd}")
+            try:
+                data=os.read(fd, size*64)
+                if not data:
+                    continue
+                for i in range(0,len(data),size):
+                    chunk=data[i:i+size]
+                    if len(chunk)<size:
+                        break
+                    tv_sec,tv_usec,typ,code,value=struct.unpack(fmt,chunk)
+                    if typ==EV_KEY:
+                        if value==1:
+                            pressed.add(code)
+                        elif value==0:
+                            pressed.discard(code)
+                        # Ctrl+Alt+Delete -> switch to built-in Linux VT tty2 (kernel console)
+                        if value==1 and code==111:  # KEY_DELETE
+                            ctrl = (29 in pressed or 97 in pressed)
+                            alt = (56 in pressed or 100 in pressed)
+                            if ctrl and alt:
+                                try:
+                                    cur=open("/sys/class/tty/tty0/active").read().strip()
+                                except:
+                                    cur="unknown"
+                                tgt="1" if cur=="tty2" else "2"
+                                # if on tty2, go back to tty1 (kmscon); from anywhere else go to tty2
+                                if cur=="tty2":
+                                    print(f"[daemon] Ctrl+Alt+Delete toggle back to tty1 from {cur} on {path}", flush=True)
+                                else:
+                                    print(f"[daemon] Ctrl+Alt+Delete -> tty2 from {cur} on {path} (pressed {pressed})", flush=True)
+                                try:
+                                    subprocess.Popen(["/usr/local/bin/chvt-fast", tgt], start_new_session=True)
+                                except Exception as e:
+                                    print(f"[daemon] chvt-fast {tgt} failed {e}", flush=True)
+                                    try:
+                                        subprocess.Popen(["/usr/bin/chvt", tgt], start_new_session=True)
+                                    except:
+                                        pass
+                                time.sleep(0.8)
+                                pressed.clear()
+                                continue
+                        if value==1 and code==F15_CODE:
+                            # Alt+F15 -> turn off desktop (stop) - Alt held
+                            if 56 in pressed or 100 in pressed:
+                                print(f"[daemon] Alt+F15 off code={code} triggered on {path} (pressed {pressed})", flush=True)
+                                try:
+                                    subprocess.Popen(["/usr/local/bin/desktop-toggle", "--stop"], start_new_session=True)
+                                except Exception as e:
+                                    print(f"[daemon] Alt+F15 off failed {e}", flush=True)
+                                time.sleep(0.8)
+                                pressed.clear()
+                                continue
+                            print(f"[daemon] F15 global code={code} triggered on {path}", flush=True)
+                            trigger()
+                            time.sleep(0.8)
+                            pressed.clear()
+                            continue
+                        elif len(codes)==1:
+                            if value==1 and code in codes:
+                                print(f"[daemon] single {code} triggered on {path}", flush=True)
+                                trigger()
+                                time.sleep(0.8)
+                                pressed.clear()
+                        else:
+                            if all(c in pressed for c in codes):
+                                print(f"[daemon] combo {codes} triggered (pressed {pressed}) on {path}", flush=True)
+                                trigger()
+                                time.sleep(0.8)
+                                pressed.clear()
+            except OSError as e:
+                print(f"[daemon] read OSError {path} fd {fd}: {e}", flush=True)
+                continue
+            except Exception as e:
+                print(f"[daemon] read loop {path} {e}", flush=True)
+                continue
+    except Exception as e:
+        print(f"[daemon] select {e}", flush=True)
+        time.sleep(1)
+        try: refresh_devices()
+        except: pass

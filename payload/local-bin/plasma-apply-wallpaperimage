@@ -1,0 +1,7 @@
+#!/bin/bash
+# Wrapper for knsrc wallpaper adoption (plasma-apply-wallpaperimage)
+set -eu
+for arg in "$@"; do last="$arg"; done
+f="${last:-}"
+case "$f" in file://*) f="${f#file://}";; esac
+if [ -f "$f" ]; then exec /home/nicerice/.local/bin/hypr-set-wallpaper "$f"; else echo "plasma-apply-wallpaperimage: no file in $*" >&2; exit 1; fi

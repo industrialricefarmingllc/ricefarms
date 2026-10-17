@@ -1,0 +1,7 @@
+# large binaries — transferred via usb/rsync, never committed
+payload-large/
+*.tar.zst
+# hyprland crash reports / caches accidentally exported
+payload/**/hyprlandCrashReport*.txt
+# OS dreck
+.DS_Store

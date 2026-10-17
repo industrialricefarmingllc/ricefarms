@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# osc52 — copy stdin/args to the LOCAL clipboard via the terminal (OSC52).
+# Works over ssh and mosh 1.4+ (which forwards OSC52), inside tmux with:
+#   set -s set-clipboard on
+#   set -g allow-passthrough on
+# Usage:
+#   echo hello | osc52          # copy pipe
+#   osc52 "some text"           # copy args
+#   osc52 < file                # copy file
+#   tmux copy-mode: bind ... copy-pipe-and-cancel "osc52 > #{client_tty}"
+set -u
+buf=""
+if [ "$#" -gt 0 ]; then
+  buf="$*"
+elif [ ! -t 0 ]; then
+  buf="$(cat)"
+else
+  echo "usage: echo text | osc52 | osc52 \"text\"" >&2
+  exit 1
+fi
+[ -z "$buf" ] && exit 0
+b64="$(printf '%s' "$buf" | base64 | tr -d '\r\n')"
+# most terminals cap a single OSC52 write (~74KB); warn but still try
+if [ "${#b64}" -gt 100000 ]; then
+  echo "osc52: warning: input large (${#b64} b64 chars), terminal may truncate" >&2
+fi
+out="/dev/tty"
+emit() {
+  # $1 = fully formatted escape sequence; try controlling tty first so
+  # piped usage stays clean, fall back to stderr when headless (no /dev/tty).
+  # (brace group so a failed `> /dev/tty` open is silenced too)
+  if { printf '%s' "$1" > "$out"; } 2>/dev/null; then
+    return 0
+  fi
+  printf '%s' "$1" >&2
+}
+if [ -n "${TMUX:-}" ]; then
+  # DCS passthrough so outer tmux/mosh/kitty sees a raw OSC52
+  emit "$(printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$b64")"
+else
+  emit "$(printf '\033]52;c;%s\a' "$b64")"
+fi
