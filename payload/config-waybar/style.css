@@ -1,0 +1,47 @@
+* {
+  font-family: FontAwesome, Roboto, Helvetica, Arial, sans-serif;
+  font-size: 10px;
+}
+window#waybar {
+  background-color: rgba(43,48,59,0.96);
+  color: #ffffff;
+  border-bottom: 2px solid #5e81ac;
+}
+#custom-terminal {
+  background-color: #5e81ac;
+  color: #ffffff;
+  padding: 0 14px;
+  margin: 4px 6px;
+  border-radius: 6px;
+  font-weight: bold;
+  min-width: 110px;
+}
+#custom-terminal:hover {
+  background-color: #81a1c1;
+}
+#custom-exit {
+  background-color: #4c566a;
+  color: #eceff4;
+  padding: 0 12px;
+  margin: 4px 6px;
+  border-radius: 6px;
+  min-width: 90px;
+}
+#custom-exit:hover {
+  background-color: #bf616a;
+}
+#workspaces button {
+  padding: 0 8px;
+}
+#workspaces button.active,
+#workspaces button.focused {
+  background-color: #88c0d0;
+  color: #2e3440;
+}
+#window {
+  padding: 0 10px;
+}
+#clock {
+  padding: 0 10px;
+  font-weight: bold;
+}

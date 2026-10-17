@@ -1,0 +1,118 @@
+#!/bin/bash
+# hypr-set-wallpaper - Dolphin ServiceMenu helper for Hyprland (awww + matugen + hyprpaper compat)
+# Usage: hypr-set-wallpaper <image>
+# Compatible with changing wallpapers from Dolphin and setting on launch
+# Log for debugging Dolphin calls
+echo "$(date '+%Y-%m-%d %H:%M:%S') hypr-set-wallpaper called: $* (pwd=$(pwd), env HYPRLAND=${HYPRLAND_INSTANCE_SIGNATURE:-unset})" >> /tmp/hypr-wallpaper.log
+set -eu
+f="${1:-}"
+[ -z "$f" ] && { echo "no file" >&2; exit 1; }
+# Dolphin may pass file:// URL
+case "$f" in file://*) f="${f#file://}";; esac
+# handle quotes and spaces
+p=$(realpath "$f" 2>/dev/null || echo "$f")
+[ ! -f "$p" ] && { notify-send "Wallpaper error" "File not found: $p" 2>/dev/null || echo "File not found: $p" >&2; exit 1; }
+
+# Detect dark/light mode for matugen (from quickshell theme state, fallback to dark)
+MODE="dark"
+if [ -f "$HOME/.cache/quickshell/theme_mode" ]; then
+  MODE=$(cat "$HOME/.cache/quickshell/theme_mode" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+  [ "$MODE" != "light" ] && MODE="dark"
+fi
+
+# Save for launch restore
+mkdir -p "$HOME/.cache" "$HOME/.config/hypr"
+echo "$p" > "$HOME/.cache/hypr_last_wallpaper"
+echo "$p" > "$HOME/.config/hypr/current_wallpaper"
+# Also save mode
+echo "$MODE" > "$HOME/.cache/hypr_last_wallpaper_mode"
+
+# Update hyprpaper.conf for compatibility (even though we use awww, keep hyprpaper fallback)
+conf="$HOME/.config/hypr/hyprpaper.conf"
+[ -f "$conf" ] && cp "$conf" "$conf.bak.$(date +%s)" 2>/dev/null || true
+cat > "$conf" <<EOF
+preload = $p
+
+wallpaper {
+    monitor = DP-1
+    path = $p
+}
+
+wallpaper {
+    monitor =
+    path = $p
+}
+
+splash = false
+ipc = on
+EOF
+
+# Find Hyprland signature robustly (Dolphin may not have env)
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+  # Try hyprctl instances (does not need signature)
+  SIG=$(hyprctl instances 2>/dev/null | grep -oP 'instance \K[^:]+' | tail -n1 || true)
+  if [ -n "$SIG" ]; then
+    export HYPRLAND_INSTANCE_SIGNATURE="$SIG"
+  else
+    # Fallback to newest socket dir
+    SIG=$(ls -t /run/user/$(id -u)/hypr 2>/dev/null | head -n1 || true)
+    [ -n "$SIG" ] && export HYPRLAND_INSTANCE_SIGNATURE="$SIG" || true
+  fi
+fi
+# Also ensure Wayland display
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# Apply live if Hyprland is running
+if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl monitors >/dev/null 2>&1; then
+  # Use unified matugen path (awww + hypr borders + quickshell accent)
+  if [ -x "$HOME/.config/hypr/scripts/wallpaper-matugen.sh" ]; then
+    "$HOME/.config/hypr/scripts/wallpaper-matugen.sh" "$p" "$MODE" 2>&1 | tail -n 20
+  else
+    # Fallback: direct awww + matugen
+    awww img "$p" --transition-type wipe --transition-duration 1.2 2>/dev/null || awww img "$p" 2>/dev/null || true
+    if command -v matugen >/dev/null 2>&1; then
+      matugen image "$p" -m "$MODE" 2>&1 | tail -n 5
+      # sync quickshell accent
+      PRIMARY=$(grep -oP 'primary=\K#[0-9a-fA-F]+' "$HOME/.cache/quickshell/matugen-colors.txt" 2>/dev/null | head -n1 || true)
+      if [ -n "$PRIMARY" ]; then
+        PRIMARY="$PRIMARY" python3 -c "
+import os, json, pathlib, re
+PRIMARY=os.environ['PRIMARY']
+p=pathlib.Path('/home/nicerice/.config/quickshell/lib/usersettings.json')
+d=json.loads(p.read_text())
+d['customAccent']=PRIMARY
+d['taskbarAccent']=PRIMARY
+d['useCustomColors']=True
+try:
+    txt=pathlib.Path('/home/nicerice/.cache/quickshell/matugen-colors.txt').read_text()
+    m=re.search(r'background=(#[0-9a-fA-F]+)', txt)
+    if m:
+        d['customBg']=m.group(1)
+        d['taskbarCustomBg']=False
+except: pass
+p.write_text(json.dumps(d, indent=2))
+" 2>/dev/null || true
+      fi
+    fi
+    # also try hyprpaper ipc for compatibility if hyprpaper is running
+    if pgrep -x hyprpaper >/dev/null 2>&1; then
+      hyprctl hyprpaper wallpaper "DP-1,$p" 2>/dev/null || true
+      hyprctl hyprpaper wallpaper ",$p" 2>/dev/null || true
+    fi
+  fi
+  notify-send "Wallpaper set" "$(basename "$p") → $MODE" 2>/dev/null || true
+  echo "Wallpaper set: $p ($MODE) - hypr + quickshell + awWW"
+else
+  # Not in Hyprland (e.g., tty1/kmscon) - just save, will apply on next Hyprland start
+  notify-send "Wallpaper saved" "Will apply on next Hyprland start: $(basename "$p")" 2>/dev/null || true
+  echo "Saved to $conf and $HOME/.cache/hypr_last_wallpaper - not in Hyprland session, will apply on next start"
+fi
+
+# Also copy to Pictures/Wallpapers for quickshell's wallpaper panel to see it
+mkdir -p "$HOME/Pictures/Wallpapers"
+if [ "$(dirname "$p")" != "$HOME/Pictures/Wallpapers" ]; then
+  # Optionally copy? Not needed, but ensure quickshell can see it if user wants
+  # cp -n "$p" "$HOME/Pictures/Wallpapers/" 2>/dev/null || true
+  true
+fi

@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep liquid-glass kitty rules applied (heals boot misses and hyprctl-reload wipes)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Unit=lg-rules.service
+
+[Install]
+WantedBy=timers.target

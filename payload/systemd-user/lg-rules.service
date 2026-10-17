@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-apply liquid-glass kitty window rules (conf windowrules silently fail; eval works)
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/nicerice/.config/hypr/scripts/apply-liquidglass-rules.sh
+Environment=QUIET=1

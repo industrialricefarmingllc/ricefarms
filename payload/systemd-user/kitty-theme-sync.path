@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch theme_mode for kitty light/dark switch
+After=graphical-session.target
+
+[Path]
+PathModified=%h/.cache/quickshell/theme_mode
+PathModified=%h/.cache/current_wallpaper
+Unit=kitty-theme-sync.service
+
+[Install]
+WantedBy=default.target

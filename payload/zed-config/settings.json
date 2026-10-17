@@ -1,0 +1,265 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "agent_ui_font_size": 13.0,
+  "cursor_animation": {
+    "enabled": false,
+  },
+  "diff_view_style": "unified",
+  "format_on_save": "on",
+  "agent_servers": {
+    "opencode": {
+      "type": "registry",
+    },
+  },
+  "context_servers": {
+    "chrome-devtools": {
+      "command": "bun",
+      "args": [
+        "x",
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://127.0.0.1:9222",
+        "--isolated"
+      ]
+    },
+  },
+  "agent": {
+    "sandbox_permissions": {
+      "network_hosts": [
+        "www.occure.local"
+      ]
+    },
+    "default_model": {
+      "provider": "opencode",
+      "model": "go/muse-spark-1.3-contributor",
+      "enable_thinking": true,
+      "effort": "xhigh"
+    },
+    "dock": "right",
+    "favorite_models": [],
+    "model_parameters": [],
+    "enable_feedback": false,
+    "tool_permissions": {
+      "default": "allow"
+    },
+  },
+  "document_folding_ranges": "on",
+  "disable_ai": false,
+  "document_symbols": "off",
+  "inline_code_actions": false,
+  "auto_update_extensions": {
+    "svelte": false,
+  },
+  "auto_update": false,
+  "relative_line_numbers": "disabled",
+  "preferred_line_length": 180,
+  "horizontal_scroll_margin": 999.0,
+  "indent_guides": {
+    "active_line_width": 1,
+    "line_width": 1,
+  },
+  "diagnostics": {
+    "inline": {
+      "padding": 4,
+    },
+  },
+  "cli_default_open_behavior": "existing_window",
+  "vim_mode": false,
+  "text_rendering_mode": "platform_default",
+  "agent_buffer_font_size": 12.0,
+  "project_panel": {
+    "button": false,
+    "dock": "left",
+  },
+  "outline_panel": {
+    "dock": "left",
+  },
+  "collaboration_panel": {
+    "dock": "left",
+  },
+  "git_panel": {
+    "dock": "left",
+  },
+  "buffer_font_weight": 300.0,
+  "ui_font_family": ".ZedMono",
+  "ui_font_weight": 500.0,
+  "zoomed_padding": true,
+  "ssh_connections": [
+    {
+      "host": "dev",
+      "username": "dev",
+      "args": [],
+      "projects": [
+        {
+          "paths": [
+            "/home/dev/.config/opencode/./"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/cherry/discord"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/mx"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/occure"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/occure-v6"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/rice/concision"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/rice/openhooks"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/rice/svelte-reactive-params"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/tsm/app"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/tsm/invoicer"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/tsm/web"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "dev",
+      "username": "dev",
+      "args": [],
+      "projects": [
+        {
+          "paths": [
+            "/home/dev/.opencode"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/occure"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/occure-v4"
+          ]
+        },
+        {
+          "paths": [
+            "/home/dev/dev/rice/web"
+          ]
+        }
+      ]
+    }
+  ],
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false,
+  },
+  "terminal": {
+    "font_family": "Gitlab Mono",
+  },
+  "git": {
+    "git_gutter": "tracked_files",
+    "inline_blame": {
+      "enabled": false,
+    },
+  },
+  "base_keymap": "VSCode",
+  "preview_tabs": {
+    "enabled": false,
+  },
+  "tab_bar": {
+    "show": false,
+    "show_tab_bar_buttons": false,
+  },
+  "show_signature_help_after_edits": false,
+  "auto_signature_help": false,
+  "sticky_scroll": {
+    "enabled": false,
+  },
+  "vertical_scroll_margin": 999.0,
+  "gutter": {
+    "min_line_number_digits": 3,
+    "line_numbers": true,
+    "folds": false,
+  },
+  "minimap": {
+    "show": "never",
+  },
+  "scrollbar": {
+    "axes": {
+      "horizontal": false,
+      "vertical": false,
+    },
+  },
+  "hover_popover_enabled": false,
+  "autosave": "on_focus_change",
+  "buffer_font_fallbacks": ["CommitMono", "Geist Mono", "GitLab Mono"],
+  "buffer_font_family": "GitLab Mono",
+  "show_completions_on_input": true,
+  "use_on_type_format": false,
+  "show_whitespaces": "none",
+  "remove_trailing_whitespace_on_save": true,
+  "tab_size": 2,
+  "ui_font_size": 13.0,
+  "buffer_font_size": 12.5,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "Black & Pink",
+  },
+  "theme_overrides": {
+    "Vesper Blur": {
+      "panel.focused_border": "#FFC799",
+    },
+  },
+  "active_pane_modifiers": {
+    "magnification": 5,
+    "inactive_opacity": 0.66,
+    "spring_stiffness": 0.55,
+    "spring_damping": 0.8,
+    "animation_duration_ms": 75,
+  },
+  "edit_predictions": {
+    "provider": "open_ai_compatible_api",
+  },
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server"],
+    },
+    "TSX": {
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server"],
+    },
+  },
+  "file_scan_exclusions": ["**/node_modules"],
+}

@@ -1,0 +1,35 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 38,
+  "spacing": 6,
+  "modules-left": ["custom/terminal", "custom/exit", "hyprland/workspaces"],
+  "modules-center": ["hyprland/window"],
+  "modules-right": ["clock", "tray"],
+  "custom/terminal": {
+    "format": "  Terminal ",
+    "on-click": "foot",
+    "tooltip": false,
+    "interval": "once"
+  },
+  "custom/exit": {
+    "format": " ⏻ Hide ",
+    "on-click": "desktop-toggle --hide",
+    "tooltip-format": "Hide desktop → kmscon (tty1). Run desktop-toggle to show again.",
+    "on-click-right": "sh -c 'hyprctl dispatch exit; sleep 0.3; sudo chvt 1'"
+  },
+  "hyprland/workspaces": {
+    "disable-scroll": false,
+    "all-outputs": true
+  },
+  "hyprland/window": {
+    "max-length": 60
+  },
+  "clock": {
+    "format": "{:%a %H:%M}",
+    "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>"
+  },
+  "tray": {
+    "spacing": 10
+  }
+}

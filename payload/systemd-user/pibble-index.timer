@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh pibble app-menu index weekly and when idle after boot
+
+[Timer]
+# No Persistent=true on purpose: a catch-up run firing immediately at boot
+# would hammer disk/CPU right into session start. The daemon reads the same
+# cached files, so a missed week just means a slightly older index, never a
+# broken menu.
+OnBootSec=30min
+OnUnitActiveSec=1w
+
+[Install]
+WantedBy=timers.target

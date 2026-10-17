@@ -1,0 +1,715 @@
+#!/bin/bash
+# desktop-toggle — toggle between kmscon (tty1) and Hyprland (tty7)
+#
+# Fixed edition: cold start switches VT *before* waiting for Hyprland.
+# Background: aquamarine/libseat gives Hyprland ~5s for its logind session
+# to become active ("Session is not active, waiting for 5s"). The old script
+# waited up to 20s for Hyprland IPC while still on tty1, so the window always
+# expired -> "not using input device" for every device (dead mouse/kb until
+# the next manual toggle forced "drm: Restoring after VT switch"), and often
+# DRM-backend failure -> Hyprland crash loop -> 30s+ start, if at all.
+# Now: start getty@tty7 -> chvt 7 immediately -> then wait for IPC.
+# Instance discovery uses `hyprctl instances` (+ socket-existence check)
+# instead of `ls -t`, which used to pick stale crashed instance dirs.
+set -e
+LOG="/tmp/desktop-toggle.log"
+LOCK="/tmp/desktop-toggle.lock"
+# flock prevents spam/hammering F15 (125Hz repeat) while VT switch still settling (nvidia needs ~1s)
+# Bypassed for the --restart child (see below): the parent keeps the lock
+# held across stop+cold start, which is what serializes concurrent toggles.
+if [ -z "$_DT_NO_LOCK" ]; then
+exec 200>"$LOCK" 2>/dev/null || exec 200>/tmp/desktop-toggle.lock
+if ! flock -n 200 2>/dev/null; then
+  echo "$(date '+%F %T') desktop-toggle $* IGNORED (already in progress) active=$(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown)" >>"$LOG" 2>&1 || true
+  exit 0
+fi
+fi
+# Arg normalize (before anything else): --fast is a modifier in any position,
+# GOTO is the first real verb. Normalized here so every branch below matches
+# $GOTO (never $1) — no re-exec, no $0 delegation past the log redirect.
+FAST=0; GOTO=""
+for _a in "$@"; do
+  if [ "$_a" = "--fast" ]; then FAST=1
+  elif [ -z "$GOTO" ]; then GOTO="$_a"
+  fi
+done; unset _a
+if [ "$GOTO" = "--toggle" ]; then GOTO=""; fi
+# --restart delegates to a child "$0 --stop": run it BEFORE the log redirect
+# below (the redirect's tee/systemd-cat inherit fds; pre-redirect keeps the
+# child's output on the terminal). The child MUST NOT take the flock: the
+# parent holds LOCK_EX on its own open file description, and flock locks
+# are per-description — the child's fresh open would get EWOULDBLOCK and
+# exit IGNORED while the old compositor keeps running (the "restart does
+# nothing" bug: parent then warm-switched back to the still-alive Hyprland).
+# So the child bypasses the lock via _DT_NO_LOCK while the parent keeps it
+# held across stop+cold start. Falls through to cold start afterwards.
+# The stop is verified: if the compositor survives, abort instead of
+# warm-switching (which is what made the failure look like a plain toggle).
+if [ "$GOTO" = "--restart" ]; then
+  if _DT_NO_LOCK=1 200>&- "$0" --stop; then
+    if pgrep -x Hyprland >/dev/null || pgrep -x sway >/dev/null; then
+      echo "ERROR: --stop finished but the compositor is still alive, aborting restart" >&2
+      exit 1
+    fi
+  else
+    echo "ERROR: --stop failed, aborting restart" >&2
+    exit 1
+  fi
+fi
+# Early parse: --help/--status print to the terminal, so handle them before
+# stdout is redirected to $LOG below.
+if [ "$GOTO" = "--help" ] || [ "$GOTO" = "-h" ]; then
+  echo "Usage: desktop-toggle [--show|--hide|--toggle|--stop|--status|--reload|--heal] [--fast]"
+  echo "  no args / --toggle : start Hyprland on tty7 if needed, else flip tty1<->tty7"
+  echo "  --show             : start if needed, go to tty7"
+  echo "  --hide             : go to tty1 (compositor keeps running)"
+  echo "  --stop             : exit Hyprland, stop getty@tty7, back to tty1"
+  echo "  --status           : Hyprland/IPC/VT state"
+  echo "  --reload           : hyprctl reload (Hyprland must be running)"
+  echo "  --heal             : bounce+reload input recovery (only if inputs truly dead)"
+  echo "  --fast             : with toggle/hide: raw switch down (Ctrl+Alt+Del-like), verify+fallback"
+  exit 0
+fi
+if [ "$GOTO" = "--status" ]; then
+  echo "Hyprland: $(pgrep -x Hyprland >/dev/null && echo running || echo not running)"
+  SIG_NOW=""; SIG_NOW=$(hyprctl instances 2>/dev/null | awk '/^instance /{print $2}' | tr -d ':' | head -n1 || true)
+  if [ -n "$SIG_NOW" ] && HYPRLAND_INSTANCE_SIGNATURE="$SIG_NOW" hyprctl monitors >/dev/null 2>&1; then IPC_NOW=responsive; else IPC_NOW=not-responsive; fi
+  echo "IPC: $IPC_NOW"
+  echo "Active VT: $(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown)"
+  echo "Log: $LOG"
+  echo "$(date '+%F %T') desktop-toggle --status active=$(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown)" >>"$LOG" 2>&1 || true
+  exit 0
+fi
+# Mirror to the journal (persistent across reboots): /tmp is wiped on reboot,
+# which is exactly when freeze evidence matters most. systemd-cat keeps the
+# full log in `journalctl -t desktop-toggle` even after poweroff/reboot.
+if command -v systemd-cat >/dev/null 2>&1; then
+  exec > >(tee -a "$LOG" | systemd-cat -t desktop-toggle) 2>&1
+else
+  exec >>"$LOG" 2>&1
+fi
+echo "$(date '+%F %T') desktop-toggle $* active=$(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown) Hyprland=$(pgrep -x Hyprland >/dev/null && echo running || echo not)"
+# helper: synchronous VT switch via chvt-fast (SUID, VT_ACTIVATE+VT_WAITACTIVE) else fallback to chvt.
+# Wrapped in `timeout`: on NVIDIA triple-head the modeset behind VT_WAITACTIVE
+# can stall for a long time; without a cap one stuck switch holds the flock
+# forever and every further toggle is IGNORED ("takes forever"). The switch
+# itself continues in-kernel; wait_vt below confirms the landing.
+do_chvt() {
+  local vt="$1"
+  if [ -x /usr/local/bin/chvt-fast ]; then
+    timeout 15 /usr/local/bin/chvt-fast "$vt" 2>&1 || sudo timeout 15 /usr/local/bin/chvt-fast "$vt" 2>&1 || sudo chvt "$vt" 2>&1 || chvt "$vt" 2>&1 || true
+  else
+    sudo chvt "$vt" 2>&1 || chvt "$vt" 2>&1 || true
+  fi
+}
+# helper: authoritative Hyprland instance signature.
+# `hyprctl instances` only lists live compositors; ls -t fallback requires a
+# real socket so stale dirs from crashed starts are never selected.
+hypr_sig() {
+  local sig d base
+  base="/run/user/$(id -u)/hypr"
+  sig=$(hyprctl instances 2>/dev/null | awk '/^instance /{print $2}' | tr -d ':' | head -n1)
+  if [ -n "$sig" ]; then echo "$sig"; return 0; fi
+  for d in $(ls -t "$base" 2>/dev/null); do
+    if [ -S "$base/$d/.socket.sock" ]; then echo "$d"; return 0; fi
+  done
+  return 1
+}
+hypr_ipc_ok() {
+  local sig
+  sig=$(hypr_sig) || return 1
+  HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl monitors >/dev/null 2>&1
+}
+# helper: hand logind seat/input to the tty7 Hyprland session.
+# Only sessions that are still alive (State != closing) are activated:
+# zombie sessions (dead leader, state=closing) linger after unclean stops
+# and activating one can steal the activation from the real session.
+activate_tty7_sessions() {
+  local s vtnr state found=1
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    vtnr=$(loginctl show-session "$s" -p VTNr --value 2>/dev/null || true)
+    if [ "$vtnr" = "7" ]; then
+      state=$(loginctl show-session "$s" -p State --value 2>/dev/null || true)
+      if [ "$state" = "closing" ]; then
+        echo "loginctl activate $s (tty7) SKIPPED (state=closing zombie)"
+        continue
+      fi
+      echo "loginctl activate $s (tty7)"
+      sudo loginctl activate "$s" 2>&1 || loginctl activate "$s" 2>&1 || true
+      found=0
+    fi
+  done
+  return $found
+}
+# helper: logind session id currently on VT7 (newest, skipping zombies).
+tty7_session() {
+  local s vtnr state best=""
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}' | sort -n); do
+    vtnr=$(loginctl show-session "$s" -p VTNr --value 2>/dev/null || true)
+    if [ "$vtnr" = "7" ]; then
+      state=$(loginctl show-session "$s" -p State --value 2>/dev/null || true)
+      if [ "$state" != "closing" ]; then best="$s"; fi
+    fi
+  done
+  [ -n "$best" ] && echo "$best"
+}
+# helper: true when the given session (or VT7's) is logind-active.
+session_active() {
+  local s="${1:-$(tty7_session)}"
+  [ -n "$s" ] || return 1
+  [ "$(loginctl show-session "$s" -p Active --value 2>/dev/null || true)" = "yes" ]
+}
+# helper: logind session id currently on VT1 (newest, skipping zombies).
+# Normally the kmscon `login -p -f` shell; pts sessions started from tty1
+# also report VTNr=1 — activating any of them still targets VT1, which is
+# all logind needs to pause Hyprland and switch the kernel VT.
+tty1_session() {
+  local s vtnr state tty best="" best_tty=""
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}' | sort -n); do
+    vtnr=$(loginctl show-session "$s" -p VTNr --value 2>/dev/null || true)
+    if [ "$vtnr" = "1" ]; then
+      state=$(loginctl show-session "$s" -p State --value 2>/dev/null || true)
+      if [ "$state" != "closing" ]; then
+        best="$s"
+        tty=$(loginctl show-session "$s" -p TTY --value 2>/dev/null || true)
+        if [ "$tty" = "tty1" ]; then best_tty="$s"; fi
+      fi
+    fi
+  done
+  # Prefer a real tty1 session; fall back to any VTNr=1 session (e.g. pts/0
+  # shells started from kmscon — their VTNr=1 still steers logind to VT1).
+  if [ -n "$best_tty" ]; then echo "$best_tty"; return 0; fi
+  [ -n "$best" ] && echo "$best"
+}
+# helper: true when kmscon currently holds DRM master on card1.
+# Read-only debugfs peek; unknown (no debugfs) counts as false.
+kmscon_has_master() {
+  sudo cat /sys/kernel/debug/dri/1/clients 2>/dev/null | awk '$1=="kmscon" && $4=="y" {m=1} END{exit !(m+0)}'
+}
+# helper: FAST switch to tty1 — raw kernel switch first, verify, logind
+# fallback. A raw VT_ACTIVATE lands in milliseconds (like Ctrl+Alt+Delete to
+# tty2) while logind notices the change asynchronously and pauses Hyprland
+# after the fact. If master/session release lags past the bound, fall back
+# to the synchronous goto_tty1 handshake. Only use with --fast: when the
+# release never completes on its own this degrades to the same freeze the
+# logind path avoids — the fallback plus the flip-stall check fence that.
+goto_tty1_fast() {
+  local i hsess
+  echo "fast raw switch to tty1 (verify, logind fallback)"
+  do_chvt 1
+  if ! wait_vt 1 5; then
+    echo "fast: raw switch missed, logind fallback"
+    goto_tty1
+    return $?
+  fi
+  for i in $(seq 1 30); do
+    hsess=$(tty7_session || true)
+    if { [ -z "$hsess" ] || ! session_active "$hsess"; } && kmscon_has_master; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "fast: master/session release lagging, logind fallback"
+  goto_tty1
+}
+# helper: switch to tty1 THROUGH logind (single actor, no races).
+# Mirror of goto_tty7. A raw chvt/VT_ACTIVATE bypasses logind: kernel lands
+# on tty1 while ActiveSession stays on the Hyprland tty7 session, so logind
+# never sends PauseDevice — Hyprland keeps DRM master, kmscon modesets fail
+# (EPERM/page-flip timeout) and the screen freezes on the last Hyprland frame
+# (no new image updates, but inputs + sound alive — the reported bug).
+# Seat.SwitchTo(1) is the correct API when the target VT has no graphical
+# session: logind pauses the old session first, then switches the kernel VT.
+# Returns 0 once the kernel VT is tty1 and the tty7 session (if any) is no
+# longer logind-active.
+goto_tty1() {
+  local s i hsess
+  echo "logind SwitchTo tty1"
+  busctl call org.freedesktop.login1 /org/freedesktop/login1/seat/seat0 org.freedesktop.login1.Seat SwitchTo u 1 2>&1 \
+    || sudo busctl call org.freedesktop.login1 /org/freedesktop/login1/seat/seat0 org.freedesktop.login1.Seat SwitchTo u 1 2>&1 || true
+  for i in $(seq 1 40); do
+    if [ "$(cat /sys/class/tty/tty0/active 2>/dev/null)" = "tty1" ]; then
+      hsess=$(tty7_session || true)
+      if [ -z "$hsess" ] || ! session_active "$hsess"; then
+        return 0
+      fi
+      # Kernel moved but Hyprland still logind-active: force-activate the
+      # VT1 session so logind pauses Hyprland, then re-request the switch.
+      if [ "$i" -ge 10 ] && [ $(( i % 10 )) -eq 0 ]; then
+        s=$(tty1_session || true)
+        if [ -n "$s" ]; then
+          echo "tty7 session $hsess still active after SwitchTo, activating VT1 session $s"
+          sudo loginctl activate "$s" 2>&1 || loginctl activate "$s" 2>&1 || true
+        fi
+      fi
+    fi
+    sleep 0.2
+  done
+  if [ "$(cat /sys/class/tty/tty0/active 2>/dev/null)" = "tty1" ]; then
+    hsess=$(tty7_session || true)
+    if [ -z "$hsess" ] || ! session_active "$hsess"; then return 0; fi
+    echo "warn: on tty1 but Hyprland session $hsess still logind-active (Active=$(loginctl show-session "$hsess" -p Active --value 2>/dev/null))"
+    return 0
+  fi
+  echo "warn: SwitchTo tty1 did not land in 8s (VT=$(cat /sys/class/tty/tty0/active 2>/dev/null)), falling back to raw chvt"
+  do_chvt 1
+  wait_vt 1 5
+}
+# helper: switch to tty7 THROUGH logind (single actor, no races).
+# A raw chvt raced with `loginctl activate` desyncs logind (kernel=tty7 but
+# ActiveSession stuck on kmscon) leaving Hyprland seat-less AND master-less.
+# Returns 0 once session Active=yes and kernel VT is tty7.
+goto_tty7() {
+  local s i
+  s=$(tty7_session) || { echo "goto_tty7: no live tty7 session"; return 1; }
+  echo "loginctl activate $s (tty7)"
+  sudo loginctl activate "$s" 2>&1 || loginctl activate "$s" 2>&1 || true
+  # 12s cap: NVIDIA triple-head resume modesets can take ~9s (seen 2026-09-08).
+  for i in $(seq 1 60); do
+    if session_active "$s" && [ "$(cat /sys/class/tty/tty0/active 2>/dev/null)" = "tty7" ]; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  # Re-check once: the switch may have landed right at expiry (Active=yes,
+  # VT=tty7 sampled together) — then there is nothing to fall back to.
+  if session_active "$s" && [ "$(cat /sys/class/tty/tty0/active 2>/dev/null)" = "tty7" ]; then
+    echo "note: session $s active on tty7 just after 12s cap, continuing"
+    return 0
+  fi
+  echo "warn: session $s not active after 12s (Active=$(loginctl show-session "$s" -p Active --value 2>/dev/null), VT=$(cat /sys/class/tty/tty0/active 2>/dev/null)), falling back to raw chvt"
+  do_chvt 7
+  wait_vt 7 5
+}
+# helper: make sure Hyprland actually owns DRM master after landing on tty7.
+# A stray Qt client (e.g. `qs -p pibble` spawned with a foreign session env)
+# can grab master in the handoff gap and brick every modeset with EPERM
+# (black screens "forever"). Evict only holders bound to a DIFFERENT session
+# than the live tty7 one — never touch same-session clients (bar, Xwayland).
+ensure_drm_master() {
+  # $1 == quiet: only report evictions/problems (for periodic re-checks).
+  local clients holder hpid hname hsess tsess hypo Q
+  [ "$1" = "quiet" ] && Q=1
+  clients=$(sudo cat /sys/kernel/debug/dri/1/clients 2>/dev/null || true)
+  [ -n "$clients" ] || return 0
+  tsess=$(tty7_session) || return 0
+  # Only police the foreground tty7 handoff: never evict the legitimate owner
+  # while we are away (2026-09-06: killed root's kmscon mid-handoff once).
+  if [ "$(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown)" != "tty7" ]; then
+    return 0
+  fi
+  holder=$(echo "$clients" | awk '$3==1 && $4=="y" {print $2}') || true
+  for hpid in $holder; do
+    if pgrep -x Hyprland 2>/dev/null | grep -qx "$hpid"; then continue; fi
+    # Never touch other users' processes (root kmscon/systemd/logind) —
+    # /proc/PID/environ is unreadable for them, which used to fake a
+    # "foreign session" match. Only manage our own UID.
+    if [ "$(stat -c %u /proc/$hpid 2>/dev/null || echo none)" != "$(id -u)" ]; then
+      [ -z "$Q" ] && echo "note: DRM master held by uid-$(stat -c %u /proc/$hpid 2>/dev/null) process $hpid, leaving alone"
+      continue
+    fi
+    hname=$(tr '\0' ' ' </proc/$hpid/cmdline 2>/dev/null | cut -c1-80 || echo unknown)
+    hsess=$(tr '\0' '\n' </proc/$hpid/environ 2>/dev/null | sed -n 's/^XDG_SESSION_ID=//p' || true)
+    if [ "$hsess" != "$tsess" ]; then
+      echo "DRM master held by foreign-session process $hpid ($hname, sess=$hsess, want $tsess) — SIGTERM"
+      kill "$hpid" 2>/dev/null || sudo kill "$hpid" 2>/dev/null || true
+      sleep 2
+      if kill -0 "$hpid" 2>/dev/null; then
+        echo "still holding master, SIGKILL $hpid"
+        kill -9 "$hpid" 2>/dev/null || sudo kill -9 "$hpid" 2>/dev/null || true
+        sleep 1
+      fi
+    else
+      [ -z "$Q" ] && echo "note: DRM master held by same-session process $hpid ($hname), leaving alone"
+    fi
+  done
+  hypo=$(echo "$(sudo cat /sys/kernel/debug/dri/1/clients 2>/dev/null || true)" | awk '$3==1 && $4=="y" {print $2}' || true)
+  for hpid in $hypo; do
+    if pgrep -x Hyprland 2>/dev/null | grep -qx "$hpid"; then
+      [ -z "$Q" ] && echo "DRM master: Hyprland ($hpid) OK"
+      return 0
+    fi
+  done
+  echo "warn: Hyprland not DRM master after switch (holders:$hypo)"
+  return 1
+}
+# helper: confirm the mouse survived the return; heal if not.
+# Input re-attach only happens around a modeset. If the VT-switch restore
+# found nothing to redo (kmscon left our modes intact), the mouse stays
+# detached with zero errors logged. A config reload forces a re-modeset,
+# which re-triggers enumeration (proven 2026-09-06).
+# helper: live Hyprland log path (empty if no live instance).
+hypr_log() {
+  local sig
+  sig=$(hypr_sig) || return 1
+  echo "/run/user/$(id -u)/hypr/$sig/hyprland.log"
+}
+# helper: brief bounded wait for inputs after landing on tty7.
+# CAUTION (2026-09-08): hyprctl device counts are advisory only — inputs were
+# observed fully working with zero listed mice/keyboards (stale reporting in
+# Hyprland's lists; libinput re-adds fine). So this must NEVER block the
+# switch, flip VTs, or reload: it only covers the normal 1-3s post-resume
+# enumeration, then gets out of the way. Use --heal for the heavy version.
+wait_for_inputs() {
+  local i mice sig
+  for i in $(seq 1 6); do
+    sig=$(hypr_sig) || return 1
+    mice=$(HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl devices -j 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('mice',[])))" 2>/dev/null || echo 0)
+    if [ "${mice:-0}" -gt 0 ] 2>/dev/null; then
+      [ "$i" != "1" ] && echo "inputs present after ${i}x0.5s"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "note: no mice listed 3s after return (counts are unreliable; continuing)"
+  return 1
+}
+# helper: confirm the mouse survived the return; heal if not.
+# Input re-attach only happens around a per-CRTC restore. Two stall shapes
+# seen 2026-09-06, both with zero errors: (a) restore plans a wrong mode
+# (fixed by pinning kmscon to @120, so the target is always sane); (b) the
+# restore scan runs but per-CRTC restores never start (parked state machine —
+# a fresh away/back cycle unsticks it, proven). So: wait for mice, bounce
+# ONCE if the restore never started, reload once if it ran but adds lag.
+# CAUTION (2026-09-08): only run via --heal on a genuinely dead input. The
+# device-count gate false-fires on stale-but-working inputs (mice:0 with a
+# live mouse), and the bounce flips the user's display twice while the
+# 60s+reload hold blocks every further toggle. Never auto-run on switch.
+heal_tty7_inputs() {
+  local sig i mice reloaded=0 bounced=0 start now logf mark nrest
+  mice_present() {
+    sig=$(hypr_sig) || return 1
+    mice=$(HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl devices -j 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('mice',[])))" 2>/dev/null || echo 0)
+    [ "${mice:-0}" -gt 0 ] 2>/dev/null
+  }
+  restore_started_since() {
+    # $1 = line cursor; true if a per-CRTC restore was logged after it
+    logf=$(hypr_log) || return 1
+    [ -f "$logf" ] || return 1
+    nrest=$(tail -n "+$(( $1 + 1 ))" "$logf" 2>/dev/null | grep -a -c "Restoring crtc" || true)
+    [ "${nrest:-0}" -gt 0 ] 2>/dev/null
+  }
+  logf=$(hypr_log) || { echo "heal: no live instance"; return 1; }
+  sig=$(hypr_sig) || { echo "heal: no live instance"; return 1; }
+  mark=$(wc -l <"$logf" 2>/dev/null || echo 0)
+  start=$(date +%s)
+  for i in $(seq 1 120); do
+    mice_present && { [ "$i" != "1" ] && echo "inputs present after ${i}x0.5s"; return 0; }
+    now=$(date +%s)
+    # re-check master while inputs are missing: an impostor can appear at any
+    # time (boot race, handoff gap) and block every modeset with EPERM.
+    if [ $(( i % 4 )) -eq 0 ]; then
+      ensure_drm_master quiet || true
+    fi
+    if [ $(( now - start )) -ge 12 ] && [ "$bounced" = "0" ]; then
+      # instance restarted under us (crash churn)? re-baseline cursor
+      if [ "$(hypr_sig 2>/dev/null || true)" != "$sig" ]; then
+        sig=$(hypr_sig) || { echo "heal: instance gone mid-heal"; return 1; }
+        logf=$(hypr_log) || { echo "heal: instance gone mid-heal"; return 1; }
+        mark=$(wc -l <"$logf" 2>/dev/null || echo 0)
+        start=$now
+      elif ! restore_started_since "$mark"; then
+        echo "restore never started 12s after return — single bounce to unstick"
+        goto_tty1 || true
+        sleep 2
+        goto_tty7 || true
+        logf=$(hypr_log) || { echo "heal: instance gone after bounce"; return 1; }
+        sig=$(hypr_sig) || { echo "heal: instance gone after bounce"; return 1; }
+        mark=$(wc -l <"$logf" 2>/dev/null || echo 0)
+        start=$now
+      fi
+      bounced=1
+    fi
+    if [ $(( now - start )) -ge 25 ] && [ "$reloaded" = "0" ]; then
+      echo "mouse absent 25s after return — hyprctl reload to force re-modeset"
+      sig=$(hypr_sig) || return 1
+      HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl reload 2>&1 || true
+      reloaded=1
+    fi
+    sleep 0.5
+  done
+  echo "warn: mouse still absent 60s after return+bounce+reload (see hyprland log)"
+  return 1
+}
+# helper: detect driver-level flip stalls after a switch.
+# `Flip event timeout` from nvidia-drm (seen 2026-09-08 on all three heads)
+# means atomic commits complete without flip events: every later commit
+# blocks and the screen freezes on the last frame with inputs/sound alive.
+# No userspace switch scheme survives that — flag it explicitly so a stall
+# is never again mistaken for a switch-script failure. Recovery is driver
+# level (often reboot); do NOT bounce/reload, it cannot help.
+check_flip_stall() {
+  local hits
+  hits=$(journalctl -k --since "20 seconds ago" --no-pager 2>/dev/null | grep -c "Flip event timeout" || true)
+  if [ "${hits:-0}" -gt 0 ]; then
+    echo "DRIVER STALL: nvidia-drm Flip event timeout x$hits in the last 20s — display frozen at driver level, switch logic is not at fault"
+    return 1
+  fi
+  return 0
+}
+# helper: verify we landed on the requested VT (chvt-fast already waits, so
+# this is just a bounded confirmation, not a settle loop).
+wait_vt() {
+  local want="$1" tries="${2:-5}" i cur
+  for i in $(seq 1 "$tries"); do
+    cur=$(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown)
+    if [ "$cur" = "tty$want" ]; then return 0; fi
+    if [ "$i" != "1" ]; then echo "wait for tty$want: still $cur (try $i)"; fi
+    sleep 0.2
+  done
+  cur=$(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown)
+  [ "$cur" = "tty$want" ]
+}
+prune_stale_hypr_dirs() {
+  # Remove instance dirs that never produced sockets (crashed starts) and are
+  # older than 10 minutes. Never touches dirs with a live socket.
+  local base d age now
+  base="/run/user/$(id -u)/hypr"
+  [ -d "$base" ] || return 0
+  now=$(date +%s)
+  for d in "$base"/*/; do
+    [ -e "$d" ] || continue
+    if [ ! -S "${d}.socket.sock" ] && [ ! -S "${d}.socket2.sock" ] && [ ! -e "${d}hyprland.lock" ]; then
+      age=$(( now - $(stat -c %Y "$d" 2>/dev/null || echo "$now") ))
+      if [ "$age" -gt 600 ]; then
+        echo "pruning stale hypr dir $d (age ${age}s, no socket)"
+        rm -rf "$d" 2>/dev/null || true
+      fi
+    fi
+  done
+}
+# helper: snapshot currently-connected Bluetooth devices before a --stop.
+# Rationale (2026-09-24): a full restart flaps PipeWire/WirePlumber's BlueZ
+# registrations (A2DP endpoints unregister/re-register, GATT app AlreadyExists),
+# which drops active links — Sony WH-1000XM6 takes 20-60s to come back, BLE HID
+# (Xbox controller) never comes back on its own. The cold-start path below
+# reconnects everything listed here. Plain toggles never flap, so a stale or
+# missing snapshot is simply ignored.
+bt_snapshot() {
+  local snap="/tmp/desktop-toggle-bt.devices" mac
+  command -v bluetoothctl >/dev/null 2>&1 || return 0
+  : > "$snap" 2>/dev/null || return 0
+  for mac in $(bluetoothctl devices 2>/dev/null | awk '{print $2}'); do
+    if bluetoothctl info "$mac" 2>/dev/null | awk '/Connected: yes/{f=1} END{exit !f}'; then
+      echo "$mac" >> "$snap"
+    fi
+  done
+  if [ -s "$snap" ]; then
+    echo "BT snapshot: $(tr '\n' ' ' <"$snap")"
+  else
+    rm -f "$snap"
+  fi
+}
+# helper: reconnect devices snapshotted by bt_snapshot (see above).
+# Snapshots older than 10 minutes are dropped so a stale file can never
+# resurrect a device the user intentionally disconnected long ago.
+# A single check is NOT enough: the link typically drops only after the
+# endpoint flap, i.e. after an immediate check still sees "Connected: yes"
+# (seen 2026-09-24: check at +1s skipped, Sony link dropped later and only
+# came back 58s later on its own). So: connect-if-down now, then poll every
+# 5s and retry, until the whole set holds connected for 3 polls (15s stable)
+# or ~90s elapse. Bounded per-device timeouts so a powered-off controller
+# cannot stall the switch longer than the poll window.
+bt_reconnect() {
+  local snap="/tmp/desktop-toggle-bt.devices" macs now mtime i stable=0 mac
+  [ -f "$snap" ] || return 0
+  command -v bluetoothctl >/dev/null 2>&1 || return 0
+  now=$(date +%s); mtime=$(stat -c %Y "$snap" 2>/dev/null || echo 0)
+  macs=$(awk 'NF' "$snap" 2>/dev/null)
+  rm -f "$snap"
+  [ -n "$macs" ] || return 0
+  if [ $(( now - mtime )) -gt 600 ]; then
+    echo "BT snapshot stale, dropping"
+    return 0
+  fi
+  for mac in $macs; do bt_try_connect "$mac" || true; done
+  for i in $(seq 1 18); do
+    sleep 5
+    if bt_set_up $macs; then
+      stable=$(( stable + 1 ))
+      if [ "$stable" -ge 3 ]; then
+        echo "BT set stable-connected: $macs"
+        return 0
+      fi
+    else
+      stable=0
+      for mac in $macs; do bt_try_connect "$mac" || true; done
+    fi
+  done
+  echo "BT stabilize window elapsed (set: $macs) - check bluetoothctl if a device is still down"
+}
+# helper: single connect-if-down attempt for one MAC (bounded, never fatal).
+bt_try_connect() {
+  if bluetoothctl info "$1" 2>/dev/null | awk '/Connected: yes/{f=1} END{exit !f}'; then
+    echo "BT $1 connected"
+  else
+    echo "BT reconnect $1"
+    timeout 10 bluetoothctl connect "$1" 2>&1 || echo "BT reconnect $1 failed/timed out, will retry"
+  fi
+}
+# helper: true when every given MAC reports connected.
+bt_set_up() {
+  local m
+  for m in "$@"; do
+    bluetoothctl info "$m" 2>/dev/null | awk '/Connected: yes/{f=1} END{exit !f}' || return 1
+  done
+  return 0
+}
+if [ "$GOTO" = "--stop" ]; then
+  echo "stop requested — exiting Hyprland and stopping getty@tty7" >&2
+  bt_snapshot || true
+  if pgrep -x Hyprland >/dev/null; then
+    # NOTE: no `hyprctl dispatch exit` — removed in Hyprland 0.56 dispatch
+    # syntax (errors with "expected a dispatcher"). SIGTERM is clean: the
+    # compositor shuts down drm/seat itself.
+    pkill -x Hyprland 2>/dev/null || true
+    for i in $(seq 1 10); do
+      pgrep -x Hyprland >/dev/null || break
+      sleep 0.5
+    done
+    if pgrep -x Hyprland >/dev/null; then
+      echo "Hyprland ignored SIGTERM, sending SIGKILL"
+      pkill -9 -x Hyprland 2>/dev/null || true
+      sleep 0.5
+    fi
+  fi
+  pkill -x sway 2>/dev/null || true
+  # Terminate the whole tty7 logind session(s): Hyprland's children
+  # (wallpaper watchers, thumbnail generators, tray apps) otherwise outlive
+  # the compositor as orphans and wedge the session in state=closing forever,
+  # which confuses the next cold start's seat activation. This is what
+  # stranded session 8 (pibble thumbnail generator) for 30+ minutes.
+  for _s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    if [ "$(loginctl show-session "$_s" -p VTNr --value 2>/dev/null || true)" = "7" ]; then
+      echo "loginctl terminate-session $_s (tty7)"
+      sudo loginctl terminate-session "$_s" 2>&1 || loginctl terminate-session "$_s" 2>&1 || true
+    fi
+  done
+  unset _s
+  # Wallpaper/thumbnail helpers (pibble cache generators) ignore SIGTERM for
+  # a while; SIGKILL leftovers so the scope actually closes (else the session
+  # wedges in state=closing and poisons the next activation).
+  sleep 2
+  for _s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    if [ "$(loginctl show-session "$_s" -p VTNr --value 2>/dev/null || true)" = "7" ]; then
+      echo "loginctl kill-session $_s SIGKILL (tty7 leftover)"
+      sudo loginctl kill-session "$_s" -s KILL 2>&1 || loginctl kill-session "$_s" -s KILL 2>&1 || true
+    fi
+  done
+  unset _s
+  sudo systemctl stop getty@tty7.service 2>/dev/null || true
+  rm -f /run/user/$(id -u)/wayland-1.lock 2>/dev/null || true
+  prune_stale_hypr_dirs || true
+  do_chvt 1
+  if ! wait_vt 1 5; then
+    echo "warn: still not on tty1 after --stop, retry chvt 1"
+    sleep 0.5
+    do_chvt 1
+    wait_vt 1 5 || echo "warn: after retry active=$(cat /sys/class/tty/tty0/active 2>/dev/null)"
+  fi
+  exit 0
+fi
+if [ "$GOTO" = "--reload" ]; then
+  if hypr_ipc_ok; then
+    HYPRLAND_INSTANCE_SIGNATURE="$(hypr_sig)" hyprctl reload 2>&1 || true
+  else
+    echo "reload requested but Hyprland IPC not responsive" >&2
+    exit 1
+  fi
+  exit 0
+fi
+if [ "$GOTO" = "--heal" ]; then
+  if hypr_ipc_ok; then
+    heal_tty7_inputs || true
+  else
+    echo "heal requested but Hyprland IPC not responsive" >&2
+    exit 1
+  fi
+  exit 0
+fi
+# GOTO/FAST were normalized at the top (args in any order); --restart already
+# ran pre-redirect and falls through to cold start below.
+ACTIVE=$(cat /sys/class/tty/tty0/active 2>/dev/null || echo unknown)
+if [ "$ACTIVE" = "tty7" ] && [ "$GOTO" != "--show" ]; then
+  # Warm switch back: MUST go through logind (SwitchTo), not raw chvt.
+  # Raw VT_ACTIVATE leaves ActiveSession on the Hyprland tty7 session, so
+  # logind never sends PauseDevice — Hyprland keeps DRM master, kmscon
+  # modesets fail (EPERM/page-flip timeout) and the screen freezes on the
+  # last Hyprland frame with inputs/sound still alive.
+  if [ "$FAST" = "1" ]; then
+    goto_tty1_fast || echo "fast path failed, active=$(cat /sys/class/tty/tty0/active 2>/dev/null)"
+  elif ! goto_tty1; then
+    echo "ERROR: goto_tty1 failed, active=$(cat /sys/class/tty/tty0/active 2>/dev/null), retrying once"
+    sleep 0.5
+    goto_tty1 || echo "after retry active=$(cat /sys/class/tty/tty0/active 2>/dev/null)"
+  fi
+  if journalctl -b -u kmsconvt@tty1 --since "10 seconds ago" --no-pager 2>/dev/null | grep -q "timeout waiting for page-flip"; then
+    echo "DETECTED kmscon page-flip timeout after chvt 1 — restarting kmsconvt@tty1"
+    sudo systemctl restart kmsconvt@tty1.service 2>/dev/null || sudo systemctl restart kmsconvt@tty1 2>/dev/null || true
+    sleep 1
+    goto_tty1 || true
+  else
+    if journalctl -b -u kmsconvt@tty1 --since "10 seconds ago" --no-pager 2>/dev/null | grep -q "unknown display crtc_id"; then
+      echo "note: unknown crtc_id seen, may indicate drm desync (not yet fatal)"
+    fi
+  fi
+  check_flip_stall || true
+else
+  if [ "$GOTO" = "--hide" ]; then
+    if [ "$FAST" = "1" ]; then
+      goto_tty1_fast || echo "warn: active=$(cat /sys/class/tty/tty0/active 2>/dev/null)"
+    else
+      goto_tty1 || echo "warn: active=$(cat /sys/class/tty/tty0/active 2>/dev/null)"
+    fi
+    exit 0
+  fi
+  if pgrep -x Hyprland >/dev/null || pgrep -x sway >/dev/null; then
+    # Warm switch: let logind perform it (single actor). A raw chvt here
+    # races `loginctl activate` and desyncs logind (kernel=tty7, seat still
+    # on kmscon) -> dead inputs + EPERM modesets until the next bounce.
+    if ! goto_tty7; then
+      echo "goto_tty7 failed, VT=$(cat /sys/class/tty/tty0/active 2>/dev/null)"
+    fi
+    ensure_drm_master || true
+    check_flip_stall || true
+    wait_for_inputs || true
+  else
+    # Cold start: getty@tty7 -> login -> .zprofile execs Hyprland.
+    # Switch FIRST so the logind session is active inside Hyprland's ~5s
+    # seat wait; waiting for IPC before switching was the old bug that
+    # left all inputs dead ("not using input device") or crashed Hyprland.
+    echo "Hyprland not running, starting getty@tty7" >&2
+    sudo systemctl start getty@tty7.service 2>/dev/null || true
+    sleep 0.3
+    activate_tty7_sessions || true
+    do_chvt 7
+    # Wait for the compositor process (tolerant of early crash-retries:
+    # getty Restart=always relaunches login/Hyprland after a DRM failure).
+    for i in $(seq 1 50); do
+      pgrep -x Hyprland >/dev/null && break
+      pgrep -x sway >/dev/null && break
+      sleep 0.5
+    done
+    if ! pgrep -x Hyprland >/dev/null && ! pgrep -x sway >/dev/null; then
+      echo "ERROR: no compositor process 25s after starting getty@tty7 (journal: journalctl -u getty@tty7 -n 30)" >&2
+    fi
+    # Wait for IPC on the live instance (bounded; stale dirs ignored).
+    for i in $(seq 1 30); do
+      hypr_ipc_ok && { echo "Hyprland IPC ready (sig=$(hypr_sig))"; break; }
+      sleep 0.5
+      if [ "$i" = "30" ]; then
+        echo "warn: Hyprland IPC not responsive after 15s (process up, continuing anyway)"
+      fi
+    done
+    # Modeset can bounce the VT during first commit; re-assert once if lost.
+    if ! wait_vt 7 5; then
+      echo "re-asserting VT7 via logind after modeset"
+      goto_tty7 || echo "warn: active=$(cat /sys/class/tty/tty0/active 2>/dev/null)"
+    fi
+    ensure_drm_master || true
+    check_flip_stall || true
+    wait_for_inputs || true
+    # Reconnect BT devices dropped by the restart flap (see bt_snapshot).
+    bt_reconnect || true
+  fi
+fi

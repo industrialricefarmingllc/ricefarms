@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node "$HOME/.local/share/pnpm11/bin/pnpm.cjs" "$@"

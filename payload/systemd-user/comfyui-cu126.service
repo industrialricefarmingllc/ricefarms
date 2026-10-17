@@ -1,0 +1,15 @@
+[Unit]
+Description=ComfyUI server (Pascal-compatible torch 2.6 cu124 venv) on port 8189
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/comfy-ui/local/ComfyUI
+ExecStart=%h/comfy-ui/local/ComfyUI/.venv-cu126/bin/python -s main.py --enable-manager --force-fp16 --port 8189 --input-directory %h/comfyui-shared/input --output-directory %h/comfyui-shared/output --extra-model-paths-config %h/comfy-ui/local/ComfyUI/extra_model_paths.yaml
+Restart=on-failure
+RestartSec=15
+Nice=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,24 @@
+#!/bin/bash
+# Wrapper for Dolphin's built-in "Set as Wallpaper" which calls plasma-apply-wallpaper on Plasma
+# On Hyprland, redirect to hypr-set-wallpaper
+set -eu
+# plasma-apply-wallpaper is called with image path as last arg, or with --help
+# Find the last arg that is a file
+for arg in "$@"; do
+  last="$arg"
+done
+f="${last:-}"
+# If f is not a file, try to find any file arg
+if [ ! -f "$f" ]; then
+  for arg in "$@"; do
+    if [ -f "$arg" ]; then f="$arg"; break; fi
+    case "$arg" in file://*) ff="${arg#file://}"; [ -f "$ff" ] && { f="$ff"; break; };; esac
+  done
+fi
+if [ -f "$f" ]; then
+  exec /home/nicerice/.local/bin/hypr-set-wallpaper "$f"
+else
+  echo "plasma-apply-wallpaper wrapper: no file found in args: $*" >&2
+  # Fallback try hypr-set-wallpaper with all args
+  exec /home/nicerice/.local/bin/hypr-set-wallpaper "$@" 2>&1 || true
+fi

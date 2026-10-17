@@ -1,0 +1,18 @@
+{
+    "pinnedApps": [
+        {
+            "appId": "kitty",
+            "appKey": "pinned-kitty-1788240295649-0",
+            "command": "kitty",
+            "iconName": "kitty",
+            "name": "kitty"
+        },
+        {
+            "appId": "helium",
+            "appKey": "pinned-helium-1788240297455-1",
+            "command": "helium-browser",
+            "iconName": "helium-browser",
+            "name": "Helium Browser"
+        }
+    ]
+}

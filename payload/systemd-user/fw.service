@@ -1,0 +1,26 @@
+[Unit]
+Description=persistent SSH port forwards to dev (fw.sh)
+After=network-online.target
+Wants=network-online.target
+# don't give up restarting if boot-time network flaps cause rapid failures
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# manual reconnect loop: re-runs stale-remote cleanup after every forward
+# failure (autossh hides ssh exit codes and never re-cleans)
+Environment=FW_NO_AUTOSSH=1
+# user-manager network-online.target doesn't wait for real connectivity,
+# so delay start until dev is reachable (max ~2min, then start anyway and
+# let fw.sh retry — its initial stale-cleanup needs a working network).
+# ControlMaster=no: with ControlMaster auto in ssh_config this probe would
+# otherwise leave an orphan mux master behind that fw.sh then multiplexes
+# through (breaking ExitOnForwardFailure semantics for every later ssh).
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 20); do ssh -o ConnectTimeout=3 -o BatchMode=yes -o ControlMaster=no -o ControlPath=none -o StrictHostKeyChecking=accept-new dev true 2>/dev/null && exit 0; sleep 5; done; exit 0'
+ExecStart=/home/nicerice/fw.sh
+TimeoutStartSec=180
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

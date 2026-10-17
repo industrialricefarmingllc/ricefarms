@@ -1,0 +1,13 @@
+[Unit]
+Description=Pibble app-menu index (PDFs + /opt AppImages + Zen domains)
+
+[Service]
+Type=oneshot
+# Never contend with the interactive session: the full PDF rescan walks the
+# whole local filesystem, so it runs at the lowest CPU priority and with idle
+# I/O scheduling.
+Nice=19
+IOSchedulingClass=idle
+ExecStart=%h/src/pibble/services/pibble-pdf-index.sh
+ExecStart=%h/src/pibble/services/pibble-appimage-index.sh
+ExecStart=%h/src/pibble/services/pibble-zen-domains-index.sh

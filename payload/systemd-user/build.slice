@@ -1,0 +1,16 @@
+# build.slice - bulk-work containment (Windows Job Object equivalent).
+# Usage: systemd-run --user --slice=build.slice cargo build
+#        systemd-run --user --slice=build.slice --scope <heavy cmd>
+# Effect: bulk builds get CPUWeight=10 (vs default 100) + CPUQuota=600% (6 cores
+# max on 12-core box) + low IO + nice +10, so Hyprland (nice -10 + SCHED_RR via
+# input-rt.sh) always preempts them when evdev/Wayland events arrive.
+[Unit]
+Description=Bulk builds - deprioritized vs input path
+Before=slices.target
+
+[Slice]
+CPUWeight=10
+CPUQuota=600%
+IOWeight=10
+MemoryHigh=80%
+Nice=10

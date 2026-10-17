@@ -1,0 +1,7 @@
+[Unit]
+Description=Regenerate matugen/kitty colors on theme mode change
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.config/hypr/scripts/sync-theme-oneshot.sh

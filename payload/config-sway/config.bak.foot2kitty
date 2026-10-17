@@ -1,0 +1,86 @@
+# sway config - single display Dell S2417DG 24" 2560x1440 @ 122.7 DPI (DP-1)
+# EDID verified: DP-1=S2417DG 2560x1440 122 DPI (primary), DP-2=P2415Q 3840x2160 184 DPI, DP-3=P2415Q 3840x2160 184 DPI
+# Primary = S2417DG 1440p
+
+# Single display: Dell S2417DG 24" 2560x1440 @ 122.7 DPI (DP-1) - detected 2026-08-27
+output DP-1 resolution 2560x1440 position 0,0 scale 1.25
+output DP-2 disable
+output DP-3 disable
+output HDMI-A-1 disable
+
+# EDID: 53x30cm (20.87x11.81") => 122 DPI, scale 1.25 = larger UI (was 1 tiny) 1:1
+# For larger UI use scale 1.25, for HiDPI 4K 184 DPI use scale 1.5 (3840/2560=1.5)
+# EDID: 53x30cm (20.87x11.81") => 122 DPI, scale 1.25 = larger UI (was 1 tiny) 1:1
+# For larger UI use scale 1.25, for HiDPI 4K 184 DPI use scale 1.5 (3840/2560=1.5)
+
+# Previous 3-monitor mixed DPI config (kept for reference - uncomment if you reconnect P2415Q 4K):
+# output DP-1 resolution 3840x2160 position 2560,0 scale 1.5
+# output DP-2 resolution 3840x2160 position 5120,0 scale 1.5
+# output DP-3 resolution 2560x1440 position 0,0 scale 1
+
+
+output * bg /usr/share/backgrounds/sway/Sway_Wallpaper_Blue_1920x1080.png fill
+
+input * {
+    xkb_layout us
+    xkb_model pc105+inet
+    xkb_options terminate:ctrl_alt_bksp
+    repeat_delay 125
+    repeat_rate 125
+}
+
+font pango:Noto Sans 9
+# Terminal font uses Noto Sans Mono via fontconfig (fc-match monospace -> Noto Sans Mono)
+
+set $mod Mod4
+
+# --- UI: bar + autostart terminal so you actually see something ---
+# Waybar at top (fallback to swaybar with clock if waybar not installed)
+# Autostart a terminal so first launch isn't just wallpaper.
+exec foot
+bar {
+  position top
+  swaybar_command waybar
+  status_command while date +'%Y-%m-%d %a %H:%M:%S'; do sleep 1; done
+  colors {
+    statusline #ffffff
+    background #323232
+    inactive_workspace #32323200 #32323200 #5c5c5c
+  }
+}
+
+# App launcher (needs wofi/bemenu if installed, else fallback to foot menu)
+bindsym $mod+d exec sh -c 'if command -v wofi >/dev/null; then wofi --show drun; elif command -v bemenu-run >/dev/null; then bemenu-run; else foot -e sh -c "echo \"No launcher (install wofi/bemenu). Press Enter.\"; read;"; fi'
+bindsym $mod+Return exec foot
+bindsym $mod+Shift+q kill
+
+# --- Desktop on-demand toggle (kmscon tty1 <-> sway tty7) ---
+# `desktop-toggle` launches sway on first use, then toggles VT visibility via chvt.
+# These bindings let you hide the desktop back to kmscon without exiting sway.
+# The same script is callable from kmscon side: `desktop-toggle` / `wayland-toggle` / `desktop`.
+# HOTKEY not yet settled — placeholder bindings below; change to your choice.
+# Suggested: Mod4+grave (Super+`), Ctrl+Alt+t, or Ctrl+Super+d — edit as needed.
+bindsym F15 exec /usr/local/bin/desktop-toggle
+bindsym Control+Mod1+t exec /usr/local/bin/desktop-toggle
+# Alternative VT keys mirror classic X: from sway, Ctrl+Alt+F1 -> kmscon tty1, super restores
+bindsym Control+Mod1+F1 exec sudo chvt 1
+# Ensure sway never steals Ctrl+Super+Right/Left reserved for kmscon session switch
+# (unbind if needed: unbindsym --whole-window ...)
+
+# Mouse-only shortcuts (no keyboard needed) — click desktop background
+bindsym --whole-window button2 exec foot
+bindsym --whole-window button3 exec foot
+
+# When sway exits, return to kmscon tty1 (session-44 shell .zprofile also handles stale env)
+# The toggle script does `chvt 1` on stop; this hook ensures VT returns even on manual exit.
+bindsym $mod+Shift+e exec sh -c 'swaymsg exit; sleep 0.3; sudo chvt 1'
+
+# For 2560x1440 primary, foot already configured /home/nicerice/.config/foot/foot.ini:1 font=Noto Sans Mono:size=10
+# Waybar will auto scale per output
+
+include /etc/sway/config.d/*
+# Launcher — Meta (Super) toggle disabled (use qs or wofi if needed)
+# bindcode 125 exec qs ipc call -- launcher toggle
+# bindcode 126 exec qs ipc call -- launcher toggle
+# bindcode 133 exec qs ipc call -- launcher toggle
+# bindsym $mod+space exec qs ipc call -- launcher toggle
