@@ -50,6 +50,12 @@ Layout:
       audio-stack/ (scripts + README, NOT carla project)
       manifests/packages-arch.txt, zed-pin.txt (commit ee5cdf5), fonts.txt
       bucklespring-sounds-manifest.txt (banks listed; tarballs external due size — installer rsyncs or rebuilds)
+    payload-large/ (Git LFS-tracked via .gitattributes, cloned automatically:
+      wallpapers-matugen.tar.zst ~697M, zed-custom.tar.zst ~113M,
+      bucklespring-kalih-box-white.tar.zst ~1M)
+    NOTE 2026-10-17: payload-large was gitignored at first (usb/rsync plan),
+      then moved to Git LFS per user request so `git clone` fully replicates.
+      Plain git can't hold these (GitHub rejects files >100MB).
     README.md
     COORDINATION.md (this file)
 
