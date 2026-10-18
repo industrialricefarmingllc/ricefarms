@@ -19,8 +19,21 @@ one click rice. Entirely slopped up because lazy. Most likely won't work flawles
   all `~/*.sh` HOME scripts + `~/.local/bin` helpers
 - **d)** all dotfiles (zsh + **oh-my-zsh** pinned stock clone, theme
   `afowler`, `plugins=(git)` — same `.zshrc`, verified identical;
+  **opencode local config** (`~/.config/opencode` + `~/.opencode`,
+  node deps via `bun install`),
   bash/X/pam/git/tmux-conf, `kcminputrc` repeat, systemd user units,
   foot/dunst/btop/opencode/sway/waybar)
+
+## Secrets policy (standing rule)
+
+**API keys are never committed — under any circumstances.** The opencode
+config ships `${CONTEXT7_API_KEY}` as a placeholder; `--export` redacts
+known secret patterns on every run so keys can't slip back in, and the
+test suite fails on any live key in `payload/` or git history. After
+installing, insert your real key into
+`~/.config/opencode/opencode.json` on the target (and never commit it).
+SSH private keys are likewise never exported (`~/.ssh` is not in the
+export allowlist).
 - **e)** matugen (config + 11 templates) + wallpapers from
   `~/Pictures/wallpapers/matugen`
 - **f)** tmux setup (continuum/resurrect/opencode/tpm plugins + snapshot)
