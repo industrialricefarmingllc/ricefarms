@@ -38,6 +38,7 @@ done
 SRC_KITTY="$HOME/.config/kitty/matugen-colors.conf"
 SRC_OPENCODE="$HOME/.config/opencode/themes/matugen.json"
 SRC_TUI_LIVE="$HOME/.config/opencode/tui-matugen-live.ts"
+SRC_BTOP="$HOME/.config/btop/themes/matugen.theme"
 STAMP="$HOME/.cache/matugen-sync-dev.last"
 LOCK="$HOME/.cache/matugen-sync-dev.lock"
 mkdir -p "$HOME/.cache"
@@ -54,7 +55,7 @@ fi
 # without --force keep the old behaviour (always sync); background runs
 # (and --force callers) skip when nothing changed so connects stay instant.
 if [ "$FORCE" -eq 0 ] && [ "$BACKGROUND" -eq 1 ]; then
-  if [ -f "$STAMP" ] && [ ! "$SRC_KITTY" -nt "$STAMP" ] && { [ ! -f "$SRC_OPENCODE" ] || [ ! "$SRC_OPENCODE" -nt "$STAMP" ]; } && { [ ! -f "$SRC_TUI_LIVE" ] || [ ! "$SRC_TUI_LIVE" -nt "$STAMP" ]; }; then
+  if [ -f "$STAMP" ] && [ ! "$SRC_KITTY" -nt "$STAMP" ] && { [ ! -f "$SRC_OPENCODE" ] || [ ! "$SRC_OPENCODE" -nt "$STAMP" ]; } && { [ ! -f "$SRC_TUI_LIVE" ] || [ ! "$SRC_TUI_LIVE" -nt "$STAMP" ]; } && { [ ! -f "$SRC_BTOP" ] || [ ! "$SRC_BTOP" -nt "$STAMP" ]; }; then
     exit 0
   fi
 fi
@@ -152,13 +153,15 @@ fi
 #   ~/.config/matugen-sync/{apply,reset,hook-block,matugen-colors.conf}
 #   ~/.config/opencode/themes/matugen.json
 #   ~/.config/opencode/tui-matugen-live.ts
+#   ~/.config/btop/themes/matugen.theme
 STAGE="$OUTDIR/stage"
-mkdir -p "$STAGE/matugen-sync" "$STAGE/opencode/themes" "$STAGE/opencode"
+mkdir -p "$STAGE/matugen-sync" "$STAGE/opencode/themes" "$STAGE/opencode" "$STAGE/btop/themes"
 cp "$OUTDIR/apply-colors.sh" "$OUTDIR/reset-colors.sh" "$OUTDIR/hook-block.sh" "$OUTDIR/install-hook.py" "$STAGE/matugen-sync/"
 cp "$SRC_KITTY" "$STAGE/matugen-sync/matugen-colors.conf"
 [ -f "$SRC_OPENCODE" ] && cp "$SRC_OPENCODE" "$STAGE/opencode/themes/matugen.json" || true
 [ -f "$SRC_TUI_LIVE" ] && cp "$SRC_TUI_LIVE" "$STAGE/opencode/tui-matugen-live.ts" || true
-tar -cz -C "$STAGE" . | $SSH dev 'mkdir -p ~/.config/matugen-sync ~/.config/opencode/themes && tar -xz -C ~/.config'
+[ -f "$SRC_BTOP" ] && cp "$SRC_BTOP" "$STAGE/btop/themes/matugen.theme" || true
+tar -cz -C "$STAGE" . | $SSH dev 'mkdir -p ~/.config/matugen-sync ~/.config/opencode/themes ~/.config/btop/themes && tar -xz -C ~/.config'
 
 # Single remote step (2nd connection, multiplexed so ~50ms): mode pin +
 # transparent surfaces + zshrc hook install + tui.json merge. Previously
@@ -213,6 +216,31 @@ if "./tui-matugen-live.ts" not in pl:
 d["plugin"] = pl
 tp.write_text(json.dumps(d, indent=2) + "\n")
 print("tui theme ->", d["theme"], "plugins ->", pl)
+# 4. btop: use matugen theme + transparent background (idempotent, preserves other settings).
+bp = Path.home() / ".config/btop/btop.conf"
+bt = Path.home() / ".config/btop/themes/matugen.theme"
+if bt.exists():
+    if bp.exists():
+        t = bp.read_text()
+        orig = t
+        if re.search(r'^color_theme\s*=.*$', t, re.M):
+            t = re.sub(r'^color_theme\s*=.*$', 'color_theme = "matugen"', t, flags=re.M)
+        else:
+            t = t.rstrip("\n") + '\ncolor_theme = "matugen"\n'
+        if re.search(r'^theme_background\s*=.*$', t, re.M):
+            t = re.sub(r'^theme_background\s*=.*$', 'theme_background = false', t, flags=re.M)
+        else:
+            t = t.rstrip("\n") + '\ntheme_background = false\n'
+        if t != orig:
+            shutil.copy(bp, f"{bp}.bak.{int(time.time())}")
+            bp.write_text(t)
+            print("btop conf -> matugen theme, transparent background")
+        else:
+            print("btop conf already matugen")
+    else:
+        print("btop conf missing (theme staged, will apply on first btop run)")
+else:
+    print("btop theme missing, skipping btop conf tweak")
 RPYEOF
 $SSH dev 'python3 && zsh -n ~/.zshrc && sh -n ~/.config/matugen-sync/apply-colors.sh && sh -n ~/.config/matugen-sync/reset-colors.sh && echo REMOTE-OK' < "$OUTDIR/remote-all.py"
 mkdir -p "$HOME/.cache" && touch "$HOME/.cache/matugen-sync-dev.last"

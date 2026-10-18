@@ -22,6 +22,7 @@ WATCH_FILES=(
   "$HOME/.config/kitty/matugen-colors.conf"
   "$HOME/.config/opencode/themes/matugen.json"
   "$HOME/.config/opencode/tui-matugen-live.ts"
+  "$HOME/.config/btop/themes/matugen.theme"
 )
 STAMP="$HOME/.cache/matugen-sync-dev.last"
 PIDFILE="$HOME/.cache/matugen-sync-dev-watch.pid"
