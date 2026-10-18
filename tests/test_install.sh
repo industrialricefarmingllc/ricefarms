@@ -309,7 +309,12 @@ if [[ -n "$_hit" ]]; then
   FAIL=$((FAIL+1)); echo "NOT OK - ssh material in payload: $_hit"
 else PASS=$((PASS+1)); echo "ok - no ssh material in payload"; fi
 # ...and none anywhere in git history (uses real git: tests mock $PATH git)
-_hit="$(/usr/bin/git -C "$REPO_DIR" log --all -S 'ctx7sk-' --oneline 2>/dev/null | head -n 1)"
+# NOTE: `| head` may SIGPIPE git under pipefail — neutralize with || true.
+# -S would still flag the redaction commits themselves (count changed), so
+# assert on blob content instead: grep all revisions, expect no hits.
+# (trailing-class required: the redaction regex text itself lives in
+# install.sh/tests, but only as a bare prefix inside brackets.)
+_hit="$(/usr/bin/git -C "$REPO_DIR" grep -l 'ctx7sk-[A-Za-z0-9]' $(/usr/bin/git -C "$REPO_DIR" rev-list --all 2>/dev/null) -- 2>/dev/null | head -n 1 || true)"
 if [[ -n "$_hit" ]]; then
   FAIL=$((FAIL+1)); echo "NOT OK - API key reachable in git history: $_hit"
 else PASS=$((PASS+1)); echo "ok - no API keys in git history"; fi
