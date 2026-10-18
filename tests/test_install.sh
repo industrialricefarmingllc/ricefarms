@@ -35,7 +35,7 @@ export PAYLOAD_DIR="$FAKE_PAYLOAD" TARGET_HOME="$FAKE_HOME" LARGE_DIR="$FAKE_LAR
 export PATH="$FAKE_BIN:$PATH"
 
 # mock system tools: log invocations, succeed
-for tool in sudo systemctl cc git pacman paru matugen tmux pkill hyprctl loginctl awww; do
+for tool in sudo systemctl cc git pacman paru matugen tmux pkill hyprctl loginctl awww visudo; do
   printf '#!/usr/bin/env bash\necho "$0 $*" >> "$TMP/calls.log"\nexit 0\n' > "$FAKE_BIN/$tool"
   chmod +x "$FAKE_BIN/$tool"
 done
@@ -133,6 +133,38 @@ assert_file_has "kmscon.conf has font-size" "$REPO_DIR/payload/etc/kmscon/kmscon
 assert_file_has "tty1 autologin uses kmscon" "$REPO_DIR/payload/etc/systemd/system/kmsconvt@tty1.service.d/autologin.conf" "kmscon"
 assert_file_has "desktop-toggle config has DESK_VT" "$REPO_DIR/payload/desktop-toggle/config" "DESK_VT=7"
 assert_file_has "zprofile gates tty7" "$REPO_DIR/payload/zsh/dot.zprofile" "/dev/tty7"
+
+echo "== 8b. autologin extras + key repeat =="
+assert_true "phase_autologin_extras exists" declare -F phase_autologin_extras
+assert_true "verify_input_repeat exists" declare -F verify_input_repeat
+# fixtures for new functions (repeat sources must carry real 125 values)
+mkdir -p "$FAKE_PAYLOAD/etc/sddm.conf.d" "$FAKE_PAYLOAD/etc/sudoers.d" "$FAKE_PAYLOAD/kde" "$FAKE_PAYLOAD/config-sway" "$FAKE_PAYLOAD/hypr"
+printf '[Autologin]\nUser=testuser\n' > "$FAKE_PAYLOAD/etc/sddm.conf.d/autologin.conf"
+printf '%%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$FAKE_PAYLOAD/etc/sudoers.d/10-ricefarms-nopasswd"
+printf '[Keyboard]\nRepeatDelay=125\nRepeatRate=125\n' > "$FAKE_PAYLOAD/kde/kcminputrc"
+printf 'repeat_delay 125\nrepeat_rate 125\n' > "$FAKE_PAYLOAD/config-sway/config"
+printf 'xkb-repeat-delay=125\n' >> "$FAKE_PAYLOAD/etc/kmscon/kmscon.conf"
+printf 'repeat_delay = 125\nrepeat_rate = 125\n' >> "$FAKE_PAYLOAD/hypr/hyprland.lua"
+DRY_RUN=1; reset_calls
+assert_true "phase_autologin_extras dry-run" phase_autologin_extras
+assert_true "verify_input_repeat passes on fixture" verify_input_repeat
+DRY_RUN=0
+# warn-only contract: incomplete payload must NOT fail the installer
+mkdir -p "$TMP/empty-payload"
+if PAYLOAD_DIR="$TMP/empty-payload" verify_input_repeat 2>/dev/null; then
+  PASS=$((PASS+1)); echo "ok - verify_input_repeat warn-only on empty payload"
+else FAIL=$((FAIL+1)); echo "NOT OK - verify_input_repeat warn-only on empty payload"; fi
+# real payload 1:1 fidelity
+assert_file_has "sddm autologin user nicerice" "$REPO_DIR/payload/etc/sddm.conf.d/autologin.conf" "User=nicerice"
+assert_file_has "sudoers drop-in NOPASSWD" "$REPO_DIR/payload/etc/sudoers.d/10-ricefarms-nopasswd" "%wheel ALL=(ALL:ALL) NOPASSWD: ALL"
+assert_file_has "kcminputrc RepeatDelay 125" "$REPO_DIR/payload/kde/kcminputrc" "RepeatDelay=125"
+assert_file_has "kcminputrc RepeatRate 125" "$REPO_DIR/payload/kde/kcminputrc" "RepeatRate=125"
+assert_file_has "kmscon repeat-delay 125" "$REPO_DIR/payload/etc/kmscon/kmscon.conf" "xkb-repeat-delay=125"
+assert_file_has "hypr repeat_delay 125" "$REPO_DIR/payload/hypr/hyprland.lua" "repeat_delay = 125"
+assert_file_has "hypr repeat_rate 125" "$REPO_DIR/payload/hypr/hyprland.lua" "repeat_rate = 125"
+assert_file_has "sway repeat_delay 125" "$REPO_DIR/payload/config-sway/config" "repeat_delay 125"
+assert_file_has "sway repeat_rate 125" "$REPO_DIR/payload/config-sway/config" "repeat_rate 125"
+assert_file_has "getty tty2 autologin" "$REPO_DIR/payload/etc/systemd/system/getty@tty2.service.d/autologin.conf" "--autologin nicerice"
 
 echo "== 9. phase B: hypr/lucid/shader/pibble =="
 assert_true "phase_hypr_stack exists" declare -F phase_hypr_stack
