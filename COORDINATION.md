@@ -89,3 +89,8 @@ Tests: tests/test_install.sh sources install.sh with RICEFARMS_NOEXEC=1, mocks p
       loginctl linger) — phase_autologin_extras + verify_input_repeat,
       127 tests green. Skipped vconsole/X11 keymaps (localectl-generated,
       no repeat/autologin content).
+- [x] oh-my-zsh pinned stock clone (146461f, custom/ examples only, 28K
+      vendored; 16M stock tree cloned at install) + same .zshrc (afowler,
+      plugins=(git), diff-verified identical) — install_ohmyzsh in group d,
+      138 tests green (also fixed latent harness bug: TMP not exported, so
+      mocked tools wrote to /calls.log).

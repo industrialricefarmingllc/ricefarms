@@ -18,8 +18,10 @@ Arch Linux system:
   audio stack (PipeWire/Wireplumber/VAC/Carla), neovim + config,
   **zed custom build** (pinned commit, whole `/usr/lib/zed` copied),
   all `~/*.sh` HOME scripts + `~/.local/bin` helpers
-- **d)** all dotfiles (zsh/bash/X/pam/git/tmux-conf, `kcminputrc` repeat,
-  systemd user units, foot/dunst/btop/opencode/sway/waybar)
+- **d)** all dotfiles (zsh + **oh-my-zsh** pinned stock clone, theme
+  `afowler`, `plugins=(git)` — same `.zshrc`, verified identical;
+  bash/X/pam/git/tmux-conf, `kcminputrc` repeat, systemd user units,
+  foot/dunst/btop/opencode/sway/waybar)
 - **e)** matugen (config + 11 templates) + wallpapers from
   `~/Pictures/wallpapers/matugen`
 - **f)** tmux setup (continuum/resurrect/opencode/tpm plugins + snapshot)

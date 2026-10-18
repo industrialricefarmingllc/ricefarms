@@ -13,7 +13,7 @@
 #   a = tty1/kmscon <-> tty7/hyprland + F15 switch + autologin (getty/kmscon/sddm, NOPASSWD, linger) + key repeat
 #   b = hyprland + lucid shell + e-ink shader + pibble + hotkeys
 #   c = kitty + bucklespring/audio + neovim + zed + HOME scripts
-#   d = dotfiles (zsh/bash/X/tmux-conf/kcminputrc; tmux plugins are group f)
+#   d = dotfiles (zsh/bash/X/tmux-conf/kcminputrc + oh-my-zsh; tmux plugins are group f)
 #   e = matugen + wallpapers
 #   f = tmux plugins + resurrect state
 #
@@ -447,6 +447,7 @@ phase_dotfiles() {
   install_file "$P/matugen/dot.matugen-watch-dev.sh" "$TARGET_HOME/matugen-watch-dev.sh" "755"
   # KDE input: key repeat 125/125 (matches hypr/sway/kmscon)
   install_file "$P/kde/kcminputrc" "$TARGET_HOME/.config/kcminputrc" "644"
+  install_ohmyzsh
   # systemd user units (all of them, merged)
   install_dir "$P/systemd-user" "$TARGET_HOME/.config/systemd/user"
   # misc small configs vendored 1:1
@@ -455,6 +456,30 @@ phase_dotfiles() {
   done
   # fonts note
   info "fonts: GitLab Mono (kmscon) + Noto Sans Mono (kitty) — install via pacman/aur if missing (fc-list | check)"
+}
+
+# oh-my-zsh framework: stock upstream at pinned commit + vendored custom/.
+# (Source: ~/.oh-my-zsh git clone, stock custom/ examples only, no zsh plugin
+# manager besides this. .zshrc uses ZSH=$HOME/.oh-my-zsh, theme afowler,
+# plugins=(git) — that file already ships in phase D above.)
+install_ohmyzsh() {
+  info "install: oh-my-zsh framework"
+  local P="$PAYLOAD_DIR" dest="$TARGET_HOME/.oh-my-zsh"
+  local pin=""; [[ -f "$P/oh-my-zsh/pin.txt" ]] && pin="$(cat "$P/oh-my-zsh/pin.txt")"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    log "DRY-RUN: git clone ohmyzsh/ohmyzsh -> $dest checkout ${pin:-master} + restore custom/"
+    return 0
+  fi
+  if [[ ! -d "$dest" ]]; then
+    run_cmd git clone --depth 1 https://github.com/ohmyzsh/ohmyzsh.git "$dest" \
+      || { warn "oh-my-zsh clone failed (offline?) — skipping"; return 0; }
+  else info "oh-my-zsh present at $dest"; fi
+  if [[ -n "$pin" ]]; then
+    (run_cmd git -C "$dest" fetch --depth 1 origin "$pin" \
+      && run_cmd git -C "$dest" checkout "$pin") \
+      || warn "oh-my-zsh pin checkout failed (staying on current revision)"
+  fi
+  install_dir "$P/oh-my-zsh/custom" "$dest/custom"
 }
 
 # ------------------------------------------------------ e) matugen/wallpaper --
@@ -628,6 +653,17 @@ export_payload() {
   export_file "$S/matugen-watch-dev.sh" "$P/matugen/dot.matugen-watch-dev.sh"
   # KDE input (key repeat 125/125) + autologin extras (sddm)
   export_file "$S/.config/kcminputrc" "$P/kde/kcminputrc"
+  # oh-my-zsh: pin the framework revision + vendor custom/ (framework itself
+  # is cloned at install time; 16M of stock plugins/themes are NOT vendored)
+  if [[ -d "$S/.oh-my-zsh/.git" ]]; then
+    mkdir -p "$P/oh-my-zsh"
+    (cd "$S/.oh-my-zsh" && git rev-parse HEAD 2>/dev/null > "$P/oh-my-zsh/pin.txt") || echo unknown > "$P/oh-my-zsh/pin.txt"
+    log "export: oh-my-zsh pin $(cat "$P/oh-my-zsh/pin.txt" 2>/dev/null)"
+  fi
+  if [[ -d "$S/.oh-my-zsh/custom" ]]; then
+    mkdir -p "$P/oh-my-zsh/custom"; cp -a "$S/.oh-my-zsh/custom/." "$P/oh-my-zsh/custom/"
+    log "export-dir: .oh-my-zsh/custom -> payload/oh-my-zsh/custom"
+  fi
   export_file /etc/sddm.conf.d/autologin.conf "$P/etc/sddm.conf.d/autologin.conf"
   # sudoers: source keeps it in /etc/sudoers:128 (drop-in dir empty) — ship
   # the same rule as a drop-in so install never edits /etc/sudoers itself.
@@ -696,6 +732,7 @@ verify_install() {
   check "zprofile tty7 gate present" test -f "$TARGET_HOME/.zprofile"
   check "desktop-toggle installed" test -x /usr/local/bin/desktop-toggle
   check "kcminputrc repeat present" test -f "$TARGET_HOME/.config/kcminputrc"
+  check "oh-my-zsh present" test -f "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh"
   check "sddm autologin present" test -f /etc/sddm.conf.d/autologin.conf
   check "sudoers drop-in present" test -f /etc/sudoers.d/10-ricefarms-nopasswd
   if [[ $fails -gt 0 ]]; then warn "verify: $fails checks failed"; return 1; fi
