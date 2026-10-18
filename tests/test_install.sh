@@ -29,6 +29,7 @@ source "$REPO_DIR/install.sh"
 
 # ---------------- isolated temp roots ----------------
 TMP="$(mktemp -d)"
+export TMP # mocks resolve $TMP/calls.log at runtime — must be exported
 FAKE_PAYLOAD="$TMP/payload"; FAKE_HOME="$TMP/home"; FAKE_LARGE="$TMP/large"; FAKE_BIN="$TMP/bin"
 mkdir -p "$FAKE_PAYLOAD" "$FAKE_HOME" "$FAKE_LARGE" "$FAKE_BIN"
 export PAYLOAD_DIR="$FAKE_PAYLOAD" TARGET_HOME="$FAKE_HOME" LARGE_DIR="$FAKE_LARGE"
@@ -247,6 +248,31 @@ assert_true "tmux conf installed" test -f "$FAKE_HOME/.tmux.conf"
 assert_file_has "real zshrc has tmux" "$REPO_DIR/payload/zsh/dot.zshrc" "tmux"
 assert_file_has "real tmux has continuum" "$REPO_DIR/payload/tmux/dot.tmux.conf" "continuum"
 assert_file_has "real tmux prefix C-z" "$REPO_DIR/payload/tmux/dot.tmux.conf" "C-z"
+
+echo "== 11b. oh-my-zsh =="
+assert_true "install_ohmyzsh exists" declare -F install_ohmyzsh
+mkdir -p "$FAKE_PAYLOAD/oh-my-zsh/custom"
+echo "deadbeef-pin" > "$FAKE_PAYLOAD/oh-my-zsh/pin.txt"
+echo "custom" > "$FAKE_PAYLOAD/oh-my-zsh/custom/example.zsh"
+DRY_RUN=1; reset_calls
+assert_true "install_ohmyzsh dry-run" install_ohmyzsh
+DRY_RUN=0
+# real run with mocked git: clone logged, no network, no crash
+reset_calls
+install_ohmyzsh
+if calls_contain "clone"; then PASS=$((PASS+1)); echo "ok - install_ohmyzsh clones framework";
+else FAIL=$((FAIL+1)); echo "NOT OK - install_ohmyzsh clones framework"; fi
+# same .zshrc: lock the oh-my-zsh wiring + live sync
+assert_file_has "zshrc points at oh-my-zsh" "$REPO_DIR/payload/zsh/dot.zshrc" 'export ZSH="$HOME/.oh-my-zsh"'
+assert_file_has "zshrc theme afowler" "$REPO_DIR/payload/zsh/dot.zshrc" 'ZSH_THEME="afowler"'
+assert_file_has "zshrc plugins git" "$REPO_DIR/payload/zsh/dot.zshrc" 'plugins=(git)'
+assert_file_has "zshrc sources framework" "$REPO_DIR/payload/zsh/dot.zshrc" 'source $ZSH/oh-my-zsh.sh'
+if diff -q "$HOME/.zshrc" "$REPO_DIR/payload/zsh/dot.zshrc" >/dev/null 2>&1; then
+  PASS=$((PASS+1)); echo "ok - payload zshrc identical to live .zshrc"
+else FAIL=$((FAIL+1)); echo "NOT OK - payload zshrc identical to live .zshrc"; fi
+assert_true "oh-my-zsh pin recorded" test -f "$REPO_DIR/payload/oh-my-zsh/pin.txt"
+assert_file_has "oh-my-zsh pin is live HEAD" "$REPO_DIR/payload/oh-my-zsh/pin.txt" "146461f7c6d95f4ba1220559d66eb113418b40a8"
+assert_true "oh-my-zsh custom vendored" test -d "$REPO_DIR/payload/oh-my-zsh/custom"
 
 echo "== 12. phase E: matugen =="
 assert_true "phase_matugen exists" declare -F phase_matugen
