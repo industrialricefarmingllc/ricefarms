@@ -1,9 +1,8 @@
-# ricefarms — 1:1 rice replicator
+# rice replica
 
-One-click installer that replicates this machine's full setup onto another
-Arch Linux system:
+one click rice. Entirely slopped up because lazy. Most likely won't work flawlessly. Do your own thinking.
 
-- **a)** tty1/kmscon ↔ tty7/hyprland split + hotkeyed switch on **F15**
+- **a)** tty1/kmscon  tty7/hyprland split + hotkeyed switch on **F15**
   (QMK Skeletyl `F15=evdev185`, `desktop-hotkey-daemon` watching evdev,
   `desktop-toggle` via logind `SwitchTo`, SUID `chvt-fast`,
   `kmscon-modepin.so` DP-1 @120Hz pin, autologin drop-ins, on-demand
