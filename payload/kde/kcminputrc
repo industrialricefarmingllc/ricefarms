@@ -1,0 +1,6 @@
+[Keyboard]
+RepeatDelay=125
+RepeatRate=125
+
+[Libinput][7805][12270][ROCCAT ROCCAT Vulcan TKL Mouse]
+PointerAccelerationProfile=1

@@ -10,10 +10,10 @@
 #   --export   snapshot THIS machine (source) into payload/
 #
 # Groups (--only):
-#   a = tty1/kmscon <-> tty7/hyprland + F15 switch
+#   a = tty1/kmscon <-> tty7/hyprland + F15 switch + autologin (getty/kmscon/sddm, NOPASSWD, linger) + key repeat
 #   b = hyprland + lucid shell + e-ink shader + pibble + hotkeys
 #   c = kitty + bucklespring/audio + neovim + zed + HOME scripts
-#   d = dotfiles (zsh/bash/X/tmux-conf file itself; tmux plugins are group f)
+#   d = dotfiles (zsh/bash/X/tmux-conf/kcminputrc; tmux plugins are group f)
 #   e = matugen + wallpapers
 #   f = tmux plugins + resurrect state
 #
@@ -194,6 +194,55 @@ phase_tty_kmscon() {
   build_chvt_fast
   build_modepin
   enable_tty_units
+  phase_autologin_extras
+  verify_input_repeat
+}
+
+# Login-free launch: boot straight to kmscon session, no password prompts.
+# (getty/kmscon --autologin drop-ins ship above; here: sddm conf, sudoers,
+# linger. Source: /etc/sddm.conf.d/autologin.conf User=nicerice,
+# /etc/sudoers:128 `%wheel NOPASSWD: ALL` (/etc/sudoers.d/ was empty),
+# `loginctl show-user` Linger=yes.)
+phase_autologin_extras() {
+  info "autologin extras: sddm conf + wheel NOPASSWD + linger"
+  local P="$PAYLOAD_DIR"
+  install_file "$P/etc/sddm.conf.d/autologin.conf" "/etc/sddm.conf.d/autologin.conf" "644"
+  install_file "$P/etc/sudoers.d/10-ricefarms-nopasswd" "/etc/sudoers.d/10-ricefarms-nopasswd" "440"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    log "DRY-RUN: visudo -cf /etc/sudoers.d/10-ricefarms-nopasswd; loginctl enable-linger $TARGET_USER"
+    return 0
+  fi
+  if ! run_cmd visudo -cf /etc/sudoers.d/10-ricefarms-nopasswd; then
+    warn "sudoers validation failed — removing drop-in (system untouched)"
+    run_cmd sudo rm -f /etc/sudoers.d/10-ricefarms-nopasswd
+  fi
+  run_cmd sudo loginctl enable-linger "$TARGET_USER" || true
+}
+
+# Key repeat is 125/125 across the whole stack (source values, 1:1):
+# kmscon xkb-repeat-delay=125 (rate=13, kmscon's own unit), Hyprland
+# repeat_delay/repeat_rate=125, sway repeat_delay/repeat_rate 125,
+# KDE kcminputrc RepeatDelay/RepeatRate=125. Fail fast on bad export.
+verify_input_repeat() {
+  local P="$PAYLOAD_DIR" ok=1
+  [[ -f "$P/etc/kmscon/kmscon.conf" && "$(cat "$P/etc/kmscon/kmscon.conf")" == *"xkb-repeat-delay=125"* ]] \
+    || { warn "repeat: kmscon.conf missing xkb-repeat-delay=125"; ok=0; }
+  local hypr=""; for f in "$P"/hypr/hyprland.lua "$P"/hypr/hyprland.conf; do
+    [[ -f "$f" ]] && hypr+="$(cat "$f")"$'\n'
+  done
+  [[ "$hypr" == *"repeat_delay = 125"* || "$hypr" == *"repeat_delay=125"* ]] \
+    || { warn "repeat: hypr payload missing repeat_delay 125"; ok=0; }
+  [[ "$hypr" == *"repeat_rate = 125"* || "$hypr" == *"repeat_rate=125"* ]] \
+    || { warn "repeat: hypr payload missing repeat_rate 125"; ok=0; }
+  if [[ -f "$P/config-sway/config" || -f "$P/config-sway/sway-config" ]]; then
+    local sway=""; for f in "$P"/config-sway/*; do [[ -f "$f" ]] && sway+="$(cat "$f")"$'\n'; done
+    [[ "$sway" == *"repeat_delay 125"* ]] || { warn "repeat: sway payload missing repeat_delay 125"; ok=0; }
+    [[ "$sway" == *"repeat_rate 125"* ]] || { warn "repeat: sway payload missing repeat_rate 125"; ok=0; }
+  else warn "repeat: sway config not in payload (skipping sway check)"; fi
+  [[ -f "$P/kde/kcminputrc" && "$(cat "$P/kde/kcminputrc")" == *"RepeatRate=125"* ]] \
+    || { warn "repeat: kcminputrc missing RepeatRate=125"; ok=0; }
+  [[ $ok -eq 1 ]] && info "input repeat 125/125 OK (kmscon/hypr/sway/kde)"
+  return 0
 }
 
 build_chvt_fast() {
@@ -396,6 +445,8 @@ phase_dotfiles() {
   install_file "$P/tmux/dot.tmux.conf" "$TARGET_HOME/.tmux.conf" "644"
   install_file "$P/matugen/dot.mutagen-sync-dev.sh" "$TARGET_HOME/matugen-sync-dev.sh" "755"
   install_file "$P/matugen/dot.matugen-watch-dev.sh" "$TARGET_HOME/matugen-watch-dev.sh" "755"
+  # KDE input: key repeat 125/125 (matches hypr/sway/kmscon)
+  install_file "$P/kde/kcminputrc" "$TARGET_HOME/.config/kcminputrc" "644"
   # systemd user units (all of them, merged)
   install_dir "$P/systemd-user" "$TARGET_HOME/.config/systemd/user"
   # misc small configs vendored 1:1
@@ -575,6 +626,14 @@ export_payload() {
   export_file "$S/.tmux.conf" "$P/tmux/dot.tmux.conf"
   export_file "$S/matugen-sync-dev.sh" "$P/matugen/dot.mutagen-sync-dev.sh"
   export_file "$S/matugen-watch-dev.sh" "$P/matugen/dot.matugen-watch-dev.sh"
+  # KDE input (key repeat 125/125) + autologin extras (sddm)
+  export_file "$S/.config/kcminputrc" "$P/kde/kcminputrc"
+  export_file /etc/sddm.conf.d/autologin.conf "$P/etc/sddm.conf.d/autologin.conf"
+  # sudoers: source keeps it in /etc/sudoers:128 (drop-in dir empty) — ship
+  # the same rule as a drop-in so install never edits /etc/sudoers itself.
+  mkdir -p "$P/etc/sudoers.d"
+  printf '# ricefarms: passwordless sudo for wheel (source: /etc/sudoers:128, /etc/sudoers.d/ was empty)\n%%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$P/etc/sudoers.d/10-ricefarms-nopasswd"
+  log "export: sudoers drop-in (canonical)"
   export_dir "$S/.config/systemd/user" "$P/systemd-user-full"
   # merge all user units into payload/systemd-user (canonical)
   mkdir -p "$P/systemd-user"; cp -a "$P/systemd-user-full/." "$P/systemd-user/" 2>/dev/null || true; rm -rf "$P/systemd-user-full"
@@ -636,6 +695,9 @@ verify_install() {
   check "matugen config present" test -f "$TARGET_HOME/.config/matugen/config.toml"
   check "zprofile tty7 gate present" test -f "$TARGET_HOME/.zprofile"
   check "desktop-toggle installed" test -x /usr/local/bin/desktop-toggle
+  check "kcminputrc repeat present" test -f "$TARGET_HOME/.config/kcminputrc"
+  check "sddm autologin present" test -f /etc/sddm.conf.d/autologin.conf
+  check "sudoers drop-in present" test -f /etc/sudoers.d/10-ricefarms-nopasswd
   if [[ $fails -gt 0 ]]; then warn "verify: $fails checks failed"; return 1; fi
   info "verify: all checks passed"
 }

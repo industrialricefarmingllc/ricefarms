@@ -7,7 +7,10 @@ Arch Linux system:
   (QMK Skeletyl `F15=evdev185`, `desktop-hotkey-daemon` watching evdev,
   `desktop-toggle` via logind `SwitchTo`, SUID `chvt-fast`,
   `kmscon-modepin.so` DP-1 @120Hz pin, autologin drop-ins, on-demand
-  `getty@tty7` launched from `~/.zprofile` → `start-hyprland`)
+  `getty@tty7` launched from `~/.zprofile` → `start-hyprland`),
+  login-free boot (getty/kmscon/sddm autologin, wheel NOPASSWD via
+  `/etc/sudoers.d` drop-in + `visudo` check, `loginctl enable-linger`),
+  key repeat **125/125** (kmscon delay, Hyprland, sway, KDE `kcminputrc`)
 - **b)** Hyprland (Lua live config) + **lucid** Quickshell shell +
   **e-ink shader** (`reading_mode.glsl`, SUPER+K) + **pibble** app launcher
   + full hotkey map
@@ -15,8 +18,8 @@ Arch Linux system:
   audio stack (PipeWire/Wireplumber/VAC/Carla), neovim + config,
   **zed custom build** (pinned commit, whole `/usr/lib/zed` copied),
   all `~/*.sh` HOME scripts + `~/.local/bin` helpers
-- **d)** all dotfiles (zsh/bash/X/pam/git/tmux-conf, systemd user units,
-  foot/dunst/btop/opencode/sway/waybar)
+- **d)** all dotfiles (zsh/bash/X/pam/git/tmux-conf, `kcminputrc` repeat,
+  systemd user units, foot/dunst/btop/opencode/sway/waybar)
 - **e)** matugen (config + 11 templates) + wallpapers from
   `~/Pictures/wallpapers/matugen`
 - **f)** tmux setup (continuum/resurrect/opencode/tpm plugins + snapshot)

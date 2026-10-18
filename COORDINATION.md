@@ -76,9 +76,16 @@ Tests: tests/test_install.sh sources install.sh with RICEFARMS_NOEXEC=1, mocks p
 
 ## TODO
 - [x] Explore (agents done)
-- [ ] Inventory exact file sizes/paths for payload decisions
-- [ ] Write install.sh (single file, functions per phase)
-- [ ] Run install.sh --export on SOURCE to populate payload/
-- [ ] Write tests/test_install.sh covering EVERY function
-- [ ] Run tests, fix failures
-- [ ] git init + initial commit in ~/src/ricefarms
+- [x] Inventory exact file sizes/paths for payload decisions
+- [x] Write install.sh (single file, functions per phase)
+- [x] Run install.sh --export on SOURCE to populate payload/
+- [x] Write tests/test_install.sh covering EVERY function
+- [x] Run tests, fix failures (105 green)
+- [x] git init + initial commit in ~/src/ricefarms
+- [x] payload-large via Git LFS (user: clone must fully replicate)
+- [x] key repeat 125/125 (kmscon xkb-repeat-delay, hypr repeat_delay/rate,
+      sway repeat_delay/rate, kde kcminputrc) + login-free launch (getty +
+      kmscon + sddm autologin, wheel NOPASSWD drop-in w/ visudo check,
+      loginctl linger) — phase_autologin_extras + verify_input_repeat,
+      127 tests green. Skipped vconsole/X11 keymaps (localectl-generated,
+      no repeat/autologin content).

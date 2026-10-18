@@ -1,0 +1,2 @@
+# ricefarms: passwordless sudo for wheel (source: /etc/sudoers:128, /etc/sudoers.d/ was empty)
+%wheel ALL=(ALL:ALL) NOPASSWD: ALL
