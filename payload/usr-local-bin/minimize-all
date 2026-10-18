@@ -1,0 +1,10 @@
+#!/bin/bash
+# minimize all windows (workspace 1 -> special:minimized, silently)
+# NOTE: this compositor evaluates `hyprctl dispatch` args as lua, so native
+# `dispatcher args` syntax is a parse error - moves go through
+# hl.dsp.window.move (silent: active workspace untouched), same as pibble's
+# morph parking. The old `hyprexpo:expo off` line is dropped: hyprexpo isn't
+# loaded (see `hyprctl plugin list`), so it never did anything.
+for addr in $(hyprctl clients -j 2>/dev/null | jq -r '.[] | select(.workspace.id==1) | .address' 2>/dev/null); do
+  hyprctl eval "hl.dispatch(hl.dsp.window.move({workspace='special:minimized', window='address:$addr'}))" >/dev/null 2>&1 || true
+done

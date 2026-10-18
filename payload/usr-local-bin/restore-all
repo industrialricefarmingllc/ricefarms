@@ -1,0 +1,7 @@
+#!/bin/bash
+# restore windows from special:minimized back to workspace 1 (silently)
+# NOTE: lua-form dispatch - native `hyprctl dispatch` args are a parse error
+# on this compositor (see minimize-all).
+for addr in $(hyprctl clients -j 2>/dev/null | jq -r '.[] | select(.workspace.name=="special:minimized") | .address' 2>/dev/null); do
+  hyprctl eval "hl.dispatch(hl.dsp.window.move({workspace='1', window='address:$addr'}))" >/dev/null 2>&1 || true
+done

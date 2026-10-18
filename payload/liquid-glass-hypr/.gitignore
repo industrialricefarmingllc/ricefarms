@@ -1,0 +1,8 @@
+liquidglass.so
+liquidglass-verify.so
+src/*.o
+src/Shaders.hpp
+probe/*.so
+upstream/dbg
+upstream/dbg2
+upstream/parsetest

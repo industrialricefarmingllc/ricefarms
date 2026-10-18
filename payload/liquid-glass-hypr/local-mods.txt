@@ -1,0 +1,23 @@
+ M Makefile
+ M README.md
+ M qml/GlassLayout.qml
+ M shaders/glass.frag
+ M shaders/ring.frag
+ M src/BorderGlass.cpp
+ M src/Config.cpp
+ M src/Config.hpp
+ M src/Glass.cpp
+ M src/Glass.hpp
+ M src/GlassPass.hpp
+ M src/WindowGlass.cpp
+ M src/WindowGlass.hpp
+ M src/main.cpp
+?? liquidglass.so.bak
+?? src/GooConfig.cpp
+?? src/GooConfig.hpp
+?? src/GooMorph.cpp
+?? src/GooMorph.hpp
+?? src/GooPass.cpp
+?? src/GooPass.hpp
+?? src/GooTransition.cpp
+?? src/GooTransition.hpp

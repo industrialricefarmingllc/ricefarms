@@ -1,0 +1,9 @@
+[repository]
+name = "hypr-goo-workspaces"
+authors = ["Lucid"]
+description = "Gooey/liquid workspace-switch window animations (blob morph out, blob grow in)"
+
+[gooworkspaces]
+description = "Gooey workspace switch animations"
+output = "gooworkspaces.so"
+build = ["make"]

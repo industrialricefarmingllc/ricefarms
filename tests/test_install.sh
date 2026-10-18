@@ -36,7 +36,7 @@ export PAYLOAD_DIR="$FAKE_PAYLOAD" TARGET_HOME="$FAKE_HOME" LARGE_DIR="$FAKE_LAR
 export PATH="$FAKE_BIN:$PATH"
 
 # mock system tools: log invocations, succeed
-for tool in sudo systemctl cc git pacman paru matugen tmux pkill hyprctl loginctl awww visudo bun; do
+for tool in sudo systemctl cc git pacman paru matugen tmux pkill hyprctl loginctl awww visudo bun make; do
   printf '#!/usr/bin/env bash\necho "$0 $*" >> "$TMP/calls.log"\nexit 0\n' > "$FAKE_BIN/$tool"
   chmod +x "$FAKE_BIN/$tool"
 done
@@ -194,6 +194,47 @@ assert_true "lucid apply-theme exists" test -f "$REPO_DIR/payload/lucid/apply-th
 assert_true "pibble executable exists" test -x "$REPO_DIR/payload/pibble/pibble"
 assert_file_has "shader.lua manages Reading Mode" "$REPO_DIR/payload/hypr/shader.lua" "Reading Mode"
 assert_file_has "shader.lua binds K key" "$REPO_DIR/payload/hypr/shader.lua" "+ K"
+
+echo "== 9b. hypr plugins + helpers =="
+assert_true "phase_hypr_plugins exists" declare -F phase_hypr_plugins
+assert_true "build_liquid_glass exists" declare -F build_liquid_glass
+assert_true "verify_hypr_plugins exists" declare -F verify_hypr_plugins
+# fixtures (helper with baked-in source username exercises the rewrite)
+mkdir -p "$FAKE_PAYLOAD/usr-local-bin" "$FAKE_PAYLOAD/liquid-glass-hypr" "$FAKE_PAYLOAD/hypr-goo-workspaces"
+for _b in hypr-inputs-ready minimize-all restore-all liquid-glass-toggle pin-all unpin-all gpu-tty-foot; do
+  printf '#!/bin/sh\nexec foot --config /home/nicerice/.config/foot/foot-kiosk.ini\n' > "$FAKE_PAYLOAD/usr-local-bin/$_b"
+done
+printf 'all:\n\techo build\n' > "$FAKE_PAYLOAD/liquid-glass-hypr/Makefile"
+echo "fixture-pin" > "$FAKE_PAYLOAD/liquid-glass-hypr/pin.txt"
+printf 'all:\n\techo goo\n' > "$FAKE_PAYLOAD/hypr-goo-workspaces/Makefile"
+export USRLOCAL_BIN="$TMP/usr-local-bin"
+DRY_RUN=1; reset_calls
+assert_true "phase_hypr_plugins dry-run" phase_hypr_plugins
+assert_true "verify_hypr_plugins passes on fixture" verify_hypr_plugins
+DRY_RUN=0; reset_calls
+phase_hypr_plugins
+assert_true "helper installed to fake usr-local" test -x "$TMP/usr-local-bin/minimize-all"
+assert_file_has "username rewritten to target" "$TMP/usr-local-bin/gpu-tty-foot" "$FAKE_HOME/.config/foot"
+if [[ "$(cat "$TMP/usr-local-bin/gpu-tty-foot")" == *"/home/nicerice"* ]]; then
+  FAIL=$((FAIL+1)); echo "NOT OK - source username fully rewritten"
+else PASS=$((PASS+1)); echo "ok - source username fully rewritten"; fi
+if calls_contain "make"; then PASS=$((PASS+1)); echo "ok - build_liquid_glass runs make";
+else FAIL=$((FAIL+1)); echo "NOT OK - build_liquid_glass runs make"; fi
+# warn-only contract on empty payload
+if PAYLOAD_DIR="$TMP/empty-payload" verify_hypr_plugins 2>/dev/null; then
+  PASS=$((PASS+1)); echo "ok - verify_hypr_plugins warn-only on empty payload"
+else FAIL=$((FAIL+1)); echo "NOT OK - verify_hypr_plugins warn-only on empty payload"; fi
+# real payload 1:1 fidelity (goo = hypr-goo-workspaces, merged into liquidglass)
+assert_file_has "minimize-all lua dispatch" "$REPO_DIR/payload/usr-local-bin/minimize-all" "hl.dispatch"
+assert_file_has "hypr-inputs-ready gates IPC" "$REPO_DIR/payload/usr-local-bin/hypr-inputs-ready" "hyprctl instances"
+assert_file_has "liquid-glass-toggle prefs" "$REPO_DIR/payload/usr-local-bin/liquid-glass-toggle" "prefs.json"
+assert_file_has "gpu-tty-foot kiosk" "$REPO_DIR/payload/usr-local-bin/gpu-tty-foot" "foot-kiosk.ini"
+assert_file_has "liquid-glass pin is live HEAD" "$REPO_DIR/payload/liquid-glass-hypr/pin.txt" "17978c2f13d091018178f9b519cd09acc255ec34"
+assert_file_has "liquid-glass Makefile target" "$REPO_DIR/payload/liquid-glass-hypr/Makefile" "TARGET = liquidglass.so"
+assert_true "goo sources vendored" test -f "$REPO_DIR/payload/hypr-goo-workspaces/src/main.cpp"
+_hit="$(find "$REPO_DIR/payload/liquid-glass-hypr" "$REPO_DIR/payload/hypr-goo-workspaces" \( -name "*.o" -o -name "*.so*" \) | head -n 1 || true)"
+if [[ -z "$_hit" ]]; then PASS=$((PASS+1)); echo "ok - no build artifacts vendored";
+else FAIL=$((FAIL+1)); echo "NOT OK - build artifacts vendored: $_hit"; fi
 
 echo "== 10. phase C: apps =="
 assert_true "phase_apps exists" declare -F phase_apps

@@ -1,0 +1,9 @@
+[repository]
+name = "liquid-glass-hypr"
+authors = ["Lucid"]
+description = "Real-time liquid glass for layer surfaces, rendered in-compositor"
+
+[liquidglass]
+description = "Real-time liquid glass effect"
+output = "liquidglass.so"
+build = ["make"]

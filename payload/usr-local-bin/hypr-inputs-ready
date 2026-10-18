@@ -1,0 +1,19 @@
+#!/bin/sh
+# hypr-inputs-ready — exit 0 once Hyprland IPC answers AND at least one mouse
+# is registered. Gates quickshell/pibble spawns: a Qt client starting while
+# the compositor is master-less (boot race, VT-switch handoff gap) can steal
+# DRM master, bricking every modeset (black screens + EPERM). Seen 2026-09-06
+# twice (qs with foreign/stale session env holding card1 master).
+# Usage: hypr-inputs-ready [tries]   (one try ~2s; default 15 = ~30s)
+tries="${1:-15}"
+i=0
+while [ "$i" -lt "$tries" ]; do
+  SIG=$(hyprctl instances 2>/dev/null | awk '/^instance /{print $2}' | tr -d ':' | head -n1)
+  if [ -n "$SIG" ]; then
+    N=$(HYPRLAND_INSTANCE_SIGNATURE="$SIG" hyprctl devices -j 2>/dev/null | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('mice',[])))" 2>/dev/null || echo 0)
+    if [ "${N:-0}" -gt 0 ] 2>/dev/null; then exit 0; fi
+  fi
+  i=$(( i + 1 ))
+  sleep 2
+done
+exit 1

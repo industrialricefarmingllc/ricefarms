@@ -1,0 +1,37 @@
+#!/bin/sh
+set -e
+if [ -n "$WAYLAND_DISPLAY" ]; then
+  exec foot --config /home/nicerice/.config/foot/foot-kiosk.ini -F -- zsh -l "$@"
+fi
+tmp=$(mktemp /tmp/foot-kiosk-XXXXX.conf)
+trap 'rm -f "$tmp"' EXIT INT TERM
+cat > "$tmp" <<'SWAYEOF'
+xwayland disable
+output * bg #000000 solid_color
+seat * hide_cursor 100
+seat * hide_cursor when-typing enable
+default_border none
+default_floating_border none
+gaps inner 0
+gaps outer 0
+hide_edge_borders both
+bar {
+  swaybar_command /bin/true
+}
+input * {
+    xkb_layout us
+    xkb_model pc105+inet
+    xkb_options terminate:ctrl_alt_bksp
+    repeat_delay 125
+    repeat_rate 125
+}
+bindsym Mod4+Shift+e exec swaymsg exit
+exec /usr/local/bin/foot-kiosk-setup
+for_window [app_id="foot"] fullscreen enable
+for_window [app_id="foot"] border none
+SWAYEOF
+# Try sway first (supports 125ms/125cps), fallback to cage (no repeat config, will be slow 600/25)
+if sway -c "$tmp" 2>&1; then chvt 1 >/dev/null 2>&1 || true; exit 0; else ret=$?; echo "sway kiosk failed ($ret), fallback to cage (SLOW repeat, no config)" >&2; exec cage -s -d -m extend -- sh -c '
+  (sleep 1; wlr-randr --output DP-3 --scale 1.375 2>/dev/null; wlr-randr --output DP-1 --scale 1.65 2>/dev/null; wlr-randr --output DP-2 --scale 1.65 2>/dev/null; wlr-randr --output HDMI-A-1 --scale 1.375 2>/dev/null) &
+  exec foot --config /home/nicerice/.config/foot/foot-kiosk.ini -F -- /usr/local/bin/foot-zsh-exit
+'; chvt 1 >/dev/null 2>&1 || true; exit 0; fi
