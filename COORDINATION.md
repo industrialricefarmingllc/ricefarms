@@ -94,3 +94,10 @@ Tests: tests/test_install.sh sources install.sh with RICEFARMS_NOEXEC=1, mocks p
       plugins=(git), diff-verified identical) — install_ohmyzsh in group d,
       138 tests green (also fixed latent harness bug: TMP not exported, so
       mocked tools wrote to /calls.log).
+- [x] local opencode config (~/.config/opencode + ~/.opencode pruned of
+      node_modules, install_opencode + bun reinstall) with STANDING RULE:
+      NEVER push API keys — Context7 key found committed in 0c28760 (already
+      pushed to origin: ROTATE the key), redacted to ${CONTEXT7_API_KEY},
+      export-time redaction on every run, guard tests (payload + history),
+      history purged via git filter-repo + force-push. SSH: ~/.ssh never
+      exported (allowlist), verified absent from payload + history.

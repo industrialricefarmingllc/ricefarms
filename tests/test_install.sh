@@ -36,7 +36,7 @@ export PAYLOAD_DIR="$FAKE_PAYLOAD" TARGET_HOME="$FAKE_HOME" LARGE_DIR="$FAKE_LAR
 export PATH="$FAKE_BIN:$PATH"
 
 # mock system tools: log invocations, succeed
-for tool in sudo systemctl cc git pacman paru matugen tmux pkill hyprctl loginctl awww visudo; do
+for tool in sudo systemctl cc git pacman paru matugen tmux pkill hyprctl loginctl awww visudo bun; do
   printf '#!/usr/bin/env bash\necho "$0 $*" >> "$TMP/calls.log"\nexit 0\n' > "$FAKE_BIN/$tool"
   chmod +x "$FAKE_BIN/$tool"
 done
@@ -273,6 +273,46 @@ else FAIL=$((FAIL+1)); echo "NOT OK - payload zshrc identical to live .zshrc"; f
 assert_true "oh-my-zsh pin recorded" test -f "$REPO_DIR/payload/oh-my-zsh/pin.txt"
 assert_file_has "oh-my-zsh pin is live HEAD" "$REPO_DIR/payload/oh-my-zsh/pin.txt" "146461f7c6d95f4ba1220559d66eb113418b40a8"
 assert_true "oh-my-zsh custom vendored" test -d "$REPO_DIR/payload/oh-my-zsh/custom"
+
+echo "== 11c. opencode local config =="
+assert_true "install_opencode exists" declare -F install_opencode
+mkdir -p "$FAKE_PAYLOAD/config-opencode" "$FAKE_PAYLOAD/opencode-home"
+printf '{"agent":{"build":{"model":"m"}}}\n' > "$FAKE_PAYLOAD/config-opencode/opencode.json"
+printf '{"theme":"matugen"}\n' > "$FAKE_PAYLOAD/config-opencode/tui.json"
+printf '{"x":1}\n' > "$FAKE_PAYLOAD/opencode-home/opencode.json"
+printf '{"dependencies":{}}\n' > "$FAKE_PAYLOAD/config-opencode/package.json"
+DRY_RUN=1; reset_calls
+assert_true "install_opencode dry-run" install_opencode
+DRY_RUN=0; reset_calls
+install_opencode
+assert_true "opencode config installed" test -f "$FAKE_HOME/.config/opencode/opencode.json"
+assert_true "opencode-home installed" test -f "$FAKE_HOME/.opencode/opencode.json"
+if calls_contain "install"; then PASS=$((PASS+1)); echo "ok - install_opencode restores node deps via bun";
+else FAIL=$((FAIL+1)); echo "NOT OK - install_opencode restores node deps via bun"; fi
+# real payload fidelity
+assert_file_has "opencode build model" "$REPO_DIR/payload/config-opencode/opencode.json" "opencode/muse-spark-1.3-contributor-free"
+assert_file_has "opencode chrome-devtools mcp" "$REPO_DIR/payload/config-opencode/opencode.json" "chrome-devtools"
+assert_file_has "opencode tui matugen" "$REPO_DIR/payload/config-opencode/tui.json" '"theme": "matugen"'
+assert_true "opencode terminal-bell plugin" test -f "$REPO_DIR/payload/config-opencode/plugin/terminal-bell.ts"
+assert_true "opencode openhooks plugin" test -f "$REPO_DIR/payload/config-opencode/plugins/openhooks/plugin.mjs"
+assert_true "opencode-home commands" test -d "$REPO_DIR/payload/opencode-home/commands"
+assert_file_has "opencode key placeholder" "$REPO_DIR/payload/config-opencode/opencode.json" '${CONTEXT7_API_KEY}'
+# STANDING RULE guards: no live keys, no ssh secrets — in payload...
+# (self-safe: pattern requires an alnum after the prefix; this file only
+# holds the bare prefix inside brackets, and payload/ is scanned, not tests/)
+_leak="$(rg -l --no-messages --glob '!node_modules' 'ctx7sk-[A-Za-z0-9]|sk-ant-[A-Za-z0-9]|BEGIN OPENSSH PRIVATE KEY|BEGIN RSA PRIVATE KEY' "$REPO_DIR/payload" || true)"
+if [[ -z "$_leak" ]]; then PASS=$((PASS+1)); echo "ok - no secrets in payload tree";
+else FAIL=$((FAIL+1)); echo "NOT OK - secret leaked in payload: $_leak"; fi
+# ...and none in ssh-shaped paths at all
+_hit="$(find "$REPO_DIR/payload" \( -name "id_rsa" -o -name "id_ed25519*" -o -name "*.pem" -o -name ".ssh" -o -name "known_hosts" \) | head -n 1)"
+if [[ -n "$_hit" ]]; then
+  FAIL=$((FAIL+1)); echo "NOT OK - ssh material in payload: $_hit"
+else PASS=$((PASS+1)); echo "ok - no ssh material in payload"; fi
+# ...and none anywhere in git history (uses real git: tests mock $PATH git)
+_hit="$(/usr/bin/git -C "$REPO_DIR" log --all -S 'ctx7sk-' --oneline 2>/dev/null | head -n 1)"
+if [[ -n "$_hit" ]]; then
+  FAIL=$((FAIL+1)); echo "NOT OK - API key reachable in git history: $_hit"
+else PASS=$((PASS+1)); echo "ok - no API keys in git history"; fi
 
 echo "== 12. phase E: matugen =="
 assert_true "phase_matugen exists" declare -F phase_matugen

@@ -13,7 +13,7 @@
 #   a = tty1/kmscon <-> tty7/hyprland + F15 switch + autologin (getty/kmscon/sddm, NOPASSWD, linger) + key repeat
 #   b = hyprland + lucid shell + e-ink shader + pibble + hotkeys
 #   c = kitty + bucklespring/audio + neovim + zed + HOME scripts
-#   d = dotfiles (zsh/bash/X/tmux-conf/kcminputrc + oh-my-zsh; tmux plugins are group f)
+#   d = dotfiles (zsh/bash/X/tmux-conf/kcminputrc + oh-my-zsh + opencode redacted; tmux plugins are group f)
 #   e = matugen + wallpapers
 #   f = tmux plugins + resurrect state
 #
@@ -448,6 +448,7 @@ phase_dotfiles() {
   # KDE input: key repeat 125/125 (matches hypr/sway/kmscon)
   install_file "$P/kde/kcminputrc" "$TARGET_HOME/.config/kcminputrc" "644"
   install_ohmyzsh
+  install_opencode
   # systemd user units (all of them, merged)
   install_dir "$P/systemd-user" "$TARGET_HOME/.config/systemd/user"
   # misc small configs vendored 1:1
@@ -480,6 +481,28 @@ install_ohmyzsh() {
       || warn "oh-my-zsh pin checkout failed (staying on current revision)"
   fi
   install_dir "$P/oh-my-zsh/custom" "$dest/custom"
+}
+
+# Local opencode config: ~/.config/opencode (global) + ~/.opencode (commands
+# + agent-identity). Secrets are NEVER committed (standing rule): payload
+# ships ${CONTEXT7_API_KEY} placeholder — set the real key on the target.
+install_opencode() {
+  info "install: opencode local config"
+  local P="$PAYLOAD_DIR"
+  install_dir "$P/config-opencode" "$TARGET_HOME/.config/opencode"
+  install_dir "$P/opencode-home" "$TARGET_HOME/.opencode"
+  for cfg in "$TARGET_HOME/.config/opencode/opencode.json" "$TARGET_HOME/.config/opencode/opencode.jsonc"; do
+    if [[ -f "$cfg" && "$(cat "$cfg")" == *'${CONTEXT7_API_KEY}'* ]]; then
+      warn "opencode: $cfg still has \$${CONTEXT7_API_KEY} placeholder — insert your key (never commit it)"
+    fi
+  done
+  # plugin deps (tui-matugen-live needs node_modules): best-effort, offline-safe
+  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: bun install in .config/opencode + .opencode (if bun + package.json)"; return 0; fi
+  for d in "$TARGET_HOME/.config/opencode" "$TARGET_HOME/.opencode"; do
+    if [[ -f "$d/package.json" ]] && command -v bun >/dev/null 2>&1; then
+      (cd "$d" && run_cmd bun install) || warn "bun install failed in $d (run manually)"
+    fi
+  done
 }
 
 # ------------------------------------------------------ e) matugen/wallpaper --
@@ -681,6 +704,21 @@ export_payload() {
       log "export-dir: .config/$sub -> payload/config-$sub (pruned)"
     fi
   done
+  # STANDING RULE: never commit API keys. Redact known secret patterns from
+  # the just-exported opencode configs (runs on EVERY export so keys can
+  # never slip back in). Payload keeps ${...} placeholders instead.
+  for f in "$P/config-opencode/opencode.json" "$P/config-opencode/opencode.jsonc" "$P/opencode-home/opencode.json"; do
+    [[ -f "$f" ]] || continue
+    sed -i 's/ctx7sk-[A-Za-z0-9-]*/${CONTEXT7_API_KEY}/g; s/sk-ant-[A-Za-z0-9-]*/${ANTHROPIC_API_KEY}/g' "$f" || true
+  done
+  log "export: opencode secrets redacted"
+  # second opencode home: ~/.opencode (commands + agent-identity config)
+  if [[ -d "$S/.opencode" ]]; then
+    mkdir -p "$P/opencode-home"
+    (cd "$S/.opencode" && tar --exclude=node_modules -cf - .) | (cd "$P/opencode-home" && tar -xf -)
+    sed -i 's/ctx7sk-[A-Za-z0-9-]*/${CONTEXT7_API_KEY}/g; s/sk-ant-[A-Za-z0-9-]*/${ANTHROPIC_API_KEY}/g' "$P/opencode-home/opencode.json" 2>/dev/null || true
+    log "export-dir: .opencode -> payload/opencode-home (pruned, redacted)"
+  fi
   # e) matugen + wallpapers state
   export_dir "$S/.config/matugen" "$P/matugen"
   export_dir "$S/.config/hypr/wallpapers" "$P/hypr-wallpapers"
@@ -735,6 +773,7 @@ verify_install() {
   check "oh-my-zsh present" test -f "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh"
   check "sddm autologin present" test -f /etc/sddm.conf.d/autologin.conf
   check "sudoers drop-in present" test -f /etc/sudoers.d/10-ricefarms-nopasswd
+  check "opencode config present" test -f "$TARGET_HOME/.config/opencode/opencode.json"
   if [[ $fails -gt 0 ]]; then warn "verify: $fails checks failed"; return 1; fi
   info "verify: all checks passed"
 }
