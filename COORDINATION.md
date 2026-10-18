@@ -94,6 +94,13 @@ Tests: tests/test_install.sh sources install.sh with RICEFARMS_NOEXEC=1, mocks p
       plugins=(git), diff-verified identical) — install_ohmyzsh in group d,
       138 tests green (also fixed latent harness bug: TMP not exported, so
       mocked tools wrote to /calls.log).
+- [x] hypr helpers (hypr-inputs-ready, minimize/restore-all, pin/unpin-all,
+      liquid-glass-toggle, gpu-tty-foot → payload/usr-local-bin, username
+      rewritten at install via USRLOCAL_BIN-overridable phase_hypr_plugins)
+      + liquid-glass-hypr @17978c2 v0.4.1 (45M→908K pruned source, rebuilt
+      via make) + hypr-goo-workspaces retired source (84K, reference only —
+      the "goo animation thing", merged into liquidglass since 0.5.0),
+      171 tests green.
 - [x] local opencode config (~/.config/opencode + ~/.opencode pruned of
       node_modules, install_opencode + bun reinstall) with STANDING RULE:
       NEVER push API keys — Context7 key found committed in 0c28760 (already

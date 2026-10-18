@@ -11,7 +11,7 @@
 #
 # Groups (--only):
 #   a = tty1/kmscon <-> tty7/hyprland + F15 switch + autologin (getty/kmscon/sddm, NOPASSWD, linger) + key repeat
-#   b = hyprland + lucid shell + e-ink shader + pibble + hotkeys
+#   b = hyprland + lucid shell + e-ink shader + pibble + hotkeys + liquid-glass/goo plugins + hypr helpers
 #   c = kitty + bucklespring/audio + neovim + zed + HOME scripts
 #   d = dotfiles (zsh/bash/X/tmux-conf/kcminputrc + oh-my-zsh + opencode redacted; tmux plugins are group f)
 #   e = matugen + wallpapers
@@ -25,6 +25,8 @@ PAYLOAD_DIR="${PAYLOAD_DIR:-$REPO_DIR/payload}"
 LARGE_DIR="$REPO_DIR/payload-large"
 TARGET_HOME="${TARGET_HOME:-$HOME}"
 TARGET_USER="${TARGET_USER:-${USER:-$(whoami)}}"
+# Overridable for tests (installed helpers go to /usr/local/bin on targets).
+USRLOCAL_BIN="${USRLOCAL_BIN:-/usr/local/bin}"
 DRY_RUN=0
 ASSUME_YES=0
 ONLY_GROUPS="a,b,c,d,e,f"
@@ -298,6 +300,7 @@ phase_hypr_stack() {
   else mkdir -p "$TARGET_HOME/.local/bin"; ln -sf "$TARGET_HOME/src/pibble/pibble" "$TARGET_HOME/.local/bin/pibble"; fi
   install_dir "$P/lucid-capture" "$TARGET_HOME/src/lucid-capture"
   build_lucid_capture
+  phase_hypr_plugins
   # user units: quickshell managed by hyprland.lua watchdog, service is fallback
   if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: systemctl --user enable quickshell.service (fallback)";
   else run_cmd systemctl --user enable quickshell.service || true; fi
@@ -310,6 +313,58 @@ build_lucid_capture() {
   if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; return 0; fi
   [[ -f "$d/Makefile" ]] || { warn "lucid-capture src missing — skipping build"; return 0; }
   (run_cmd make -C "$d" || warn "lucid-capture build failed — Hyprland runs fine without it (source has it DISABLED since 2026-09-03 SEGV)") || true
+}
+
+# Hyprland plugins + /usr/local/bin helpers.
+# liquid-glass-hypr (goo workspaces merged in since 0.5.0: GooMorph/GooPass
+# sources) is vendored as source and rebuilt (needs hyprland headers matching
+# the running compositor). hypr-goo-workspaces standalone is RETIRED
+# (gooworkspaces.so.retired) — source vendored for reference only, not built.
+# hypr-inputs-ready gates qs/pibble spawn on IPC+mice (DRM-master race fix).
+# minimize/restore-all + pin/unpin-all use lua-form `hyprctl eval hl.dispatch`
+# (native dispatch args are a parse error on this fork).
+# liquid-glass-toggle flips prefs.json liquidGlassEnabled (never unloads .so:
+# live unload SEGVs). gpu-tty-foot is the tty3 foot kiosk.
+HYPR_HELPERS=(hypr-inputs-ready minimize-all restore-all liquid-glass-toggle pin-all unpin-all gpu-tty-foot)
+
+phase_hypr_plugins() {
+  info "hypr plugins: helpers + liquid-glass-hypr (+goo) build"
+  local P="$PAYLOAD_DIR"
+  for b in "${HYPR_HELPERS[@]}"; do
+    install_file "$P/usr-local-bin/$b" "$USRLOCAL_BIN/$b" "755"
+    # portability: source bakes /home/nicerice into some helpers
+    # (gpu-tty-foot foot-kiosk path, liquid-glass-toggle HOME fallback)
+    if [[ $DRY_RUN -eq 1 ]]; then
+      log "DRY-RUN: rewrite /home/nicerice -> $TARGET_HOME in $USRLOCAL_BIN/$b"
+    elif [[ -f "$USRLOCAL_BIN/$b" ]]; then
+      sed -i "s|/home/nicerice|$TARGET_HOME|g" "$USRLOCAL_BIN/$b" || true
+    fi
+  done
+  install_dir "$P/liquid-glass-hypr" "$TARGET_HOME/src/liquid-glass-hypr"
+  install_dir "$P/hypr-goo-workspaces" "$TARGET_HOME/src/hypr-goo-workspaces"
+  build_liquid_glass
+  verify_hypr_plugins
+}
+
+build_liquid_glass() {
+  info "build: liquidglass.so (needs hyprland headers for running version)"
+  local d="$TARGET_HOME/src/liquid-glass-hypr"
+  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; return 0; fi
+  [[ -f "$d/Makefile" ]] || { warn "liquid-glass-hypr src missing — skipping build"; return 0; }
+  (run_cmd make -C "$d") || warn "liquidglass build failed — install hyprland headers matching your compositor, then make -C ~/src/liquid-glass-hypr"
+  info "hypr-goo-workspaces standalone retired (merged into liquidglass) — not built"
+}
+
+verify_hypr_plugins() {
+  local P="$PAYLOAD_DIR" ok=1
+  for b in "${HYPR_HELPERS[@]}"; do
+    [[ -f "$P/usr-local-bin/$b" ]] || { warn "hypr helper missing: $b"; ok=0; }
+  done
+  [[ -f "$P/liquid-glass-hypr/Makefile" ]] || { warn "liquid-glass-hypr Makefile missing"; ok=0; }
+  [[ -f "$P/liquid-glass-hypr/pin.txt" ]] || { warn "liquid-glass-hypr pin missing"; ok=0; }
+  [[ -f "$P/hypr-goo-workspaces/Makefile" ]] || { warn "hypr-goo-workspaces src missing"; ok=0; }
+  [[ $ok -eq 1 ]] && info "hypr plugins payload OK"
+  return 0
 }
 
 verify_hypr_binds() {
@@ -635,6 +690,25 @@ export_payload() {
     mkdir -p "$P/lucid-capture/src"
     for f in "$S"/src/lucid-capture/src/*.{cpp,hpp,h}; do [[ -e "$f" ]] && cp -a "$f" "$P/lucid-capture/src/"; done
   fi
+  # hypr plugins: liquid-glass-hypr (goo merged in) + retired goo source.
+  # Pruned: .git, build artifacts (*.o/*.so*), generated Shaders.hpp.
+  for proj in liquid-glass-hypr hypr-goo-workspaces; do
+    if [[ -d "$S/src/$proj" ]]; then
+      mkdir -p "$P/$proj"
+      (cd "$S/src/$proj" && tar --exclude=.git --exclude='*.o' --exclude='*.so*' --exclude='*.bak' --exclude='Shaders.hpp' -cf - .) | (cd "$P/$proj" && tar -xf -)
+      log "export-dir: src/$proj -> payload/$proj (pruned)"
+    fi
+  done
+  if [[ -d "$S/src/liquid-glass-hypr/.git" ]]; then
+    (cd "$S/src/liquid-glass-hypr" && git rev-parse HEAD 2>/dev/null > "$P/liquid-glass-hypr/pin.txt") || echo unknown > "$P/liquid-glass-hypr/pin.txt"
+    (cd "$S/src/liquid-glass-hypr" && git status --short 2>/dev/null > "$P/liquid-glass-hypr/local-mods.txt") || true
+    log "export: liquid-glass-hypr pin $(cat "$P/liquid-glass-hypr/pin.txt" 2>/dev/null)"
+  fi
+  # /usr/local/bin hypr helpers (small scripts, shipped verbatim; username
+  # rewrite happens at install time)
+  for b in "${HYPR_HELPERS[@]}"; do
+    export_file "/usr/local/bin/$b" "$P/usr-local-bin/$b"
+  done
   # c) apps
   export_dir "$S/.config/kitty" "$P/kitty"
   export_file "$S/.config/systemd/user/bucklespring.service" "$P/systemd-user/bucklespring.service"
@@ -774,6 +848,8 @@ verify_install() {
   check "sddm autologin present" test -f /etc/sddm.conf.d/autologin.conf
   check "sudoers drop-in present" test -f /etc/sudoers.d/10-ricefarms-nopasswd
   check "opencode config present" test -f "$TARGET_HOME/.config/opencode/opencode.json"
+  check "liquidglass helpers present" test -x "$USRLOCAL_BIN/minimize-all"
+  check "liquidglass.so built" test -f "$TARGET_HOME/src/liquid-glass-hypr/liquidglass.so"
   if [[ $fails -gt 0 ]]; then warn "verify: $fails checks failed"; return 1; fi
   info "verify: all checks passed"
 }

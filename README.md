@@ -12,7 +12,10 @@ one click rice. Entirely slopped up because lazy. Most likely won't work flawles
   key repeat **125/125** (kmscon delay, Hyprland, sway, KDE `kcminputrc`)
 - **b)** Hyprland (Lua live config) + **lucid** Quickshell shell +
   **e-ink shader** (`reading_mode.glsl`, SUPER+K) + **pibble** app launcher
-  + full hotkey map
+  + full hotkey map + **liquid-glass-hypr** plugin (rebuilt from vendored
+  source at pinned commit) + `/usr/local/bin` helpers (`hypr-inputs-ready`,
+  `minimize/restore-all`, `pin/unpin-all`, `liquid-glass-toggle`,
+  `gpu-tty-foot`; source username rewritten to target at install)
 - **c)** kitty, **bucklespring** (`kalih-box-white`, `-s 25 -g 50`) + custom
   audio stack (PipeWire/Wireplumber/VAC/Carla), neovim + config,
   **zed custom build** (pinned commit, whole `/usr/lib/zed` copied),
