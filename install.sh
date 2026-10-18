@@ -728,6 +728,7 @@ export_payload() {
   if [[ -d "$S/src/zed" ]]; then (cd "$S/src/zed" && git rev-parse HEAD 2>/dev/null > "$P/zed-pin.txt") || echo "unknown" > "$P/zed-pin.txt"; fi
   # HOME scripts + local-bin (text files only; ELFs go to manifest)
   mkdir -p "$P/home-scripts" "$P/local-bin"
+  : > "$P/local-bin/ELFS_SKIPPED.txt" # idempotent export: no dupes across runs
   for f in "$S"/*.sh; do [[ -e "$f" ]] && cp -a "$f" "$P/home-scripts/"; done
   for f in "$S"/.local/bin/*; do
     [[ -e "$f" ]] || continue
