@@ -59,6 +59,15 @@ PY
 
 [ -n "${BG:-}" ] || exit 0
 
+# both matugen hooks (quickshell + opencode) call this; once everything already
+# carries this colour there is nothing to write and no reason to flash every
+# GTK app with another color-scheme round trip
+fresh=1
+grep -q "background $BG" "$HOME/.config/kitty/lucid-surface.conf" 2>/dev/null || fresh=0
+grep -q "window_bg_color $BG" "$HOME/.config/gtk-4.0/gtk.css" 2>/dev/null || fresh=0
+grep -q "$BG" "$HOME/.config/opencode/themes/matugen.json" 2>/dev/null || fresh=0
+[ "$fresh" = "1" ] && exit 0
+
 write_gtk() { # $1 = config dir, $2 = gtk version
     local dir="$HOME/.config/$1"
     mkdir -p "$dir"
@@ -165,13 +174,17 @@ except (OSError, ValueError):
 PY
 fi
 
-# keep the toolkit's own light/dark choice in step with the palette
+# keep the toolkit's own light/dark choice in step with the palette, and use a
+# color-scheme round trip to make GTK4/libadwaita re-read gtk.css live —
+# otherwise a running Nautilus keeps the stylesheet it loaded at startup
 if command -v gsettings >/dev/null 2>&1; then
     if [ "$LIGHT" = "1" ]; then
-        gsettings set org.gnome.desktop.interface color-scheme 'prefer-light' 2>/dev/null || true
+        target='prefer-light'; other='prefer-dark'
     else
-        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+        target='prefer-dark'; other='prefer-light'
     fi
+    gsettings set org.gnome.desktop.interface color-scheme "$other" 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface color-scheme "$target" 2>/dev/null || true
 fi
 
 echo "app surfaces: bg $BG fg $FG ($([ "$LIGHT" = 1 ] && echo light || echo dark))"
