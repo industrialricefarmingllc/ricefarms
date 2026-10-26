@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import qs
 import qs.lucidui
 import qs.lucidprefs as LP
+import "../squircle"
 
 // Raycast-like top-centre launcher. It reuses the dock's LauncherFace and its
 // models, but owns the surface: top anchored, collapsed to the head row until a
@@ -34,7 +35,7 @@ PanelWindow {
 
     margins.top: Theme.dp(72)
     implicitWidth: dock ? dock.menuWidth : Theme.dp(760)
-    implicitHeight: root.bodyOpen ? (dock ? Math.min(dock.menuHeight, screen.height - Theme.dp(160)) : Theme.dp(520)) : headHeight
+    implicitHeight: (root.bodyOpen ? (dock ? Math.min(dock.menuHeight, screen.height - Theme.dp(160)) : Theme.dp(520)) : headHeight) * 1.1
     readonly property real headHeight: Theme.dp(72)
     readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
 
@@ -79,15 +80,28 @@ PanelWindow {
         easing.type: Easing.OutCubic
     }
 
+    SquircleRect {
+        anchors.fill: face
+        scale: 1.1
+        transformOrigin: Item.Top
+        fillColor: Theme.bg
+        radius: Theme.radiusXl
+        smoothing: Prefs.squircleF
+        z: -1
+    }
+
     LauncherFace {
         id: face
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80))
-        height: root.height
+        height: root.height / 1.1
+        scale: 1.1
+        transformOrigin: Item.Top
+        headOnly: !root.bodyOpen
         opacity: 1
         targetWidth: root.width - root.panelPad
-        targetHeight: root.bodyOpen ? root.height - root.panelPad : root.headHeight
+        targetHeight: root.bodyOpen ? (root.height / 1.1 - root.panelPad) : (root.headHeight / 1.1)
         mode: root.dock ? root.dock.mode : "apps"
         model: root.dock ? root.dock.launcherResultsModel : null
         resultCount: root.dock ? root.dock.resultCount : 0
