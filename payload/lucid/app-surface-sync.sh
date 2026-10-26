@@ -66,7 +66,7 @@ fresh=1
 grep -q "background $BG" "$HOME/.config/kitty/lucid-surface.conf" 2>/dev/null || fresh=0
 grep -q "window_bg_color $BG" "$HOME/.config/gtk-4.0/gtk.css" 2>/dev/null || fresh=0
 grep -q "$BG" "$HOME/.config/opencode/themes/matugen.json" 2>/dev/null || fresh=0
-[ "$fresh" = "1" ] && exit 0
+[ "$fresh" = "1" ] && [ "${FORCE:-0}" != "1" ] && exit 0
 
 write_gtk() { # $1 = config dir, $2 = gtk version
     local dir="$HOME/.config/$1"
@@ -111,7 +111,33 @@ popover, popover > contents, .popover { background-color: @popover_bg_color; col
 EOF
 
     if [ "$2" = "gtk-4.0" ]; then
-        cat >> "$dir/gtk.css" <<'EOF'
+        cat >> "$dir/gtk.css" <<EOF
+/* libadwaita 1.10 resolves its palette through CSS custom properties at
+   stylesheet-parse time, so these must be overridden too, not just the
+   @define-color names. They inherit from the window root. */
+window, .background {
+    --window-bg-color: $BG;
+    --window-fg-color: $FG;
+    --view-bg-color: $BG;
+    --view-fg-color: $FG;
+    --headerbar-bg-color: $BG;
+    --headerbar-fg-color: $FG;
+    --headerbar-border-color: $OUTLINE;
+    --sidebar-bg-color: $BG;
+    --sidebar-fg-color: $FG;
+    --secondary-sidebar-bg-color: $BG;
+    --secondary-sidebar-fg-color: $FG;
+    --popover-bg-color: $BG;
+    --popover-fg-color: $FG;
+    --dialog-bg-color: $BG;
+    --dialog-fg-color: $FG;
+    --card-bg-color: $BG;
+    --card-fg-color: $FG;
+    --overview-bg-color: $BG;
+    --overview-fg-color: $FG;
+    --accent-bg-color: $PRIMARY;
+    --accent-fg-color: $ONPRIMARY;
+}
 view, listview, columnview, textview > text { background-color: @view_bg_color; color: @view_fg_color; }
 EOF
     else
