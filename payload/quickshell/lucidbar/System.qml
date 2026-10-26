@@ -1413,7 +1413,7 @@ BarPill {
 
                     anchors.centerIn: parent
                     role: "labelMedium"
-                    weight: 620
+                    weight: 700
                     text: root.kbLayout
                     // the local extra: the alternative layout reads at a glance
                     color: root.kbLayoutName.toLowerCase().indexOf("russian") !== -1 ? Theme.accent : Theme.text
@@ -1468,7 +1468,7 @@ BarPill {
                     visible: !root.volMuted
                     anchors.verticalCenter: parent.verticalCenter
                     role: "labelMedium"
-                    weight: 620
+                    weight: 700
                     text: root.volumePercent
                     color: Theme.text
                 }
