@@ -3031,13 +3031,6 @@ PanelWindow {
         fillColor: (dockWindow.splitDrawn || dockWindow.extGlass) ? "transparent" : Theme.bg
         smoothing: Prefs.squircleF
 
-        LucidBar.WallpaperBlur {
-            anchors.fill: parent
-            hostWindow: dockWindow
-            offsetX: shell.x
-            offsetY: (dockWindow.screen ? dockWindow.screen.height : 912) - dockWindow.height + shell.y
-        }
-
         // corners meeting the screen edge square off in notch mode
         bottomLeftRadius: dockWindow.renderAsNotch ? 0 : shell.radius
         bottomRightRadius: dockWindow.renderAsNotch ? 0 : shell.radius
