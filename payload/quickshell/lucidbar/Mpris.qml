@@ -3476,7 +3476,7 @@ BarPill {
             visible: false
             text: mq.content + "     •     "
             font.family: Theme.fontFamily
-            font.bold: mq.bold
+            font.weight: mq.weight
             font.pixelSize: mq.pixelSize
             font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
         }
@@ -3487,7 +3487,7 @@ BarPill {
             visible: false
             text: mq.content
             font.family: Theme.fontFamily
-            font.bold: mq.bold
+            font.weight: mq.weight
             font.pixelSize: mq.pixelSize
             font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
         }
@@ -3548,7 +3548,7 @@ BarPill {
                         text: mq.overflowing ? measure.text : mq.content
                         color: mq.textColor
                         font.family: Theme.fontFamily
-                        font.bold: mq.bold
+                        font.weight: mq.weight
                         font.pixelSize: mq.pixelSize
                         font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
                     }
@@ -3557,7 +3557,7 @@ BarPill {
                         text: measure.text
                         color: mq.textColor
                         font.family: Theme.fontFamily
-                        font.bold: mq.bold
+                        font.weight: mq.weight
                         font.pixelSize: mq.pixelSize
                         font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
                         visible: mq.overflowing

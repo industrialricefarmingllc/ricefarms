@@ -68,7 +68,10 @@ if [[ "$STAGE" != apps ]]; then
     cp "$PALETTE" "$HOME/.cache/quickshell/matugen.json"
 fi
 if [[ "$STAGE" == shell ]]; then
-    echo "applied theme '$THEME' to the shell"
+    # match kitty/GTK to the widget surface the shell just wrote
+    "$HOME/.config/lucid/app-surface-sync.sh" 2>/dev/null || true
+
+echo "applied theme '$THEME' to the shell"
     exit 0
 fi
 
@@ -391,5 +394,8 @@ fi
 # sddm — the login screen cannot read a per-user palette, so paint the theme.
 # a no-op unless the theme file is writable by whoever is applying.
 "$HOME/.config/lucid/sync-sddm.sh" "$PALETTE" 2>/dev/null || true
+
+# match kitty/GTK to the widget surface the shell just wrote
+"$HOME/.config/lucid/app-surface-sync.sh" 2>/dev/null || true
 
 echo "applied theme '$THEME'"
