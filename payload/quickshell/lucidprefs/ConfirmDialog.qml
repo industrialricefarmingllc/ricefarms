@@ -143,15 +143,6 @@ Item {
 
         }
 
-        Behavior on scale {
-            NumberAnimation {
-                duration: Theme.durMedium
-                easing.type: Theme.easeEmphasized
-                easing.overshoot: Theme.emphasizedOvershoot
-            }
-
-        }
-
         Behavior on opacity {
             NumberAnimation {
                 duration: Theme.durShort
