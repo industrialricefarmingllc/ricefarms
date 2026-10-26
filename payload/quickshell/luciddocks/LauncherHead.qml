@@ -91,7 +91,7 @@ Item {
     Row {
         id: modeRow
 
-        x: (head.width - width) / 2
+        anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
         spacing: head.gap
 
@@ -132,7 +132,7 @@ Item {
                         property: "scale"
                         from: 0.6
                         to: 1
-                        duration: Theme.durEnter
+                        duration: Theme.ms(700)
                         easing.type: Easing.Bezier
                         easing.bezierCurve: Theme.curveDefaultSpatial
                     }
