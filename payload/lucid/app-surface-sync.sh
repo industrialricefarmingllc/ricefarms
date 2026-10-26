@@ -27,27 +27,34 @@ LUCID="${LUCID_DIR:-$HOME/.config/lucid}"
 WALLPAPER="$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null || true)"
 SEED=""
 if [ -n "$WALLPAPER" ] && [ -f "$WALLPAPER" ]; then
-    SEED=$(python3 - "$WALLPAPER" <<'PY'
+    SEED=$(python3 - "$WALLPAPER" "$PALETTE" <<'PY'
 import colorsys, json, sys
 from collections import Counter
 try:
     from PIL import Image
+    pal = json.load(open(sys.argv[2]))
+    primary = str(pal.get("primary", "#808080")).lstrip("#")
+    ph = colorsys.rgb_to_hls(*(int(primary[i:i+2], 16) / 255.0 for i in (0, 2, 4)))[0] * 360.0
     im = Image.open(sys.argv[1]).convert("RGB")
     im.thumbnail((160, 160))
     q = im.quantize(colors=16).convert("RGB")
     data = q.get_flattened_data() if hasattr(q, "get_flattened_data") else q.getdata()
     counts = Counter(data)
     total = sum(counts.values()) or 1
-    best = None
+    candidates = []
     for rgb, n in counts.most_common():
         h, l, s = colorsys.rgb_to_hls(*(c / 255.0 for c in rgb))
         if n / total < 0.04 or s < 0.08 or l < 0.10 or l > 0.92:
             continue
-        # most dominant chromatic cluster; skip near-grey and near-black/white
-        if best is None or n / total > best[0]:
-            best = (n / total, h * 360.0, s)
-    if best:
-        print(json.dumps({"hue": round(best[1], 1), "saturation": round(best[2], 3)}))
+        hue = h * 360.0
+        d = abs(hue - ph) % 360.0
+        d = min(d, 360.0 - d)
+        candidates.append((n / total, hue, s, d))
+    if candidates:
+        # prefer a hue clearly apart from the accent, then the dominant one
+        far = [c for c in candidates if c[3] >= 35.0]
+        pick = max(far or candidates, key=lambda c: c[0])
+        print(json.dumps({"hue": round(pick[1], 1), "saturation": round(pick[2], 3)}))
 except Exception:
     pass
 PY
