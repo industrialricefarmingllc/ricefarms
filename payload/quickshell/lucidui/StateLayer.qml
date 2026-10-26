@@ -12,6 +12,7 @@ MouseArea {
     property bool ripple: true
     property bool disabled: false
     property bool showFocusRing: true
+    property bool arrowNavigable: true
     property real hoverOpacity: Theme.stateHover
     property real pressOpacity: Theme.statePressed
     readonly property bool active: sl.containsMouse && !sl.disabled
