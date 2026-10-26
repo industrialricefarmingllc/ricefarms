@@ -50,6 +50,8 @@ Item {
                 StateLayer {
                     tint: tab.on ? Theme.primary : Theme.text
                     onClicked: tabs.picked(tab.modelData.key)
+                    // tabbing into a tab selects it straight away
+                    onActiveFocusChanged: if (activeFocus) tabs.picked(tab.modelData.key)
                 }
 
                 Grid {
