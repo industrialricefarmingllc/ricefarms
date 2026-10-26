@@ -1,0 +1,14 @@
+#!/bin/sh
+# Launch Nautilus with the Lucid GTK live-CSS shim.
+# GTK4 only reads ~/.config/gtk-4.0/gtk.css once; the shim adds a monitored
+# provider so palette/wallpaper changes apply without restarting the app.
+SHIM="${HOME}/.local/lib/liblucidgtk.so"
+if [ -f "$SHIM" ]; then
+    if [ -n "${LD_PRELOAD:-}" ]; then
+        LD_PRELOAD="$SHIM:$LD_PRELOAD"
+    else
+        LD_PRELOAD="$SHIM"
+    fi
+    export LD_PRELOAD
+fi
+exec /usr/bin/nautilus "$@"
