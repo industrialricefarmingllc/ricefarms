@@ -1,4 +1,5 @@
 import QtQuick
+import Qt5Compat.GraphicalEffects
 import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
@@ -20,6 +21,7 @@ PanelWindow {
     property bool closing: false
     property bool panelVisible: false
     property real revealRadius: 0
+    property string wallpaperPath: ""
 
     screen: dock ? (dock.launcherScreen || dock.screen) : null
     visible: root.panelVisible
@@ -36,24 +38,37 @@ PanelWindow {
         right: true
     }
 
-    margins.top: Theme.dp(72 + 20)
+    readonly property real topHalf: root.screen ? root.screen.height / 2 : Theme.dp(456)
+    margins.top: Math.round(root.topHalf * 0.618)
     implicitWidth: dock ? dock.menuWidth : Theme.dp(760)
 
     readonly property real scaleFactor: 1.35
     readonly property real padH: 6
     readonly property real padV: 8
     readonly property real faceWidth: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80)) * 0.75
-    readonly property real openContentH: Math.min(root.dock ? root.dock.menuHeight : Theme.dp(520), (root.screen.height - root.margins.top - Theme.dp(32)) / root.scaleFactor - root.padV * 2)
+    readonly property real openContentH: Math.min(root.dock ? root.dock.menuHeight : Theme.dp(520), (root.screen.height - root.margins.top - Theme.dp(32) - root.ring * 2) / root.scaleFactor - root.padV * 2)
     readonly property real collapsedContentH: face ? face.headHeight : Prefs.launcherHeadH
     readonly property real contentH: root.bodyOpen ? root.openContentH : root.collapsedContentH
     readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
-    readonly property real revealCenterY: root.padV + root.collapsedContentH * root.scaleFactor * 0.5
-    implicitHeight: root.contentH * root.scaleFactor + root.padV * 2
+    readonly property real revealCenterY: root.ring + root.padV + root.collapsedContentH * root.scaleFactor * 0.5
+    readonly property real revealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH, Math.max(root.revealCenterY, root.height - root.revealCenterY)) + 8
+    readonly property real ring: Theme.dp(4)
+    readonly property var activeBorderColours: HyprConfig.coloursOf(HyprConfig.value("general.col.active_border"))
+    readonly property color activeBorderColour: root.activeBorderColours.length > 0 ? root.activeBorderColours[0] : Theme.accent
+    readonly property real activeBorderWidth: Math.max(1, HyprConfig.num("general.border_size", 1))
+    implicitHeight: root.contentH * root.scaleFactor + root.padV * 2 + root.ring * 2
     Behavior on implicitHeight {
         NumberAnimation {
             duration: Theme.durDefault
             easing.type: Easing.OutCubic
         }
+    }
+
+    FileView {
+        path: Quickshell.env("HOME") + "/.cache/current_wallpaper"
+        watchChanges: true
+        onFileChanged: reload()
+        onLoaded: root.wallpaperPath = text().trim()
     }
 
     onVisibleChanged: {
@@ -88,7 +103,7 @@ PanelWindow {
         target: root
         property: "revealRadius"
         from: 0
-        to: 5000
+        to: root.revealMax
         duration: Theme.durEnter
         easing.type: Easing.OutCubic
     }
@@ -123,15 +138,56 @@ PanelWindow {
         anchors.fill: parent
         layer.enabled: true
         layer.effect: ShaderEffect {
-            property vector2d windowSize: Qt.vector2d(root.width, root.height)
-            property vector2d circleCenter: Qt.vector2d(root.width / 2, root.revealCenterY)
-            property real circleRadius: root.revealRadius
+            property vector2d center: Qt.vector2d(0.5, root.revealCenterY / Math.max(1, root.height))
+            property real radius: root.revealRadius / Math.max(1, root.width)
+            property real aspect: root.height / Math.max(1, root.width)
             fragmentShader: "LauncherMask.qsb"
         }
 
-    SquircleRect {
+    Item {
+        id: hole
+
         anchors.horizontalCenter: parent.horizontalCenter
         y: 0
+        width: surface.width + root.ring * 2
+        height: surface.height + root.ring * 2
+        z: -2
+
+        SquircleMask {
+            id: holeMask
+
+            anchors.fill: parent
+            radius: Theme.radiusXl + root.ring
+            smoothing: Prefs.squircleF
+            visible: false
+        }
+
+        Image {
+            id: holeWallpaper
+
+            x: -hole.x
+            y: -hole.y - root.margins.top
+            width: root.screen.width
+            height: root.screen.height
+            source: root.wallpaperPath !== "" ? "file://" + root.wallpaperPath : ""
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            visible: false
+        }
+
+        OpacityMask {
+            anchors.fill: parent
+            source: holeWallpaper
+            maskSource: holeMask
+        }
+    }
+
+    SquircleRect {
+        id: surface
+
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.ring
         width: face.width * root.scaleFactor + root.padH * 2
         height: face.height * root.scaleFactor + root.padV * 2
         fillColor: Theme.bg
@@ -140,13 +196,23 @@ PanelWindow {
         z: -1
     }
 
+    SquircleRect {
+        anchors.fill: hole
+        fillColor: "transparent"
+        borderColor: root.activeBorderColour
+        borderWidth: root.activeBorderWidth
+        radius: Theme.radiusXl + root.ring
+        smoothing: Prefs.squircleF
+        z: -0.5
+    }
+
     LauncherFace {
         id: face
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         width: root.faceWidth
         height: root.contentH
-        anchors.topMargin: root.padV
+        anchors.topMargin: root.ring + root.padV
         scale: root.scaleFactor
         transformOrigin: Item.Top
         headOnly: !root.bodyOpen
