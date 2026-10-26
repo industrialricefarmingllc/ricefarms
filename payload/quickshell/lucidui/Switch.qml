@@ -14,6 +14,10 @@ Item {
     implicitWidth: Theme.dp(48)
     implicitHeight: Theme.dp(28)
     opacity: sw.disabled ? Theme.disabledContent : 1
+    activeFocusOnTab: !sw.disabled
+    Keys.onSpacePressed: if (!sw.disabled) sw.toggled(!sw.checked)
+    Keys.onReturnPressed: if (!sw.disabled) sw.toggled(!sw.checked)
+    Keys.onEnterPressed: if (!sw.disabled) sw.toggled(!sw.checked)
 
     Rectangle {
         id: track
@@ -101,9 +105,20 @@ Item {
         anchors.margins: -Theme.dp(4)
         hoverEnabled: true
         enabled: !sw.disabled
+        onPressed: sw.forceActiveFocus()
         cursorShape: Qt.PointingHandCursor
         // the caller owns `checked`; assigning it here would cut their binding
         onClicked: sw.toggled(!sw.checked)
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.pill(height)
+        color: "transparent"
+        border.width: sw.activeFocus ? Math.max(1, Theme.dp(2)) : 0
+        border.color: Theme.accent
+        visible: sw.activeFocus
+        z: 1000
     }
 
 }

@@ -31,6 +31,20 @@ Item {
     // a drag the slider does not own, like the bar tooltip's card: it writes live
     // itself, and value cannot pull live back until it lets go
     property bool held: false
+    activeFocusOnTab: !sl.disabled
+
+    function keyStep(dir) {
+        const step = sl.stepSize > 0 ? sl.stepSize : (sl.to - sl.from) / 100;
+        const v = Math.max(sl.from, Math.min(sl.to, sl.value + dir * step));
+        if (v === sl.value)
+            return ;
+        sl.moved(v);
+        sl.released(v);
+    }
+    Keys.onLeftPressed: sl.keyStep(-1)
+    Keys.onDownPressed: sl.keyStep(-1)
+    Keys.onRightPressed: sl.keyStep(1)
+    Keys.onUpPressed: sl.keyStep(1)
 
     property bool iconClickable: false
 
@@ -313,6 +327,16 @@ Item {
         height: sl.height
         cursorShape: Qt.PointingHandCursor
         onClicked: sl.iconClicked()
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        radius: sl.outerR
+        color: "transparent"
+        border.width: sl.activeFocus ? Math.max(1, Theme.dp(2)) : 0
+        border.color: Theme.accent
+        visible: sl.activeFocus
+        z: 1000
     }
 
 }
