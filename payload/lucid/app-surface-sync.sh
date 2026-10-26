@@ -224,19 +224,28 @@ pkill -SIGUSR1 kitty 2>/dev/null || true
 # there too so the TUI sits on the same base as the bar and terminals
 OC_THEME="$HOME/.config/opencode/themes/matugen.json"
 if [ -f "$OC_THEME" ]; then
-    python3 - "$OC_THEME" "$BG" <<'PY'
+    # opencode may insist on the dark variant (COLORFGBG/terminal detection);
+    # force the active palette into both variants so the TUI always matches the
+    # shell, then paint the surface colour behind it
+    python3 - "$OC_THEME" "$BG" "$LIGHT" <<'PY'
 import json, sys
-path, bg = sys.argv[1], sys.argv[2]
+path, bg, light = sys.argv[1], sys.argv[2], sys.argv[3]
+active = "light" if light == "1" else "dark"
 try:
     with open(path) as f:
         data = json.load(f)
     theme = data.get("theme") or {}
+    for value in theme.values():
+        if isinstance(value, dict) and "dark" in value and "light" in value:
+            chosen = value.get(active)
+            if chosen is not None:
+                value["dark"] = chosen
+                value["light"] = chosen
     for key in ("background", "backgroundPanel", "backgroundElement"):
         value = theme.get(key)
         if isinstance(value, dict):
-            for mode in ("dark", "light"):
-                if mode in value:
-                    value[mode] = bg
+            value["dark"] = bg
+            value["light"] = bg
         elif value is not None:
             theme[key] = bg
     with open(path, "w") as f:
