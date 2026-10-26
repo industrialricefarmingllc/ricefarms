@@ -10,7 +10,7 @@ import qs
 Item {
     id: root
 
-    property Item hostWindow: null
+    property var hostWindow: null
     property real offsetX: 0
     property real offsetY: 0
 

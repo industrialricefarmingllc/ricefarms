@@ -3035,8 +3035,8 @@ PanelWindow {
             anchors.fill: parent
             visible: !dockWindow.extGlass
             hostWindow: dockWindow
-            offsetX: dockWindow.x + shell.x
-            offsetY: dockWindow.y + shell.y
+            offsetX: shell.x
+            offsetY: (dockWindow.screen ? dockWindow.screen.height : 912) - dockWindow.height + shell.y
         }
 
         // corners meeting the screen edge square off in notch mode

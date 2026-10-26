@@ -740,8 +740,8 @@ Item {
             anchors.fill: parent
             visible: !pill.externalGlass
             hostWindow: pill.hostWindow
-            offsetX: pill.hostWindow ? pill.hostWindow.x + pillRect.x : 0
-            offsetY: pill.hostWindow ? pill.hostWindow.y + pillRect.y : 0
+            offsetX: pillRect.x
+            offsetY: Prefs.effectiveBarTopMargin + pillRect.y
         }
 
         HoverHandler {
@@ -844,8 +844,8 @@ Item {
                 anchors.fill: parent
                 visible: !pill.externalGlass
                 hostWindow: pill.hostWindow
-                offsetX: pill.hostWindow ? pill.hostWindow.x + shell.x : 0
-                offsetY: pill.hostWindow ? pill.hostWindow.y + shell.y : 0
+                offsetX: shell.x
+                offsetY: Prefs.effectiveBarTopMargin + shell.y
             }
             // content inside clipped container
             Item {

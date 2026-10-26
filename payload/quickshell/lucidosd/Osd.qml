@@ -657,8 +657,8 @@ PanelWindow {
             anchors.fill: parent
             visible: !Prefs.liquidGlassEnabled
             hostWindow: osdWindow
-            offsetX: osdWindow.x + card.x
-            offsetY: osdWindow.y + card.y
+            offsetX: ((osdWindow.screen ? osdWindow.screen.width : 1368) - osdWindow.width) / 2 + card.x
+            offsetY: (osdWindow.screen ? osdWindow.screen.height : 912) - osdWindow.height - osdWindow.margins.bottom + card.y
         }
 
         opacity: osdWindow.cardVisible ? 1 : 0
