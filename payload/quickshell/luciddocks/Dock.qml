@@ -3030,6 +3030,15 @@ PanelWindow {
         // split, the islands below paint it
         fillColor: (dockWindow.splitDrawn || dockWindow.extGlass) ? "transparent" : Theme.bg
         smoothing: Prefs.squircleF
+
+        LucidBar.WallpaperBlur {
+            anchors.fill: parent
+            visible: !dockWindow.extGlass
+            hostWindow: dockWindow
+            offsetX: dockWindow.x + shell.x
+            offsetY: dockWindow.y + shell.y
+        }
+
         // corners meeting the screen edge square off in notch mode
         bottomLeftRadius: dockWindow.renderAsNotch ? 0 : shell.radius
         bottomRightRadius: dockWindow.renderAsNotch ? 0 : shell.radius

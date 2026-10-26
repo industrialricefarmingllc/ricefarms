@@ -652,6 +652,15 @@ PanelWindow {
         // deliberately circular, not squircle: radius == height / 2 must draw a
         // true stadium pill. smoothing would flatten the ends into a blob.
         smoothing: 0
+
+        LucidBar.WallpaperBlur {
+            anchors.fill: parent
+            visible: !Prefs.liquidGlassEnabled
+            hostWindow: osdWindow
+            offsetX: osdWindow.x + card.x
+            offsetY: osdWindow.y + card.y
+        }
+
         opacity: osdWindow.cardVisible ? 1 : 0
         scale: osdWindow.cardVisible ? 1 : 0.9
         visible: opacity > 0.15
