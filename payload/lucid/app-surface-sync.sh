@@ -256,17 +256,16 @@ except (OSError, ValueError):
 PY
 fi
 
-# keep the toolkit's own light/dark choice in step with the palette, and use a
-# color-scheme round trip to make GTK4/libadwaita re-read gtk.css live —
-# otherwise a running Nautilus keeps the stylesheet it loaded at startup
+# Keep the toolkit's own light/dark choice in step with the palette. GTK4
+# loads ~/.config/gtk-4.0/gtk.css exactly once at startup (gtksettings.c
+# settings_init_style), so this cannot reload our user CSS; running GTK apps
+# pick the new colours up on their next launch.
 if command -v gsettings >/dev/null 2>&1; then
     if [ "$LIGHT" = "1" ]; then
-        target='prefer-light'; other='prefer-dark'
+        gsettings set org.gnome.desktop.interface color-scheme 'prefer-light' 2>/dev/null || true
     else
-        target='prefer-dark'; other='prefer-light'
+        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
     fi
-    gsettings set org.gnome.desktop.interface color-scheme "$other" 2>/dev/null || true
-    gsettings set org.gnome.desktop.interface color-scheme "$target" 2>/dev/null || true
 fi
 
 echo "app surfaces: bg $BG fg $FG ($([ "$LIGHT" = 1 ] && echo light || echo dark))"
