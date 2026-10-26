@@ -10,6 +10,34 @@ Item {
 
     // "apps" | "commands" | "web" | "run" | "emoji" | "theme" | "wallpaper" | "live" | "clipboard"
     property string mode: "apps"
+    // the top-centre launcher starts as just the head/tabs row
+    property bool headOnly: false
+
+    function cycleTab(dir) {
+        if (!face.modes || face.modes.length === 0)
+            return ;
+        const keys = face.modes.map((m) => m.key);
+        let i = keys.indexOf(face.mode);
+        if (i < 0)
+            i = 0;
+        face.modeRequested(keys[(i + dir + keys.length) % keys.length]);
+    }
+    Keys.onTabPressed: (event) => {
+        face.cycleTab(1);
+        event.accepted = true;
+    }
+    Keys.onBacktabPressed: (event) => {
+        face.cycleTab(-1);
+        event.accepted = true;
+    }
+    Shortcut {
+        sequence: "Tab"
+        onActivated: face.cycleTab(1)
+    }
+    Shortcut {
+        sequence: "Shift+Tab"
+        onActivated: face.cycleTab(-1)
+    }
     property var model: null
     property var wallpaperModel: null
     // Settings -> Theme picks the style; unknown names fall back to the strip
@@ -236,6 +264,11 @@ Item {
         if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
             face.closeRequested()
             event.accepted = true
+            return ;
+        }
+        if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+            face.cycleTab((event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier)) ? -1 : 1);
+            event.accepted = true;
         }
     }
 
@@ -343,6 +376,7 @@ Item {
 
     Item {
         id: contentArea
+        visible: !face.headOnly
 
         // explicit y, not a conditional anchor: an anchor once set never lets go
         x: 0
@@ -583,6 +617,8 @@ Item {
     // m3 search bar: 56dp tall, fully rounded, on surface container high
     Rectangle {
         id: searchBar
+        // stays focusable so typing can start while the body is still folded
+        opacity: face.headOnly ? 0 : 1
 
         readonly property bool typing: searchInput.text !== ""
 
