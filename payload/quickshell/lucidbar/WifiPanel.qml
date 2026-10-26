@@ -2,6 +2,9 @@ import QtQuick
 import Quickshell.Io
 import Quickshell.Networking
 import qs
+import qs.lucidui
+import "../lucidprefs"
+import "../squircle"
 
 Item {
     id: root
@@ -14,49 +17,28 @@ Item {
 
         property color glyphColor: Theme.subtext
 
-        Rectangle {
-            width: 10
-            height: 7
-            radius: 2
+        Icon {
             anchors.centerIn: parent
-            anchors.verticalCenterOffset: 2
+            name: "lan"
+            size: Theme.dp(18)
+            fill: 1
             color: glyph.glyphColor
-        }
-
-        Row {
-            anchors.top: parent.top
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 2
-
-            Rectangle {
-                width: 2
-                height: 5
-                color: glyph.glyphColor
-            }
-
-            Rectangle {
-                width: 2
-                height: 5
-                color: glyph.glyphColor
-            }
-
         }
 
     }
 
     // shared so the pill and the list can't drift apart
-    component WifiStrengthGlyph: Text {
+    component WifiStrengthGlyph: Icon {
         id: wsg
 
         property real strength: 0
         property bool showOff: false
-        readonly property var icons: ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"]
         readonly property real normalizedStrength: wsg.strength <= 1 ? wsg.strength * 100 : wsg.strength
-        readonly property int level: Math.max(0, Math.min(4, Math.floor(wsg.normalizedStrength / 20)))
+        readonly property int level: wsg.normalizedStrength >= 80 ? 4 : (wsg.normalizedStrength >= 60 ? 3 : (wsg.normalizedStrength >= 40 ? 2 : (wsg.normalizedStrength >= 20 ? 1 : 0)))
 
-        text: wsg.showOff ? "󰤮" : wsg.icons[wsg.level]
-        font.family: Theme.fontFamily
-        font.pixelSize: Theme.fs(15)
+        name: wsg.showOff ? "signal_wifi_off" : ["signal_wifi_0_bar", "network_wifi_1_bar", "network_wifi_2_bar", "network_wifi_3_bar", "signal_wifi_4_bar"][wsg.level]
+        size: Theme.dp(20)
+        fill: 1
     }
 
     component NetRow: Column {
@@ -73,9 +55,14 @@ Item {
         readonly property bool showPasswordInput: uiState.showPasswordInput
         readonly property string failReason: uiState.failReason
         readonly property bool isConnecting: modelData.state === ConnectionState.Connecting || (root.pendingNetworkName === modelData.name)
+        readonly property bool canShare: netItem.isTrusted && !netItem.showPasswordInput
+        property bool sharing: false
 
         width: parent.width
         onIsExpandedChanged: {
+            if (!isExpanded)
+                netItem.sharing = false;
+
             if (isExpanded && netItem.isTrusted)
                 root.fetchAutoConnect(modelData.name);
             else if (!isExpanded && !netItem.isConnected && !netItem.isConnecting)
@@ -125,22 +112,32 @@ Item {
             target: netItem.modelData
         }
 
-        Rectangle {
+        SquircleRect {
             width: parent.width
-            height: 42
-            radius: 12
-            color: netItem.isExpanded ? Theme.withBlur(Theme.bgActive) : (rowArea.containsMouse ? Theme.withBlur(Theme.bgHover) : "transparent")
+            height: Theme.dp(54)
+            radius: netItem.isExpanded ? Theme.rad(20) : Theme.rad(14)
+            smoothing: Prefs.squircleF
+            fillColor: netItem.isExpanded ? Theme.withBlur(Theme.surfaceHighest) : (rowArea.containsMouse ? Theme.withBlur(Theme.layer(Theme.surfaceHigh, Theme.text, Theme.stateHover)) : Theme.withBlur(Theme.surfaceHigh))
+
+            Behavior on radius {
+                NumberAnimation {
+                    duration: Theme.durFastSpatial
+                    easing.type: Easing.Bezier
+                    easing.bezierCurve: Theme.curveDefaultSpatial
+                }
+
+            }
 
             Row {
                 anchors.fill: parent
-                anchors.margins: 9
-                spacing: 10
+                anchors.leftMargin: Theme.dp(14)
+                anchors.rightMargin: Theme.dp(14)
+                spacing: Theme.dp(14)
 
                 Item {
-                    width: 16
-                    height: 16
+                    width: Theme.dp(20)
+                    height: Theme.dp(20)
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.verticalCenterOffset: 1
 
                     WifiStrengthGlyph {
                         anchors.centerIn: parent
@@ -149,17 +146,21 @@ Item {
                     }
 
                     Rectangle {
+                        id: netDot
+
                         visible: netItem.isConnected
-                        width: 6
-                        height: 6
-                        radius: 3
+                        width: Theme.dp(6)
+                        height: Theme.dp(6)
+                        radius: Theme.dp(3)
                         color: Theme.success
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
                         anchors.margins: -1
 
+                        // visible is the effective one, so a closed panel stops the pulse
+                        // instead of driving a repaint every frame for nobody
                         SequentialAnimation on opacity {
-                            running: netItem.isConnected
+                            running: netDot.visible
                             loops: Animation.Infinite
 
                             NumberAnimation {
@@ -181,7 +182,7 @@ Item {
                 }
 
                 Column {
-                    width: parent.width - 16 - 12 - 10
+                    width: parent.width - Theme.dp(20) - Theme.dp(18) - Theme.dp(28)
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 1
 
@@ -191,24 +192,25 @@ Item {
                         color: Theme.text
                         font.family: Theme.fontFamily
                         font.bold: true
-                        font.pixelSize: Theme.fs(12)
+                        font.pixelSize: Theme.fs(13)
+                        font.variableAxes: Theme.axes(Theme.fs(13), 560, 0)
                         elide: Text.ElideRight
                     }
 
                     Text {
-                        text: netItem.isConnected ? "Connected · " + root.strengthLabel(netItem.modelData.signalStrength || 0) : root.strengthLabel(netItem.modelData.signalStrength || 0)
+                        text: netItem.isConnected ? "Connected · " + root.strengthLabel(root.pct(netItem.modelData.signalStrength || 0)) : root.strengthLabel(root.pct(netItem.modelData.signalStrength || 0)) + (netItem.isSecured ? "" : " · Open")
                         color: netItem.isConnected ? Theme.accent : Theme.subtext
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fs(10)
+                        font.pixelSize: Theme.fs(11)
+                        font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
                     }
 
                 }
 
-                Text {
-                    text: "▾"
+                Icon {
+                    name: "expand_more"
+                    size: Theme.dp(20)
                     color: Theme.subtext
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fs(11)
                     anchors.verticalCenter: parent.verticalCenter
                     rotation: netItem.isExpanded ? 180 : 0
 
@@ -233,7 +235,7 @@ Item {
                 onClicked: root.expandedKey = netItem.isExpanded ? "" : netItem.modelData.name
             }
 
-            Behavior on color {
+            Behavior on fillColor {
                 ColorAnimation {
                     duration: Theme.barMs(150)
                 }
@@ -253,33 +255,34 @@ Item {
                 id: expandContent
 
                 width: parent.width
-                leftPadding: 36
-                rightPadding: 14
-                topPadding: 6
-                bottomPadding: 14
-                spacing: 10
-                y: netItem.isExpanded ? 0 : -8
+                leftPadding: Theme.dp(36)
+                rightPadding: Theme.dp(14)
+                topPadding: Theme.dp(6)
+                bottomPadding: Theme.dp(14)
+                spacing: Theme.dp(10)
+                y: netItem.isExpanded ? 0 : -Theme.dp(8)
                 opacity: netItem.isExpanded ? 1 : 0
 
                 Rectangle {
                     id: passwordBox
 
                     visible: netItem.showPasswordInput && !netItem.isConnected
-                    width: parent.width - 46
-                    height: 32
-                    radius: 8
+                    width: parent.width - Theme.dp(46)
+                    height: Theme.dp(32)
+                    radius: Theme.rad(8)
                     color: Theme.withBlur(Theme.bgSunken)
                     border.width: 1
                     border.color: netItem.connectFailed ? Theme.error : (passwordInput.activeFocus ? Theme.accent : Theme.bgHigh)
 
                     Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: 10
+                        anchors.leftMargin: Theme.dp(10)
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Enter password..."
                         color: Theme.outlineStrong
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(11)
+                        font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
                         visible: !passwordInput.text && !passwordInput.activeFocus
                     }
 
@@ -287,14 +290,15 @@ Item {
                         id: passwordInput
 
                         anchors.fill: parent
-                        anchors.leftMargin: 10
-                        anchors.rightMargin: 10
+                        anchors.leftMargin: Theme.dp(10)
+                        anchors.rightMargin: Theme.dp(10)
                         verticalAlignment: Text.AlignVCenter
                         echoMode: TextInput.Password
                         passwordCharacter: "•"
                         color: Theme.text
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(12)
+                        font.variableAxes: Theme.axes(Theme.fs(12), 420, 0)
                         selectByMouse: true
                         onAccepted: {
                             if (text.length > 0)
@@ -313,16 +317,16 @@ Item {
                 }
 
                 Row {
-                    width: parent.width - 46
-                    height: 30
-                    spacing: 8
+                    width: parent.width - Theme.dp(46)
+                    height: Theme.dp(30)
+                    spacing: Theme.dp(8)
 
                     Rectangle {
                         id: connectBtn
 
-                        width: (netItem.isTrusted && !netItem.showPasswordInput) ? (parent.width - 8) / 2 : parent.width
+                        width: netItem.canShare ? (parent.width - shareBtn.width - Theme.dp(16)) / 2 : parent.width
                         height: parent.height
-                        radius: 999
+                        radius: Theme.dp(999)
                         color: netItem.isConnecting ? Theme.withBlur(Theme.outlineStrong) : (netItem.isConnected ? Theme.accentContainer : (connectArea.containsMouse ? Theme.accentHover : Theme.accent))
                         scale: connectArea.pressed ? 0.96 : 1
 
@@ -333,6 +337,7 @@ Item {
                             font.family: Theme.fontFamily
                             font.bold: true
                             font.pixelSize: Theme.fs(12)
+                            font.variableAxes: Theme.axes(Theme.fs(12), 640, 0)
                         }
 
                         MouseArea {
@@ -380,10 +385,10 @@ Item {
                     Rectangle {
                         id: forgetBtn
 
-                        visible: netItem.isTrusted && !netItem.showPasswordInput
-                        width: (parent.width - 8) / 2
+                        visible: netItem.canShare
+                        width: (parent.width - shareBtn.width - Theme.dp(16)) / 2
                         height: parent.height
-                        radius: 999
+                        radius: Theme.dp(999)
                         color: forgetArea.containsMouse ? Theme.withBlur(Theme.outlineStrong) : "transparent"
                         border.width: 1
                         border.color: Theme.outlineStrong
@@ -396,6 +401,7 @@ Item {
                             font.family: Theme.fontFamily
                             font.bold: true
                             font.pixelSize: Theme.fs(11)
+                            font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
                         }
 
                         MouseArea {
@@ -437,32 +443,91 @@ Item {
 
                     }
 
+                    Rectangle {
+                        id: shareBtn
+
+                        visible: netItem.canShare
+                        width: Theme.dp(30)
+                        height: Theme.dp(30)
+                        radius: Theme.dp(999)
+                        color: netItem.sharing ? Theme.accentContainer : (shareArea.containsMouse ? Theme.withBlur(Theme.outlineStrong) : "transparent")
+                        border.width: netItem.sharing ? 0 : 1
+                        border.color: Theme.outlineStrong
+                        scale: shareArea.pressed ? 0.94 : 1
+
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "qr_code"
+                            size: Theme.dp(16)
+                            fill: netItem.sharing ? 1 : 0
+                            color: netItem.sharing ? Theme.accent : Theme.text
+                        }
+
+                        MouseArea {
+                            id: shareArea
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: netItem.sharing = !netItem.sharing
+                        }
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: Theme.barMs(120)
+                            }
+
+                        }
+
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: Theme.barMs(90)
+                                easing.type: Easing.OutQuad
+                            }
+
+                        }
+
+                    }
+
+                }
+
+                Loader {
+                    width: parent.width - Theme.dp(46)
+                    active: netItem.sharing && netItem.isExpanded && root.active
+                    visible: active
+
+                    sourceComponent: WifiShare {
+                        ssid: netItem.modelData.name
+                        compact: true
+                    }
+
                 }
 
                 Text {
                     id: errorText
 
                     visible: netItem.connectFailed && !netItem.isConnected && !netItem.isConnecting
-                    width: parent.width - 46
+                    width: parent.width - Theme.dp(46)
                     text: netItem.failReason || (netItem.attemptedWithNewPassword ? "Incorrect password." : "Connection failed.")
                     color: Theme.error
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(10)
+                    font.variableAxes: Theme.axes(Theme.fs(10), 420, 0)
                     wrapMode: Text.WordWrap
                 }
 
                 Row {
                     visible: netItem.isTrusted
-                    spacing: 8
+                    spacing: Theme.dp(8)
 
                     Rectangle {
                         id: autoBox
 
                         readonly property bool checked: root.isAutoConnectEnabled(netItem.modelData.name)
 
-                        width: 15
-                        height: 15
-                        radius: 4
+                        width: Theme.dp(15)
+                        height: Theme.dp(15)
+                        radius: Theme.dp(4)
                         color: checked ? Theme.accent : "transparent"
                         border.width: 1.5
                         border.color: checked ? Theme.accent : Theme.outlineStrong
@@ -488,6 +553,7 @@ Item {
                         font.family: Theme.fontFamily
                         font.bold: true
                         font.pixelSize: Theme.fs(11)
+                        font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
                         anchors.verticalCenter: parent.verticalCenter
 
                         MouseArea {
@@ -702,6 +768,11 @@ Item {
         network.connectWithPsk(password);
     }
 
+    // networkmanager reports 0..1; some callers already hold a percentage
+    function pct(s) {
+        return s <= 1 ? s * 100 : s;
+    }
+
     function strengthLabel(s) {
         if (s >= 66)
             return "Strong";
@@ -823,7 +894,8 @@ Item {
         interval: 1200
         repeat: false
         onTriggered: {
-            if (Networking.wifiEnabled && root.wifiDevice)
+            // Don't re-activate an already-connected device on shell startup.
+            if (Networking.wifiEnabled && root.wifiDevice && !root.wifiConnected)
                 triggerDeviceAutoconnectProc.running = true;
 
         }
@@ -924,12 +996,12 @@ Item {
         id: col
 
         width: root.width
-        spacing: 10
+        spacing: Theme.dp(10)
 
         Item {
             visible: Networking.connectivity === NetworkConnectivity.None || Networking.connectivity === NetworkConnectivity.Portal || Networking.connectivity === NetworkConnectivity.Limited
             width: parent.width
-            height: 20
+            height: Theme.dp(20)
 
             Text {
                 anchors.left: parent.left
@@ -938,6 +1010,7 @@ Item {
                 color: Networking.connectivity === NetworkConnectivity.None ? Theme.error : Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(11)
+                font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
             }
 
             Text {
@@ -948,13 +1021,14 @@ Item {
                 color: Theme.accentMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(10)
+                font.variableAxes: Theme.axes(Theme.fs(10), 420, 0)
                 font.underline: recheckArea.containsMouse
 
                 MouseArea {
                     id: recheckArea
 
                     anchors.fill: parent
-                    anchors.margins: -4
+                    anchors.margins: -Theme.dp(4)
                     cursorShape: Qt.PointingHandCursor
                     onClicked: Networking.checkConnectivity()
                 }
@@ -966,13 +1040,13 @@ Item {
         Item {
             visible: root.wiredDevice !== null
             width: parent.width
-            height: 40
+            height: Theme.dp(40)
 
             EthernetGlyph {
                 id: ethIcon
 
-                width: 16
-                height: 16
+                width: Theme.dp(16)
+                height: Theme.dp(16)
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 glyphColor: root.ethernetConnected ? Theme.accent : Theme.subtext
@@ -980,7 +1054,7 @@ Item {
 
             Column {
                 anchors.left: ethIcon.right
-                anchors.leftMargin: 10
+                anchors.leftMargin: Theme.dp(10)
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 1
 
@@ -990,6 +1064,7 @@ Item {
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(12)
+                    font.variableAxes: Theme.axes(Theme.fs(12), 640, 0)
                 }
 
                 Text {
@@ -1008,6 +1083,7 @@ Item {
                     color: root.ethernetConnected ? Theme.accent : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(10)
+                    font.variableAxes: Theme.axes(Theme.fs(10), 420, 0)
                 }
 
             }
@@ -1016,9 +1092,9 @@ Item {
                 visible: root.ethernetConnected
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: 78
-                height: 26
-                radius: 999
+                width: Theme.dp(78)
+                height: Theme.dp(26)
+                radius: Theme.dp(999)
                 color: ethDisconnectArea.containsMouse ? Theme.outlineStrong : "transparent"
                 border.width: 1
                 border.color: Theme.outlineStrong
@@ -1030,6 +1106,7 @@ Item {
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(10)
+                    font.variableAxes: Theme.axes(Theme.fs(10), 640, 0)
                 }
 
                 MouseArea {
@@ -1056,65 +1133,6 @@ Item {
 
         }
 
-        Item {
-            width: parent.width
-            height: 24
-
-            Text {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Wi-Fi"
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.bold: true
-                font.pixelSize: Theme.fs(12)
-            }
-
-            Rectangle {
-                id: wifiSwitch
-
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                width: 32
-                height: 18
-                radius: 999
-                color: Networking.wifiEnabled ? Theme.accent : Theme.outlineStrong
-
-                Rectangle {
-                    width: 14
-                    height: 14
-                    radius: 7
-                    color: Theme.bg
-                    anchors.verticalCenter: parent.verticalCenter
-                    x: Networking.wifiEnabled ? parent.width - width - 2 : 2
-
-                    Behavior on x {
-                        NumberAnimation {
-                            duration: Theme.barMs(200)
-                            easing.type: Easing.OutCubic
-                        }
-
-                    }
-
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    enabled: Networking.wifiHardwareEnabled
-                    onClicked: Networking.wifiEnabled = !Networking.wifiEnabled
-                }
-
-                Behavior on color {
-                    ColorAnimation {
-                        duration: Theme.barMs(200)
-                    }
-
-                }
-
-            }
-
-        }
-
         Text {
             visible: !Networking.wifiHardwareEnabled
             width: parent.width
@@ -1122,6 +1140,7 @@ Item {
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(11)
+            font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
             wrapMode: Text.WordWrap
         }
 
@@ -1133,7 +1152,7 @@ Item {
 
             visible: Networking.wifiEnabled && Networking.wifiHardwareEnabled
             width: parent.width
-            height: 28
+            height: Theme.dp(44)
 
             Timer {
                 interval: 400
@@ -1152,68 +1171,74 @@ Item {
                 }
             }
 
-            Row {
-                anchors.left: parent.left
-                anchors.leftMargin: 4
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 8
-
-                Text {
-                    text: ""
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: scanButton.scanning ? Theme.accent : (scanArea.containsMouse ? Theme.text : Theme.subtext)
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fs(12)
-
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: Theme.barMs(150)
-                        }
-
-                    }
-
-                }
-
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: scanButton.scanning ? "Scanning" + ".".repeat(scanButton.dotCount) : "Search for networks"
-                    color: scanButton.scanning ? Theme.accent : (scanArea.containsMouse ? Theme.text : Theme.subtext)
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fs(12)
-
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: Theme.barMs(150)
-                        }
-
-                    }
-
-                }
-
-            }
-
-            Text {
-                anchors.right: parent.right
-                anchors.rightMargin: 4
-                anchors.verticalCenter: parent.verticalCenter
-                visible: scanButton.scanning
-                text: "tap to stop"
-                color: Theme.accentMuted
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fs(10)
-            }
-
-            MouseArea {
-                id: scanArea
-
+            Rectangle {
                 anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    if (root.wifiDevice)
-                        root.wifiDevice.scannerEnabled = !root.wifiDevice.scannerEnabled;
+                radius: height / 2
+                color: scanButton.scanning ? Theme.withBlur(Theme.secondaryContainer) : Theme.withBlur(Theme.surfaceHigh)
+
+                Behavior on color {
+                    ColorAnimation {
+                        duration: Theme.durDefaultEffects
+                    }
 
                 }
+
+                StateLayer {
+                    radius: parent.radius
+                    tint: scanButton.scanning ? Theme.fgSecondaryContainer : Theme.text
+                    onClicked: {
+                        if (root.wifiDevice)
+                            root.wifiDevice.scannerEnabled = !root.wifiDevice.scannerEnabled;
+
+                    }
+                }
+
+                Row {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.dp(12)
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Theme.dp(10)
+
+                    Item {
+                        width: Theme.dp(24)
+                        height: Theme.dp(24)
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        LoadingIndicator {
+                            anchors.fill: parent
+                            visible: scanButton.scanning
+                            color: Theme.fgSecondaryContainer
+                        }
+
+                        Icon {
+                            anchors.centerIn: parent
+                            visible: !scanButton.scanning
+                            name: "wifi_find"
+                            size: Theme.dp(20)
+                            color: Theme.subtext
+                        }
+
+                    }
+
+                    LText {
+                        anchors.verticalCenter: parent.verticalCenter
+                        role: "labelLarge"
+                        text: scanButton.scanning ? "Looking for networks" : "Search for networks"
+                        color: scanButton.scanning ? Theme.fgSecondaryContainer : Theme.text
+                    }
+
+                }
+
+                LText {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.dp(16)
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: scanButton.scanning
+                    role: "labelMedium"
+                    text: "Stop"
+                    color: Theme.fgSecondaryContainer
+                }
+
             }
 
         }
@@ -1223,22 +1248,22 @@ Item {
 
             visible: Networking.wifiEnabled && Networking.wifiHardwareEnabled
             width: parent.width
-            spacing: 14
+            spacing: Theme.dp(14)
 
             Column {
                 width: parent.width
-                spacing: 3
+                spacing: Theme.dp(3)
                 visible: root.connectedNetworks.length > 0
 
                 Text {
-                    text: "CONNECTED"
-                    color: Theme.subtextDim
+                    text: "Connected"
+                    color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
-                    font.pixelSize: Theme.fs(10)
-                    font.letterSpacing: 1.2
-                    leftPadding: 4
-                    bottomPadding: 3
+                    font.pixelSize: Theme.fs(12)
+                    font.variableAxes: Theme.axes(Theme.fs(12), 600, 0)
+                    leftPadding: Theme.dp(4)
+                    bottomPadding: Theme.dp(3)
                 }
 
                 Repeater {
@@ -1253,18 +1278,18 @@ Item {
 
             Column {
                 width: parent.width
-                spacing: 3
+                spacing: Theme.dp(3)
                 visible: root.savedNetworks.length > 0
 
                 Text {
-                    text: "SAVED"
-                    color: Theme.subtextDim
+                    text: "Saved"
+                    color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
-                    font.pixelSize: Theme.fs(10)
-                    font.letterSpacing: 1.2
-                    leftPadding: 4
-                    bottomPadding: 3
+                    font.pixelSize: Theme.fs(12)
+                    font.variableAxes: Theme.axes(Theme.fs(12), 600, 0)
+                    leftPadding: Theme.dp(4)
+                    bottomPadding: Theme.dp(3)
                 }
 
                 Repeater {
@@ -1279,18 +1304,18 @@ Item {
 
             Column {
                 width: parent.width
-                spacing: 3
+                spacing: Theme.dp(3)
                 visible: root.nearbyNetworks.length > 0
 
                 Text {
-                    text: "NEARBY"
-                    color: Theme.subtextDim
+                    text: "Nearby"
+                    color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
-                    font.pixelSize: Theme.fs(10)
-                    font.letterSpacing: 1.2
-                    leftPadding: 4
-                    bottomPadding: 3
+                    font.pixelSize: Theme.fs(12)
+                    font.variableAxes: Theme.axes(Theme.fs(12), 600, 0)
+                    leftPadding: Theme.dp(4)
+                    bottomPadding: Theme.dp(3)
                 }
 
                 Repeater {
@@ -1306,9 +1331,9 @@ Item {
             Column {
                 width: parent.width
                 visible: root.connectedNetworks.length === 0 && root.savedNetworks.length === 0 && root.nearbyNetworks.length === 0
-                topPadding: 18
-                bottomPadding: 6
-                spacing: 4
+                topPadding: Theme.dp(18)
+                bottomPadding: Theme.dp(6)
+                spacing: Theme.dp(4)
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -1316,14 +1341,15 @@ Item {
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(12)
+                    font.variableAxes: Theme.axes(Theme.fs(12), 420, 0)
                 }
 
             }
 
             Column {
                 width: parent.width
-                spacing: 8
-                topPadding: 2
+                spacing: Theme.dp(8)
+                topPadding: Theme.dp(2)
 
                 Text {
                     visible: !root.hiddenFormOpen
@@ -1331,14 +1357,15 @@ Item {
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(11)
+                    font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
                     font.underline: hiddenToggleArea.containsMouse
-                    leftPadding: 4
+                    leftPadding: Theme.dp(4)
 
                     MouseArea {
                         id: hiddenToggleArea
 
                         anchors.fill: parent
-                        anchors.margins: -4
+                        anchors.margins: -Theme.dp(4)
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.hiddenFormOpen = true
                     }
@@ -1348,26 +1375,27 @@ Item {
                 Column {
                     width: parent.width
                     visible: root.hiddenFormOpen
-                    spacing: 6
-                    leftPadding: 4
-                    rightPadding: 4
+                    spacing: Theme.dp(6)
+                    leftPadding: Theme.dp(4)
+                    rightPadding: Theme.dp(4)
 
                     Rectangle {
-                        width: parent.width - 8
-                        height: 30
-                        radius: 8
+                        width: parent.width - Theme.dp(8)
+                        height: Theme.dp(30)
+                        radius: Theme.rad(8)
                         color: Theme.withBlur(Theme.bgSunken)
                         border.width: 1
                         border.color: hiddenSsidInput.activeFocus ? Theme.accent : Theme.bgHigh
 
                         Text {
                             anchors.left: parent.left
-                            anchors.leftMargin: 10
+                            anchors.leftMargin: Theme.dp(10)
                             anchors.verticalCenter: parent.verticalCenter
                             text: "Network name (SSID)"
                             color: Theme.outlineStrong
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(11)
+                            font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
                             visible: !hiddenSsidInput.text && !hiddenSsidInput.activeFocus
                         }
 
@@ -1375,12 +1403,13 @@ Item {
                             id: hiddenSsidInput
 
                             anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 10
+                            anchors.leftMargin: Theme.dp(10)
+                            anchors.rightMargin: Theme.dp(10)
                             verticalAlignment: Text.AlignVCenter
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(12)
+                            font.variableAxes: Theme.axes(Theme.fs(12), 420, 0)
                             selectByMouse: true
                             onTextChanged: root.hiddenSsid = text
                         }
@@ -1395,21 +1424,22 @@ Item {
                     }
 
                     Rectangle {
-                        width: parent.width - 8
-                        height: 30
-                        radius: 8
+                        width: parent.width - Theme.dp(8)
+                        height: Theme.dp(30)
+                        radius: Theme.rad(8)
                         color: Theme.withBlur(Theme.bgSunken)
                         border.width: 1
                         border.color: root.hiddenFailed ? Theme.error : (hiddenPskInput.activeFocus ? Theme.accent : Theme.bgHigh)
 
                         Text {
                             anchors.left: parent.left
-                            anchors.leftMargin: 10
+                            anchors.leftMargin: Theme.dp(10)
                             anchors.verticalCenter: parent.verticalCenter
                             text: "Password (leave blank if open)"
                             color: Theme.outlineStrong
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(11)
+                            font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
                             visible: !hiddenPskInput.text && !hiddenPskInput.activeFocus
                         }
 
@@ -1417,14 +1447,15 @@ Item {
                             id: hiddenPskInput
 
                             anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 10
+                            anchors.leftMargin: Theme.dp(10)
+                            anchors.rightMargin: Theme.dp(10)
                             verticalAlignment: Text.AlignVCenter
                             echoMode: TextInput.Password
                             passwordCharacter: "•"
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(12)
+                            font.variableAxes: Theme.axes(Theme.fs(12), 420, 0)
                             selectByMouse: true
                             onTextChanged: root.hiddenPsk = text
                             onAccepted: root.connectHidden()
@@ -1441,22 +1472,23 @@ Item {
 
                     Text {
                         visible: root.hiddenFailed
-                        width: parent.width - 8
+                        width: parent.width - Theme.dp(8)
                         text: root.hiddenErrorDetail
                         color: Theme.error
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(10)
+                        font.variableAxes: Theme.axes(Theme.fs(10), 420, 0)
                         wrapMode: Text.WordWrap
                     }
 
                     Row {
-                        spacing: 8
-                        height: 28
+                        spacing: Theme.dp(8)
+                        height: Theme.dp(28)
 
                         Rectangle {
-                            width: 90
+                            width: Theme.dp(90)
                             height: parent.height
-                            radius: 999
+                            radius: Theme.dp(999)
                             color: hiddenConnectArea.containsMouse ? Theme.accentHover : Theme.accent
 
                             Text {
@@ -1466,6 +1498,7 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.bold: true
                                 font.pixelSize: Theme.fs(11)
+                                font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
                             }
 
                             MouseArea {
@@ -1480,9 +1513,9 @@ Item {
                         }
 
                         Rectangle {
-                            width: 70
+                            width: Theme.dp(70)
                             height: parent.height
-                            radius: 999
+                            radius: Theme.dp(999)
                             color: "transparent"
                             border.width: 1
                             border.color: Theme.outlineStrong
@@ -1494,6 +1527,7 @@ Item {
                                 font.family: Theme.fontFamily
                                 font.bold: true
                                 font.pixelSize: Theme.fs(11)
+                                font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
                             }
 
                             MouseArea {

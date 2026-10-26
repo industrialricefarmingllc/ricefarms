@@ -1,61 +1,94 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Shapes
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Hyprland._FocusGrab
-import Quickshell.Services.Notifications
-import Quickshell.Widgets
 import qs
+import "../lucidnotif"
+import "../squircle"
 
-
+// the bar's entry point into the notification centre. the state lives in the
+// Notifs singleton; popups are their own surface now, so this is the shade.
 BarPill {
     id: root
 
-    readonly property bool dnd: Prefs.doNotDisturb
-    property var toastNotification: null
-    property bool ready: false
-    readonly property int horizontalPadding: 10
+    readonly property bool silenced: Notifs.silenced
+    readonly property int notifCount: Notifs.count
+    readonly property string badgeDisplayText: root.notifCount > 9 ? "9+" : String(root.notifCount)
+    readonly property bool anyCritical: Notifs.criticalCount > 0
+    readonly property color badgeColor: root.anyCritical ? Theme.error : Theme.accent
+    readonly property color badgeTextColor: root.anyCritical ? Theme.fgError : Theme.fgAccent
+    // the look picked on the module's card: a count, or a dot
+    lookPref: Prefs.notificationsStyle
+    readonly property bool dotFace: root.look === "dot"
+    readonly property int horizontalPadding: Theme.dp(10)
     readonly property real screenW: root.hostWindow ? root.hostWindow.screen.width : 1600
     readonly property real screenH: root.hostWindow ? root.hostWindow.screen.height : 900
-    readonly property int maxPanelHeight: Math.min(420, Math.max(200, root.screenH - 40))
-    readonly property int chromeHeight: 102
-    readonly property int notifCount: notifServer.trackedNotifications ? notifServer.trackedNotifications.values.length : 0
-    readonly property string badgeDisplayText: root.notifCount > 9 ? "9+" : String(root.notifCount)
-    property var sortedNotifications: []
+    readonly property int maxPanelHeight: Math.min(Theme.dp(560), Math.max(Theme.dp(220), root.screenH - Theme.dp(80)))
+    // measured, not guessed, so the list always gets the rest
+    readonly property int chromeHeight: headerRow.height + countRow.height + footerRow.height + mainColumn.spacing * 3 + Theme.dp(28)
 
-    function refreshSorted() {
-        const v = notifServer.trackedNotifications ? notifServer.trackedNotifications.values.slice() : [];
-        v.sort((a, b) => b.id - a.id);
-        root.sortedNotifications = v;
+    readonly property var popups: Notifs.popups
+    readonly property var topPopup: root.popups.length > 0 ? root.popups[0] : null
+    readonly property var restPopups: root.popups.length > 1 ? root.popups.slice(1) : []
+    readonly property int popupOverflow: Math.max(0, Notifs.count - root.popups.length)
+
+    shown: Prefs.barHas("notifications")
+    compactWidth: compactRow.implicitWidth + root.horizontalPadding * 2
+    panelWidth: Math.min(Theme.dp(380), root.screenW - Theme.dp(34))
+    panelHeight: Math.min(root.maxPanelHeight, mainColumn.implicitHeight + Theme.dp(28))
+    expandedRadius: Theme.shapeXl
+    // off on the other bars when there is one on every display
+    property bool showsPopups: true
+
+    // the module becomes the newest popup; the older ones stack under it
+    altOpen: root.showsPopups && root.shown && root.topPopup !== null && !root.expanded
+    altWidth: Math.min(Theme.dp(344), root.screenW - Theme.dp(34))
+    altHeight: Math.min(root.maxPanelHeight, topCard.implicitHeight)
+    overlayOpen: root.altOpen && (root.restPopups.length > 0 || root.popupOverflow > 0)
+    overlayItem: stackSheet
+    // the sheet is a card stack plus a narrow pill, not one slab. one region over
+    // the lot frosts the gaps and the full width behind the pill, so hand the mask
+    // each part instead
+    readonly property bool overlayBlurReady: stackSheet.opacity > 0.95
+    readonly property var overlayRects: {
+        const out = [];
+        if (!root.overlayOpen)
+            return out;
+
+        if (stackList.height > 1)
+            out.push({
+                "x": stackSheet.x + stackList.x,
+                "y": stackSheet.y + stackList.y,
+                "w": stackList.width,
+                "h": stackList.height,
+                "r": Theme.radiusLg
+            });
+
+        if (overflowPill.width > 1 && overflowSlot.height > 1)
+            out.push({
+                "x": stackSheet.x + overflowSlot.x + overflowPill.x,
+                "y": stackSheet.y + overflowSlot.y + overflowPill.y,
+                "w": overflowPill.width,
+                "h": overflowPill.height,
+                "r": overflowPill.height / 2
+            });
+
+        return out;
     }
 
-    function clearAll() {
-        for (const n of root.sortedNotifications.slice()) n.dismiss()
-        root.refreshSorted();
-    }
-
-    property var shownIds: ({})
-    property bool shownIdsSeeded: false
-
-    function markShown(id) {
-        if (!root.shownIdsSeeded) {
-            for (const n of root.sortedNotifications) root.shownIds[n.id] = true
-            root.shownIdsSeeded = true;
-        }
-        if (root.shownIds[id])
-            return false;
-
-        root.shownIds[id] = true;
-        return true;
-    }
+    // ---- taking a notification's action back to its window -----------------
+    // best-effort match of a notification to an open Hyprland window so an
+    // action press (e.g. "View") can also take us to the app's workspace.
 
     function normAppId(s) {
         if (s === undefined || s === null)
             return "";
+
         var v = String(s).toLowerCase().trim();
         if (v.endsWith(".desktop"))
             v = v.slice(0, -8);
+
         return v;
     }
 
@@ -69,13 +102,17 @@ BarPill {
         var out = [];
         if (!n)
             return out;
+
         var raw = [];
         if (n.desktopEntry)
             raw.push(n.desktopEntry);
+
         if (n.hints && n.hints["desktop-entry"])
             raw.push(n.hints["desktop-entry"]);
+
         if (n.appName)
             raw.push(n.appName);
+
         if (n.appIcon) {
             var ai = String(n.appIcon);
             raw.push(ai.indexOf("image://icon/") === 0 ? ai.slice(13) : ai);
@@ -85,14 +122,16 @@ BarPill {
             var tail = root.tailAppId(raw[i]);
             if (full && out.indexOf(full) < 0)
                 out.push(full);
+
             if (tail && out.indexOf(tail) < 0)
                 out.push(tail);
+
         }
         return out;
     }
 
-    // Tokens from notification text usable to tell same-app windows apart
-    // (e.g. Discord sender "kevin1991" vs window "@kevin1991 - Discord").
+    // tokens from notification text usable to tell same-app windows apart
+    // (e.g. a Discord sender "kevin1991" vs the window "@kevin1991 - Discord")
     function notifTokens(n) {
         var text = "";
         try {
@@ -108,6 +147,7 @@ BarPill {
         for (var i = 0; i < parts.length; i++) {
             if (parts[i].length >= 3 && out.indexOf(parts[i]) < 0)
                 out.push(parts[i]);
+
         }
         return out;
     }
@@ -115,27 +155,28 @@ BarPill {
     function titleScore(title, tokens) {
         if (!title || tokens.length === 0)
             return 0;
+
         var t = String(title).toLowerCase();
         var score = 0;
         for (var i = 0; i < tokens.length; i++) {
             if (t.indexOf(tokens[i]) >= 0)
                 score += tokens[i].length;
+
         }
         return score;
     }
 
-    // Best-effort match of a notification to an open Hyprland window so an
-    // action press (e.g. "View") can also take you to the app's workspace.
-    // Compares the notification's desktop-entry/appName against each
-    // toplevel's class/appId (full and reverse-domain tail forms). When
-    // several windows of the same app are open, ranks them: urgent windows
-    // first (the notifier usually demands attention), then notification
-    // text (sender/channel) matched against window titles, then most
-    // recently focused.
+    // compares the notification's desktop-entry/appName against each
+    // toplevel's class/appId (full and reverse-domain tail forms). when
+    // several windows of the same app are open they rank: urgent first (the
+    // notifier usually demands attention), then notification text
+    // (sender/channel) matched against window titles, then most recently
+    // focused.
     function findWindowForNotification(n) {
         var ids = root.candidateIds(n);
         if (ids.length === 0)
             return null;
+
         var tls = [];
         try {
             tls = Hyprland.toplevels ? Hyprland.toplevels.values : [];
@@ -149,6 +190,7 @@ BarPill {
             var t = tls[i];
             if (!t)
                 continue;
+
             var ipc = null;
             try {
                 ipc = t.lastIpcObject;
@@ -159,23 +201,28 @@ BarPill {
             if (ipc) {
                 if (ipc.class)
                     addrs.push(ipc.class);
+
                 if (ipc.initialClass)
                     addrs.push(ipc.initialClass);
+
             }
             try {
                 if (t.wayland && t.wayland.appId)
                     addrs.push(t.wayland.appId);
+
             } catch (e) {
             }
             var winAddr = (ipc && ipc.address) ? ipc.address : (t.address ? t.address : "");
             if (!winAddr)
                 continue;
+
             var appMatch = false;
             for (var a = 0; a < addrs.length && !appMatch; a++) {
                 var cFull = root.normAppId(addrs[a]);
                 var cTail = root.tailAppId(addrs[a]);
                 if (!cFull)
                     continue;
+
                 for (var j = 0; j < ids.length; j++) {
                     if (ids[j] === cFull || ids[j] === cTail) {
                         appMatch = true;
@@ -185,6 +232,7 @@ BarPill {
             }
             if (!appMatch)
                 continue;
+
             var urgent = 0;
             try {
                 urgent = t.urgent === true ? 1 : 0;
@@ -197,22 +245,24 @@ BarPill {
                 title = "";
             }
             // lastIpcObject is only refreshed on Hyprland.refreshToplevels
-            // (see the calls in onNotification/onExpandedChanged) - the
-            // dedicated title property above stays live between refreshes,
-            // which is what keeps per-window titles (e.g. Discord's
-            // "@user - Discord") fresh enough to tell same-app windows
-            // apart. The cached copy is only a fallback.
+            // (see onExpandedChanged/onCountChanged below) - the dedicated
+            // title property above stays live between refreshes, which is
+            // what keeps per-window titles (e.g. Discord's
+            // "@user - Discord") fresh enough to tell same-app windows apart.
+            // the cached copy is only a fallback.
             if (!title && ipc && ipc.title)
                 title = ipc.title;
+
             var tScore = root.titleScore(title, tokens);
             var focusOrder = 9999;
             try {
                 if (ipc && ipc.focusHistoryID !== undefined && ipc.focusHistoryID !== null)
                     focusOrder = Number(ipc.focusHistoryID);
+
             } catch (e) {
             }
-            // Compare tuple (urgent, titleScore, -focusOrder): urgent wins,
-            // then text match, then most recently focused (lowest id).
+            // tuple (urgent, titleScore, -focusOrder): urgent wins, then the
+            // text match, then the most recently focused (lowest id)
             var key = [urgent, tScore, -focusOrder];
             if (bestKey === null || key[0] > bestKey[0] || (key[0] === bestKey[0] && (key[1] > bestKey[1] || (key[1] === bestKey[1] && key[2] > bestKey[2])))) {
                 bestKey = key;
@@ -224,12 +274,13 @@ BarPill {
         return best;
     }
 
-    // Focus the sender's window; Hyprland switches to its workspace as part
-    // of the focus. No-op when the app has no open window. Returns bool.
+    // focus the sender's window; Hyprland switches to its workspace as part
+    // of the focus. no-op when the app has no open window.
     function focusNotificationApp(n) {
         var m = root.findWindowForNotification(n);
         if (!m || !m.address)
             return false;
+
         try {
             Hyprland.dispatch("hl.dsp.focus({window='address:" + m.address + "'})");
             return true;
@@ -238,12 +289,13 @@ BarPill {
         }
     }
 
-    // Only view-like actions (View/Open/Show + the default action) jump to
+    // only view-like actions (View/Open/Show + the default action) jump to
     // the app; acting on anything else (mark-read, snooze, delete...) just
     // invokes without yanking you to another workspace.
     function isViewLike(action) {
         if (!action)
             return false;
+
         var id = "";
         var tx = "";
         try {
@@ -256,12 +308,14 @@ BarPill {
         }
         if (id === "default")
             return true;
+
         return /view|open|show|go to|jump|reveal/i.test(id) || /view|open|show|go to|jump|reveal/i.test(tx);
     }
 
     function invokeAndMaybeFocus(action, n) {
         if (!action)
-            return;
+            return ;
+
         action.invoke();
         if (root.isViewLike(action)) {
             root.focusNotificationApp(n);
@@ -272,40 +326,61 @@ BarPill {
         }
     }
 
-    shown: Prefs.showNotifications
-    compactWidth: compactRow.implicitWidth + root.horizontalPadding * 2
-    panelWidth: Math.min(320, root.screenW - 34)
-    panelHeight: Math.min(root.maxPanelHeight, mainColumn.implicitHeight + 28)
-    altOpen: root.shown && root.toastNotification !== null && !root.expanded
-    altWidth: Math.min(300, root.screenW - 34)
-    altHeight: Math.min(root.maxPanelHeight, toastBody.implicitHeight + 20)
-    expandedRadius: 20
+    property var shownPopup: null
 
+    onTopPopupChanged: {
+        if (!root.topPopup) {
+            // keep the last one on screen while the pill collapses over it
+            clearShownTimer.restart();
+            return ;
+        }
+        clearShownTimer.stop();
+        root.beginTransition();
+        if (!root.shownPopup) {
+            root.shownPopup = root.topPopup;
+            return ;
+        }
+        if (root.shownPopup !== root.topPopup)
+            popupSwap.restart();
+
+    }
     onExpandedChanged: {
-        if (expanded) {
-            root.toastNotification = null;
-            toastTimer.stop();
-            // Heavy warmup (sort + Hyprland IPC round-trip) runs after the
-            // morph starts so it can't hitch frame 0; the panel fades in
-            // over ~150ms anyway (BarPill panelFadePause).
+        Notifs.shadeOpen = root.expanded;
+        if (root.expanded) {
+            shadeList.contentY = 0;
+            // heavy warmup (the Hyprland IPC round-trip) runs after the morph
+            // starts so it cannot hitch frame 0; the panel fades in over
+            // ~150ms anyway (BarPill panelFadePause).
             expandWarmupTimer.restart();
         } else {
             expandWarmupTimer.stop();
         }
     }
 
+    // the popup lives on a layer with no keyboard interactivity, so a reply
+    // field in it needs its own grab the way the expanded panel gets one
+    HyprlandFocusGrab {
+        active: Notifs.replying && !root.expanded
+        windows: root.hostWindow ? [root.hostWindow] : []
+        onCleared: Notifs.replyingId = -1
+    }
+
+    Timer {
+        id: clearShownTimer
+
+        interval: Theme.barMs(420)
+        onTriggered: root.shownPopup = null
+    }
+
+    // lastIpcObject titles/focus order only refresh on demand - warm the cache
+    // after the panel is on screen so a later View-press can pick the right
+    // window among same-app ones (e.g. two Discord DMs).
     Timer {
         id: expandWarmupTimer
 
         interval: 150
         repeat: false
         onTriggered: {
-            if (!root.expanded)
-                return;
-            root.refreshSorted();
-            // lastIpcObject titles/focus order only refresh on demand -
-            // warm the cache now so a View-press picks the right window
-            // among same-app ones (e.g. two Discord DMs).
             try {
                 Hyprland.refreshToplevels();
             } catch (e) {
@@ -313,120 +388,110 @@ BarPill {
         }
     }
 
-    NotificationServer {
-        id: notifServer
-
-        keepOnReload: true
-        bodySupported: true
-        bodyMarkupSupported: false
-        bodyHyperlinksSupported: false
-        bodyImagesSupported: false
-        actionsSupported: true
-        actionIconsSupported: false
-        imageSupported: true
-        inlineReplySupported: false
-        persistenceSupported: false
-        Component.onCompleted: root.refreshSorted()
-        onNotification: (notification) => {
-            notification.tracked = true;
-            // Warm the window cache up front so the title/focus data a
-            // later View-press matches against is fresh (see above).
+    // a new notification: keep the window cache current before a View-press
+    // asks for it
+    Connections {
+        function onCountChanged() {
             try {
                 Hyprland.refreshToplevels();
             } catch (e) {
             }
-            if (!root.ready)
-                return ;
-
-            if (root.expanded)
-                return ;
-
-            if (root.dnd)
-                return ;
-
-            if (root.toastNotification && root.toastNotification.expireTimeout === 0)
-                return ;
-
-            root.toastNotification = notification;
-            if (notification.expireTimeout === 0)
-                toastTimer.stop();
-            else
-                toastTimer.restart();
         }
+
+        target: Notifs
     }
 
-    Timer {
-        interval: 300
-        running: true
-        onTriggered: root.ready = true
-    }
+    // out, swap, in — so an expiring popup is seen to leave
+    SequentialAnimation {
+        id: popupSwap
 
-    Timer {
-        id: toastTimer
+        ParallelAnimation {
+            NumberAnimation {
+                target: topCard
+                property: "opacity"
+                to: 0
+                duration: Theme.barMs(110)
+                easing.type: Easing.InCubic
+            }
 
-        interval: Prefs.toastTimeout * 1000
-        onTriggered: root.toastNotification = null
-    }
-
-    Timer {
-        id: panelTransitionTimer
-
-        interval: 400
-        onTriggered: root.panelTransitioning = false
-        onRunningChanged: {
-            if (running)
-                root.panelTransitioning = true;
+            NumberAnimation {
+                target: topCard
+                property: "swapOffset"
+                to: -16
+                duration: Theme.barMs(110)
+                easing.type: Easing.InCubic
+            }
 
         }
+
+        ScriptAction {
+            script: {
+                root.shownPopup = root.topPopup;
+                topCard.swapOffset = 14;
+                root.beginTransition();
+            }
+        }
+
+        ParallelAnimation {
+            NumberAnimation {
+                target: topCard
+                property: "opacity"
+                to: 1
+                duration: Theme.barMs(210)
+                easing.type: Easing.OutCubic
+            }
+
+            NumberAnimation {
+                target: topCard
+                property: "swapOffset"
+                to: 0
+                duration: Theme.barMs(210)
+                easing.type: Easing.OutCubic
+            }
+
+        }
+
     }
 
     Connections {
-        function onClosed() {
-            toastTimer.stop();
-            root.toastNotification = null;
+        function onShadeRequested() {
+            root.expanded = true;
         }
 
-        target: root.toastNotification
-    }
-
-    Connections {
-        function onValuesChanged() {
-            root.refreshSorted();
+        function onShadeCloseRequested() {
+            root.expanded = false;
         }
 
-        target: notifServer.trackedNotifications
+        function onShadeToggleRequested() {
+            root.expanded = !root.expanded;
+        }
+
+        target: Notifs
     }
-
-    ScriptModel {
-        id: notifModel
-
-        values: root.sortedNotifications
-    }
-
-
-
 
     compactContent: [
+
         Row {
             id: compactRow
 
             anchors.centerIn: parent
-            spacing: 4
+            spacing: Theme.dp(5)
 
             Item {
-                width: 16
-                height: 16
+                width: Theme.dp(17)
+                height: Theme.dp(17)
                 anchors.verticalCenter: parent.verticalCenter
 
-                Shape {
-                    visible: opacity > 0.01
-                    opacity: root.dnd ? 0 : 1
-                    scale: (16 / 24) * (root.dnd ? 0.55 : 1)
-                    rotation: root.dnd ? -35 : 0
-                    width: 24
-                    height: 24
+                NotifIcon {
                     anchors.centerIn: parent
-                    preferredRendererType: Shape.CurveRenderer
+                    size: Theme.dp(17)
+                    path: Notifs.icons.notifications
+                    color: Theme.text
+                    fill: root.notifCount > 0 ? 1 : 0
+                    opacity: root.silenced ? 0 : 1
+                    scale: root.silenced ? 0.55 : 1
+                    rotation: root.silenced ? -30 : 0
+                    visible: opacity > 0.01
 
                     Behavior on opacity {
                         NumberAnimation {
@@ -438,8 +503,8 @@ BarPill {
 
                     Behavior on scale {
                         NumberAnimation {
-                            duration: Theme.barMs(220)
-                            easing.type: Easing.OutCubic
+                            duration: Theme.barMs(260)
+                            easing.type: Easing.OutBack
                         }
 
                     }
@@ -448,31 +513,21 @@ BarPill {
                         NumberAnimation {
                             duration: Theme.barMs(220)
                             easing.type: Easing.OutCubic
-                        }
-
-                    }
-
-                    ShapePath {
-                        fillColor: Theme.text
-                        strokeWidth: 0
-
-                        PathSvg {
-                            path: "M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6v-5c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C8.64 5.36 7 7.92 7 11v5l-2 2v1h14v-1l-2-2Z"
                         }
 
                     }
 
                 }
 
-                Shape {
-                    visible: opacity > 0.01
-                    opacity: root.dnd ? 1 : 0
-                    scale: (16 / 24) * (root.dnd ? 1 : 0.55)
-                    rotation: root.dnd ? 0 : 35
-                    width: 24
-                    height: 24
+                NotifIcon {
                     anchors.centerIn: parent
-                    preferredRendererType: Shape.CurveRenderer
+                    size: Theme.dp(17)
+                    path: Notifs.icons.bedtime
+                    color: Theme.accent
+                    opacity: root.silenced ? 1 : 0
+                    scale: root.silenced ? 1 : 0.55
+                    rotation: root.silenced ? 0 : 30
+                    visible: opacity > 0.01
 
                     Behavior on opacity {
                         NumberAnimation {
@@ -484,8 +539,8 @@ BarPill {
 
                     Behavior on scale {
                         NumberAnimation {
-                            duration: Theme.barMs(220)
-                            easing.type: Easing.OutCubic
+                            duration: Theme.barMs(260)
+                            easing.type: Easing.OutBack
                         }
 
                     }
@@ -498,12 +553,33 @@ BarPill {
 
                     }
 
-                    ShapePath {
-                        fillColor: Theme.accent
-                        strokeWidth: 0
+                }
 
-                        PathSvg {
-                            path: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"
+                // the dot look: the bell's corner lights while any wait
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.rightMargin: -Theme.dp(1)
+                    width: Theme.dp(7)
+                    height: Theme.dp(7)
+                    radius: height / 2
+                    color: root.badgeColor
+                    opacity: root.dotFace && root.notifCount > 0 ? 1 : 0
+                    scale: root.dotFace && root.notifCount > 0 ? 1 : 0.4
+                    visible: opacity > 0.01
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: Theme.barMs(180)
+                            easing.type: Easing.OutCubic
+                        }
+
+                    }
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: Theme.barMs(260)
+                            easing.type: Easing.OutBack
                         }
 
                     }
@@ -512,17 +588,45 @@ BarPill {
 
             }
 
-            Rectangle {
+            Item {
                 id: badge
 
+                readonly property bool on: root.notifCount > 0 && !root.dotFace
+
                 anchors.verticalCenter: parent.verticalCenter
-                height: 16
-                width: root.notifCount > 0 ? Math.max(16, badgeText.implicitWidth + 8) : 0
-                radius: 999
-                color: Theme.accent
-                opacity: root.notifCount > 0 ? 1 : 0
-                scale: root.notifCount > 0 ? 1 : 0.4
+                height: Theme.dp(16)
+                width: badge.on ? Math.max(Theme.dp(16), badgeText.implicitWidth + Theme.dp(8)) : 0
+                opacity: badge.on ? 1 : 0
+                scale: badge.on ? 1 : 0.4
                 clip: true
+
+                SquircleRect {
+                    anchors.fill: parent
+                    radius: height / 2
+                    smoothing: Prefs.squircleF
+                    fillColor: root.badgeColor
+
+                    Behavior on fillColor {
+                        ColorAnimation {
+                            duration: Theme.barMs(220)
+                        }
+
+                    }
+
+                }
+
+                TextMetrics {
+                    id: badgeCap
+
+                    font: badgeText.font
+                    text: "7"
+                }
+
+                FontMetrics {
+                    id: badgeFm
+
+                    font: badgeText.font
+                }
 
                 Text {
                     id: badgeText
@@ -530,15 +634,17 @@ BarPill {
                     property string displayedText: ""
                     property real morphOffset: 0
 
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: morphOffset
-                    text: displayedText
-                    color: Theme.bgOpaque
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    // the cap-height box is what should centre, not the line box:
+                    // digits sit on the baseline and otherwise ride high
+                    y: (badge.height - badgeCap.tightBoundingRect.height) / 2 - badgeCap.tightBoundingRect.y - badgeFm.ascent + badgeText.morphOffset
+                    text: badgeText.displayedText
+                    color: root.badgeTextColor
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(11)
-
-                    Component.onCompleted: displayedText = root.badgeDisplayText
+                    font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
+                    Component.onCompleted: badgeText.displayedText = root.badgeDisplayText
                 }
 
                 Connections {
@@ -549,6 +655,7 @@ BarPill {
                     target: root
                 }
 
+                // the count rolls over rather than snapping
                 SequentialAnimation {
                     id: badgeMorph
 
@@ -625,224 +732,190 @@ BarPill {
 
             }
 
+        },
+        // left click opens the shade through BarPill; this only wants the right
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            acceptedButtons: Qt.RightButton
+            onClicked: Notifs.toggleDnd()
         }
     ]
 
     altContent: [
-        Item {
-            id: toastFace
+        NotifPopupCard {
+            id: topCard
 
-        anchors.fill: parent
-
-        readonly property var notif: root.toastNotification
-        readonly property string notifImage: notif ? notif.image : ""
-        readonly property string themeIconName: notif ? (notif.appIcon || (notifImage.indexOf("image://icon/") === 0 ? notifImage.slice(13) : "")) : ""
-        readonly property string directImage: notifImage.indexOf("image://icon/") === 0 ? "" : notifImage
-        readonly property string iconSource: directImage || (themeIconName ? Quickshell.iconPath(themeIconName) : "")
-        readonly property bool hovered: toastHover.hovered
-
-        clip: true
-        onNotifChanged: {
-            if (notif)
-                toastContent.y = 0;
-
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            notification: root.shownPopup
         }
+    ]
 
-        HoverHandler {
-            id: toastHover
-        }
-
-        // y is driven by the drag or the anims below, never both
+    overlayContent: [
         Item {
-            id: toastContent
+            id: stackSheet
 
-            width: parent.width
-            height: parent.height
-            opacity: Math.max(0, 1 - (-y) / 120)
+            // parked directly under whichever surface the pill is wearing
+            readonly property real liveY: root.popupItem ? root.popupItem.y + root.popupItem.height + 8 : 0
+            property real heldY: 0
 
-            MouseArea {
-                id: toastDragArea
+            onLiveYChanged: {
+                if (root.overlayOpen)
+                    stackSheet.heldY = stackSheet.liveY;
 
-                property bool dragged: false
-
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                drag.target: toastContent
-                drag.axis: Drag.YAxis
-                drag.minimumY: -(toastContent.height + 40)
-                drag.maximumY: 0
-                onPressed: {
-                    dragged = false;
-                    toastTimer.stop();
-                }
-                onPositionChanged: {
-                    if (Math.abs(toastContent.y) > 4)
-                        dragged = true;
-                }
-                onReleased: {
-                    if (-toastContent.y > 36) {
-                        toastDismissAnim.start();
-                    } else {
-                        toastSnapAnim.start();
-                        toastTimer.restart();
-                    }
-                }
-                onClicked: {
-                    if (!dragged)
-                        root.expanded = true;
-                }
             }
+            // the pill's outer edge (the one on the side its group sits against)
+            // is its fixed point: anchoring there keeps the sheet still while
+            // the pill collapses and slides underneath it
+            x: root.popupAlign === "left" ? 0 : (root.popupAlign === "center" ? (root.width - stackSheet.width) / 2 : root.width - stackSheet.width)
+            // frozen while fading, or it flies up after the shrinking pill
+            y: root.overlayOpen ? stackSheet.liveY : stackSheet.heldY
+            width: root.altWidth
+            height: stackColumn.implicitHeight
+            opacity: root.overlayOpen ? 1 : 0
+            visible: opacity > 0.01
 
-            NumberAnimation {
-                id: toastSnapAnim
-
-                target: toastContent
-                property: "y"
-                to: 0
-                duration: Theme.barMs(200)
-                easing.type: Easing.OutCubic
-            }
-
-            NumberAnimation {
-                id: toastDismissAnim
-
-                target: toastContent
-                property: "y"
-                to: -(toastContent.height + 40)
-                duration: Theme.barMs(180)
-                easing.type: Easing.InCubic
-                onFinished: root.toastNotification = null
+            HoverHandler {
+                onHoveredChanged: Notifs.popupsPaused = hovered
             }
 
             Column {
-                id: toastBody
+                id: stackColumn
 
-                x: 14
-                y: 10
-                width: parent.width - 28
-                spacing: 4
+                width: parent.width
+                spacing: Theme.dp(8)
 
-                Row {
+                ListView {
+                    id: stackList
+
                     width: parent.width
-                    spacing: 8
+                    height: contentHeight
+                    interactive: false
+                    spacing: Theme.dp(8)
+                    model: stackModel
 
-                    Item {
-                        width: 20
-                        height: 20
-                        anchors.top: parent.top
-
-                        IconImage {
-                            id: toastIcon
-
-                            anchors.fill: parent
-                            source: toastFace.iconSource
-                            asynchronous: true
-                            visible: status === Image.Ready
+                    Behavior on height {
+                        NumberAnimation {
+                            duration: Theme.barMs(260)
+                            easing.type: Easing.Bezier
+                            easing.bezierCurve: Theme.easeEmphasizedDecel
                         }
 
-                        Shape {
-                            visible: !toastIcon.visible
-                            width: 24
-                            height: 24
-                            scale: 16 / 24
+                    }
+
+                    delegate: NotifPopupCard {
+                        required property var modelData
+
+                        width: stackList.width
+                        notification: modelData
+                        surfaceColor: Theme.withBlur(Theme.bg)
+                    }
+
+                    add: Transition {
+                        NumberAnimation {
+                            property: "opacity"
+                            from: 0
+                            to: 1
+                            duration: Theme.barMs(260)
+                            easing.type: Easing.OutCubic
+                        }
+
+                    }
+
+                    remove: Transition {
+                        NumberAnimation {
+                            property: "opacity"
+                            to: 0
+                            duration: Theme.barMs(170)
+                            easing.type: Easing.InCubic
+                        }
+
+                        NumberAnimation {
+                            property: "scale"
+                            to: 0.92
+                            duration: Theme.barMs(170)
+                            easing.type: Easing.InCubic
+                        }
+
+                    }
+
+                    displaced: Transition {
+                        NumberAnimation {
+                            properties: "x,y"
+                            duration: Theme.barMs(300)
+                            easing.type: Easing.Bezier
+                            easing.bezierCurve: Theme.easeEmphasizedDecel
+                        }
+
+                        NumberAnimation {
+                            property: "opacity"
+                            to: 1
+                            duration: Theme.barMs(200)
+                        }
+
+                    }
+
+                }
+
+                // whatever the stack could not hold is still in the shade
+                Item {
+                    id: overflowSlot
+
+                    width: parent.width
+                    height: root.popupOverflow > 0 ? Theme.dp(26) : 0
+                    opacity: root.popupOverflow > 0 ? 1 : 0
+                    visible: opacity > 0.01
+
+                    SquircleRect {
+                        id: overflowPill
+
+                        anchors.centerIn: parent
+                        width: overflowRow.implicitWidth + Theme.dp(22)
+                        height: Theme.dp(26)
+                        radius: height / 2
+                        smoothing: Prefs.squircleF
+                        fillColor: overflowArea.containsMouse ? Theme.withBlur(Theme.bgActive) : Theme.withBlur(Theme.bg)
+
+                        Row {
+                            id: overflowRow
+
                             anchors.centerIn: parent
-                            preferredRendererType: Shape.CurveRenderer
+                            spacing: Theme.dp(4)
 
-                            ShapePath {
-                                fillColor: Theme.subtextDim
-                                strokeWidth: 0
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.popupOverflow + " more"
+                                color: Theme.subtext
+                                font.family: Theme.fontFamily
+                                font.bold: true
+                                font.pixelSize: Theme.fs(10)
+                                font.variableAxes: Theme.axes(Theme.fs(10), 640, 0)
+                            }
 
-                                PathSvg {
-                                    path: "M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6v-5c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C8.64 5.36 7 7.92 7 11v5l-2 2v1h14v-1l-2-2Z"
-                                }
-
+                            NotifIcon {
+                                anchors.verticalCenter: parent.verticalCenter
+                                size: Theme.dp(13)
+                                path: Notifs.icons.expand_more
+                                color: Theme.subtext
                             }
 
                         }
 
-                    }
-
-                    Column {
-                        width: parent.width - 20 - 8 - 24
-                        spacing: 1
-
-                        Text {
-                            width: parent.width
-                            visible: toastFace.notif && toastFace.notif.appName !== ""
-                            text: toastFace.notif ? toastFace.notif.appName : ""
-                            color: Theme.subtextDim
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fs(9)
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            width: parent.width
-                            text: toastFace.notif ? toastFace.notif.summary : ""
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.bold: true
-                            font.pixelSize: Theme.fs(12)
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                        }
-
-                    }
-
-                }
-
-            Text {
-                width: parent.width
-                leftPadding: 28
-                visible: toastFace.notif && toastFace.notif.body !== ""
-                text: toastFace.notif ? toastFace.notif.body : ""
-                color: Theme.subtext
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fs(11)
-                wrapMode: Text.WordWrap
-                textFormat: Text.PlainText
-            }
-
-            Row {
-                leftPadding: 28
-                visible: toastFace.notif && toastFace.notif.actions.length > 0
-                spacing: 6
-
-                Repeater {
-                    model: toastFace.notif ? toastFace.notif.actions : []
-
-                    Rectangle {
-                        id: toastActionChip
-
-                        required property var modelData
-
-                        height: 22
-                        width: toastActionLabel.implicitWidth + 16
-                        radius: 999
-                        color: toastActionArea.containsMouse ? Theme.accentHover : Theme.accent
-
-                        Text {
-                            id: toastActionLabel
-
-                            anchors.centerIn: parent
-                            text: toastActionChip.modelData.text
-                            color: Theme.bgOpaque
-                            font.family: Theme.fontFamily
-                            font.bold: true
-                            font.pixelSize: Theme.fs(10)
-                        }
-
                         MouseArea {
-                            id: toastActionArea
+                            id: overflowArea
 
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.invokeAndMaybeFocus(toastActionChip.modelData, toastFace.notif)
+                            onClicked: {
+                                Notifs.popupClear();
+                                root.expanded = true;
+                            }
                         }
 
-                        Behavior on color {
+                        Behavior on fillColor {
                             ColorAnimation {
                                 duration: Theme.barMs(120)
                             }
@@ -851,62 +924,25 @@ BarPill {
 
                     }
 
-                }
-
-            }
-
-            }
-
-            Item {
-                id: toastCloseButton
-
-                width: 20
-                height: 20
-                anchors.top: parent.top
-                anchors.right: parent.right
-                anchors.margins: 6
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "✕"
-                    color: toastCloseArea.containsMouse ? Theme.text : Theme.subtextDim
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fs(11)
-                    opacity: toastFace.hovered ? 1 : 0
-
-                    Behavior on opacity {
+                    Behavior on height {
                         NumberAnimation {
-                            duration: Theme.barMs(140)
+                            duration: Theme.barMs(220)
                             easing.type: Easing.OutCubic
                         }
 
                     }
 
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: Theme.barMs(120)
-                        }
-
-                    }
-
-                }
-
-                MouseArea {
-                    id: toastCloseArea
-
-                    anchors.fill: parent
-                    anchors.margins: -4
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        toastTimer.stop();
-                        root.toastNotification = null;
-                    }
                 }
 
             }
 
-        }
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: Theme.barMs(200)
+                }
+
+            }
+
         }
     ]
 
@@ -915,19 +951,14 @@ BarPill {
             id: mainColumn
 
             anchors.fill: parent
-            anchors.margins: 14
-            spacing: 10
+            anchors.margins: Theme.dp(14)
+            spacing: Theme.dp(8)
 
             Item {
-                width: parent.width
-                height: 28
+                id: headerRow
 
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    width: parent.width
-                    height: 1
-                    color: Theme.outline
-                }
+                width: parent.width
+                height: Theme.dp(30)
 
                 Text {
                     anchors.left: parent.left
@@ -935,229 +966,253 @@ BarPill {
                     text: "Notifications"
                     color: Theme.text
                     font.family: Theme.fontFamily
-                    font.bold: true
-                    font.pixelSize: Theme.fs(13)
+                    font.weight: Font.DemiBold
+                    font.pixelSize: Theme.fs(15)
+                    font.variableAxes: Theme.axes(Theme.fs(15), 600, 0)
                 }
 
                 Row {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 8
+                    spacing: Theme.dp(2)
 
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Do Not Disturb"
-                        color: Theme.subtext
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fs(11)
+                    NotifGhostButton {
+                        iconPath: Notifs.icons.bedtime
+                        active: Notifs.dnd
+                        onClicked: Notifs.toggleDnd()
                     }
 
-                    Rectangle {
-                        id: dndSwitch
-
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 32
-                        height: 18
-                        radius: 999
-                        color: root.dnd ? Theme.accent : Theme.outlineStrong
-
-                        Rectangle {
-                            width: 14
-                            height: 14
-                            radius: 7
-                            color: Theme.bgOpaque
-                            anchors.verticalCenter: parent.verticalCenter
-                            x: root.dnd ? parent.width - width - 2 : 2
-
-                            Behavior on x {
-                                NumberAnimation {
-                                    duration: Theme.barMs(200)
-                                    easing.type: Easing.OutCubic
-                                }
-
-                            }
-
+                    NotifGhostButton {
+                        iconPath: Notifs.icons.settings
+                        onClicked: {
+                            root.expanded = false;
+                            Notifs.settingsRequested();
                         }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: Prefs.doNotDisturb = !Prefs.doNotDisturb
-                        }
-
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: Theme.barMs(200)
-                            }
-
-                        }
-
                     }
 
                 }
 
             }
 
+            // what is actually going on right now, in one line
             Item {
+                id: countRow
+
                 width: parent.width
-                height: 26
+                height: Theme.dp(22)
 
                 Text {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: root.notifCount > 0
-                    text: root.notifCount === 1 ? "1 notification" : root.notifCount + " notifications"
-                    color: Theme.subtext
+                    text: {
+                        if (Notifs.dnd)
+                            return "Do Not Disturb · " + root.notifCount + " waiting";
+
+                        if (Notifs.quietNow)
+                            return "Quiet hours · " + root.notifCount + " waiting";
+
+                        if (root.notifCount === 0)
+                            return "Nothing waiting";
+
+                        return root.notifCount === 1 ? "1 notification" : root.notifCount + " notifications";
+                    }
+                    color: (Notifs.dnd || Notifs.quietNow) ? Theme.accent : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(11)
+                    font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
                 }
 
-                Text {
-                    id: clearAllText
-
+                NotifTextButton {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Clear all"
-                    color: clearAllArea.containsMouse ? Theme.accentHover : Theme.accent
-                    opacity: root.notifCount > 0 ? 1 : 0.35
-                    font.family: Theme.fontFamily
-                    font.bold: true
-                    font.pixelSize: Theme.fs(11)
-
-                    MouseArea {
-                        id: clearAllArea
-
-                        anchors.fill: parent
-                        anchors.margins: -6
-                        enabled: root.notifCount > 0
-                        hoverEnabled: true
-                        cursorShape: root.notifCount > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: root.clearAll()
-                    }
-
-                    Behavior on color {
-                        ColorAnimation {
-                            duration: Theme.barMs(120)
-                        }
-
-                    }
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Theme.barMs(150)
-                        }
-
-                    }
-
+                    visible: Notifs.rows.length > 0 && Prefs.notifGrouping
+                    label: "Expand all"
+                    labelColor: Theme.subtext
+                    onClicked: Notifs.expandAll()
                 }
 
             }
 
+            // nothing to show: say so properly rather than with a bare line
             Item {
                 width: parent.width
-                height: 48
-                visible: root.notifCount === 0
+                height: root.notifCount === 0 ? Theme.dp(132) : 0
+                opacity: root.notifCount === 0 ? 1 : 0
+                visible: opacity > 0.01
+                clip: true
 
-                Text {
+                Column {
                     anchors.centerIn: parent
-                    text: "No notifications"
-                    color: Theme.subtext
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fs(12)
+                    spacing: Theme.dp(10)
+
+                    NotifIcon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        size: Theme.dp(34)
+                        path: Notifs.icons.done_all
+                        color: Theme.subtextDim
+                    }
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "You're all caught up"
+                        color: Theme.subtext
+                        font.family: Theme.fontFamily
+                        font.weight: Font.DemiBold
+                        font.pixelSize: Theme.fs(12)
+                        font.variableAxes: Theme.axes(Theme.fs(12), 600, 0)
+                    }
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: Notifs.dnd ? "Notifications are being held back" : "New notifications will show up here"
+                        color: Theme.subtextDim
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fs(10)
+                        font.variableAxes: Theme.axes(Theme.fs(10), 420, 0)
+                    }
+
+                }
+
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: Theme.barMs(200)
+                    }
+
                 }
 
             }
 
-            ListView {
-                id: notifList
+            // a Flickable rather than a ListView: one row here is a whole app
+            // group, and an expanded one is far taller than the viewport.
+            // ListView virtualises from delegate bounds, so a single huge
+            // delegate whose height is also animated leaves its bookkeeping
+            // stale and shows empty space. there are only ever a few rows.
+            Flickable {
+                id: shadeList
 
-                property int prevCount: 0
+                // the gutter the scrollbar lives in, taken out of the panel's
+                // right margin so the cards keep even margins either side
+                readonly property int gutter: Theme.dp(10)
+                readonly property bool scrollable: shadeList.contentHeight > shadeList.height + 1
+                readonly property real maxScroll: Math.max(0, shadeList.contentHeight - shadeList.height)
 
-                width: parent.width
-                visible: root.notifCount > 0
-                clip: true
-                spacing: 6
-                model: notifModel
-                height: Math.min(contentHeight, root.maxPanelHeight - root.chromeHeight)
-                flickDeceleration: 6000
-                maximumFlickVelocity: 6000
-                onCountChanged: {
-                    if (count > prevCount && contentY > 0)
-                        scrollToNewest.restart();
+                function clampScroll() {
+                    const v = Math.max(0, Math.min(shadeList.maxScroll, shadeList.contentY));
+                    // guarded, or the assignment re-enters through onContentYChanged
+                    if (Math.abs(v - shadeList.contentY) > 0.01)
+                        shadeList.contentY = v;
 
-                    prevCount = count;
                 }
 
-                NumberAnimation {
-                    id: scrollToNewest
+                // interactive is false, so nothing rebounds contentY on its own
+                onContentHeightChanged: Qt.callLater(shadeList.clampScroll)
+                onHeightChanged: Qt.callLater(shadeList.clampScroll)
+                onContentYChanged: Qt.callLater(shadeList.clampScroll)
 
-                    target: notifList
-                    property: "contentY"
-                    to: 0
-                    duration: Theme.barMs(320)
-                    easing.type: Easing.OutCubic
+                width: parent.width + shadeList.gutter
+                visible: root.notifCount > 0
+                clip: true
+                // the cards swipe sideways, so the list must not fight them
+                interactive: false
+                contentWidth: shadeList.width
+                contentHeight: rowColumn.implicitHeight
+                height: Math.max(0, Math.min(contentHeight, root.maxPanelHeight - root.chromeHeight))
+
+                Column {
+                    id: rowColumn
+
+                    width: shadeList.width - shadeList.gutter
+                    spacing: Theme.dp(6)
+
+                    move: Transition {
+                        NumberAnimation {
+                            properties: "x,y"
+                            duration: Theme.barMs(300)
+                            easing.type: Easing.Bezier
+                            easing.bezierCurve: Theme.easeEmphasizedDecel
+                        }
+
+                    }
+
+                    add: Transition {
+                        NumberAnimation {
+                            property: "opacity"
+                            from: 0
+                            to: 1
+                            duration: Theme.barMs(240)
+                            easing.type: Easing.OutCubic
+                        }
+
+                    }
+
+                    Repeater {
+                        model: shadeModel
+
+                        Item {
+                            id: shadeRow
+
+                            required property var modelData
+
+                            readonly property bool isHeader: shadeRow.modelData && shadeRow.modelData.kind === "header"
+
+                            width: rowColumn.width
+                            implicitHeight: shadeRow.isHeader ? Theme.dp(24) : groupItem.implicitHeight
+                            height: shadeRow.implicitHeight
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: Theme.dp(4)
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: Theme.dp(4)
+                                visible: shadeRow.isHeader
+                                text: shadeRow.isHeader ? shadeRow.modelData.label : ""
+                                color: Theme.subtextDim
+                                font.family: Theme.fontFamily
+                                font.weight: Font.DemiBold
+                                font.pixelSize: Theme.fs(10)
+                                font.variableAxes: Theme.axes(Theme.fs(10), 600, 0)
+                                font.letterSpacing: 0.6
+                            }
+
+                            NotifGroup {
+                                id: groupItem
+
+                                width: parent.width
+                                visible: !shadeRow.isHeader
+                                row: shadeRow.isHeader ? null : shadeRow.modelData
+                            }
+
+                        }
+
+                    }
+
                 }
 
                 MouseArea {
                     anchors.fill: parent
                     acceptedButtons: Qt.NoButton
                     onWheel: (wheel) => {
-                        const maxY = Math.max(0, notifList.contentHeight - notifList.height);
-                        notifList.contentY = Math.max(0, Math.min(maxY, notifList.contentY - (wheel.angleDelta.y / 120) * 90));
+                        shadeList.contentY = Math.max(0, Math.min(shadeList.maxScroll, shadeList.contentY - (wheel.angleDelta.y / 120) * 90));
                         wheel.accepted = true;
                     }
                 }
 
-                delegate: NotifCard {
-                }
-
-                removeDisplaced: Transition {
-                    NumberAnimation {
-                        properties: "x,y"
-                        duration: Theme.barMs(300)
-                        easing.type: Easing.OutCubic
-                    }
-
-                    NumberAnimation {
-                        property: "opacity"
-                        to: 1
-                        duration: Theme.barMs(200)
-                    }
-
-                }
-
-                remove: Transition {
-                    NumberAnimation {
-                        property: "opacity"
-                        to: 0
-                        duration: Theme.barMs(200)
-                        easing.type: Easing.InCubic
-                    }
-
-                    NumberAnimation {
-                        property: "scale"
-                        to: 0.85
-                        duration: Theme.barMs(200)
-                        easing.type: Easing.InCubic
-                    }
-
-                    NumberAnimation {
-                        property: "x"
-                        to: 26
-                        duration: Theme.barMs(200)
-                        easing.type: Easing.InCubic
-                    }
-
-                }
-
                 ScrollBar.vertical: ScrollBar {
-                    policy: ScrollBar.AsNeeded
+                    policy: shadeList.scrollable ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
 
                     contentItem: Rectangle {
-                        implicitWidth: 4
-                        radius: 2
+                        implicitWidth: Theme.dp(3)
+                        radius: width / 2
                         color: Theme.accent
-                        opacity: 0.55
+                        opacity: shadeList.scrollable ? 1 : 0
+
+                        Behavior on opacity {
+                            NumberAnimation {
+                                duration: Theme.barMs(180)
+                            }
+
+                        }
+
                     }
 
                     background: Item {
@@ -1167,343 +1222,44 @@ BarPill {
 
             }
 
+            // m3 puts the shade's verbs on pills along the bottom
+            Item {
+                id: footerRow
+
+                width: parent.width
+                height: Theme.dp(34)
+
+                Rectangle {
+                    anchors.top: parent.top
+                    width: parent.width
+                    height: 1
+                    color: Theme.outline
+                    opacity: 0.5
+                }
+
+                NotifTextButton {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    label: "Clear all"
+                    enabled: root.notifCount > 0
+                    onClicked: Notifs.clearAll()
+                }
+
+            }
+
         }
     ]
 
-    component NotifCard: Rectangle {
-        id: card
+    ScriptModel {
+        id: shadeModel
 
-        required property var modelData
-        readonly property var notification: modelData
-        property string notifAppName: ""
-        property string notifSummary: ""
-        property string notifBody: ""
-        property string notifImage: ""
-        property string notifAppIcon: ""
-        property int notifUrgency: NotificationUrgency.Normal
-        property var notifActions: []
-        readonly property string themeIconName: card.notifAppIcon || (card.notifImage.indexOf("image://icon/") === 0 ? card.notifImage.slice(13) : "")
-        readonly property string directImage: card.notifImage.indexOf("image://icon/") === 0 ? "" : card.notifImage
-        readonly property string iconSource: directImage || (themeIconName ? Quickshell.iconPath(themeIconName) : "")
-        readonly property color accentColor: card.notifUrgency === NotificationUrgency.Critical ? Theme.error : (card.notifUrgency === NotificationUrgency.Low ? Theme.subtextDim : Theme.accent)
-        readonly property bool isHovered: cardHover.hovered
-        property real arrivalGlow: 0
-        readonly property real fullHeight: cardColumn.implicitHeight + 20
-        property real enterProgress: 0
+        values: Notifs.rows
+    }
 
-        function syncNotification() {
-            const n = card.notification;
-            if (!n)
-                return ;
+    ScriptModel {
+        id: stackModel
 
-            card.notifAppName = n.appName;
-            card.notifSummary = n.summary;
-            card.notifBody = n.body;
-            card.notifImage = n.image;
-            card.notifAppIcon = n.appIcon;
-            card.notifUrgency = n.urgency;
-            card.notifActions = n.actions.map((a) => {
-                return {
-                    "identifier": a.identifier,
-                    "text": a.text,
-                    "invoke": () => {
-                        return a.invoke();
-                    }
-                };
-            });
-        }
-
-        onNotificationChanged: card.syncNotification()
-        Component.onCompleted: {
-            card.syncNotification();
-            if (card.notification && root.markShown(card.notification.id))
-                cardEnter.start();
-            else
-                card.enterProgress = 1;
-        }
-        // deferred — straight from a delegate handler this crashes mid-incubation
-        function relayout() {
-            if (card.ListView.view)
-                card.ListView.view.forceLayout();
-
-        }
-
-        onHeightChanged: Qt.callLater(card.relayout)
-        width: ListView.view.width - 12
-        height: card.fullHeight * card.enterProgress
-        radius: 14
-        color: Theme.withBlur(card.arrivalGlow > 0 ? Theme._mix(Theme.bgHover, card.accentColor, card.arrivalGlow * 0.32) : Theme.bgHover)
-        clip: true
-        transform: Translate {
-            x: (1 - card.enterProgress) * 22
-        }
-
-        ParallelAnimation {
-            id: cardEnter
-
-            NumberAnimation {
-                target: card
-                property: "enterProgress"
-                from: 0
-                to: 1
-                duration: Theme.barMs(400)
-                easing.type: Easing.OutCubic
-            }
-
-            NumberAnimation {
-                target: card
-                property: "opacity"
-                from: 0
-                to: 1
-                duration: Theme.barMs(300)
-                easing.type: Easing.OutCubic
-            }
-
-            NumberAnimation {
-                target: card
-                property: "arrivalGlow"
-                from: 1
-                to: 0
-                duration: Theme.barMs(900)
-                easing.type: Easing.InCubic
-            }
-
-        }
-
-        Connections {
-            function onAppNameChanged() {
-                card.syncNotification();
-            }
-
-            function onAppIconChanged() {
-                card.syncNotification();
-            }
-
-            function onSummaryChanged() {
-                card.syncNotification();
-            }
-
-            function onBodyChanged() {
-                card.syncNotification();
-            }
-
-            function onImageChanged() {
-                card.syncNotification();
-            }
-
-            function onUrgencyChanged() {
-                card.syncNotification();
-            }
-
-            function onActionsChanged() {
-                card.syncNotification();
-            }
-
-            target: card.notification
-        }
-
-        HoverHandler {
-            id: cardHover
-        }
-
-        Column {
-            id: cardColumn
-
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.leftMargin: 12
-            anchors.rightMargin: 12
-            anchors.topMargin: 10
-            spacing: 4
-
-            Row {
-                width: parent.width
-                spacing: 8
-
-                Rectangle {
-                    id: avatar
-
-                    width: 20
-                    height: 20
-                    radius: 999
-                    color: Theme.bgTrack
-                    anchors.top: parent.top
-
-                    IconImage {
-                        id: iconImage
-
-                        anchors.fill: parent
-                        anchors.margins: 1
-                        source: card.iconSource
-                        asynchronous: true
-                        visible: status === Image.Ready
-                    }
-
-                    Text {
-                        anchors.centerIn: parent
-                        visible: !iconImage.visible
-                        text: (card.notifAppName || "?").charAt(0).toUpperCase()
-                        color: card.accentColor
-                        font.family: Theme.fontFamily
-                        font.bold: true
-                        font.pixelSize: Theme.fs(9)
-                    }
-
-                }
-
-                Column {
-                    width: parent.width - 20 - 20 - 16
-                    spacing: 1
-                    height: (cardAppNameText.visible ? cardAppNameText.height + spacing : 0) + cardSummaryText.height
-
-                    Text {
-                        id: cardAppNameText
-
-                        width: parent.width
-                        visible: card.notifAppName !== ""
-                        text: card.notifAppName
-                        color: Theme.subtextDim
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fs(9)
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        id: cardSummaryText
-
-                        width: parent.width
-                        text: card.notifSummary
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.bold: true
-                        font.pixelSize: Theme.fs(12)
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
-                    }
-
-                }
-
-                Item {
-                    width: 20
-                    height: 20
-                    anchors.top: parent.top
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "✕"
-                        color: dismissArea.containsMouse ? Theme.text : Theme.subtextDim
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fs(11)
-                        opacity: card.isHovered ? 1 : 0
-
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: Theme.barMs(140)
-                                easing.type: Easing.OutCubic
-                            }
-
-                        }
-
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: Theme.barMs(120)
-                            }
-
-                        }
-
-                    }
-
-                    MouseArea {
-                        id: dismissArea
-
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            if (card.notification)
-                                card.notification.dismiss();
-
-                        }
-                    }
-
-                }
-
-            }
-
-            Text {
-                width: parent.width
-                leftPadding: 28
-                visible: card.notifBody !== ""
-                text: card.notifBody
-                color: Theme.subtext
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fs(11)
-                wrapMode: Text.WordWrap
-                textFormat: Text.PlainText
-            }
-
-            Row {
-                leftPadding: 28
-                visible: card.notifActions.length > 0
-                spacing: 6
-
-                Repeater {
-                    model: card.notifActions
-
-                    Rectangle {
-                        id: actionChip
-
-                        required property var modelData
-
-                        height: 22
-                        width: actionLabel.implicitWidth + 16
-                        radius: 999
-                        color: card.accentColor
-                        opacity: actionArea.containsMouse ? 0.85 : 1
-
-                        Text {
-                            id: actionLabel
-
-                            anchors.centerIn: parent
-                            text: actionChip.modelData.text
-                            color: Theme.bgOpaque
-                            font.family: Theme.fontFamily
-                            font.bold: true
-                            font.pixelSize: Theme.fs(10)
-                        }
-
-                        MouseArea {
-                            id: actionArea
-
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.invokeAndMaybeFocus(actionChip.modelData, card.notification)
-                        }
-
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: Theme.barMs(120)
-                            }
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-            Item {
-                width: parent.width
-                height: 6
-            }
-
-        }
-
+        values: root.restPopups
     }
 
 }

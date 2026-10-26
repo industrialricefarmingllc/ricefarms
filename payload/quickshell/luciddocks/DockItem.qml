@@ -30,7 +30,7 @@ Item {
     signal requestContextMenu()
     signal launched()
 
-    readonly property int slot: Prefs.dockIconSize
+    readonly property int slot: Theme.dp(Prefs.dockIconSize)
     readonly property real slotScale: dockItem.slot / 46
 
     function sc(v) {
@@ -78,37 +78,16 @@ Item {
         return t.wayland && t.wayland.appId && t.wayland.appId.toLowerCase() === dockItem.appId.toLowerCase() && t.urgent;
     })
 
-    function resolveIcon(name) {
-        if (!name || name === "")
-            return "";
-
-        if (name.charAt(0) === "/")
-            return "file://" + name;
-
-        var tries = [name, name.toLowerCase()];
-        var dot = name.lastIndexOf(".");
-        if (dot > 0 && dot < name.length - 1) {
-            var tail = name.substring(dot + 1);
-            tries.push(tail, tail.toLowerCase());
-        }
-        for (var i = 0; i < tries.length; i++) {
-            var p = Quickshell.iconPath(tries[i], true);
-            if (p !== "")
-                return p;
-        }
-        return "";
-    }
-
-    readonly property string iconSource: dockItem.resolveIcon(dockItem.iconName)
+    readonly property string iconSource: IconTheme.resolve(dockItem.iconName)
     readonly property string monogram: dockItem.displayName !== "" ? dockItem.displayName.charAt(0).toUpperCase() : "?"
 
     readonly property real hoverSwell: (dockItem.active ? 0.12 : 0.08) * Prefs.dockHoverEffect
-    readonly property real hoverLift: (dockItem.active ? 9 : 6) * Prefs.dockHoverEffect
+    readonly property real hoverLift: (dockItem.active ? Theme.dp(9) : Theme.dp(6)) * Prefs.dockHoverEffect
 
     width: dockItem.slot
     height: dockItem.slot
     scale: dockItem.pressed ? 0.94 : (dockItem.hovered ? 1 + dockItem.hoverSwell : 1 + dockItem.magnifyBoost)
-    y: dockItem.pressed ? -2 : (dockItem.hovered ? -dockItem.hoverLift : 0)
+    y: dockItem.pressed ? -Theme.dp(2) : (dockItem.hovered ? -dockItem.hoverLift : 0)
 
     onHoveredChanged: {
         if (dockItem.hovered) {
@@ -135,7 +114,7 @@ Item {
             id: tile
 
             anchors.fill: parent
-            radius: dockItem.sc(14)
+            radius: Prefs.dockItemRadius
             color: Theme.withBlur(Theme.bgTile)
             visible: Prefs.dockIconTiles
         }
@@ -144,7 +123,7 @@ Item {
             id: stateLayer
 
             anchors.fill: parent
-            radius: dockItem.sc(14)
+            radius: Prefs.dockItemRadius
             color: Theme.text
             opacity: dockItem.pressed ? Theme.statePressed : (dockItem.hovered ? Theme.stateHover : (dockItem.toggleActive ? Theme.stateFocus : 0))
 
@@ -162,7 +141,7 @@ Item {
             id: iconImg
 
             anchors.fill: parent
-            anchors.margins: dockItem.sc(5)
+            anchors.margins: Prefs.dockIconInset
             visible: dockItem.iconContent === null && dockItem.iconSource !== ""
             source: dockItem.iconSource
         }
@@ -171,8 +150,8 @@ Item {
             id: monogramTile
 
             anchors.fill: parent
-            anchors.margins: dockItem.sc(5)
-            radius: dockItem.sc(11)
+            anchors.margins: Prefs.dockIconInset
+            radius: Math.max(0, Prefs.dockItemRadius - Prefs.dockIconInset)
             color: Theme.bgHigh
             visible: dockItem.iconContent === null && dockItem.iconSource === ""
 
@@ -182,6 +161,7 @@ Item {
                 color: Theme.accent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(dockItem.sc(19))
+                font.variableAxes: Theme.axes(Theme.fs(dockItem.sc(19)), 600, 0)
                 font.weight: Font.DemiBold
             }
 
@@ -191,7 +171,7 @@ Item {
             id: iconLoader
 
             anchors.fill: parent
-            anchors.margins: dockItem.sc(5)
+            anchors.margins: Prefs.dockIconInset
             active: dockItem.iconContent !== null
             sourceComponent: dockItem.iconContent
         }
@@ -213,12 +193,30 @@ Item {
         z: 20
         scale: dockItem.windowCount > 3 ? 1 : 0
 
+        TextMetrics {
+            id: dockCountCap
+
+            font: dockCountText.font
+            text: "7"
+        }
+
+        FontMetrics {
+            id: dockCountFm
+
+            font: dockCountText.font
+        }
+
         Text {
-            anchors.centerIn: parent
+            id: dockCountText
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            // centre the cap-height box, not the line box
+            y: (countBadge.height - dockCountCap.tightBoundingRect.height) / 2 - dockCountCap.tightBoundingRect.y - dockCountFm.ascent
             text: dockItem.windowCount
-            color: Theme.onAccent
+            color: Theme.fgAccent
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(9)
+            font.variableAxes: Theme.axes(Theme.fs(9), 600, 0)
             font.weight: Font.DemiBold
         }
 
@@ -240,7 +238,7 @@ Item {
         readonly property real segW: dockItem.focused ? (indicator.segments === 1 ? dockItem.sc(16) : dockItem.sc(9)) : dockItem.sc(5)
 
         anchors.horizontalCenter: parent.horizontalCenter
-        y: dockItem.height + dockItem.sc(3) + (dockItem.hovered ? 3 : 0)
+        y: dockItem.height + dockItem.sc(3) + (dockItem.hovered ? Theme.dp(3) : 0)
         spacing: dockItem.sc(3)
         opacity: (dockItem.active && Prefs.dockShowIndicators) ? 1 : 0
         visible: indicator.opacity > 0
@@ -310,7 +308,7 @@ Item {
         label: dockItem.displayName
         detail: dockItem.windowCount > 1 ? dockItem.windowCount + " windows" : (dockItem.windowCount === 1 ? "1 window" : "")
         open: Prefs.dockShowTooltips && dockItem.tooltipReady && dockItem.displayName !== ""
-        lift: dockItem.hovered ? 4 : 0
+        lift: dockItem.hovered ? Theme.dp(4) : 0
     }
 
     Item {

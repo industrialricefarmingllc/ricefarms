@@ -1,0 +1,315 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Widgets
+import qs
+
+// choosing an account picture: what the machine ships with, anything on disk,
+// or none at all and back to initials
+Item {
+    id: picker
+
+    property bool shown: false
+    property var user: null
+
+    signal chosen(int uid, string path)
+
+    function open(u) {
+        picker.user = u;
+        picker.shown = true;
+        Users.loadFaces();
+        Users.loadHistory(u ? u.uid : -1);
+    }
+
+    function dismiss() {
+        picker.shown = false;
+    }
+
+    function pick(path) {
+        if (!picker.user)
+            return ;
+
+        var uid = picker.user.uid;
+        picker.dismiss();
+        picker.chosen(uid, path);
+    }
+
+    component AvatarChoice: ClippingRectangle {
+        id: choice
+
+        required property var modelData
+
+        width: Theme.dp(62)
+        height: Theme.dp(62)
+        radius: Theme.dp(31)
+        color: Theme.bgSunken
+
+        Image {
+            anchors.fill: parent
+            source: "file://" + choice.modelData.path
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            sourceSize.width: Theme.dp(128)
+            sourceSize.height: Theme.dp(128)
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.text
+            opacity: choiceArea.pressed ? Theme.statePressed : (choiceArea.containsMouse ? Theme.stateHover : 0)
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: Theme.durQuick
+                }
+
+            }
+
+        }
+
+        MouseArea {
+            id: choiceArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: picker.pick(choice.modelData.path)
+        }
+
+    }
+
+    anchors.fill: parent
+    visible: picker.opacity > 0.01
+    opacity: picker.shown ? 1 : 0
+
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.alpha(Theme.cShadow, 0.55)
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: picker.dismiss()
+        }
+
+    }
+
+    Rectangle {
+        id: card
+
+        anchors.centerIn: parent
+        width: Math.min(Theme.dp(460), picker.width - Theme.dp(64))
+        height: cardCol.implicitHeight + Theme.dp(56)
+        radius: Theme.shapeXl
+        color: Theme.bgHigh
+        scale: picker.shown ? 1 : 0.88
+        opacity: picker.shown ? 1 : 0
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Column {
+            id: cardCol
+
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Theme.dp(28)
+            spacing: Theme.dp(14)
+
+            Text {
+                width: parent.width
+                text: "Account picture"
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontHeadlineSm
+                font.variableAxes: Theme.axes(Theme.fontHeadlineSm, 520, 0)
+                font.weight: Font.Medium
+            }
+
+            Text {
+                width: parent.width
+                text: "It is squared off and shrunk to 256 pixels before it is saved, so any picture will do."
+                color: Theme.subtext
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontBodyMd
+                font.variableAxes: Theme.axes(Theme.fontBodyMd, 420, 0)
+                lineHeight: 1.3
+                wrapMode: Text.WordWrap
+            }
+
+            // the machine's own stock faces, when it has any
+            Flow {
+                width: parent.width
+                spacing: Theme.dp(10)
+                visible: Users.faces.length > 0
+
+                Repeater {
+                    model: Users.faces
+
+                    AvatarChoice {
+                    }
+
+                }
+
+            }
+
+            // what this account wore before, so a picture is never lost by
+            // changing it. the oldest drop off once the shelf is full
+            Column {
+                width: parent.width
+                spacing: Theme.dp(8)
+                visible: Users.avatarHistory.length > 0
+
+                Item {
+                    width: parent.width
+                    height: Theme.dp(18)
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Previously used"
+                        color: Theme.subtextDim
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontLabelSm
+                        font.variableAxes: Theme.axes(Theme.fontLabelSm, 420, 0)
+                    }
+
+                    Text {
+                        id: clearLabel
+
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Clear"
+                        color: clearArea.containsMouse ? Theme.error : Theme.subtextDim
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontLabelSm
+                        font.variableAxes: Theme.axes(Theme.fontLabelSm, 420, 0)
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: Theme.durQuick
+                            }
+
+                        }
+
+                    }
+
+                    MouseArea {
+                        id: clearArea
+
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right
+                        width: clearLabel.width + Theme.dp(16)
+                        height: Theme.dp(24)
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Users.clearHistory(picker.user ? picker.user.uid : -1)
+                    }
+
+                }
+
+                Flow {
+                    width: parent.width
+                    spacing: Theme.dp(10)
+
+                    Repeater {
+                        model: Users.avatarHistory
+
+                        AvatarChoice {
+                        }
+
+                    }
+
+                }
+
+            }
+
+            Item {
+                width: parent.width
+                height: Theme.dp(2)
+            }
+
+            Row {
+                width: parent.width
+                spacing: Theme.dp(8)
+
+                M3Button {
+                    text: "Choose a picture…"
+                    variant: "filled"
+                    iconPath: "photo_camera"
+                    onClicked: {
+                        browse.command = ["python3", Qt.resolvedUrl("pickfile.py").toString().replace("file://", ""), "--title", "Choose an account picture", "--filter", "Images=image/jpeg,image/png,image/webp"];
+                        browse.running = true;
+                    }
+                }
+
+                M3Button {
+                    text: "Remove"
+                    variant: "text"
+                    destructive: true
+                    enabled: picker.user !== null && picker.user.avatar !== ""
+                    onClicked: picker.pick("")
+                }
+
+            }
+
+            Item {
+                width: parent.width
+                height: Theme.dp(4)
+            }
+
+            Row {
+                anchors.right: parent.right
+
+                M3Button {
+                    text: "Cancel"
+                    variant: "text"
+                    onClicked: picker.dismiss()
+                }
+
+            }
+
+        }
+
+        Behavior on scale {
+            NumberAnimation {
+                duration: Theme.durMedium
+                easing.type: Theme.easeEmphasized
+                easing.overshoot: Theme.emphasizedOvershoot
+            }
+
+        }
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Theme.durShort
+            }
+
+        }
+
+    }
+
+    Process {
+        id: browse
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var path = this.text.trim();
+                if (path !== "")
+                    picker.pick(path);
+
+            }
+        }
+
+    }
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: Theme.durShort
+            easing.type: Theme.easeStandard
+        }
+
+    }
+
+}

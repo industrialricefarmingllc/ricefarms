@@ -1,20 +1,30 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Hyprland._FocusGrab
 import Quickshell.Services.SystemTray
 import Quickshell.Widgets
 import qs
+import qs.lucidui
 
 BarPill {
     id: root
 
     readonly property var hiddenKeywords: ["blueman"]
+    // the ones switched off on the module's card, by their id
+    readonly property var hiddenIds: String(Prefs.trayHidden).split(",").filter((id) => {
+        return id !== "";
+    })
+    // the look picked on the module's card: collapsed, or every app's icon
+    lookPref: Prefs.trayStyle
+    readonly property bool iconFace: root.look === "icons"
     readonly property var trayItems: {
         const raw = SystemTray.items ? SystemTray.items.values : [];
         const visible = raw.filter((i) => {
             const key = ((i.id || "") + " " + (i.title || "")).toLowerCase();
-            return !root.hiddenKeywords.some((kw) => {
+            return root.hiddenIds.indexOf(i.id || "") === -1 && !root.hiddenKeywords.some((kw) => {
                 return key.indexOf(kw) !== -1;
             });
         });
@@ -175,15 +185,15 @@ BarPill {
         }
     }
 
-    readonly property int horizontalPadding: 10
+    readonly property int horizontalPadding: Theme.dp(10)
     readonly property real screenW: root.hostWindow ? root.hostWindow.screen.width : 1600
     readonly property real screenH: root.hostWindow ? root.hostWindow.screen.height : 900
-    readonly property int maxPanelHeight: Math.min(380, Math.max(180, root.screenH - 40))
+    readonly property int maxPanelHeight: Math.min(Theme.dp(380), Math.max(Theme.dp(180), root.screenH - Theme.dp(40)))
 
-    shown: Prefs.showTray && root.trayCount > 0
+    shown: Prefs.barHas("tray") && root.trayCount > 0
     compactWidth: compactRow.implicitWidth + root.horizontalPadding * 2
-    panelWidth: Math.min(300, root.screenW - 34)
-    panelHeight: Math.min(root.maxPanelHeight, expandedColumn.implicitHeight + 28)
+    panelWidth: Math.min(Theme.dp(300), root.screenW - Theme.dp(34))
+    panelHeight: Math.min(root.maxPanelHeight, expandedColumn.implicitHeight + Theme.dp(28))
     expandedRadius: Theme.radiusLg
     compactCollapseScale: 0.94
 
@@ -192,10 +202,14 @@ BarPill {
             root.expanded = false;
 
     }
-    onExpandedChanged: {
-        if (!root.expanded)
-            root.menuItem = null;
+    // opening the panel over a bar menu, or shutting it, takes the menu away
+    onExpandedChanged: root.menuItem = null
 
+    // a menu opened from the bar has no panel's grab behind it, so it keeps its own
+    HyprlandFocusGrab {
+        active: root.overlayOpen && !root.expanded
+        windows: root.hostWindow ? [root.hostWindow] : []
+        onCleared: root.menuItem = null
     }
 
     compactContent: [
@@ -203,30 +217,107 @@ BarPill {
             id: compactRow
 
             anchors.centerIn: parent
-            spacing: 4
+            spacing: root.iconFace ? Theme.dp(6) : Theme.dp(4)
 
-            Item {
-                width: 16
-                height: 16
-                anchors.verticalCenter: parent.verticalCenter
+            // the icons look: each app in the bar, clicked as in the panel
+            Repeater {
+                model: root.iconFace ? root.trayItems : []
 
-                Shape {
-                    width: 24
-                    height: 24
-                    scale: 16 / 24
-                    anchors.centerIn: parent
-                    preferredRendererType: Shape.CurveRenderer
+                Item {
+                    id: inline
 
-                    ShapePath {
-                        fillColor: Theme.text
-                        strokeWidth: 0
+                    required property var modelData
 
-                        PathSvg {
-                            path: "M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"
+                    width: Theme.dp(18)
+                    height: Theme.dp(18)
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    IconImage {
+                        id: inlineIcon
+
+                        anchors.fill: parent
+                        source: root.resolveIconSource(inline.modelData.icon)
+                        asynchronous: true
+                        visible: status === Image.Ready
+                        layer.enabled: Prefs.trayIconColor !== "original"
+                        layer.effect: TrayTint {
                         }
-
                     }
 
+                    Text {
+                        visible: !inlineIcon.visible
+                        anchors.centerIn: parent
+                        text: (inline.modelData.title || inline.modelData.id || "?").charAt(0).toUpperCase()
+                        color: Theme.subtext
+                        font.family: Theme.fontFamily
+                        font.bold: true
+                        font.pixelSize: Theme.fs(12)
+                    }
+
+                    // one asking for attention
+                    Rectangle {
+                        visible: inline.modelData.status === Status.NeedsAttention
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.bottom
+                        anchors.topMargin: Theme.dp(2)
+                        width: Theme.dp(4)
+                        height: Theme.dp(4)
+                        radius: height / 2
+                        color: Theme.accent
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -Theme.dp(3)
+                        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton) {
+                                // its menu on its own, under the icon; the pill stays shut
+                                if (root.menuItem === inline.modelData && root.overlayOpen) {
+                                    root.menuItem = null;
+                                    return ;
+                                }
+                                const p = menuLayer.mapFromItem(inline, 0, inline.height + Theme.dp(6));
+                                root.menuItem = inline.modelData;
+                                root.menuX = p.x;
+                                root.menuY = p.y;
+                                return ;
+                            }
+                            root.menuItem = null;
+                            if (mouse.button === Qt.MiddleButton)
+                                inline.modelData.secondaryActivate();
+                            else
+                                inline.modelData.activate();
+                            // activate() only asks the app to show itself - the
+                            // focus dispatch also takes us to its workspace.
+                            root.focusTrayWindow(inline.modelData);
+                            // we're leaving for the app's workspace - retract
+                            // the panel rather than leaving it open behind.
+                            root.expanded = false;
+                        }
+                        onWheel: (wheel) => {
+                            inline.modelData.scroll(wheel.angleDelta.y, false);
+                            wheel.accepted = true;
+                        }
+                    }
+
+                }
+
+            }
+
+            Item {
+                visible: !root.iconFace
+                width: Theme.dp(16)
+                height: Theme.dp(16)
+                anchors.verticalCenter: parent.verticalCenter
+
+                Icon {
+                    anchors.centerIn: parent
+                    name: "dashboard"
+                    size: Theme.dp(18)
+                    fill: 1
+                    color: Theme.text
                 }
 
             }
@@ -234,24 +325,41 @@ BarPill {
             Rectangle {
                 id: countBadge
 
+                visible: !root.iconFace
                 anchors.verticalCenter: parent.verticalCenter
-                height: 16
-                width: root.trayCount > 0 ? Math.max(16, countText.implicitWidth + 8) : 0
-                radius: 999
+                height: Theme.dp(16)
+                width: root.trayCount > 0 ? Math.max(Theme.dp(16), countText.implicitWidth + Theme.dp(8)) : 0
+                radius: Theme.dp(999)
                 color: Theme.accent
                 opacity: root.trayCount > 0 ? 1 : 0
                 scale: root.trayCount > 0 ? 1 : 0.4
                 clip: true
 
+                TextMetrics {
+                    id: countCap
+
+                    font: countText.font
+                    text: "7"
+                }
+
+                FontMetrics {
+                    id: countFm
+
+                    font: countText.font
+                }
+
                 Text {
                     id: countText
 
-                    anchors.centerIn: parent
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    // centre the cap-height box, not the line box
+                    y: (countBadge.height - countCap.tightBoundingRect.height) / 2 - countCap.tightBoundingRect.y - countFm.ascent
                     text: root.trayCount > 9 ? "9+" : String(root.trayCount)
-                    color: Theme.bgOpaque
+                    color: Theme.fgAccent
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(11)
+                    font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
                 }
 
                 Behavior on width {
@@ -288,12 +396,12 @@ BarPill {
             id: expandedColumn
 
             anchors.fill: parent
-            anchors.margins: 14
-            spacing: 10
+            anchors.margins: Theme.dp(14)
+            spacing: Theme.dp(10)
 
             Item {
                 width: parent.width
-                height: 28
+                height: Theme.dp(28)
 
                 Rectangle {
                     anchors.bottom: parent.bottom
@@ -310,6 +418,7 @@ BarPill {
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(13)
+                    font.variableAxes: Theme.axes(Theme.fs(13), 640, 0)
                 }
 
                 Text {
@@ -319,6 +428,7 @@ BarPill {
                     color: root.attentionCount > 0 ? Theme.accent : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(11)
+                    font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
 
                     Behavior on color {
                         ColorAnimation {
@@ -338,7 +448,7 @@ BarPill {
                 clip: true
                 spacing: 0
                 model: root.trayItems
-                height: Math.min(contentHeight, root.maxPanelHeight - 60)
+                height: Math.min(contentHeight, root.maxPanelHeight - Theme.dp(60))
                 flickDeceleration: 6000
                 maximumFlickVelocity: 6000
 
@@ -414,14 +524,15 @@ BarPill {
             Rectangle {
                 id: menuSheet
 
-                readonly property real wanted: entryCol.implicitHeight + 12
+                readonly property real wanted: entryCol.implicitHeight + Theme.dp(12)
 
-                width: 196
-                height: Math.min(menuSheet.wanted, root.screenH - 80)
-                x: root.menuX
+                width: Theme.dp(196)
+                height: Math.min(menuSheet.wanted, root.screenH - Theme.dp(80))
+                // kept on screen, whichever side of the bar the tray sits on
+                x: Math.max(Theme.dp(10) - root.x, Math.min(root.menuX, menuLayer.width - menuSheet.width - Theme.dp(10)))
                 y: root.menuY
                 radius: Theme.radiusSm
-                color: Theme.bgOpaque
+                color: Theme.bg
                 clip: true
                 opacity: root.menuItem !== null ? 1 : 0
                 scale: root.menuItem !== null ? 1 : 0.94
@@ -454,7 +565,7 @@ BarPill {
 
                 Flickable {
                     anchors.fill: parent
-                    anchors.margins: 6
+                    anchors.margins: Theme.dp(6)
                     contentWidth: width
                     contentHeight: entryCol.implicitHeight
                     clip: true
@@ -480,14 +591,14 @@ BarPill {
                                 readonly property bool isSep: entryRow.entry.isSeparator || entryRow.entry.text === ""
 
                                 width: entryCol.width
-                                height: entryRow.isSep ? 7 : 28
+                                height: entryRow.isSep ? Theme.dp(7) : Theme.dp(28)
 
                                 Rectangle {
                                     visible: entryRow.isSep
                                     anchors.verticalCenter: parent.verticalCenter
                                     anchors.left: parent.left
                                     anchors.right: parent.right
-                                    anchors.margins: 6
+                                    anchors.margins: Theme.dp(6)
                                     height: 1
                                     color: Theme.outline
                                 }
@@ -508,30 +619,30 @@ BarPill {
 
                                 }
 
-                                Rectangle {
+                                Icon {
                                     id: tick
 
                                     visible: !entryRow.isSep && entryRow.entry.checkState !== Qt.Unchecked
                                     anchors.left: parent.left
-                                    anchors.leftMargin: 8
+                                    anchors.leftMargin: Theme.dp(4)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: 5
-                                    height: 5
-                                    radius: 999
+                                    name: "check"
+                                    size: Theme.dp(14)
                                     color: Theme.accent
                                 }
 
                                 Text {
                                     visible: !entryRow.isSep
                                     anchors.left: parent.left
-                                    anchors.leftMargin: tick.visible ? 19 : 10
+                                    anchors.leftMargin: tick.visible ? Theme.dp(22) : Theme.dp(10)
                                     anchors.right: parent.right
-                                    anchors.rightMargin: 10
+                                    anchors.rightMargin: Theme.dp(10)
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: entryRow.entry.text
                                     color: entryRow.entry.enabled ? Theme.text : Theme.subtextDim
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fs(11)
+                                    font.variableAxes: Theme.axes(Theme.fs(11), 420, 0)
                                     elide: Text.ElideRight
                                 }
 
@@ -565,6 +676,18 @@ BarPill {
         }
     ]
 
+
+    // an app's icon in the shell's colours: its light and shade kept, the hue
+    // taken from the text (grey) or from one of the palette's colours
+    component TrayTint: MultiEffect {
+        readonly property color role: Prefs.trayIconColor === "accent" ? Theme.cPrimary : (Prefs.trayIconColor === "tertiary" ? Theme.cTertiary : Theme.cSecondary)
+
+        // lifted first, so a mid-tone icon reads on the bar like its text
+        brightness: 0.4
+        colorization: 1
+        // the palette colour at a tone that reads on the bar, keeping its hue
+        colorizationColor: Prefs.trayIconColor === "grey" ? Theme.text : Theme.atTone(role, Theme.isLight ? 40 : 80)
+    }
 
     component TrayCard: Rectangle {
         id: card
@@ -613,7 +736,7 @@ BarPill {
         }
 
         width: ListView.view.width
-        height: card.supporting !== "" ? 54 : 44
+        height: card.supporting !== "" ? Theme.dp(54) : Theme.dp(44)
         color: "transparent"
 
         Rectangle {
@@ -638,7 +761,7 @@ BarPill {
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: 48
+            anchors.leftMargin: Theme.dp(48)
             height: 1
             color: Theme.outline
         }
@@ -656,21 +779,12 @@ BarPill {
                     card.requestMenu(card.item, p.x, p.y);
                 } else if (mouse.button === Qt.MiddleButton) {
                     card.item.secondaryActivate();
-                    // secondaryActivate alone only asks the app to show
-                    // itself - focusing by address is what also takes us
-                    // to the workspace it's on.
+                    // focus by address also switches to the app's workspace
                     root.focusTrayWindow(card.item);
-                    // we're leaving for the app's workspace - retract the
-                    // panel rather than leaving it open behind.
                     root.expanded = false;
                 } else {
                     card.item.activate();
-                    // activate() alone only asks the app to show itself -
-                    // focusing by address is what also takes us to the
-                    // workspace it's on.
                     root.focusTrayWindow(card.item);
-                    // we're leaving for the app's workspace - retract the
-                    // panel rather than leaving it open behind.
                     root.expanded = false;
                 }
             }
@@ -684,30 +798,33 @@ BarPill {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 8
-            anchors.rightMargin: 10
-            spacing: 12
+            anchors.leftMargin: Theme.dp(8)
+            anchors.rightMargin: Theme.dp(10)
+            spacing: Theme.dp(12)
 
             Item {
-                width: 28
-                height: 28
+                width: Theme.dp(28)
+                height: Theme.dp(28)
                 anchors.verticalCenter: parent.verticalCenter
 
                 IconImage {
                     id: cardIconImage
 
                     anchors.centerIn: parent
-                    width: 22
-                    height: 22
+                    width: Theme.dp(22)
+                    height: Theme.dp(22)
                     source: card.resolvedIcon
                     asynchronous: true
                     visible: status === Image.Ready
+                    layer.enabled: Prefs.trayIconColor !== "original"
+                    layer.effect: TrayTint {
+                    }
                 }
 
                 Rectangle {
                     visible: !cardIconImage.visible
                     anchors.fill: parent
-                    radius: 999
+                    radius: Theme.dp(999)
                     color: Theme.withBlur(Theme.bgHigh)
 
                     Text {
@@ -717,6 +834,7 @@ BarPill {
                         font.family: Theme.fontFamily
                         font.bold: true
                         font.pixelSize: Theme.fs(11)
+                        font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
                     }
 
                 }
@@ -725,9 +843,9 @@ BarPill {
                     visible: card.needsAttention
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    width: 8
-                    height: 8
-                    radius: 999
+                    width: Theme.dp(8)
+                    height: Theme.dp(8)
+                    radius: Theme.dp(999)
                     color: Theme.accent
                     border.width: 2
                     border.color: Theme.bgOpaque
@@ -737,7 +855,7 @@ BarPill {
 
             Column {
                 anchors.verticalCenter: parent.verticalCenter
-                width: parent.width - 28 - parent.spacing
+                width: parent.width - Theme.dp(28) - parent.spacing
                 spacing: 1
 
                 Text {
@@ -747,6 +865,7 @@ BarPill {
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(12)
+                    font.variableAxes: Theme.axes(Theme.fs(12), 640, 0)
                     elide: Text.ElideRight
                 }
 
@@ -757,6 +876,7 @@ BarPill {
                     color: card.needsAttention ? Theme.accent : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(10)
+                    font.variableAxes: Theme.axes(Theme.fs(10), 420, 0)
                     elide: Text.ElideRight
                 }
 

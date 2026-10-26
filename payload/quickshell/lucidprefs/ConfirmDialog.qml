@@ -1,7 +1,9 @@
 import QtQuick
 import qs
+import qs.lucidui
 import "../squircle"
 
+// m3 basic dialog: extra-large shape, hero icon, headline, actions bottom-right
 Item {
     id: dialog
 
@@ -38,14 +40,6 @@ Item {
     visible: dialog.opacity > 0.01
     opacity: dialog.shown ? 1 : 0
 
-    Behavior on opacity {
-        NumberAnimation {
-            duration: Theme.durShort
-            easing.type: Theme.easeStandard
-        }
-
-    }
-
     Rectangle {
         anchors.fill: parent
         color: Theme.alpha(Theme.cShadow, 0.55)
@@ -61,9 +55,9 @@ Item {
         id: card
 
         anchors.centerIn: parent
-        width: Math.min(400, dialog.width - 64)
-        height: cardCol.implicitHeight + 48
-        radius: Theme.radiusXl
+        width: Math.min(Theme.dp(420), dialog.width - Theme.dp(64))
+        height: cardCol.implicitHeight + Theme.dp(56)
+        radius: Theme.shapeXl
         fillColor: Theme.bgHigh
         smoothing: Prefs.squircleF
         scale: dialog.shown ? 1 : 0.9
@@ -88,16 +82,26 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: 24
-            spacing: 10
+            anchors.margins: Theme.dp(28)
+            spacing: Theme.dp(12)
+
+            // m3 puts a hero icon above a destructive headline
+            Icon {
+                anchors.horizontalCenter: parent.horizontalCenter
+                name: "warning"
+                size: Theme.dp(26)
+                color: Theme.error
+            }
 
             Text {
                 width: parent.width
                 text: dialog.title
                 color: Theme.text
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fs(17)
-                font.bold: true
+                font.pixelSize: Theme.fontHeadlineSm
+                font.variableAxes: Theme.axes(Theme.fontHeadlineSm, 520, 0)
+                font.weight: Font.Medium
+                horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
 
@@ -106,18 +110,21 @@ Item {
                 text: dialog.body
                 color: Theme.subtext
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fs(12)
+                font.pixelSize: Theme.fontBodyLg
+                font.variableAxes: Theme.axes(Theme.fontBodyLg, 420, 0)
+                lineHeight: 1.3
+                horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
 
             Item {
                 width: parent.width
-                height: 8
+                height: Theme.dp(10)
             }
 
             Row {
                 anchors.right: parent.right
-                spacing: 8
+                spacing: Theme.dp(8)
 
                 M3Button {
                     text: "Cancel"
@@ -134,6 +141,30 @@ Item {
 
             }
 
+        }
+
+        Behavior on scale {
+            NumberAnimation {
+                duration: Theme.durMedium
+                easing.type: Theme.easeEmphasized
+                easing.overshoot: Theme.emphasizedOvershoot
+            }
+
+        }
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Theme.durShort
+            }
+
+        }
+
+    }
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: Theme.durShort
+            easing.type: Theme.easeStandard
         }
 
     }

@@ -14,6 +14,17 @@ Region {
     readonly property real bh: reg.mod ? (reg.mod.surfaceHeight !== undefined ? reg.mod.surfaceHeight : reg.mod.height) : 0
     readonly property int rad: reg.mod ? reg.mod.barRadius : 0
 
+    // a module with per-corner radii names them; others fall back to barRadius
+    function corner(name, fallback) {
+        const v = reg.mod ? reg.mod[name] : undefined;
+        return Math.max(0, v !== undefined ? v : fallback);
+    }
+
+    readonly property real tlr: reg.corner("barTopLeftRadius", reg.mod ? reg.mod.barTopRadius : 0)
+    readonly property real trr: reg.corner("barTopRightRadius", reg.mod ? reg.mod.barTopRadius : 0)
+    readonly property real blr: reg.corner("barBottomLeftRadius", reg.rad)
+    readonly property real brr: reg.corner("barBottomRightRadius", reg.rad)
+
     function lo(v) {
         return Math.ceil(v - 0.002);
     }
@@ -28,27 +39,90 @@ Region {
         width: Math.max(0, reg.hi(reg.bx + reg.bw - reg.inset) - reg.lo(reg.bx + reg.inset))
         height: Math.max(0, reg.hi(reg.by + reg.bh - reg.inset) - reg.lo(reg.by + reg.inset))
         radius: Math.max(0, reg.rad - reg.inset)
-        topLeftRadius: (reg.mod && reg.mod.barTopRadius > 0) ? reg.mod.barTopRadius - reg.inset : 0
-        topRightRadius: (reg.mod && reg.mod.barTopRadius > 0) ? reg.mod.barTopRadius - reg.inset : 0
+        topLeftRadius: Math.max(0, reg.tlr - reg.inset)
+        topRightRadius: Math.max(0, reg.trr - reg.inset)
+        bottomLeftRadius: Math.max(0, reg.blr - reg.inset)
+        bottomRightRadius: Math.max(0, reg.brr - reg.inset)
     }
 
+    // bands put the flat edges back, stopping short of the rounder corner
+    readonly property real leftIn: Math.max(reg.tlr, reg.blr)
+    readonly property real rightIn: Math.max(reg.trr, reg.brr)
+    readonly property real topIn: Math.max(reg.tlr, reg.trr)
+    readonly property real bottomIn: Math.max(reg.blr, reg.brr)
+
     Region {
-        x: reg.lo(reg.bx + reg.rad)
+        x: reg.lo(reg.bx + reg.leftIn)
         y: reg.lo(reg.by)
-        width: reg.blur ? Math.max(0, reg.hi(reg.bx + reg.bw - reg.rad) - reg.lo(reg.bx + reg.rad)) : 0
+        width: reg.blur ? Math.max(0, reg.hi(reg.bx + reg.bw - reg.rightIn) - reg.lo(reg.bx + reg.leftIn)) : 0
         height: Math.max(0, reg.hi(reg.by + reg.bh) - reg.lo(reg.by))
     }
 
     Region {
         x: reg.lo(reg.bx)
-        y: reg.lo(reg.by + reg.rad)
+        y: reg.lo(reg.by + reg.topIn)
         width: reg.blur ? Math.max(0, reg.hi(reg.bx + reg.bw) - reg.lo(reg.bx)) : 0
-        height: Math.max(0, reg.hi(reg.by + reg.bh - reg.rad) - reg.lo(reg.by + reg.rad))
+        height: Math.max(0, reg.hi(reg.by + reg.bh - reg.bottomIn) - reg.lo(reg.by + reg.topIn))
+    }
+
+    // a module with several overlay parts hands them over as rects; anything else
+    // still gets the single-item region below
+    readonly property var oparts: {
+        if (!reg.mod || !reg.mod.overlayOpen || reg.mod.overlayRects === undefined)
+            return [];
+
+        if (reg.blur && reg.mod.overlayBlurReady !== true)
+            return [];
+
+        return reg.mod.overlayRects;
+    }
+    readonly property var op0: reg.oparts.length > 0 ? reg.oparts[0] : null
+    readonly property var op1: reg.oparts.length > 1 ? reg.oparts[1] : null
+    readonly property real o0x: reg.op0 ? reg.mod.x + reg.op0.x : 0
+    readonly property real o0y: reg.op0 ? reg.mod.y + reg.op0.y : 0
+    readonly property real o1x: reg.op1 ? reg.mod.x + reg.op1.x : 0
+    readonly property real o1y: reg.op1 ? reg.mod.y + reg.op1.y : 0
+
+    Region {
+        item: (reg.mod && reg.mod.overlayOpen && reg.mod.overlayRects === undefined) ? reg.mod.overlayItem : null
+        radius: Theme.radiusSm
     }
 
     Region {
-        item: (reg.mod && reg.mod.overlayOpen) ? reg.mod.overlayItem : null
-        radius: Theme.radiusSm
+        x: reg.op0 ? reg.lo(reg.o0x + reg.inset) : 0
+        y: reg.op0 ? reg.lo(reg.o0y + reg.inset) : 0
+        width: reg.op0 ? Math.max(0, reg.hi(reg.o0x + reg.op0.w - reg.inset) - reg.lo(reg.o0x + reg.inset)) : 0
+        height: reg.op0 ? Math.max(0, reg.hi(reg.o0y + reg.op0.h - reg.inset) - reg.lo(reg.o0y + reg.inset)) : 0
+        radius: reg.op0 ? Math.max(0, reg.op0.r - reg.inset) : 0
+    }
+
+    Region {
+        x: reg.op0 ? reg.lo(reg.o0x + reg.op0.r) : 0
+        y: reg.op0 ? reg.lo(reg.o0y) : 0
+        width: (reg.blur && reg.op0) ? Math.max(0, reg.hi(reg.o0x + reg.op0.w - reg.op0.r) - reg.lo(reg.o0x + reg.op0.r)) : 0
+        height: reg.op0 ? Math.max(0, reg.hi(reg.o0y + reg.op0.h) - reg.lo(reg.o0y)) : 0
+    }
+
+    Region {
+        x: reg.op0 ? reg.lo(reg.o0x) : 0
+        y: reg.op0 ? reg.lo(reg.o0y + reg.op0.r) : 0
+        width: (reg.blur && reg.op0) ? Math.max(0, reg.hi(reg.o0x + reg.op0.w) - reg.lo(reg.o0x)) : 0
+        height: reg.op0 ? Math.max(0, reg.hi(reg.o0y + reg.op0.h - reg.op0.r) - reg.lo(reg.o0y + reg.op0.r)) : 0
+    }
+
+    Region {
+        x: reg.op1 ? reg.lo(reg.o1x + reg.inset) : 0
+        y: reg.op1 ? reg.lo(reg.o1y + reg.inset) : 0
+        width: reg.op1 ? Math.max(0, reg.hi(reg.o1x + reg.op1.w - reg.inset) - reg.lo(reg.o1x + reg.inset)) : 0
+        height: reg.op1 ? Math.max(0, reg.hi(reg.o1y + reg.op1.h - reg.inset) - reg.lo(reg.o1y + reg.inset)) : 0
+        radius: reg.op1 ? Math.max(0, reg.op1.r - reg.inset) : 0
+    }
+
+    Region {
+        x: reg.op1 ? reg.lo(reg.o1x + reg.op1.r) : 0
+        y: reg.op1 ? reg.lo(reg.o1y) : 0
+        width: (reg.blur && reg.op1) ? Math.max(0, reg.hi(reg.o1x + reg.op1.w - reg.op1.r) - reg.lo(reg.o1x + reg.op1.r)) : 0
+        height: reg.op1 ? Math.max(0, reg.hi(reg.o1y + reg.op1.h) - reg.lo(reg.o1y)) : 0
     }
 
     readonly property var pop: (reg.mod && reg.mod.popupOpen) ? reg.mod.popupItem : null
@@ -61,8 +135,8 @@ Region {
         width: reg.pop ? Math.max(0, reg.hi(reg.px + reg.pop.width) - reg.lo(reg.px)) : 0
         height: reg.pop ? Math.max(0, reg.hi(reg.py + reg.pop.height) - reg.lo(reg.py)) : 0
         radius: reg.mod ? reg.mod.cornerRadius : 0
-        topLeftRadius: reg.mod ? reg.mod.topRadius : 0
-        topRightRadius: reg.mod ? reg.mod.topRadius : 0
+        topLeftRadius: reg.mod ? (reg.mod.popupTopLeftRadius !== undefined ? reg.mod.popupTopLeftRadius : reg.mod.topRadius) : 0
+        topRightRadius: reg.mod ? (reg.mod.popupTopRightRadius !== undefined ? reg.mod.popupTopRightRadius : reg.mod.topRadius) : 0
     }
 
 }

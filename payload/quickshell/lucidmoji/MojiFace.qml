@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs
+import qs.lucidui
 
 Item {
     id: face
@@ -14,7 +15,7 @@ Item {
     property int selIndex: 0
     property int hoverIndex: -1
 
-    readonly property real pad: 18
+    readonly property real pad: Theme.dp(18)
     readonly property bool searching: face.query.trim() !== ""
     readonly property bool isEmoji: face.tab === "emoji"
     readonly property bool isKaomoji: face.tab === "kaomoji"
@@ -43,16 +44,17 @@ Item {
         return m;
     }
 
-    // one icon per group, in json group order
-    readonly property var emojiGroupIcons: ["😀", "🧑", "🐻", "🍔", "✈️", "⚽", "💡", "❤️", "🏁"]
+    // one mark per group, in json group order: a material symbol for emoji,
+    // a face of its own kind for kaomoji
+    readonly property var emojiGroupIcons: ["mood", "emoji_people", "emoji_nature", "emoji_food_beverage", "emoji_transportation", "emoji_events", "emoji_objects", "emoji_symbols", "emoji_flags"]
     readonly property var kaomojiGroupIcons: ["^▽^", "♡‿♡", "T_T", "ಠ_ಠ", "・_・", "⊙_⊙", "^-^ﾉ", "･ᴥ･", "ᕕᐛᕗ", "◕‿◕", "°ʖ°", "【】"]
 
     readonly property var rail: {
         var out = [{
-            "icon": face.isKaomoji ? "↺" : "🕘",
+            "symbol": "schedule",
             "name": "Recent"
         }, {
-            "icon": face.isKaomoji ? "★" : "⭐",
+            "symbol": "star",
             "name": "Favourites"
         }];
         if (!face.host)
@@ -62,7 +64,8 @@ Item {
         var icons = face.isKaomoji ? face.kaomojiGroupIcons : face.emojiGroupIcons;
         for (var i = 0; i < groups.length; i++) {
             out.push({
-                "icon": icons[i] || "•",
+                "symbol": face.isKaomoji ? "" : (icons[i] || "category"),
+                "icon": face.isKaomoji ? (icons[i] || "•") : "",
                 "name": groups[i]
             });
         }
@@ -263,10 +266,10 @@ Item {
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.topMargin: face.pad - 4
+            anchors.topMargin: face.pad - Theme.dp(4)
             anchors.leftMargin: face.pad
             anchors.rightMargin: face.pad
-            height: 30
+            height: Theme.dp(30)
 
             MouseArea {
                 id: dragZone
@@ -288,7 +291,7 @@ Item {
             Row {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 18
+                spacing: Theme.dp(18)
 
                 Repeater {
                     model: [{
@@ -309,7 +312,7 @@ Item {
                         readonly property bool selected: face.tab === tabItem.modelData.id
 
                         width: tabLabel.width
-                        height: 24
+                        height: Theme.dp(24)
 
                         Text {
                             id: tabLabel
@@ -319,6 +322,7 @@ Item {
                             color: tabItem.selected ? Theme.text : Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontTitle
+                            font.variableAxes: Theme.axes(Theme.fontTitle, 640, 0)
                             font.bold: true
                             opacity: tabItem.selected || tabHover.hovered ? 1 : 0.7
 
@@ -335,7 +339,7 @@ Item {
                             anchors.bottom: parent.bottom
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: tabItem.selected ? tabLabel.width : 0
-                            height: 2
+                            height: Theme.dp(2)
                             radius: 1
                             color: Theme.accent
 
@@ -372,6 +376,7 @@ Item {
                 color: Theme.accent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabel
+                font.variableAxes: Theme.axes(Theme.fontLabel, 640, 0)
                 font.bold: true
                 opacity: text !== "" ? 1 : 0
 
@@ -392,36 +397,36 @@ Item {
             anchors.top: header.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.topMargin: 10
+            anchors.topMargin: Theme.dp(10)
             anchors.leftMargin: face.pad
             anchors.rightMargin: face.pad
-            height: 34
+            height: Theme.dp(34)
             radius: Theme.radiusPill
             color: Theme.withBlur(Theme.bgTile)
 
             Row {
                 anchors.fill: parent
-                anchors.leftMargin: 14
-                anchors.rightMargin: 14
-                spacing: 8
+                anchors.leftMargin: Theme.dp(14)
+                anchors.rightMargin: Theme.dp(14)
+                spacing: Theme.dp(8)
 
-                Text {
+                Icon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "🔍"
-                    font.family: "Noto Color Emoji"
-                    font.pixelSize: Theme.fs(12)
-                    opacity: 0.65
+                    name: "search"
+                    size: Theme.dp(17)
+                    color: Theme.subtext
                 }
 
                 TextInput {
                     id: searchInput
 
-                    width: parent.width - 30
+                    width: parent.width - Theme.dp(30)
                     anchors.verticalCenter: parent.verticalCenter
                     text: face.query
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBody
+                    font.variableAxes: Theme.axes(Theme.fontBody, 640, 0)
                     font.bold: true
                     clip: true
                     focus: true
@@ -446,11 +451,12 @@ Item {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        x: 2
+                        x: Theme.dp(2)
                         text: face.isGif ? "Search GIFs…" : (face.isKaomoji ? "Search text faces…" : "Search emoji…")
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBody
+                        font.variableAxes: Theme.axes(Theme.fontBody, 640, 0)
                         font.bold: true
                         visible: searchInput.text === ""
                         z: -1
@@ -468,14 +474,14 @@ Item {
             anchors.top: searchBar.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.topMargin: face.isGif ? 0 : 12
-            anchors.leftMargin: face.pad - 4
-            anchors.rightMargin: face.pad - 4
-            height: face.isGif ? 0 : 30
+            anchors.topMargin: face.isGif ? 0 : Theme.dp(12)
+            anchors.leftMargin: face.pad - Theme.dp(4)
+            anchors.rightMargin: face.pad - Theme.dp(4)
+            height: face.isGif ? 0 : Theme.dp(30)
             visible: !face.isGif
             orientation: ListView.Horizontal
             clip: true
-            spacing: 2
+            spacing: Theme.dp(2)
             model: face.rail
             boundsBehavior: Flickable.StopAtBounds
 
@@ -486,17 +492,37 @@ Item {
                 required property int index
                 readonly property bool selected: !face.searching && face.catIndex === railItem.index
 
-                width: 34
-                height: 30
+                width: Theme.dp(34)
+                height: Theme.dp(30)
+
+                Icon {
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -Theme.dp(2)
+                    visible: !!railItem.modelData.symbol
+                    name: railItem.modelData.symbol || ""
+                    size: Theme.dp(19)
+                    fill: railItem.selected ? 1 : 0
+                    color: Theme.text
+                    opacity: railItem.selected ? 1 : (railHover.hovered ? 0.8 : 0.45)
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: Theme.durQuick
+                        }
+
+                    }
+
+                }
 
                 Text {
                     anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -2
-                    text: railItem.modelData.icon
+                    anchors.verticalCenterOffset: -Theme.dp(2)
+                    visible: !railItem.modelData.symbol
+                    text: railItem.modelData.icon || ""
                     color: Theme.text
-                    font.family: face.isKaomoji ? Theme.fontFamily : "Noto Color Emoji"
-                    font.pixelSize: face.isKaomoji ? 13 : 15
-                    font.bold: face.isKaomoji
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.dp(13)
+                    font.bold: true
                     opacity: railItem.selected ? 1 : (railHover.hovered ? 0.8 : 0.45)
 
                     Behavior on opacity {
@@ -511,8 +537,8 @@ Item {
                 Rectangle {
                     anchors.bottom: parent.bottom
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: railItem.selected ? 16 : 0
-                    height: 2
+                    width: railItem.selected ? Theme.dp(16) : 0
+                    height: Theme.dp(2)
                     radius: 1
                     color: Theme.accent
 
@@ -555,14 +581,15 @@ Item {
 
             anchors.top: railView.bottom
             anchors.left: parent.left
-            anchors.topMargin: face.isGif ? 0 : 10
-            anchors.leftMargin: face.pad + 2
+            anchors.topMargin: face.isGif ? 0 : Theme.dp(10)
+            anchors.leftMargin: face.pad + Theme.dp(2)
             height: face.isGif ? 0 : caption.implicitHeight
             visible: !face.isGif
             text: face.caption
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontLabel
+            font.variableAxes: Theme.axes(Theme.fontLabel, 640, 0)
             font.bold: true
         }
 
@@ -573,10 +600,10 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: footer.top
-            anchors.topMargin: 8
-            anchors.leftMargin: face.pad - 4
-            anchors.rightMargin: face.pad - 4
-            anchors.bottomMargin: face.isGif ? face.pad - 6 : 8
+            anchors.topMargin: Theme.dp(8)
+            anchors.leftMargin: face.pad - Theme.dp(4)
+            anchors.rightMargin: face.pad - Theme.dp(4)
+            anchors.bottomMargin: face.isGif ? face.pad - Theme.dp(6) : Theme.dp(8)
 
             GridView {
                 id: grid
@@ -584,8 +611,8 @@ Item {
                 anchors.fill: parent
                 visible: !face.isGif
                 clip: true
-                cellWidth: face.isKaomoji ? Math.floor(grid.width / 2) : 44
-                cellHeight: face.isKaomoji ? 40 : 44
+                cellWidth: face.isKaomoji ? Math.floor(grid.width / 2) : Theme.dp(44)
+                cellHeight: face.isKaomoji ? Theme.dp(40) : Theme.dp(44)
                 model: face.entries
                 boundsBehavior: Flickable.StopAtBounds
                 cacheBuffer: 400
@@ -603,7 +630,7 @@ Item {
 
                     Rectangle {
                         anchors.fill: parent
-                        anchors.margins: 2
+                        anchors.margins: Theme.dp(2)
                         radius: Theme.radiusSm
                         color: {
                             if (face.host && face.host.lastCopied === cell.modelData.d)
@@ -629,11 +656,11 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        width: face.isKaomoji ? cell.width - 12 : cell.width
+                        width: face.isKaomoji ? cell.width - Theme.dp(12) : cell.width
                         text: cell.modelData.d
                         color: Theme.text
                         font.family: face.isKaomoji ? Theme.fontFamily : "Noto Color Emoji"
-                        font.pixelSize: face.isKaomoji ? Theme.fontBody : 22
+                        font.pixelSize: face.isKaomoji ? Theme.fontBody : Theme.dp(22)
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                     }
@@ -641,11 +668,11 @@ Item {
                     Rectangle {
                         anchors.top: parent.top
                         anchors.right: parent.right
-                        anchors.topMargin: 5
-                        anchors.rightMargin: 5
-                        width: 4
-                        height: 4
-                        radius: 2
+                        anchors.topMargin: Theme.dp(5)
+                        anchors.rightMargin: Theme.dp(5)
+                        width: Theme.dp(4)
+                        height: Theme.dp(4)
+                        radius: Theme.dp(2)
                         color: Theme.accent
                         visible: face.isFav(cell.modelData.d)
                     }
@@ -707,10 +734,10 @@ Item {
 
                     policy: ScrollBar.AsNeeded
                     visible: grid.contentHeight > grid.height
-                    width: 8
+                    width: Theme.dp(8)
 
                     contentItem: Rectangle {
-                        implicitWidth: scrollBar.hovered || scrollBar.pressed ? 8 : 6
+                        implicitWidth: scrollBar.hovered || scrollBar.pressed ? Theme.dp(8) : Theme.dp(6)
                         radius: width / 2
                         color: scrollBar.pressed ? Theme.accent : (scrollBar.hovered ? Theme.alpha(Theme.text, 0.4) : Theme.alpha(Theme.text, 0.2))
 
@@ -734,24 +761,24 @@ Item {
 
             Column {
                 anchors.centerIn: parent
-                spacing: 6
+                spacing: Theme.dp(6)
                 visible: !face.isGif && face.entries.length === 0
                 opacity: visible ? 1 : 0
 
-                Text {
+                Icon {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: {
+                    name: {
                         if (face.searching)
-                            return "🫥";
+                            return "search_off";
 
                         if (face.catIndex === 0)
-                            return "🕘";
+                            return "schedule";
 
-                        return "⭐";
+                        return "star";
                     }
-                    font.family: "Noto Color Emoji"
-                    font.pixelSize: Theme.fs(26)
-                    opacity: 0.5
+                    size: Math.round(Theme.fs(30))
+                    color: Theme.subtext
+                    opacity: 0.6
                 }
 
                 Text {
@@ -768,6 +795,7 @@ Item {
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabel
+                    font.variableAxes: Theme.axes(Theme.fontLabel, 640, 0)
                     font.bold: true
                 }
 
@@ -794,10 +822,10 @@ Item {
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.bottomMargin: face.isGif ? 0 : face.pad - 4
+            anchors.bottomMargin: face.isGif ? 0 : face.pad - Theme.dp(4)
             anchors.leftMargin: face.pad
             anchors.rightMargin: face.pad
-            height: face.isGif ? 0 : 40
+            height: face.isGif ? 0 : Theme.dp(40)
 
             MouseArea {
                 anchors.fill: parent
@@ -822,7 +850,7 @@ Item {
             Row {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 12
+                spacing: Theme.dp(12)
                 visible: !face.isGif
 
                 Text {
@@ -830,13 +858,13 @@ Item {
                     text: face.current ? face.current.d : ""
                     color: Theme.text
                     font.family: face.isKaomoji ? Theme.fontFamily : "Noto Color Emoji"
-                    font.pixelSize: face.isKaomoji ? Theme.fontBody : 22
+                    font.pixelSize: face.isKaomoji ? Theme.fontBody : Theme.dp(22)
                 }
 
                 Column {
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
-                    width: footer.width - 190
+                    spacing: Theme.dp(2)
+                    width: footer.width - Theme.dp(190)
 
                     Text {
                         width: parent.width
@@ -844,6 +872,7 @@ Item {
                         color: face.current ? Theme.text : Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBody
+                        font.variableAxes: Theme.axes(Theme.fontBody, 640, 0)
                         font.bold: true
                         elide: Text.ElideRight
                     }
@@ -854,6 +883,7 @@ Item {
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(10)
+                        font.variableAxes: Theme.axes(Theme.fs(10), 420, 0)
                         elide: Text.ElideRight
                     }
 
@@ -865,9 +895,9 @@ Item {
                 id: tonePicker
 
                 anchors.right: starButton.left
-                anchors.rightMargin: 14
+                anchors.rightMargin: Theme.dp(14)
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 5
+                spacing: Theme.dp(5)
                 visible: face.isEmoji
 
                 Repeater {
@@ -880,7 +910,7 @@ Item {
                         required property int index
                         readonly property bool selected: face.host && face.host.skinTone === toneDot.index
 
-                        width: toneDot.selected ? 13 : 9
+                        width: toneDot.selected ? Theme.dp(13) : Theme.dp(9)
                         height: width
                         radius: width / 2
                         color: toneDot.modelData
@@ -918,16 +948,16 @@ Item {
 
             }
 
-            Text {
+            Icon {
                 id: starButton
 
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !face.isGif && face.current !== null
-                text: face.current && face.isFav(face.current.d) ? "★" : "☆"
+                name: "star"
+                size: Math.round(Theme.fs(19))
+                fill: face.current && face.isFav(face.current.d) ? 1 : 0
                 color: face.current && face.isFav(face.current.d) ? Theme.accent : Theme.subtext
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fs(17)
 
                 HoverHandler {
                     cursorShape: Qt.PointingHandCursor

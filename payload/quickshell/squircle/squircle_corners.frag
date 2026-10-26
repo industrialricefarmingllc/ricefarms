@@ -42,8 +42,14 @@ void main() {
     v = max(v, cornerField(px - vec2(itemSize.x - cornerSize, itemSize.y - cornerSize), 1.0, 1.0));
     if (v < 0.0)
         discard;
-    float w = 1.5 * exponent / max(cornerSize, 1.0);
-    float a = smoothstep(1.0 - w, 1.0 + w, v);
+    // Pixel-accurate edge. The old band was a constant width in *field*
+    // space (w = 1.5 * exponent / cornerSize), which widens with the
+    // exponent: at n = 5.2 / cornerSize 54 that is a ~5px transition, which
+    // reads as a soft, blurry bezel. Dividing the field by its screen-space
+    // derivative turns it into a distance in pixels, so the transition stays
+    // one pixel wide at any exponent or corner size.
+    float fw = max(fwidth(v), 1e-6);
+    float a = smoothstep(-0.5, 0.5, (v - 1.0) / fw);
     if (a <= 0.001)
         discard;
     fragColor = vec4(color.rgb * a * color.a, a * color.a) * qt_Opacity;

@@ -1,0 +1,350 @@
+import QtQuick
+import Quickshell.Networking
+import qs
+import qs.lucidui
+
+Column {
+    id: net
+
+    required property var modelData
+    property bool expanded: false
+    property string psk: ""
+    property bool failed: false
+    property bool wasBusy: false
+    property bool sharing: false
+
+    readonly property bool isConnected: net.modelData.connected
+    readonly property bool known: net.modelData.known
+    readonly property bool secured: Net.isSecured(net.modelData)
+    readonly property real strength: Net.strengthPct(net.modelData)
+    readonly property bool working: net.modelData.stateChanging || net.modelData.state === ConnectionState.Connecting
+    readonly property bool needsPassword: net.secured && !net.known
+    readonly property var profile: Net.connections.find((c) => {
+        return c.name === net.modelData.name;
+    }) || null
+
+    readonly property string status: {
+        if (net.working)
+            return "Connecting…";
+
+        if (net.isConnected)
+            return "Connected  ·  " + Net.strengthLabel(net.strength) + " signal";
+
+        const bits = [];
+        if (net.known)
+            bits.push("Saved");
+
+        bits.push(Net.strengthLabel(net.strength));
+        const sec = Net.securityLabel(net.modelData.security);
+        if (sec !== "")
+            bits.push(sec);
+
+        return bits.join("  ·  ");
+    }
+
+    signal expandRequested()
+
+    width: parent ? parent.width : Theme.dp(400)
+    onExpandedChanged: {
+        if (!net.expanded)
+            net.sharing = false;
+
+    }
+
+    // a refused password shows up only as a bounce back to disconnected
+    Connections {
+        function onStateChanged() {
+            if (net.modelData.state === ConnectionState.Connecting) {
+                net.wasBusy = true;
+                net.failed = false;
+            } else if (net.wasBusy && net.modelData.state !== ConnectionState.Connected) {
+                net.wasBusy = false;
+                net.failed = true;
+            } else if (net.modelData.state === ConnectionState.Connected) {
+                net.wasBusy = false;
+                net.failed = false;
+            }
+        }
+
+        target: net.modelData
+    }
+
+    Rectangle {
+        id: head
+
+        width: parent.width
+        height: Theme.dp(58)
+        radius: Theme.radiusMd
+        color: net.expanded ? Theme.bgHover : (headArea.containsMouse ? Theme.alpha(Theme.text, Theme.stateHover) : "transparent")
+
+        Behavior on color {
+            ColorAnimation {
+                duration: Theme.durQuick
+            }
+
+        }
+
+        Item {
+            id: iconTile
+
+            width: Theme.dp(36)
+            height: Theme.dp(36)
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.dp(12)
+            anchors.verticalCenter: parent.verticalCenter
+
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.rad(12)
+                color: Theme.alpha(Theme.accent, net.isConnected ? 0.24 : 0.11)
+
+                Behavior on color {
+                    ColorAnimation {
+                        duration: Theme.durShort
+                    }
+
+                }
+
+            }
+
+            WifiGlyph {
+                anchors.centerIn: parent
+                size: Theme.dp(19)
+                strength: net.strength
+                color: net.isConnected ? Theme.accent : Theme.subtext
+            }
+
+        }
+
+        Column {
+            anchors.left: iconTile.right
+            anchors.leftMargin: Theme.dp(14)
+            anchors.right: trailing.left
+            anchors.rightMargin: Theme.dp(12)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Theme.dp(2)
+
+            Text {
+                width: parent.width
+                text: net.modelData.name
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontTitle
+                font.variableAxes: Theme.axes(Theme.fontTitle, 640, 0)
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            Text {
+                width: parent.width
+                text: net.status
+                color: net.isConnected ? Theme.accent : Theme.subtext
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontLabel
+                font.variableAxes: Theme.axes(Theme.fontLabel, 420, 0)
+                elide: Text.ElideRight
+            }
+
+        }
+
+        Row {
+            id: trailing
+
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.dp(14)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Theme.dp(10)
+
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: net.secured
+                name: "lock"
+                size: Theme.dp(14)
+                fill: 1
+                color: Theme.subtextDim
+            }
+
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: "expand_more"
+                size: Theme.dp(18)
+                color: Theme.subtext
+                rotation: net.expanded ? 180 : 0
+
+                Behavior on rotation {
+                    NumberAnimation {
+                        duration: Theme.durShort
+                        easing.type: Theme.easeStandard
+                    }
+
+                }
+
+            }
+
+        }
+
+        MouseArea {
+            id: headArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: net.expandRequested()
+        }
+
+    }
+
+    Item {
+        id: drawer
+
+        width: parent.width
+        height: net.expanded ? body.implicitHeight : 0
+        clip: true
+
+        Behavior on height {
+            NumberAnimation {
+                duration: Theme.durMedium
+                easing.type: Theme.easeStandard
+            }
+
+        }
+
+        Column {
+            id: body
+
+            width: parent.width
+            leftPadding: Theme.dp(62)
+            rightPadding: Theme.dp(14)
+            topPadding: Theme.dp(4)
+            bottomPadding: Theme.dp(16)
+            spacing: Theme.dp(12)
+            opacity: net.expanded ? 1 : 0
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: Theme.durShort
+                }
+
+            }
+
+            Row {
+                width: parent.width - Theme.dp(76)
+                spacing: Theme.dp(10)
+                visible: net.needsPassword && !net.isConnected
+
+                M3TextField {
+                    id: pskField
+
+                    width: parent.width - joinBtn.implicitWidth - Theme.dp(10)
+                    placeholder: "Network password"
+                    onEdited: (v) => {
+                        return net.psk = v;
+                    }
+                    onAccepted: (v) => {
+                        return joinBtn.clicked();
+                    }
+                }
+
+                M3Button {
+                    id: joinBtn
+
+                    anchors.verticalCenter: parent.verticalCenter
+                    variant: "filled"
+                    text: net.working ? "Joining…" : "Join"
+                    enabled: !net.working && net.psk.length >= 8
+                    onClicked: {
+                        net.failed = false;
+                        net.modelData.connectWithPsk(net.psk);
+                    }
+                }
+
+            }
+
+            Row {
+                spacing: Theme.dp(10)
+
+                M3Button {
+                    variant: "filled"
+                    visible: !net.needsPassword || net.isConnected
+                    enabled: !net.working
+                    text: {
+                        if (net.working)
+                            return "Connecting…";
+
+                        return net.isConnected ? "Disconnect" : "Connect";
+                    }
+                    onClicked: {
+                        net.failed = false;
+                        if (net.isConnected)
+                            net.modelData.disconnect();
+                        else
+                            net.modelData.connect();
+                    }
+                }
+
+                M3Button {
+                    variant: net.sharing ? "tonal" : "text"
+                    visible: net.known
+                    text: "Share"
+                    iconPath: "qr_code"
+                    onClicked: net.sharing = !net.sharing
+                }
+
+                M3Button {
+                    variant: "text"
+                    destructive: true
+                    visible: net.known
+                    text: "Forget"
+                    onClicked: Prefs.askConfirm("Forget " + net.modelData.name + "?", "The saved password goes with it, so joining again means typing it in.", "Forget", "wifi-forget:" + net.modelData.name)
+                }
+
+            }
+
+            Loader {
+                width: parent.width - Theme.dp(76)
+                active: net.sharing && net.expanded
+                visible: active
+
+                sourceComponent: WifiShare {
+                    ssid: net.modelData.name
+                }
+
+            }
+
+            Text {
+                width: parent.width - Theme.dp(76)
+                visible: net.failed
+                text: net.secured ? "Could not join. The password may be wrong, or the network out of range." : "Could not join. The network may be out of range."
+                color: Theme.error
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontLabel
+                font.variableAxes: Theme.axes(Theme.fontLabel, 420, 0)
+                wrapMode: Text.WordWrap
+            }
+
+            Flow {
+                width: parent.width - Theme.dp(76)
+                visible: net.profile !== null
+                spacing: Theme.dp(18)
+
+                CheckLine {
+                    label: "Join automatically"
+                    checked: !!(net.profile && net.profile.autoconnect)
+                    onToggled: Net.setAutoconnect(net.profile.uuid, !net.profile.autoconnect)
+                }
+
+            }
+
+            Text {
+                text: Math.round(net.strength) + "% signal" + (Net.securityLabel(net.modelData.security) !== "" ? "   ·   " + Net.securityLabel(net.modelData.security) : "")
+                color: Theme.subtextDim
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontLabel
+                font.variableAxes: Theme.axes(Theme.fontLabel, 420, 0)
+            }
+
+        }
+
+    }
+
+}

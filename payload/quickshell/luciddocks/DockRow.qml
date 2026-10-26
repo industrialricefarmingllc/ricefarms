@@ -15,9 +15,21 @@ Item {
     property bool dropActive: false
     property bool reserveSlot: false
     property bool pinArmed: false
+    // the row's x in the window; when it slides under a drag the dragged icon is held still
+    property real originX: 0
+    property real heldOriginX: 0
+    // window x of the icon being pinned, so its new slot glides in from there
+    property real landFrom: -1
 
     property bool dragging: false
+    property Item dragSlot: null
+    // an icon armed to pin leaves its slot, and the rest close up behind it
+    readonly property bool lifting: row.dragMode === "pin" && row.pinArmed && row.dragSlot !== null
     property real pinDragCenter: -1
+    // a pin pulled off the dock goes to the desktop as a launcher instead of unpinning;
+    // sending is set while that drag is in the air
+    property bool desktopDrop: false
+    property bool sending: false
 
     signal stackPopupRequested(Item view, string appId, string iconName, string command)
     signal contextMenuRequested(Item view, string appId, string command)
@@ -25,13 +37,15 @@ Item {
     // the model is already mutated in place
     signal orderChanged()
     signal removeRequested(int index)
-    signal pinRequested(string appId, int index)
+    signal pinRequested(string appId, int index, real from)
 
-    readonly property int slotSize: Prefs.dockIconSize
-    readonly property int slotGap: Prefs.dockSpacing
+    readonly property int slotSize: Theme.dp(Prefs.dockIconSize)
+    readonly property int slotGap: Theme.dp(Prefs.dockSpacing)
     readonly property int slotPitch: row.slotSize + row.slotGap
+    // the gap opening and the icon landing in it share one timing
+    readonly property int enterMs: Theme.ms(220)
     readonly property int count: repeater.count
-    readonly property int previewCount: row.count + ((row.reserveSlot && row.dragMode === "reorder") ? 1 : 0)
+    readonly property int previewCount: row.count + ((row.reserveSlot && row.dragMode === "reorder") ? 1 : 0) - (row.lifting ? 1 : 0)
 
     readonly property int hoveredSlot: (rowHover.hovered && row.pointerInside) ? Math.max(0, Math.min(row.count - 1, Math.floor(rowHover.point.position.x / row.slotPitch))) : -1
 
@@ -59,6 +73,14 @@ Item {
     width: row.previewCount > 0 ? row.previewCount * row.slotPitch - row.slotGap : 0
     height: row.slotSize
     visible: row.width > 0.5 || row.dragging
+    Component.onCompleted: row.heldOriginX = row.originX
+    onOriginXChanged: {
+        var dx = row.originX - row.heldOriginX;
+        row.heldOriginX = row.originX;
+        if (row.dragSlot)
+            row.dragSlot.x -= dx;
+
+    }
 
     HoverHandler {
         id: rowHover
@@ -68,7 +90,7 @@ Item {
         enabled: row.ready
 
         NumberAnimation {
-            duration: Theme.ms(220)
+            duration: row.enterMs
             easing.type: Easing.OutCubic
         }
 
@@ -79,7 +101,7 @@ Item {
 
         width: row.slotSize
         height: row.slotSize
-        radius: Math.round(14 * row.slotSize / 46)
+        radius: Prefs.dockItemRadius
         color: Theme.alpha(Theme.accent, 0.15)
         visible: row.dragMode === "reorder" && row.dropActive && row.dropIndex >= 0
         x: Math.max(0, Math.min(row.dropIndex, row.count)) * row.slotPitch
@@ -115,26 +137,70 @@ Item {
                 if (row.dragMode === "reorder" && row.reserveSlot && row.dropIndex >= 0 && slot.index >= row.dropIndex)
                     base += 1;
 
+                if (row.lifting && slot.index > row.dragSlot.index)
+                    base -= 1;
+
                 return base * row.slotPitch;
             }
             readonly property real removeThreshold: 40
             property real dragOffsetY: 0
 
-            readonly property bool overRemoveThreshold: row.dragMode === "reorder" && dragHandler.active && -slot.y > slot.removeThreshold
+            readonly property bool overRemoveThreshold: row.dragMode === "reorder" && !row.desktopDrop && dragHandler.active && -slot.y > slot.removeThreshold
+            // pulled far enough to leave for the desktop
+            property bool outward: false
+
+            // hands the pin to a system drag the desktop takes as a launcher; the slot springs back
+            function sendOut() {
+                slot.outward = true;
+                row.sending = true;
+                proxy.Drag.mimeData = {
+                    "application/x-lucid-desktop-app": JSON.stringify({
+                        "appId": slot.appId,
+                        "iconName": slot.iconName,
+                        "name": slot.displayName,
+                        "command": slot.command
+                    })
+                };
+                proxy.Drag.active = true;
+            }
             readonly property bool overPinThreshold: row.dragMode === "pin" && dragHandler.active && row.pinArmed
 
-            property real entranceScale: slot.justAdded ? 0 : 1
+            property real entranceScale: slot.justAdded ? 0.55 : 1
             property real entranceOpacity: slot.justAdded ? 0 : 1
+            property real landShift: 0
+            // set before anything moves: an animation writes its start value before it reports running
+            property bool landing: false
 
             width: row.slotSize
             height: row.slotSize
             scale: slot.entranceScale * (slot.overRemoveThreshold ? 0.7 : (slot.overPinThreshold ? 1.12 : 1))
             opacity: slot.entranceOpacity * (slot.overRemoveThreshold ? 0.35 : 1)
             z: dragHandler.active ? 10 : 1
+            transform: Translate {
+                x: slot.landShift
+            }
 
             Component.onCompleted: {
-                if (slot.justAdded)
+                if (slot.justAdded && row.landFrom >= 0)
+                    slot.land();
+                else if (slot.justAdded)
                     entranceAnim.start();
+
+            }
+
+            // dropped from the running row: start where it was let go, still lifted, and settle
+            function land() {
+                slot.landing = true;
+                slot.landShift = row.mapFromItem(null, row.landFrom, 0).x - slot.width / 2 - slot.targetX;
+                slot.entranceScale = 1.12;
+                slot.entranceOpacity = 1;
+                landAnim.start();
+            }
+
+            // the model keeps justAdded, so clear it or a rebuilt delegate replays the entrance
+            function settled() {
+                if (slot.index >= 0 && slot.index < row.model.count)
+                    row.model.setProperty(slot.index, "justAdded", false);
 
             }
 
@@ -167,8 +233,12 @@ Item {
 
             }
             onYChanged: {
-                if (dragHandler.active)
-                    slot.dragOffsetY = slot.y;
+                if (!dragHandler.active)
+                    return;
+
+                slot.dragOffsetY = slot.y;
+                if (row.desktopDrop && row.dragMode === "reorder" && !slot.outward && -slot.y > slot.removeThreshold)
+                    slot.sendOut();
 
             }
 
@@ -181,11 +251,13 @@ Item {
             ParallelAnimation {
                 id: entranceAnim
 
+                onFinished: slot.settled()
+
                 NumberAnimation {
                     target: slot
                     property: "entranceScale"
                     to: 1
-                    duration: Theme.durEnter
+                    duration: row.enterMs
                     easing.type: Easing.OutBack
                     easing.overshoot: Theme.emphasizedOvershoot
                 }
@@ -194,7 +266,33 @@ Item {
                     target: slot
                     property: "entranceOpacity"
                     to: 1
-                    duration: Theme.ms(220)
+                    duration: row.enterMs
+                    easing.type: Easing.OutCubic
+                }
+
+            }
+
+            ParallelAnimation {
+                id: landAnim
+
+                onFinished: {
+                    slot.landing = false;
+                    slot.settled();
+                }
+
+                NumberAnimation {
+                    target: slot
+                    property: "landShift"
+                    to: 0
+                    duration: row.enterMs
+                    easing.type: Easing.OutCubic
+                }
+
+                NumberAnimation {
+                    target: slot
+                    property: "entranceScale"
+                    to: 1
+                    duration: row.enterMs
                     easing.type: Easing.OutCubic
                 }
 
@@ -256,12 +354,12 @@ Item {
             }
 
             Rectangle {
-                width: 8
-                height: 8
-                radius: 4
+                width: Theme.dp(8)
+                height: Theme.dp(8)
+                radius: Theme.dp(4)
                 color: Theme.accent
                 anchors.horizontalCenter: parent.horizontalCenter
-                y: -14
+                y: -Theme.dp(14)
                 opacity: slot.overPinThreshold ? 1 : 0
                 visible: opacity > 0
 
@@ -272,6 +370,24 @@ Item {
 
                 }
 
+            }
+
+            // what the desktop receives: the app, under its own type, with the icon riding the pointer
+            Item {
+                id: proxy
+
+                width: slot.width
+                height: slot.height
+                Drag.dragType: Drag.Automatic
+                Drag.supportedActions: Qt.CopyAction | Qt.LinkAction
+                Drag.proposedAction: Qt.CopyAction
+                Drag.hotSpot.x: slot.width / 2
+                Drag.hotSpot.y: slot.height / 2
+                Drag.onDragFinished: (action) => {
+                    proxy.Drag.active = false;
+                    slot.outward = false;
+                    row.sending = false;
+                }
             }
 
             DragHandler {
@@ -287,19 +403,38 @@ Item {
 
                 onActiveChanged: {
                     row.dragging = active;
+                    row.dragSlot = active ? slot : null;
                     if (active) {
                         slot.dragOffsetY = 0;
                         slot.publishCenter();
+                        // the drag image, ready by the time the pin is pulled off
+                        if (row.desktopDrop && row.dragMode === "reorder")
+                            itemView.grabToImage((r) => {
+                                proxy.Drag.imageSource = r.url;
+                            });
+
+                        return;
+                    }
+                    // gone to the desktop as a system drag: the pin stays where it was
+                    if (slot.outward) {
+                        row.orderChanged();
                         return;
                     }
                     if (row.dragMode === "pin") {
-                        if (row.pinArmed)
-                            row.pinRequested(slot.appId, row.dropIndex);
-
+                        // pinning takes this running entry out of the model, which destroys this
+                        // delegate mid-handler: read and reset everything before asking
+                        var armed = row.pinArmed;
+                        var at = row.dropIndex;
+                        var id = slot.appId;
+                        var from = row.pinDragCenter;
                         row.pinDragCenter = -1;
+                        if (armed)
+                            row.pinRequested(id, at, from);
+
                         return;
                     }
-                    if (-slot.dragOffsetY > slot.removeThreshold)
+                    // with the desktop taking pins, a pull never unpins: the menu does that
+                    if (-slot.dragOffsetY > slot.removeThreshold && !row.desktopDrop)
                         removeAnim.start();
                     else
                         row.orderChanged();
@@ -310,7 +445,7 @@ Item {
                 enabled: !dragHandler.active
 
                 NumberAnimation {
-                    duration: Theme.ms(220)
+                    duration: row.enterMs
                     easing.type: Easing.OutCubic
                 }
 
@@ -320,13 +455,17 @@ Item {
                 enabled: !dragHandler.active
 
                 NumberAnimation {
-                    duration: Theme.ms(220)
+                    duration: row.enterMs
                     easing.type: Easing.OutCubic
                 }
 
             }
 
+            // a behavior here would restart every frame of the animations
+            // below and pin scale at its start value until they finish
             Behavior on scale {
+                enabled: !entranceAnim.running && !bumpAnim.running && !removeAnim.running && !slot.landing
+
                 NumberAnimation {
                     duration: Theme.durShort
                     easing.type: Easing.OutCubic

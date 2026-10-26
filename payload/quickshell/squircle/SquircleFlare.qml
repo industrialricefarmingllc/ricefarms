@@ -20,6 +20,8 @@ ShaderEffect {
     id: root
 
     property bool mirrored: false
+    // upside down, for an edge below it
+    property bool flipped: false
     property int size: 14
     property color fillColor: "white"
     property real smoothing: 0.5
@@ -29,6 +31,11 @@ ShaderEffect {
     property vector2d itemSize: Qt.vector2d(width, height)
     property real exponent: Sq.exponent(root.smoothing)
     property real mirrorFlag: root.mirrored ? 1.0 : 0.0
+
+    transform: Scale {
+        yScale: root.flipped ? -1 : 1
+        origin.y: root.height / 2
+    }
 
     implicitWidth: root.size
     implicitHeight: root.size

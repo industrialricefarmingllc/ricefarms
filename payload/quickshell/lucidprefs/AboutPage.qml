@@ -5,8 +5,6 @@ import qs
 Column {
     id: page
 
-    readonly property string version: "v0.57"
-    readonly property bool beta: true
     readonly property var components: [{
         "name": "lucidbar",
         "desc": "Status bar - workspaces, media, tray, clock, bluetooth, network, notifications, system"
@@ -28,6 +26,9 @@ Column {
     }, {
         "name": "lucidmoji",
         "desc": "Emoji and GIF picker"
+    }, {
+        "name": "lucidnews",
+        "desc": "What's new: the sheet a new version opens with"
     }]
     readonly property var commands: [{
         "cmd": "qs ipc call settings open",
@@ -55,95 +56,145 @@ Column {
         "desc": "Power menu"
     }]
 
-    spacing: 26
+    // set by Settings while the page is on screen
+    property bool pageShown: false
 
-    Rectangle {
+    spacing: Theme.dp(26)
+    onPageShownChanged: {
+        if (page.pageShown)
+            hero.enter();
+
+    }
+
+    AboutHero {
+        id: hero
+
         width: parent.width
-        height: 164
-        radius: Theme.radiusXl
-        color: Theme.bgTile
+        live: page.pageShown
+    }
 
-        Row {
-            anchors.centerIn: parent
-            spacing: 22
+    SettingCard {
+        title: "UPDATES"
 
-            LucidaMark {
-                width: 68
-                height: 68
-                strokeWidth: 2.6
-                anchors.verticalCenter: parent.verticalCenter
+        SettingRow {
+            title: {
+                if (Updates.installing)
+                    return "Updating to " + Updates.flowLabel;
+
+                if (Updates.restartPending)
+                    return "Restart to finish";
+
+                return Updates.available ? "Lucid v" + Updates.latest + " is out" : "Version " + Updates.currentLabel;
             }
+            description: Updates.status
+            stacked: true
 
-            Column {
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 4
+            Row {
+                spacing: Theme.dp(8)
 
-                Row {
-                    spacing: 10
-
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Lucid"
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fs(30)
-                        font.bold: true
-                    }
-
-                    Rectangle {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: page.beta
-                        width: betaLabel.implicitWidth + 16
-                        height: 22
-                        radius: 11
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.accent
-
-                        Text {
-                            id: betaLabel
-
-                            anchors.centerIn: parent
-                            text: "BETA"
-                            color: Theme.accent
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fs(10)
-                            font.bold: true
-                            font.letterSpacing: 1
-                        }
-
-                    }
-
+                M3Button {
+                    visible: !Updates.installing
+                    text: Updates.busy ? "Checking…" : "Check now"
+                    variant: "tonal"
+                    enabled: !Updates.busy && Updates.current !== ""
+                    onClicked: Updates.check()
                 }
 
-                Row {
-                    spacing: 8
+                // what this version brought, in the shell's own sheet
+                M3Button {
+                    text: "What's new"
+                    variant: "outlined"
+                    onClicked: Updates.showWhatsNew()
+                }
 
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: page.version
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontBody
-                        font.bold: true
-                    }
+                // a newer one's notes live on GitHub until it is installed
+                M3Button {
+                    visible: Updates.available && !Updates.restartPending
+                    text: "Release notes"
+                    variant: "outlined"
+                    onClicked: Updates.openLatest()
+                }
 
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "·"
-                        color: Theme.subtextDim
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontBody
-                    }
+                // installs it from the release, warning and password first
+                M3Button {
+                    visible: Updates.available && !Updates.installing && !Updates.restartPending
+                    text: "Update"
+                    variant: "filled"
+                    iconPath: "download"
+                    onClicked: Updates.startUpdate("release")
+                }
 
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "A Quickshell desktop for Hyprland"
-                        color: Theme.subtext
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontBody
-                    }
+                M3Button {
+                    visible: Updates.installing
+                    text: "Show progress"
+                    variant: "filled"
+                    onClicked: Updates.show()
+                }
 
+                M3Button {
+                    visible: Updates.restartPending
+                    text: "Restart now"
+                    variant: "filled"
+                    iconPath: "restart_alt"
+                    onClicked: Updates.restartNow()
+                }
+
+            }
+
+        }
+
+        SettingRow {
+            title: "Check for updates"
+            resetKey: "updateCheck"
+            description: "Once a day Lucid asks GitHub for the newest release, and tells you once when there is one. The request carries nothing about you or this machine."
+
+            M3Switch {
+                checked: Prefs.updateCheck
+                onToggled: (v) => {
+                    return Prefs.updateCheck = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: "Beta updates"
+            resetKey: "updateBeta"
+            description: "Offers the newest commit on main, before it becomes a release. Installing one needs your password, like an update. Turning this off does not roll anything back; the next release replaces the beta."
+            warning: "Critical: beta builds are untested and things may break. The bar, the lock screen or the whole shell can fail to start, and getting back may take a terminal."
+            showDivider: Prefs.updateBeta
+
+            M3Switch {
+                checked: Prefs.updateBeta
+                onToggled: (v) => {
+                    return Prefs.updateBeta = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            visible: Prefs.updateBeta
+            title: Updates.betaAvailable ? "Beta " + Updates.betaShort + " is available" : "Beta build"
+            description: Updates.betaStatus
+            showDivider: false
+
+            Row {
+                spacing: Theme.dp(8)
+
+                M3Button {
+                    text: Updates.betaBusy ? "Checking…" : "Check"
+                    variant: "tonal"
+                    enabled: !Updates.betaBusy
+                    onClicked: Updates.checkBeta()
+                }
+
+                M3Button {
+                    text: "Install beta"
+                    variant: "filled"
+                    destructive: true
+                    enabled: Updates.betaSha !== "" && !Updates.installing
+                    onClicked: Updates.startUpdate("beta")
                 }
 
             }
