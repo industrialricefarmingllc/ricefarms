@@ -736,13 +736,6 @@ Item {
             autoPaddingEnabled: true
         }
 
-        WallpaperBlur {
-            anchors.fill: parent
-            hostWindow: pill.hostWindow
-            offsetX: pillRect.x
-            offsetY: Prefs.effectiveBarTopMargin + pillRect.y
-        }
-
         HoverHandler {
             id: pillHover
 
@@ -838,12 +831,6 @@ Item {
             layer.effect: MultiEffect {
                 maskEnabled: true
                 maskSource: shellContentMask
-            }
-            WallpaperBlur {
-                anchors.fill: parent
-                hostWindow: pill.hostWindow
-                offsetX: shell.x
-                offsetY: Prefs.effectiveBarTopMargin + shell.y
             }
             // content inside clipped container
             Item {

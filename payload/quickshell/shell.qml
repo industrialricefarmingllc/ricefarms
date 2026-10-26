@@ -1754,12 +1754,6 @@ ShellRoot {
         id: osdMod
     }
 
-    // Fake rounded screen corners on every monitor (black inverted corners,
-    // Overlay layer so they mask windows like a physical rounded bezel).
-    ScreenCorners {
-        id: cornersMod
-    }
-
     // Screen-aligned soft-light wallpaper, masked to the visible windows so
     // the real wallpaper stays sharp in the gaps. See WallpaperUnderlay.qml.
     Variants {
@@ -1769,6 +1763,13 @@ ShellRoot {
         }
 
     }
+
+    // Fake rounded screen corners on every monitor (black inverted corners,
+    // Overlay layer so they mask windows like a physical rounded bezel).
+    ScreenCorners {
+        id: cornersMod
+    }
+
 
     PinnedWindows {
     }
