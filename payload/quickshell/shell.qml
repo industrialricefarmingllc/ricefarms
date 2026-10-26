@@ -1760,51 +1760,12 @@ ShellRoot {
         id: cornersMod
     }
 
-    // One screen-aligned soft-light wallpaper per monitor, below every normal
-    // window (WlrLayer.Bottom) and above the actual wallpaper. Window
-    // backgrounds are transparent, so the crop stays correct through drags,
-    // resizes and workspace switches for free.
+    // Screen-aligned soft-light wallpaper, masked to the visible windows so
+    // the real wallpaper stays sharp in the gaps. See WallpaperUnderlay.qml.
     Variants {
         model: Quickshell.screens
 
-        PanelWindow {
-            required property var modelData
-
-            screen: modelData
-            color: "transparent"
-            exclusiveZone: -1
-            WlrLayershell.layer: WlrLayer.Bottom
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-            WlrLayershell.namespace: "lucid-underlay"
-            mask: Region {
-            }
-
-            anchors {
-                top: true
-                bottom: true
-                left: true
-                right: true
-            }
-
-            FileView {
-                id: underlayPath
-
-                path: Quickshell.env("HOME") + "/.cache/quickshell/wallpaper-softlight.path"
-                watchChanges: true
-                onFileChanged: reload()
-                onLoaded: underlayImage.source = text().trim() !== "" ? "file://" + text().trim() : ""
-            }
-
-            Image {
-                id: underlayImage
-
-                anchors.fill: parent
-                fillMode: Image.Stretch
-                asynchronous: true
-                cache: true
-                smooth: true
-            }
-
+        WallpaperUnderlay {
         }
 
     }
