@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Effects
 import Quickshell.Hyprland._FocusGrab
 import qs
@@ -39,6 +40,76 @@ Item {
     // Arrow/Tab moves to the previous/next expanded bar item; the panel keeps
     // focus while open so keys land here after the panel's own controls pass.
     focus: pill.anyOpen
+
+    function focusRoot() {
+        return pill.expanded ? panelHolder : (pill.altOpen ? altHolder : shellContentClip);
+    }
+
+    function collectFocusables(item, out) {
+        for (var i = 0; i < item.children.length; i++) {
+            var c = item.children[i];
+            if (!c || c.visible === false || c.enabled === false)
+                continue;
+            if (c.activeFocusOnTab)
+                out.push(c);
+            collectFocusables(c, out);
+        }
+    }
+
+    function panelFocusables() {
+        var out = [];
+        const root = pill.focusRoot();
+        if (root)
+            pill.collectFocusables(root, out);
+        return out;
+    }
+
+    function currentPanelFocus() {
+        const a = pill.Window.activeFocusItem;
+        return a && pill.panelFocusables().indexOf(a) >= 0 ? a : null;
+    }
+
+    function focusLinear(dir) {
+        const items = pill.panelFocusables();
+        if (items.length === 0)
+            return false;
+        const cur = items.indexOf(pill.currentPanelFocus());
+        const next = cur < 0 ? (dir > 0 ? 0 : items.length - 1) : (cur + dir + items.length) % items.length;
+        items[next].forceActiveFocus(Qt.TabFocusReason);
+        return true;
+    }
+
+    function focusSpatial(dx, dy) {
+        const items = pill.panelFocusables();
+        if (items.length === 0)
+            return false;
+        const root = pill.focusRoot();
+        const cur = pill.currentPanelFocus();
+        const origin = cur ? cur.mapToItem(root, cur.width / 2, cur.height / 2) : root.mapToItem(root, root.width / 2, root.height / 2);
+        var best = null;
+        var bestScore = 1e9;
+        for (var i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (it === cur)
+                continue;
+            const p = it.mapToItem(root, it.width / 2, it.height / 2);
+            const ax = p.x - origin.x;
+            const ay = p.y - origin.y;
+            if (dx !== 0 ? ax * dx <= 1 : ay * dy <= 1)
+                continue;
+            const along = Math.abs(dx !== 0 ? ax : ay);
+            const across = Math.abs(dx !== 0 ? ay : ax);
+            const score = along + across * 2;
+            if (score < bestScore) {
+                bestScore = score;
+                best = it;
+            }
+        }
+        if (best)
+            best.forceActiveFocus(Qt.TabFocusReason);
+        return best !== null;
+    }
+
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Escape) {
             pill.expanded = false;
@@ -46,14 +117,33 @@ Item {
             event.accepted = true;
             return ;
         }
-        if (!pill.anyOpen || !pill.hostWindow || !pill.hostWindow.navigateModules)
+        if (!pill.anyOpen)
             return ;
-        if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
-            pill.hostWindow.navigateModules(pill, -1);
-            event.accepted = true;
-        } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
-            pill.hostWindow.navigateModules(pill, 1);
-            event.accepted = true;
+        switch (event.key) {
+        case Qt.Key_Tab:
+            if (pill.focusLinear((event.modifiers & Qt.ShiftModifier) ? -1 : 1))
+                event.accepted = true;
+            break;
+        case Qt.Key_Backtab:
+            if (pill.focusLinear(-1))
+                event.accepted = true;
+            break;
+        case Qt.Key_Left:
+            if (pill.focusSpatial(-1, 0))
+                event.accepted = true;
+            break;
+        case Qt.Key_Right:
+            if (pill.focusSpatial(1, 0))
+                event.accepted = true;
+            break;
+        case Qt.Key_Up:
+            if (pill.focusSpatial(0, -1))
+                event.accepted = true;
+            break;
+        case Qt.Key_Down:
+            if (pill.focusSpatial(0, 1))
+                event.accepted = true;
+            break;
         }
     }
     // ── liquid morph ────────────────────────────────────────────────────
