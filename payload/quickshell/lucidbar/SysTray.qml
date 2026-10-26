@@ -252,6 +252,7 @@ BarPill {
                         font.family: Theme.fontFamily
                         font.bold: true
                         font.pixelSize: Theme.fs(12)
+                        font.variableAxes: Theme.axes(Theme.fs(12), 700, 0)
                     }
 
                     // one asking for attention
@@ -359,7 +360,7 @@ BarPill {
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(11)
-                    font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
+                    font.variableAxes: Theme.axes(Theme.fs(11), 700, 0)
                 }
 
                 Behavior on width {

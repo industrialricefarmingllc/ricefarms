@@ -111,7 +111,7 @@ Item {
             Rectangle {
                 width: 10; height: 10; radius: 5
                 color: Hyprland.focusedWorkspace && Hyprland.focusedWorkspace.id === index+1 ? Theme.accent : Theme.subtext
-                Text { anchors.centerIn: parent; text: index+1; color: Theme.bg; font.pixelSize: 8; visible: Hyprland.focusedWorkspace && Hyprland.focusedWorkspace.id === index+1 }
+                Text { anchors.centerIn: parent; text: index+1; color: Theme.bg; font.pixelSize: 8; font.weight: Font.Bold; font.variableAxes: Theme.axes(8, 700, 0); visible: Hyprland.focusedWorkspace && Hyprland.focusedWorkspace.id === index+1 }
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Hyprland.dispatch("hl.dsp.focus({workspace=" + (index+1) + "})") }
             }
         }

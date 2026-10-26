@@ -1557,6 +1557,8 @@ BarPill {
                     // morph for zero visible benefit
                     scrolling: root.isPlaying && !root.anyOpen
                     bold: true
+                    // bar text uses one weight: the date's 700
+                    weight: 700
                     pixelSize: Theme.fs(13)
                     opacity: root.volumeFlash ? 0 : 1
 
@@ -1588,7 +1590,7 @@ BarPill {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "labelLarge"
                         size: Theme.fs(13)
-                        weight: 640
+                        weight: 700
                         text: Math.round(root.playerVolume * 100) + "%"
                     }
 
