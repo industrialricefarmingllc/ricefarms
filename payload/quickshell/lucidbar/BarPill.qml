@@ -90,7 +90,7 @@ Item {
         var bestScore = 1e9;
         for (var i = 0; i < items.length; i++) {
             const it = items[i];
-            if (it === cur)
+            if (it === cur || it.arrowNavigable === false)
                 continue;
             const p = it.mapToItem(root, it.width / 2, it.height / 2);
             const ax = p.x - origin.x;

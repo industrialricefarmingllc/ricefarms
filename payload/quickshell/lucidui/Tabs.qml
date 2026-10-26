@@ -53,6 +53,7 @@ Item {
                     // the next one instead, and tabs never draw the focus ring
                     activeFocusOnTab: !tab.on
                     showFocusRing: false
+                    arrowNavigable: false
                     onClicked: tabs.picked(tab.modelData.key)
                     onActiveFocusChanged: if (activeFocus) tabs.picked(tab.modelData.key)
                 }
