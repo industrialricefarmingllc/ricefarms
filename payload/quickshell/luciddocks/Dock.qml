@@ -2359,7 +2359,7 @@ PanelWindow {
         id: launcherGrab
 
         windows: [dockWindow]
-        active: dockWindow.menuOpen && grabArm.armed
+        active: dockWindow.menuOpen && grabArm.armed && !dockWindow.externalLauncher
         onCleared: {
             if (grabArm.armed)
                 dockWindow.menuOpen = false;

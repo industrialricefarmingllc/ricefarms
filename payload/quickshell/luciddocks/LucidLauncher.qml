@@ -3,6 +3,7 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import qs
 import qs.lucidui
 import qs.lucidprefs as LP
@@ -16,10 +17,12 @@ PanelWindow {
 
     property var dock: null
     property bool bodyOpen: false
-    property real revealSize: 0
+    property bool closing: false
+    property bool panelVisible: false
+    property real revealRadius: 0
 
     screen: dock ? (dock.launcherScreen || dock.screen) : null
-    visible: dock ? dock.menuOpen : false
+    visible: root.panelVisible
     color: "transparent"
     exclusiveZone: -1
     WlrLayershell.layer: WlrLayer.Overlay
@@ -39,11 +42,12 @@ PanelWindow {
     readonly property real scaleFactor: 1.35
     readonly property real padH: 6
     readonly property real padV: 8
-    readonly property real faceWidth: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80))
+    readonly property real faceWidth: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80)) * 0.75
     readonly property real openContentH: Math.min(root.dock ? root.dock.menuHeight : Theme.dp(520), (root.screen.height - root.margins.top - Theme.dp(32)) / root.scaleFactor - root.padV * 2)
-    readonly property real collapsedContentH: root.face ? root.face.headHeight : Prefs.launcherHeadH
+    readonly property real collapsedContentH: face ? face.headHeight : Prefs.launcherHeadH
     readonly property real contentH: root.bodyOpen ? root.openContentH : root.collapsedContentH
     readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
+    readonly property real revealCenterY: root.padV + root.collapsedContentH * root.scaleFactor * 0.5
     implicitHeight: root.contentH * root.scaleFactor + root.padV * 2
     Behavior on implicitHeight {
         NumberAnimation {
@@ -52,46 +56,78 @@ PanelWindow {
         }
     }
 
-    // mask sources must live outside the item they mask
-    Item {
-        id: revealMask
-        anchors.fill: parent
-        visible: false
-        layer.enabled: true
-        Rectangle {
-            anchors.centerIn: parent
-            width: root.revealSize
-            height: root.revealSize
-            radius: width / 2
-            color: "white"
+    onVisibleChanged: {
+        if (visible)
+            root.startOpen();
+    }
+
+    Connections {
+        target: root.dock
+
+        function onMenuOpenChanged() {
+            if (!root.dock)
+                return ;
+
+            if (root.dock.menuOpen) {
+                closeHide.stop();
+                root.panelVisible = true;
+                root.startOpen();
+            } else {
+                openAnim.stop();
+                root.panelVisible = true;
+                root.closing = true;
+                closeAnim.restart();
+                closeHide.restart();
+            }
         }
     }
 
-    onVisibleChanged: {
-        if (!visible)
-            return ;
-        bodyOpen = false;
-        revealSize = 0;
-        revealAnim.restart();
-        if (face)
-            face.focusSearch();
+    NumberAnimation {
+        id: openAnim
+
+        target: root
+        property: "revealRadius"
+        from: 0
+        to: 5000
+        duration: Theme.durEnter
+        easing.type: Easing.OutCubic
+    }
+
+    Timer {
+        id: closeHide
+
+        interval: Theme.durExit + 60
+        onTriggered: {
+            root.closing = false;
+            root.panelVisible = false;
+        }
+    }
+
+    NumberAnimation {
+        id: closeAnim
+
+        target: root
+        property: "revealRadius"
+        to: 0
+        duration: Theme.durExit
+        easing.type: Easing.InCubic
+        onFinished: {
+            root.closing = false;
+            root.panelVisible = false;
+        }
     }
 
     // everything is layered so the window can be revealed through a circle
     Item {
         id: canvas
         anchors.fill: parent
-        // mask temporarily disabled: verify the surface, then re-enable the circle
-
-    NumberAnimation {
-        id: revealAnim
-        target: root
-        property: "revealSize"
-        from: 0
-        to: 2600
-        duration: Theme.durEnter
-        easing.type: Easing.OutCubic
-    }
+        layer.enabled: true
+        layer.effect: ShaderEffect {
+            property vector2d windowSize: Qt.vector2d(root.width, root.height)
+            property vector2d circleCenter: Qt.vector2d(root.width / 2, root.revealCenterY)
+            property real circleRadius: root.revealRadius
+            fragmentShader: "LauncherMask.qsb"
+        }
 
     SquircleRect {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -143,7 +179,6 @@ PanelWindow {
         onModeRequested: (m) => {
             if (!root.dock) return;
             root.bodyOpen = true;
-            root.revealSize = Math.max(root.width, root.height) * 1.45;
             if (m === "power") { root.dock.menuOpen = false; root.dock.openSession(); return; }
             if (m === "widgets") { root.dock.openWidgetPanel(); return; }
             root.dock.setSearchText(root.dock.prefixFor(m));
@@ -160,7 +195,6 @@ PanelWindow {
         }
         onSearchTextChanged: if (face.searchText !== "") {
             root.bodyOpen = true;
-            root.revealSize = Math.max(root.width, root.height) * 1.45;
         }
     }
     }
@@ -179,10 +213,58 @@ PanelWindow {
         enabled: root.visible
         onActivated: root.cycleTab(-1)
     }
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.visible
+        onActivated: root.closeLauncher()
+    }
     function cycleTab(dir) {
         if (!face || !face.modes || face.modes.length === 0)
             return;
         root.bodyOpen = true;
         face.cycleMode(dir);
+    }
+    function startOpen() {
+        root.closing = false;
+        root.bodyOpen = face ? face.searchText !== "" : false;
+        root.revealRadius = 0;
+        closeHide.stop();
+        closeAnim.stop();
+        openAnim.restart();
+        if (face)
+            face.focusSearch();
+    }
+    function closeLauncher() {
+        if (root.dock)
+            root.dock.menuOpen = false;
+    }
+
+    HyprlandFocusGrab {
+        id: launcherGrab
+
+        windows: [root]
+        active: root.visible && grabArm.armed && root.dock && root.dock.menuOpen
+        onCleared: {
+            if (grabArm.armed)
+                root.closeLauncher();
+        }
+    }
+
+    Timer {
+        id: grabArm
+
+        property bool armed: false
+
+        interval: 80
+        running: root.visible && root.dock && root.dock.menuOpen
+        onTriggered: {
+            grabArm.armed = true;
+            if (face)
+                face.focusSearch();
+        }
+        onRunningChanged: {
+            if (!grabArm.running)
+                grabArm.armed = false;
+        }
     }
 }
