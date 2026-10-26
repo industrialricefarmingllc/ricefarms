@@ -20,6 +20,46 @@ LUCID="${LUCID_DIR:-$HOME/.config/lucid}"
 
 [ -s "$PALETTE" ] || exit 0
 
+# The background hue comes from the wallpaper's dominant *chromatic* colour,
+# not from the accent: matugen picks the small yellow highlight as primary on a
+# blue-grey photo, and tinting the surfaces toward it turns the whole shell
+# yellow. Write the seed for Theme.qml and lucid_palette.app_surfaces().
+WALLPAPER="$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null || true)"
+SEED=""
+if [ -n "$WALLPAPER" ] && [ -f "$WALLPAPER" ]; then
+    SEED=$(python3 - "$WALLPAPER" <<'PY'
+import colorsys, json, sys
+from collections import Counter
+try:
+    from PIL import Image
+    im = Image.open(sys.argv[1]).convert("RGB")
+    im.thumbnail((160, 160))
+    q = im.quantize(colors=16).convert("RGB")
+    data = q.get_flattened_data() if hasattr(q, "get_flattened_data") else q.getdata()
+    counts = Counter(data)
+    total = sum(counts.values()) or 1
+    best = None
+    for rgb, n in counts.most_common():
+        h, l, s = colorsys.rgb_to_hls(*(c / 255.0 for c in rgb))
+        if n / total < 0.04 or s < 0.08 or l < 0.10 or l > 0.92:
+            continue
+        # most dominant chromatic cluster; skip near-grey and near-black/white
+        if best is None or n / total > best[0]:
+            best = (n / total, h * 360.0, s)
+    if best:
+        print(json.dumps({"hue": round(best[1], 1), "saturation": round(best[2], 3)}))
+except Exception:
+    pass
+PY
+)
+fi
+mkdir -p "$HOME/.cache/quickshell"
+if [ -n "$SEED" ]; then
+    printf '%s\n' "$SEED" > "$HOME/.cache/quickshell/surface-seed.json"
+else
+    rm -f "$HOME/.cache/quickshell/surface-seed.json"
+fi
+
 IFS=$'\t' read -r BG FG MUTED OUTLINE PRIMARY ONPRIMARY LIGHT < <(python3 - "$PALETTE" "$PREFS" "$LUCID" <<'PY'
 import json, os, re, sys
 sys.path.insert(0, sys.argv[3])

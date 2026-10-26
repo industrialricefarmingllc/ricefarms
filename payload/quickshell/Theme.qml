@@ -6,6 +6,25 @@ pragma Singleton
 Singleton {
     id: root
 
+    // the wallpaper's dominant chromatic colour, for the surface ladder only.
+    // declared before the colours below so its id exists when they first bind.
+    FileView {
+        id: surfaceSeed
+
+        path: Quickshell.env("HOME") + "/.cache/quickshell/surface-seed.json"
+        watchChanges: true
+        blockLoading: true
+        onFileChanged: reload()
+
+        adapter: JsonAdapter {
+            id: surfaceAdapter
+
+            property real hue: -1
+            property real saturation: 0
+        }
+
+    }
+
     property string themeName: "matugen"
     property string themeMode: "dark"
     // false until the palette file has actually been parsed; every colour below
@@ -61,6 +80,10 @@ Singleton {
     // them from reading as flat paper. k also sets how far `surface()` walks off
     // white (k * _tintLift); below ~0.6 the ramp never leaves the tones where no hue can exist
     readonly property real surfaceTint: pf.surfaceTint >= 0 ? pf.surfaceTint : (root.isLight ? 0.7 : 0)
+    // hue the surface ladder is pulled toward. app-surface-sync writes the
+    // wallpaper's dominant chromatic hue here, so the background can take the
+    // wallpaper's blue-grey while primary stays the yellow highlight.
+    readonly property color surfaceTintSource: surfaceAdapter.hue >= 0 ? Qt.hsla(surfaceAdapter.hue / 360, Math.max(0.35, Math.min(0.8, surfaceAdapter.saturation > 0 ? surfaceAdapter.saturation : 0.4)), 0.55, 1) : root.cPrimary
     property real accentPunch: pf.accentPunch
     readonly property real motionBaseline: 1.125
     readonly property real motionScale: pf.motionScale * root.motionBaseline
@@ -203,21 +226,22 @@ Singleton {
     readonly property color fgWarning: root.fgOnFill
     readonly property color shadow: root.cShadow
     // Hyprland-matched window shadow — mirrors hyprland.lua decoration:shadow
-    // { range=44 render_power=2 offset=0 10 scale=1.0 }, i.e. this recipe.
+    // { range=22 render_power=2 offset=0 10 scale=1.0 }, i.e. this recipe.
     // Matugen darkest-tone tint applies in light mode only; neutral gray in dark mode
     readonly property bool isLightMode: root.themeMode === "light"
     // Unified shadow: matches the volume OSD card recipe at 33% of its
     // halved level, so every QS item and every compositor-drawn shadow
     // reads as one material.
     // (The OSD card itself keeps the full-strength cardShadow as reference.)
-    // 2026-10-24: darkened to match hyprland.lua's palette-driven window
-    // shadow (0x38 / 0x1c) -- 22% focused, 11% inactive.
-    readonly property color hyprShadow: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.22) : Qt.rgba(0, 0, 0, 0.22)
-    readonly property color hyprShadowInactive: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.11) : Qt.rgba(0, 0, 0, 0.11)
-    // Full-strength reference shadow (volume OSD card). Do not reuse elsewhere.
-    readonly property color cardShadow: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.40) : Qt.rgba(0, 0, 0, 0.40)
+    // 2026-10-26: halved to match hyprland.lua's palette-driven window shadow
+    // (0x1c / 0x0e) -- 11% focused, 5.5% inactive.
+    readonly property color hyprShadow: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.11) : Qt.rgba(0, 0, 0, 0.11)
+    readonly property color hyprShadowInactive: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.055) : Qt.rgba(0, 0, 0, 0.055)
+    // Full-strength reference shadow (volume OSD card). Halved on 2026-10-26
+    // with the rest of the QS shadows; still the strongest surface.
+    readonly property color cardShadow: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.20) : Qt.rgba(0, 0, 0, 0.20)
     readonly property real hyprShadowBlur: 0.85 // strength; effective radius = strength × hyprShadowBlurMax
-    readonly property int hyprShadowBlurMax: 52 // mirrors Hyprland range 44 (+10px offset slack)
+    readonly property int hyprShadowBlurMax: 26 // mirrors Hyprland range 22 (+10px offset slack)
     readonly property int hyprShadowOffsetX: 0
     readonly property int hyprShadowOffsetY: 10
     readonly property real hyprShadowScale: 1.0
@@ -533,16 +557,23 @@ Singleton {
     // pull a neutral toward the accent's hue without moving it off its tone. the
     // blend is re-pinned afterwards so the elevation ladder keeps its spacing
     function tint(c, k) {
+        return root.tintTo(c, k, root.cPrimary);
+    }
+
+    // same, toward a specific source colour. surfaces use a seed taken from the
+    // wallpaper's dominant hue (not the accent) so a yellow highlight can sit
+    // on a blue-grey background without the whole shell turning yellow.
+    function tintTo(c, k, source) {
         if (k <= 0)
             return c;
 
-        var h = root.cPrimary.hslHue;
+        var h = source.hslHue;
         if (h < 0)
             return c;
 
         var t = root.toneOf(c);
         // floor the chroma: a wallpaper-derived accent is often nearly grey
-        var pure = root.atTone(Qt.hsla(h, Math.max(0.55, Math.min(1, root.cPrimary.hslSaturation)), 0.55, 1), t);
+        var pure = root.atTone(Qt.hsla(h, Math.max(0.55, Math.min(1, source.hslSaturation)), 0.55, 1), t);
         var head = root.chromaOf(pure);
         if (head <= 0.001)
             return c;
@@ -561,7 +592,7 @@ Singleton {
     // extreme it sits against, because a tone carries no hue there. apps get the
     // same light surfaces from lucid_palette.app_surfaces: keep the two in step
     function surface(c, tones) {
-        return root.tint(root.shade(c, tones + root._rampShift), root.surfaceTint);
+        return root.tintTo(root.shade(c, tones + root._rampShift), root.surfaceTint, root.surfaceTintSource);
     }
 
     // spin a colour round the wheel, holding its tone and chroma
