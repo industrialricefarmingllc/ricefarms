@@ -23,7 +23,7 @@ KEY = os.path.join(CACHE, "wallpaper-softlight.key")
 PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
 MIX = 0.25
-VERSION = 1
+VERSION = 2
 
 
 def screen_size():
@@ -88,9 +88,13 @@ def main():
         image = Image.open(wallpaper).convert("RGB")
         image = ImageOps.fit(image, (width, height), method=Image.LANCZOS)
         # heavy blur, cheap: crush to ~1/16 size, blur, scale back up
-        small = image.resize((max(32, width // 16), max(20, height // 16)), Image.LANCZOS)
-        small = small.filter(ImageFilter.GaussianBlur(radius=10))
+        small = image.resize((max(64, width // 4), max(40, height // 4)), Image.LANCZOS)
+        small = small.filter(ImageFilter.GaussianBlur(radius=7))
         blurred = np.asarray(small.resize((width, height), Image.BICUBIC), dtype=np.float32) / 255.0
+        # a heavily blurred photo against a surface derived from the same photo
+        # is nearly flat; stretch its local variation so the 25% layer reads
+        mean = blurred.mean(axis=(0, 1), keepdims=True)
+        blurred = np.clip((blurred - mean) * 1.8 + mean, 0.0, 1.0)
 
         b = np.array(base, dtype=np.float32)
         blended = soft_light(b, blurred)
