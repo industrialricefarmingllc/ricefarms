@@ -15,7 +15,6 @@ Item {
     property bool dragging: false
     property real dragValue: 0
     property bool showReadout: true
-
     readonly property real displayValue: slider.dragging ? slider.dragValue : slider.value
     readonly property real span: slider.to - slider.from
     readonly property real fraction: slider.span > 0 ? Math.max(0, Math.min(1, (slider.displayValue - slider.from) / slider.span)) : 0
@@ -26,6 +25,7 @@ Item {
             var i = Math.round((slider.displayValue - slider.from) / slider.stepSize);
             if (i >= 0 && i < slider.stepLabels.length)
                 return slider.stepLabels[i];
+
         }
         return slider.displayValue.toFixed(slider.decimals) + slider.suffix;
     }
@@ -51,40 +51,24 @@ Item {
         }
     }
 
-    implicitHeight: 44 + (slider.showReadout ? 22 : 0)
-    implicitWidth: 200
+    implicitHeight: Theme.dp(44) + (slider.showReadout ? Theme.dp(24) : 0)
+    implicitWidth: Theme.dp(200)
     opacity: slider.enabled ? 1 : 0.38
-
-    Behavior on opacity {
-        NumberAnimation {
-            duration: Theme.durShort
-        }
-
-    }
-
 
     Item {
         id: indicator
 
         readonly property real wanted: track.x + track.handleX - indicator.width / 2
 
-        width: readoutText.implicitWidth + 16
-        height: 20
+        width: readoutText.implicitWidth + Theme.dp(18)
+        height: Theme.dp(22)
         visible: slider.showReadout
         anchors.top: parent.top
         x: Math.max(0, Math.min(slider.width - indicator.width, indicator.wanted))
 
-        Behavior on x {
-            NumberAnimation {
-                duration: Theme.ms(150)
-                easing.type: Easing.OutCubic
-            }
-
-        }
-
         Rectangle {
             anchors.fill: parent
-            radius: height / 2
+            radius: Theme.pill(height)
             color: slider.dragging ? Theme.accent : Theme.bgHigh
 
             Behavior on color {
@@ -101,10 +85,11 @@ Item {
 
             anchors.centerIn: parent
             text: slider.readout
-            color: slider.dragging ? Theme.onAccent : Theme.subtext
+            color: slider.dragging ? Theme.fgAccent : Theme.subtext
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontLabel
-            font.bold: true
+            font.pixelSize: Theme.fontLabelMd
+            font.variableAxes: Theme.axes(Theme.fontLabelMd, 600, 0)
+            font.weight: Font.DemiBold
 
             Behavior on color {
                 ColorAnimation {
@@ -115,16 +100,27 @@ Item {
 
         }
 
+        // only a value from elsewhere glides; the pointer's own is followed outright
+        Behavior on x {
+            enabled: !slider.dragging
+
+            NumberAnimation {
+                duration: Theme.ms(150)
+                easing.type: Easing.OutCubic
+            }
+
+        }
+
     }
 
     Item {
         id: track
 
-        readonly property real trackHeight: 16
-        readonly property real handleWidth: 4
-        readonly property real handleGap: 6
-        readonly property real stopSize: 4
-        readonly property real stopInset: 6
+        readonly property real trackHeight: Theme.dp(16)
+        readonly property real handleWidth: Theme.dp(4)
+        readonly property real handleGap: Theme.dp(6)
+        readonly property real stopSize: Theme.dp(4)
+        readonly property real stopInset: Theme.dp(6)
         readonly property bool hovering: dragArea.containsMouse || slider.dragging
         readonly property real handleX: track.centerOf(slider.fraction)
         readonly property real activeEnd: Math.max(0, track.handleX - track.handleWidth / 2 - track.handleGap)
@@ -137,7 +133,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: 44
+        height: Theme.dp(44)
 
         Rectangle {
             width: track.activeEnd
@@ -147,10 +143,12 @@ Item {
             color: Theme.accent
             topLeftRadius: track.trackHeight / 2
             bottomLeftRadius: track.trackHeight / 2
-            topRightRadius: 2
-            bottomRightRadius: 2
+            topRightRadius: Theme.dp(2)
+            bottomRightRadius: Theme.dp(2)
 
             Behavior on width {
+                enabled: !slider.dragging
+
                 NumberAnimation {
                     duration: Theme.ms(150)
                     easing.type: Easing.OutCubic
@@ -166,12 +164,14 @@ Item {
             height: track.trackHeight
             anchors.verticalCenter: parent.verticalCenter
             color: track.hovering ? Theme.bgActive : Theme.bgHigh
-            topLeftRadius: 2
-            bottomLeftRadius: 2
+            topLeftRadius: Theme.dp(2)
+            bottomLeftRadius: Theme.dp(2)
             topRightRadius: track.trackHeight / 2
             bottomRightRadius: track.trackHeight / 2
 
             Behavior on x {
+                enabled: !slider.dragging
+
                 NumberAnimation {
                     duration: Theme.ms(150)
                     easing.type: Easing.OutCubic
@@ -180,6 +180,8 @@ Item {
             }
 
             Behavior on width {
+                enabled: !slider.dragging
+
                 NumberAnimation {
                     duration: Theme.ms(150)
                     easing.type: Easing.OutCubic
@@ -203,7 +205,6 @@ Item {
                 id: stop
 
                 required property int index
-
                 readonly property real centerX: Math.max(track.stopInset, Math.min(track.width - track.stopInset, track.centerOf(slider.stepCount > 1 ? stop.index / (slider.stepCount - 1) : 0)))
                 readonly property bool covered: stop.centerX <= track.activeEnd
                 readonly property bool masked: Math.abs(stop.centerX - track.handleX) < track.handleWidth / 2 + track.handleGap + track.stopSize / 2
@@ -213,7 +214,7 @@ Item {
                 radius: track.stopSize / 2
                 x: stop.centerX - track.stopSize / 2
                 anchors.verticalCenter: parent.verticalCenter
-                color: stop.covered ? Theme.onAccent : Theme.outlineStrong
+                color: stop.covered ? Theme.fgAccent : Theme.outlineStrong
                 opacity: stop.masked ? 0 : 1
 
                 Behavior on opacity {
@@ -239,6 +240,8 @@ Item {
             scale: track.hovering ? 1.12 : 1
 
             Behavior on x {
+                enabled: !slider.dragging
+
                 NumberAnimation {
                     duration: Theme.ms(150)
                     easing.type: Easing.OutCubic
@@ -259,7 +262,7 @@ Item {
             id: dragArea
 
             anchors.fill: parent
-            anchors.margins: -4
+            anchors.margins: -Theme.dp(4)
             hoverEnabled: true
             enabled: slider.enabled
             cursorShape: Qt.PointingHandCursor
@@ -276,6 +279,13 @@ Item {
             }
             onReleased: slider.dragging = false
             onCanceled: slider.dragging = false
+        }
+
+    }
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: Theme.durShort
         }
 
     }

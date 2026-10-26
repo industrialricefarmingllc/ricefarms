@@ -8,7 +8,7 @@ Rectangle {
     property string label: ""
     property string detail: ""
     property bool open: false
-    property real gap: 10
+    property real gap: Theme.dp(10)
     property real lift: 0
 
     property int fadeDuration: Theme.durShort
@@ -20,8 +20,8 @@ Rectangle {
     scale: tip.open ? 1 : 0.92
     transformOrigin: Item.Bottom
 
-    implicitWidth: Math.max(labelText.implicitWidth, detailText.implicitWidth) + 20
-    implicitHeight: content.implicitHeight + 12
+    implicitWidth: Math.max(labelText.implicitWidth, detailText.implicitWidth) + Theme.dp(20)
+    implicitHeight: content.implicitHeight + Theme.dp(12)
     width: tip.implicitWidth
     height: tip.implicitHeight
 
@@ -56,6 +56,7 @@ Rectangle {
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody
+            font.variableAxes: Theme.axes(Theme.fontBody, 520, 0)
             font.weight: Font.Medium
         }
 
@@ -67,6 +68,7 @@ Rectangle {
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontLabel
+            font.variableAxes: Theme.axes(Theme.fontLabel, 420, 0)
             visible: tip.detail !== ""
             height: visible ? implicitHeight : 0
         }

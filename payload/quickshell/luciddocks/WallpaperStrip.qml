@@ -1,43 +1,78 @@
 import QtQuick
 import Quickshell.Widgets
 import qs
+import qs.lucidui
 
 Item {
     id: strip
 
     property var model: null
-    property int heroW: 340
-    property int heroH: 211
-    property int midW: 238
-    property int midH: 148
-    property int smallW: 150
-    property int smallH: 93
-    property int itemGap: 10
+    property int heroW: Theme.dp(340)
+    property int heroH: Theme.dp(211)
+    property int midW: Theme.dp(238)
+    property int midH: Theme.dp(148)
+    property int smallW: Theme.dp(150)
+    property int smallH: Theme.dp(93)
+    property int tinyW: Theme.dp(100)
+    property int tinyH: Theme.dp(62)
+    property int itemGap: Theme.dp(10)
     property int hoveredIndex: -1
-    readonly property int hoverGrow: 6
+    readonly property int hoverGrow: Theme.dp(6)
     property alias currentIndex: view.currentIndex
     // the wallpaper actually in use
     property string appliedPath: ""
     property string filterText: ""
+    // the Live tab: the same picker over the videos
+    property bool live: false
     property real stableHeight: height
-    readonly property real rowHeight: strip.heroH + 62
+    readonly property real rowHeight: strip.heroH + Theme.dp(62)
+    // the hero card at the screen's own density: every tier is drawn from it
+    readonly property size decodeSize: Qt.size(Math.ceil(strip.heroW * Math.max(1, Screen.devicePixelRatio)), Math.ceil(strip.heroH * Math.max(1, Screen.devicePixelRatio)))
+    // Settings -> Theme -> Strip: neighbours shown on each side
+    readonly property int sides: Prefs.wallpaperStripSides === 3 ? 3 : 2
 
     property int previewInterval: 300
     property string pendingPreviewPath: ""
     property bool syncing: false
     property int pendingCenterIndex: -1
 
+    // where the card the user picked sits, as fractions of the window (-1 when
+    // it is not known); the "from the chosen card" transition grows from there
+    property real originX: -1
+    property real originY: -1
+
     signal chosen(string path)
     signal previewed(string path)
+
+    function noteOrigin(card) {
+        if (!card || strip.Window.width <= 0 || strip.Window.height <= 0) {
+            strip.originX = -1;
+            strip.originY = -1;
+            return;
+        }
+        var p = card.mapToItem(null, card.width / 2, card.height / 2);
+        strip.originX = p.x / strip.Window.width;
+        strip.originY = p.y / strip.Window.height;
+    }
+
+    // arrow keys: one card along, and (for the styles laid out in rows) one row over
+    function step(d) {
+        if (strip.model)
+            view.currentIndex = Math.max(0, Math.min(strip.model.count - 1, view.currentIndex + d));
+    }
+
+    function stepVertical(d) {
+    }
 
     function activateCurrent() {
         if (view.currentIndex < 0 || !strip.model)
             return;
 
         var item = strip.model.get(view.currentIndex);
-        if (item)
+        if (item) {
+            strip.noteOrigin(view.currentItem);
             strip.chosen(item.path);
-
+        }
     }
 
     function setIndexImmediate(i) {
@@ -68,6 +103,8 @@ Item {
         if (strip.pendingPreviewPath === "")
             return;
 
+        // the transition can grow from the card being previewed
+        strip.noteOrigin(view.currentItem);
         strip.previewed(strip.pendingPreviewPath);
         strip.pendingPreviewPath = "";
     }
@@ -97,7 +134,7 @@ Item {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.topMargin: Math.max(0, (strip.stableHeight - strip.rowHeight) / 2)
-        height: strip.heroH + 24
+        height: strip.heroH + Theme.dp(24)
         orientation: ListView.Horizontal
         spacing: strip.itemGap
         clip: true
@@ -147,6 +184,7 @@ Item {
 
             required property string path
             required property string name
+            required property string thumb
             required property int index
 
             readonly property bool isCurrent: view.currentIndex === slot.index
@@ -161,9 +199,9 @@ Item {
                     strip.hoveredIndex = -1;
 
             }
-            readonly property int tier: Math.min(2, Math.abs(slot.index - view.currentIndex))
-            readonly property int targetW: slot.tier === 0 ? strip.heroW : (slot.tier === 1 ? strip.midW : strip.smallW)
-            readonly property int targetH: slot.tier === 0 ? strip.heroH : (slot.tier === 1 ? strip.midH : strip.smallH)
+            readonly property int tier: Math.min(strip.sides, Math.abs(slot.index - view.currentIndex))
+            readonly property int targetW: slot.tier === 0 ? strip.heroW : (slot.tier === 1 ? strip.midW : (slot.tier === 2 ? strip.smallW : strip.tinyW))
+            readonly property int targetH: slot.tier === 0 ? strip.heroH : (slot.tier === 1 ? strip.midH : (slot.tier === 2 ? strip.smallH : strip.tinyH))
 
             width: slot.targetW
             height: view.height
@@ -183,7 +221,7 @@ Item {
                 id: card
 
                 anchors.centerIn: parent
-                anchors.verticalCenterOffset: slot.hovered ? -4 : 0
+                anchors.verticalCenterOffset: slot.hovered ? -Theme.dp(4) : 0
                 scale: slot.pressed ? 1 - 4 / card.width : (slot.hovered ? 1 + strip.hoverGrow / card.width : 1)
                 width: parent.width
                 height: slot.targetH
@@ -203,9 +241,9 @@ Item {
                     }
 
                 }
-                radius: slot.tier === 0 ? Theme.radiusXl : (slot.tier === 1 ? Theme.radiusLg : Theme.radiusMd)
+                radius: slot.tier === 0 ? Theme.shapeXlInc : (slot.tier === 1 ? Theme.shapeLgInc : (slot.tier === 2 ? Theme.shapeMd : Theme.shapeSm))
                 color: Theme.bgTile
-                opacity: (slot.tier === 0 || slot.hovered) ? 1 : (slot.tier === 1 ? 0.78 : 0.5)
+                opacity: (slot.tier === 0 || slot.hovered) ? 1 : (slot.tier === 1 ? 0.78 : (slot.tier === 2 ? 0.5 : 0.36))
 
                 Behavior on height {
                     NumberAnimation {
@@ -224,13 +262,18 @@ Item {
                 }
 
 
+                // the small copy decodes in a millisecond, so it is read in step and
+                // is up on the card's first frame; an original still waiting for
+                // one stays off the gui thread
                 Image {
                     anchors.fill: parent
-                    source: "file://" + slot.path
+                    // a video has no picture of its own until its thumbnail is cut; asked of
+                    // the file, since the model can change tab a moment before strip.live does
+                    source: slot.thumb !== "" ? "file://" + slot.thumb : /\.(mp4|webm|mkv|mov|m4v)$/i.test(slot.path) ? "" : "file://" + slot.path
                     fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
+                    asynchronous: slot.thumb === ""
                     cache: true
-                    sourceSize.width: strip.heroW * 2
+                    sourceSize: strip.decodeSize
                 }
 
                 Rectangle {
@@ -247,52 +290,35 @@ Item {
 
                 }
 
-                Rectangle {
-                    anchors.fill: parent
-                    radius: card.radius
-                    color: "transparent"
-                    border.color: Theme.accent
-                    border.width: slot.isCurrent ? 3 : 0
-                    visible: slot.isCurrent
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: card.radius
-                    color: "transparent"
-                    border.color: Theme.alpha(Theme.text, 0.55)
-                    border.width: 2
-                    opacity: (slot.hovered && !slot.isCurrent) ? 1 : 0
-                    visible: opacity > 0.01
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Theme.durShort
-                        }
-
-                    }
-
-                }
-
             }
 
             Rectangle {
                 anchors.right: card.right
                 anchors.top: card.top
-                anchors.margins: 10
-                width: 24
-                height: 24
-                radius: 12
+                anchors.margins: Theme.dp(10)
+                width: Theme.dp(26)
+                height: Theme.dp(26)
+                radius: width / 2
                 color: Theme.accent
+                scale: slot.isApplied ? 1 : 0.4
+
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: Theme.durFastSpatial
+                        easing.type: Easing.Bezier
+                        easing.bezierCurve: Theme.curveDefaultSpatial
+                    }
+
+                }
                 opacity: slot.isApplied ? 1 : 0
                 visible: opacity > 0.01
 
                 DockGlyph {
                     anchors.centerIn: parent
-                    width: 15
-                    height: 15
+                    width: Theme.dp(15)
+                    height: Theme.dp(15)
                     pathData: DockIcons.check
-                    glyphColor: Theme.onAccent
+                    glyphColor: Theme.fgAccent
                 }
 
                 Behavior on opacity {
@@ -314,9 +340,10 @@ Item {
                 id: cardTap
 
                 onTapped: {
-                    if (slot.isCurrent)
+                    if (slot.isCurrent) {
+                        strip.noteOrigin(slot);
                         strip.chosen(slot.path);
-                    else
+                    } else
                         view.currentIndex = slot.index;
                 }
             }
@@ -333,43 +360,65 @@ Item {
         id: caption
 
         anchors.top: view.bottom
-        anchors.topMargin: 12
+        anchors.topMargin: Theme.dp(12)
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 26
+        height: Theme.dp(26)
         visible: view.visible
 
         Row {
+            id: capRow
+
+            readonly property int at: strip.hoveredIndex >= 0 ? strip.hoveredIndex : view.currentIndex
+            readonly property var entry: strip.model && capRow.at >= 0 && capRow.at < strip.model.count ? strip.model.get(capRow.at) : null
+
             anchors.centerIn: parent
-            spacing: 10
+            spacing: Theme.dp(10)
 
-            Text {
+            LText {
+                id: capName
+
                 anchors.verticalCenter: parent.verticalCenter
-                text: {
-                    if (!strip.model)
-                        return "";
-
-                    var i = strip.hoveredIndex >= 0 ? strip.hoveredIndex : view.currentIndex;
-                    if (i < 0 || i >= strip.model.count)
-                        return "";
-
-                    var item = strip.model.get(i);
-                    return item ? item.name : "";
-                }
+                role: "titleSmall"
+                text: capRow.entry ? capRow.entry.name : ""
                 color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontBody
-                font.weight: Font.Medium
                 elide: Text.ElideRight
-                width: Math.min(implicitWidth, strip.width - 200)
+                width: Math.min(capMetrics.width + Theme.dp(2), Math.max(0, strip.width - Theme.dp(220)))
+
+                TextMetrics {
+                    id: capMetrics
+
+                    font: capName.font
+                    text: capName.text
+                }
+
             }
 
-            Text {
+            Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
-                text: strip.model && strip.model.count > 0 ? ((strip.hoveredIndex >= 0 ? strip.hoveredIndex : view.currentIndex) + 1) + " / " + strip.model.count : ""
+                width: appliedLabel.implicitWidth + Theme.dp(16)
+                height: Theme.dp(22)
+                radius: Theme.shapeFull
+                color: Theme.accent
+                visible: capRow.entry !== null && strip.appliedPath !== "" && strip.appliedPath === capRow.entry.path
+
+                LText {
+                    id: appliedLabel
+
+                    anchors.centerIn: parent
+                    role: "labelSmall"
+                    text: "On the desktop"
+                    color: Theme.fgAccent
+                }
+
+            }
+
+            LText {
+                anchors.verticalCenter: parent.verticalCenter
+                role: "labelMedium"
+                tabular: true
+                text: strip.model && strip.model.count > 0 ? (capRow.at + 1) + " / " + strip.model.count : ""
                 color: Theme.subtextDim
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontLabel
             }
 
         }
@@ -382,25 +431,37 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: Math.max(0, (strip.stableHeight - emptyState.implicitHeight) / 2)
         anchors.horizontalCenter: parent.horizontalCenter
-        spacing: 10
+        spacing: Theme.dp(12)
         visible: !strip.model || strip.model.count === 0
 
-        DockGlyph {
-            width: 32
-            height: 32
+        Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
-            opacity: 0.5
-            pathData: DockIcons.brokenImage
-            glyphColor: Theme.subtext
+            width: Theme.dp(58)
+            height: Theme.dp(58)
+            radius: Theme.shapeXl
+            color: Theme.withBlur(Theme.surfaceHigh)
+
+            Icon {
+                anchors.centerIn: parent
+                name: strip.live ? "movie" : "wallpaper"
+                size: Theme.dp(28)
+                color: Theme.primary
+            }
+
         }
 
-        Text {
+        LText {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: strip.filterText !== "" ? "No wallpapers match \"" + strip.filterText + "\"" : "No wallpapers in this theme's folder"
-            color: Theme.subtext
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontBody
-            font.weight: Font.Medium
+            role: "titleMedium"
+            text: strip.live ? "No videos in this folder" : "No wallpapers in this folder"
+            color: Theme.text
+        }
+
+        LText {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: strip.filterText !== "" ? "No wallpapers match \"" + strip.filterText + "\"" : (strip.live ? "Drop mp4, webm or mkv files into the theme's wallpaper folder and they show up here." : "Drop images into the theme's wallpaper folder and they show up here.")
+            role: "bodyMedium"
+            color: Theme.subtextDim
         }
 
     }

@@ -1,44 +1,106 @@
 import QtQuick
-import QtQuick.Shapes
 import QtQuick.Effects
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import qs
+import qs.lucidprefs as LP
 import "../lucidbar" as LucidBar
 import "../squircle"
 
 PanelWindow {
     id: dockWindow
-    objectName: "dockWindow"
-    // Primary only - center 1440p DP-1 at 1600,0 never secondaries
-    screen: {
-        for (var i=0; i<Quickshell.screens.length; i++) {
-            var s = Quickshell.screens[i];
-            var m = Hyprland.monitorFor(s);
-            if (m && m.name === "DP-1") return s;
+
+    PaletteFade {
+        active: dockWindow.visible
+    }
+
+    // The dock's own display until Settings > Displays picks one: this
+    // machine's primary DP-1, never a secondary. shell.qml binds screen to
+    // Dock.launcherPlacement / Monitors.dockPlacement and takes over the
+    // moment either names a live display, so a chosen one still wins.
+    readonly property var primaryScreen: {
+        for (let i = 0; i < Quickshell.screens.length; i++) {
+            const s = Quickshell.screens[i];
+            const m = Hyprland.monitorFor(s);
+            if (m && m.name === "DP-1")
+                return s;
         }
         return Quickshell.screens.length > 0 ? Quickshell.screens[0] : null;
     }
-
-    readonly property real screenOffsetY: 120
-
-    // Glass background comes from the liquid-glass-hypr compositor plugin
-    // (see ~/src/liquid-glass-hypr); no QML capture path remains.
-
-    // wired from shell.qml, so the power menu can reach the real lock screen
-    property var lockScreen: null
+    screen: dockWindow.primaryScreen
 
     property bool morphing: false
-    readonly property bool dockBusy: dockWindow.menuOpen || dockWindow.dragging || (dockWindow.morphing && !dockWindow.launcherFromHidden)
+    property bool closingFromHidden: false
+    readonly property bool dockBusy: dockWindow.menuOpen || dockWindow.dragging || (dockWindow.morphing && !dockWindow.launcherFromHidden && !dockWindow.closingFromHidden)
     property bool slidingAway: false
     readonly property bool heldByPointer: revealArea.containsMouse || (shellHover.hovered && !dockWindow.slidingAway)
-    readonly property bool dockRevealed: !Prefs.dockAutoHide || dockWindow.dockBusy || dockWindow.heldByPointer
+    // on screen in its own right; a disabled dock never is
+    readonly property bool dockShown: Prefs.dockEnabled && (!dockWindow.hides || dockWindow.heldByPointer)
+    // dynamic hiding only tucks the dock away while the workspace has windows
+    readonly property bool hides: Prefs.dockAutoHide && (!Prefs.dockDynamicHide || dockWindow.dynamicHidden)
+    readonly property bool dockRevealed: dockWindow.dockShown || dockWindow.dockBusy
     property bool launcherFromHidden: false
     readonly property bool renderAsNotch: Prefs.dockNotch || dockWindow.launcherFromHidden
+    // split: the launcher, the pins and the running apps on islands of their own, which
+    // close up into one slab as the launcher grows out of them and part again after
+    readonly property int splitPad: Theme.dp(10)
+    readonly property int splitGap: Theme.dp(Prefs.dockSplitGap)
+    // 1 while the islands stand apart, 0 once they are one slab
+    property real seam: 0
+    readonly property bool splitWanted: Prefs.dockSplit && !dockWindow.menuOpen && !dockWindow.launcherFromHidden
+    readonly property bool splitDrawn: Prefs.dockSplit && dockWindow.seam > 0.001
+
+    onSplitWantedChanged: {
+        seamApart.stop();
+        seamTogether.stop();
+        if (!Prefs.dockSplit) {
+            dockWindow.seam = 0;
+            return ;
+        }
+        if (dockWindow.splitWanted) {
+            // a launcher on its way home has most of the way to shrink first
+            seamWait.duration = shell.height > shell.implicitHeight + 1 ? Theme.ms(300) : 0;
+            seamApart.restart();
+        } else {
+            seamTogether.restart();
+        }
+    }
+
+    SequentialAnimation {
+        id: seamApart
+
+        PauseAnimation {
+            id: seamWait
+        }
+
+        NumberAnimation {
+            target: dockWindow
+            property: "seam"
+            to: 1
+            duration: Theme.durDefaultSpatial
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Theme.curveDefaultSpatial
+        }
+
+    }
+
+    NumberAnimation {
+        id: seamTogether
+
+        target: dockWindow
+        property: "seam"
+        to: 0
+        duration: Theme.durShort
+        easing.type: Easing.Bezier
+        easing.bezierCurve: Theme.easeEmphasizedAccel
+    }
+
     readonly property int placementMargin: dockWindow.launcherFromHidden ? 0 : Prefs.effectiveDockBottomMargin
-    readonly property real hiddenOffset: dockWindow.dockRevealed ? 0 : -(shell.implicitHeight + Prefs.dockBottomMargin - 1)
+    readonly property real hiddenOffset: dockWindow.dockRevealed ? 0 : -(shell.implicitHeight + dockWindow.placementMargin - 1)
+    // a disabled dock's panel exists only while the launcher is up or shrinking away
+    readonly property bool shellShown: Prefs.dockEnabled || dockWindow.menuOpen || dockWindow.morphing
 
     onDockRevealedChanged: {
         if (dockWindow.dockRevealed) {
@@ -57,8 +119,120 @@ PanelWindow {
         onTriggered: dockWindow.slidingAway = false
     }
 
+    // the monitor the dock sits on
+    readonly property var dockMonitor: Hyprland.monitorFor(dockWindow.screen) || Hyprland.focusedMonitor
+    // quickshell never marks a special workspace active, so this comes from the monitor
+    readonly property string shownSpecial: {
+        const o = dockWindow.dockMonitor ? dockWindow.dockMonitor.lastIpcObject : null;
+        return o && o.specialWorkspace && o.specialWorkspace.name ? o.specialWorkspace.name : "";
+    }
+    // where the dock rests, down to the screen edge, in hyprland's coordinates
+    readonly property rect dockFootprint: {
+        const s = dockWindow.screen;
+        if (!s)
+            return Qt.rect(0, 0, 0, 0);
+
+        const h = shell.implicitHeight + Prefs.effectiveDockBottomMargin;
+        return Qt.rect(s.x + (s.width - shell.implicitWidth) / 2, s.y + s.height - h, shell.implicitWidth, h);
+    }
+    // the windows on screen: the monitor's workspace, plus a special one open over it
+    readonly property var windowsOnScreen: {
+        const out = {
+            "inTheWay": false,
+            "floating": false
+        };
+        const spaces = [dockWindow.dockMonitor ? dockWindow.dockMonitor.activeWorkspace : null];
+        if (dockWindow.shownSpecial !== "") {
+            for (const w of Hyprland.workspaces.values) {
+                if (w.name === dockWindow.shownSpecial)
+                    spaces.push(w);
+
+            }
+        }
+        for (const ws of spaces) {
+            if (!ws || !ws.toplevels)
+                continue;
+
+            for (const t of ws.toplevels.values) {
+                const o = t.lastIpcObject;
+                // no ipc data until the refresh an open event triggers
+                if (!o || !o.at || !o.size || o.hidden)
+                    continue;
+
+                if (o.floating && !o.fullscreen)
+                    out.floating = true;
+
+                if (dockWindow.inTheWay(o))
+                    out.inTheWay = true;
+
+            }
+        }
+        return out;
+    }
+    readonly property bool workspaceBusy: dockWindow.windowsOnScreen.inTheWay
+    readonly property bool dynamicWanted: Prefs.dockDynamicHide && dockWindow.workspaceBusy
+
+    // a tiled window always counts; a floating one only where it touches the dock
+    function inTheWay(o) {
+        if (!o.floating || o.fullscreen)
+            return true;
+
+        const r = dockWindow.dockFootprint;
+        return o.at[0] < r.x + r.width && o.at[0] + o.size[0] > r.x && o.at[1] < r.y + r.height && o.at[1] + o.size[1] > r.y;
+    }
+    // trails dynamicWanted, so a window flashing by or a quick run through
+    // workspaces never moves the dock
+    property bool dynamicHidden: false
+    readonly property int dynamicHideDelay: 350
+    readonly property int dynamicShowDelay: 500
+
+    onDynamicWantedChanged: {
+        if (dockWindow.dynamicHidden === dockWindow.dynamicWanted) {
+            dynamicDelay.stop();
+            return ;
+        }
+        dynamicDelay.interval = dockWindow.dynamicWanted ? dockWindow.dynamicHideDelay : dockWindow.dynamicShowDelay;
+        dynamicDelay.restart();
+    }
+
+    Timer {
+        id: dynamicDelay
+
+        onTriggered: dockWindow.dynamicHidden = dockWindow.dynamicWanted
+    }
+
+    Timer {
+        id: monitorRefresh
+
+        interval: 8
+        onTriggered: Hyprland.refreshMonitors()
+    }
+
     property int shellResizeMs: Theme.ms(60)
     readonly property var morphCurve: [0.4, 0, 0.2, 1, 1, 1]
+
+    // the one way in from outside the dock — the launcher's modes are its
+    // own search prefixes, so callers pass the prefix they want
+    function openLauncher(query) {
+        dockWindow.setSearchText(query);
+        dockWindow.aimLauncher();
+        dockWindow.menuOpen = true;
+    }
+
+    // with the dock off the launcher belongs to no display, so it opens on the
+    // one being worked on; with the dock on it grows out of the dock and stays
+    // there. shell.qml moves the window, so this runs before menuOpen flips
+    property var launcherScreen: null
+    // dropped once the dock is back on, or once that display is unplugged:
+    // a surface sent to a dead display is never drawn
+    readonly property var launcherPlacement: !Prefs.dockEnabled && dockWindow.launcherScreen && Quickshell.screens.indexOf(dockWindow.launcherScreen) >= 0 ? dockWindow.launcherScreen : null
+
+    function aimLauncher() {
+        if (dockWindow.menuOpen)
+            return ;
+
+        dockWindow.launcherScreen = Prefs.dockEnabled ? null : Monitors.focusedScreen;
+    }
 
     function pulseMorph() {
         dockWindow.shellResizeMs = Theme.ms(276);
@@ -66,24 +240,87 @@ PanelWindow {
         morphTimer.restart();
     }
 
+    // Master switch for compositor-drawn glass (liquid-glass-hypr). Follows
+    // Prefs.liquidGlassEnabled: false = QML background + shadow, plugin draws
+    // nothing. True = QML background transparent, the plugin draws behind it.
+    readonly property bool extGlass: Prefs.liquidGlassEnabled
+
+    // what the plugin draws behind the dock: the shell while it is one slab, a
+    // pill per island once it splits. Nothing for a hidden shell, or the plugin
+    // keeps drawing the last pill as a ghost. Radii are [tl, tr, br, bl].
+    readonly property var glassPills: {
+        if (!dockWindow.extGlass || !shell.visible || shell.width < 1 || shell.height < 1)
+            return [];
+
+        if (dockWindow.splitDrawn) {
+            const parts = [islandL, islandP, islandR];
+            const out = [];
+            for (let i = 0; i < parts.length; i++) {
+                const p = parts[i];
+                if (!p.visible || p.width < 1 || p.height < 1)
+                    continue;
+
+                out.push({
+                    "x": shell.x + p.x,
+                    "y": shell.y + p.y,
+                    "w": p.width,
+                    "h": p.height,
+                    "r": [p.topLeftRadius, p.topRightRadius, p.bottomRightRadius, p.bottomLeftRadius],
+                    "sq": Prefs.squircleF
+                });
+            }
+            return out;
+        }
+        return [{
+            "x": shell.x,
+            "y": shell.y,
+            "w": shell.width,
+            "h": shell.height,
+            "r": [shell.radius, shell.radius, shell.bottomRightRadius, shell.bottomLeftRadius],
+            "sq": Prefs.squircleF
+        }];
+    }
+
     property bool snapPlacement: false
     property int contentFadeDelay: 0
     property bool menuOpen: false
-    // Master switch for compositor-drawn glass (liquid-glass-hypr). Follows
-    // Prefs.liquidGlassEnabled (see liquid-glass-toggle): false = QML
-    // background + shadow, plugin draws nothing (zero GPU, no unload).
-    // True = QML background transparent, plugin draws (A/B test in progress).
-    property bool extGlass: Prefs.liquidGlassEnabled
+    // the launcher face is ~64mb of delegates and nothing shows it until the
+    // menu opens, so it is built on the first open and then kept
+    property bool launcherBuilt: false
+
+    // every write to the search field goes through here, so the face is built
+    // before anything tries to set text on it
+    // the wallpaper picker opens on the tab of what is on the desktop: Live for a
+    // video. exact is the Pictures / Live switch asking for one tab in particular
+    function setSearchText(text, exact) {
+        if (text === ">wallpaper" && !exact && Prefs.liveWallpapers && LiveWall.isVideo(dockWindow.appliedWallpaper))
+            text = ">live";
+
+        dockWindow.launcherBuilt = true;
+        if (launcherLoader.item)
+            launcherLoader.item.searchText = text;
+    }
 
     onMenuOpenChanged: {
+        if (dockWindow.menuOpen)
+            dockWindow.launcherBuilt = true;
+
         dockWindow.pulseMorph();
         dockWindow.contentFadeDelay = dockWindow.menuOpen ? 109 : 0;
+        powerDisarm.stop();
+        dockWindow.armedPower = "";
+        // window titles only reach lastIpcObject on a refresh, and search reads them
+        if (dockWindow.menuOpen)
+            toplevelRefresh.restart();
+
         if (dockWindow.menuOpen) {
-            dockWindow.launcherFromHidden = Prefs.dockAutoHide && !dockWindow.heldByPointer;
+            // no dock on screen means it was opened from elsewhere, so it notches
+            dockWindow.launcherFromHidden = !dockWindow.dockShown;
+            dockWindow.closingFromHidden = false;
             dockWindow.snapPlacement = true;
             snapClear.restart();
-
         } else if (dockWindow.launcherFromHidden) {
+            dockWindow.closingFromHidden = true;
             hideAfterClose.restart();
         } else {
             dockWindow.launcherFromHidden = false;
@@ -104,24 +341,11 @@ PanelWindow {
         onTriggered: dockWindow.snapPlacement = false
     }
 
-    // Debounced launcher rebuild: typing fires rawQueryChanged per keystroke and a
-    // synchronous rebuild (filter + sort + ListModel churn + delegate work) per key
-    // drops frames. Coalesce bursts; 40ms is imperceptible next to the ~115ms fade.
-    Timer {
-        id: rebuildDebounce
-
-        interval: 40
-        onTriggered: dockWindow.rebuildResults()
-    }
-
-    // Width only changes on mode switch (apps 420 / power 660 / wallpaper ~1000),
-    // where the morph is intentional. Height changes on every keystroke as the result
-    // count changes — retriggering the 276ms morph there keeps the panel ~285ms
-    // behind typing and restarts the 299ms morph window, so height uses the fast
-    // resize instead.
     onMenuWidthChanged: if (dockWindow.menuOpen)
         dockWindow.pulseMorph()
-
+    // Height changes on every keystroke as the result count changes, and
+    // retriggering the morph there keeps the panel behind typing and restarts
+    // the morph window. Height uses the fast resize instead.
     Timer {
         id: morphTimer
 
@@ -129,17 +353,24 @@ PanelWindow {
         onTriggered: {
             dockWindow.morphing = false;
             dockWindow.shellResizeMs = Theme.ms(60);
+            dockWindow.closingFromHidden = false;
         }
     }
 
-    property string fallbackWallpaper: Qt.resolvedUrl("./fallback.jpg").toString().replace("file://", "")
+    property string fallbackWallpaper: Qt.resolvedUrl("../assets/fallback.jpg").toString().replace("file://", "")
     property var scannedApps: []
-    property var emojiData: []
-    property string currentTheme: "matugen"
+    readonly property string currentTheme: Prefs.currentTheme
     property string pendingWallpaper: ""
+    property point pendingOrigin: Qt.point(-1, -1)
     property string appliedWallpaper: ""
+    // what the picker asked set-wallpaper.sh for since the desktop last caught up
+    property var requestedWallpapers: ({})
     property bool wallpaperArmed: false
-    readonly property bool dragging: pinnedRow.dragging || runningRow.dragging
+    // a pin on its way to the desktop keeps the dock up, or the drag would lose its source
+    readonly property bool dragging: pinnedRow.dragging || pinnedRow.sending || runningRow.dragging
+    // an in-dock drag takes the whole window for input; a pin in the air to the desktop must
+    // not, or the window (most of the screen's lower part) takes the drop instead of the desktop
+    readonly property bool maskWhole: (pinnedRow.dragging && !pinnedRow.sending) || runningRow.dragging
 
     readonly property var clientsData: {
         var out = [];
@@ -158,16 +389,117 @@ PanelWindow {
         return t && t.lastIpcObject && t.lastIpcObject.address ? t.lastIpcObject.address : "";
     }
 
+    // quickshell only fills lastIpcObject on an explicit refresh, so without
+    // this a new window waits out the poll below before it reaches the dock
+    Timer {
+        id: toplevelRefresh
+
+        interval: 8
+        onTriggered: Hyprland.refreshToplevels()
+    }
+
+    Connections {
+        target: Hyprland
+
+        function onRawEvent(event) {
+            switch (event.name) {
+            case "openwindow":
+            case "closewindow":
+            case "movewindow":
+            case "movewindowv2":
+                toplevelRefresh.restart();
+                break;
+            case "activespecial":
+            case "activespecialv2":
+                if (Prefs.dockDynamicHide)
+                    monitorRefresh.restart();
+
+                break;
+            // fresh floating geometry for dynamic hiding
+            case "changefloatingmode":
+            case "fullscreen":
+            case "workspacev2":
+                if (Prefs.dockDynamicHide)
+                    toplevelRefresh.restart();
+
+                break;
+            }
+        }
+    }
+
+    // safety net for anything the events above miss
     Timer {
         interval: 4000
-        running: dockWindow.visible && (dockWindow.menuOpen || dockWindow.dockRevealed)
+        // floating windows move without an event, so dynamic hiding keeps checking
+        running: dockWindow.visible && (dockWindow.menuOpen || dockWindow.dockRevealed || (Prefs.dockDynamicHide && dockWindow.windowsOnScreen.floating))
         repeat: true
         onTriggered: Hyprland.refreshToplevels()
     }
 
-    onClientsDataChanged: dockWindow.syncRunningApps()
+    onClientsDataChanged: {
+        dockWindow.syncRunningApps();
+        // open windows are search results too
+        if (dockWindow.menuOpen && dockWindow.mode === "apps" && dockWindow.filterQuery !== "" && Prefs.launcherWindows)
+            dockWindow.rebuildResults();
 
-    readonly property string rawQuery: launcherFace.searchText
+    }
+
+    // every one of these changes the rows or their measured height, and the
+    // height is cached rather than bound
+    Connections {
+        target: Prefs
+
+        function onLauncherDensityChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherContentScaleChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherFrequentFirstChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherCalculatorChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherSettingsResultsChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherWebRowChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherHiddenAppsChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherWindowsChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherAppActionsChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherAppDescriptionsChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherPowerSearchChanged() {
+            dockWindow.rebuildResults();
+        }
+
+        function onLauncherAddressFirstChanged() {
+            dockWindow.rebuildResults();
+        }
+
+    }
+
+    readonly property string rawQuery: launcherLoader.item ? launcherLoader.item.searchText : ""
 
     function modeFor(raw) {
         var q = raw.toLowerCase();
@@ -177,11 +509,24 @@ PanelWindow {
         if (q.indexOf(">theme") === 0)
             return "theme";
 
-        if (q.indexOf(">power") === 0)
-            return "power";
+        if (q.indexOf(">clip") === 0)
+            return "clipboard";
+
+        if (q.indexOf(">live") === 0)
+            return "live";
 
         if (q.indexOf(">") === 0)
             return "commands";
+
+        // single-character prefixes: ? searches the web, $ runs a command, : finds an emoji
+        if (q.indexOf("?") === 0)
+            return "web";
+
+        if (q.indexOf("$") === 0)
+            return "run";
+
+        if (q.indexOf(":") === 0)
+            return "emoji";
 
         return "apps";
     }
@@ -193,11 +538,23 @@ PanelWindow {
         if (mode === "theme")
             return ">theme";
 
-        if (mode === "power")
-            return ">power";
+        if (mode === "clipboard")
+            return ">clip";
+
+        if (mode === "live")
+            return ">live";
 
         if (mode === "commands")
             return ">";
+
+        if (mode === "web")
+            return "?";
+
+        if (mode === "run")
+            return "$";
+
+        if (mode === "emoji")
+            return ":";
 
         return "";
     }
@@ -207,19 +564,40 @@ PanelWindow {
     }
 
     readonly property string mode: dockWindow.modeFor(dockWindow.rawQuery)
+    // pictures and videos share the picker: one tab each
+    readonly property bool pickerMode: dockWindow.mode === "wallpaper" || dockWindow.mode === "live"
+    readonly property var pickerModel: dockWindow.pickerModelFor(dockWindow.mode)
     readonly property string filterQuery: dockWindow.queryFor(dockWindow.rawQuery)
 
-    onRawQueryChanged: rebuildDebounce.restart()
+    onRawQueryChanged: {
+        // a new query never inherits an armed restart
+        powerDisarm.stop();
+        dockWindow.armedPower = "";
+        dockWindow.rebuildResults();
+        // the face already reset itself, but against the pre-rebuild rows
+        if (launcherLoader.item)
+            launcherLoader.item.resetSelection();
+    }
+    // onModeChanged reads the mode itself: pickerMode and pickerModel may not
+    // have caught up with it yet when the handler runs
     onModeChanged: {
-        if (dockWindow.mode === "wallpaper") {
+        if (dockWindow.mode === "wallpaper" || dockWindow.mode === "live") {
+            // the cards outlive the menu, so the strip is on the current picture
+            // from the first frame rather than once the rescan lands; on the
+            // other tab (Pictures while a video plays) it starts at the first
+            dockWindow.syncPickerFilter();
+            dockWindow.syncStripToCurrent(true);
             wallpaperScanner.scan();
             dockWindow.wallpaperArmed = false;
             wallpaperArmTimer.restart();
         } else {
             dockWindow.wallpaperArmed = false;
+            // leaving the picker hands the copies back whole, so the next open
+            // never starts on the last search's matches
+            dockWindow.syncPickerFilter();
         }
-        if (dockWindow.mode === "theme")
-            dockWindow.scanThemeWallpapers();
+        if (dockWindow.mode === "clipboard")
+            Clip.refresh();
 
     }
 
@@ -239,60 +617,171 @@ PanelWindow {
         "desc": "Change the colour scheme",
         "glyph": DockIcons.palette
     }, {
+        "id": "clipboard",
+        "name": "Clipboard History",
+        "desc": "Copy something you copied earlier",
+        "glyph": DockIcons.clipboard
+    }, {
         "id": "power",
         "name": "Power",
-        "desc": "Lock, suspend, restart or shut down",
+        "desc": "The full-screen way out: lock, sleep, log out, restart",
         "glyph": DockIcons.power
+    }, {
+        "id": "widgets",
+        "name": "Widget Panel",
+        "desc": "Drag clocks, meters and notes onto the desktop, or take them off",
+        "glyph": DockIcons.widgets
+    }, {
+        "id": "keyboard",
+        "name": "On-Screen Keyboard",
+        "desc": "Type with the pointer when there is no keyboard",
+        "glyph": DockIcons.keyboard
+    }, {
+        "id": "emoji",
+        "name": "Emoji",
+        "desc": "Type : and a word, Return copies it",
+        "glyph": "mood"
+    }, {
+        "id": "run",
+        "name": "Run a Command",
+        "desc": "Type $ and a command line",
+        "glyph": "terminal_2"
+    }, {
+        "id": "web",
+        "name": "Search the Web",
+        "desc": "Type ? and what you are looking for",
+        "glyph": "travel_explore"
     }, {
         "id": "settings",
         "name": "Settings",
         "desc": "Open Lucid's settings",
         "glyph": DockIcons.settings
     }]
+    readonly property var searchEngines: ({
+        "duckduckgo": {
+            "name": "DuckDuckGo",
+            "url": "https://duckduckgo.com/?q="
+        },
+        "google": {
+            "name": "Google",
+            "url": "https://www.google.com/search?q="
+        },
+        "brave": {
+            "name": "Brave Search",
+            "url": "https://search.brave.com/search?q="
+        },
+        "startpage": {
+            "name": "Startpage",
+            "url": "https://www.startpage.com/do/search?q="
+        },
+        "kagi": {
+            "name": "Kagi",
+            "url": "https://kagi.com/search?q="
+        }
+    })
+    readonly property var engine: dockWindow.searchEngines[Prefs.launcherSearchEngine] || dockWindow.searchEngines.duckduckgo
+    property var emojiList: []
+    property bool emojiWanted: false
     // shared with the settings app, see Prefs.themeCatalogue
     readonly property var allThemes: Prefs.themeCatalogue
-    property var themeHasWallpaper: ({})
 
-    readonly property int iconSlot: Prefs.dockIconSize
-    readonly property int iconGap: Prefs.dockSpacing
+    readonly property int iconSlot: Theme.dp(Prefs.dockIconSize)
+    readonly property int iconGap: Theme.dp(Prefs.dockSpacing)
     readonly property int slotPitch: dockWindow.iconSlot + dockWindow.iconGap
     readonly property real maxDockWidth: dockWindow.screen ? dockWindow.screen.width : 1920
-    property real dragHeadroom: 220
+    property real dragHeadroom: Theme.dp(220)
 
-    readonly property int menuMaxHeight: 560
+    readonly property int menuMaxHeight: Theme.dp(610)
     // how much of the panel is chrome, not results
-    readonly property int panelPadding: 36
+    readonly property int panelPadding: Theme.dp(36)
     readonly property int wallCardCount: 5
-    readonly property int wallCardGap: 10
-    readonly property int wallHeroW: Math.max(280, Math.min(420, Math.round(dockWindow.maxDockWidth * 0.177)))
+    readonly property int wallCardGap: Theme.dp(10)
+    readonly property int wallHeroW: Math.max(Theme.dp(280), Math.min(Theme.dp(420), Math.round(dockWindow.maxDockWidth * 0.177)))
     readonly property int wallHeroH: Math.round(dockWindow.wallHeroW * 0.62)
-    readonly property int wallMidW: Math.round(dockWindow.wallHeroW * 0.70)
+    // Settings -> Theme -> Strip: how fast the neighbours shrink (mid and small as shares of the hero)
+    readonly property var wallSteps: ({
+        "soft": [0.82, 0.64],
+        "normal": [0.70, 0.44],
+        "steep": [0.56, 0.30]
+    })[Prefs.wallpaperStripSteps] || [0.70, 0.44]
+    readonly property int wallMidW: Math.round(dockWindow.wallHeroW * dockWindow.wallSteps[0])
     readonly property int wallMidH: Math.round(dockWindow.wallMidW * 0.62)
-    readonly property int wallSmallW: Math.round(dockWindow.wallHeroW * 0.44)
+    readonly property int wallSmallW: Math.round(dockWindow.wallHeroW * dockWindow.wallSteps[1])
     readonly property int wallSmallH: Math.round(dockWindow.wallSmallW * 0.62)
-    readonly property int wallStripWidth: dockWindow.wallHeroW + 2 * (dockWindow.wallMidW + dockWindow.wallCardGap) + 2 * (dockWindow.wallSmallW + dockWindow.wallCardGap)
-    readonly property int wallHoverRoom: 12
+    // a fourth, tiny tier when the strip shows three neighbours on each side
+    readonly property int wallTinyW: Math.round(dockWindow.wallSmallW * 0.68)
+    readonly property int wallTinyH: Math.round(dockWindow.wallTinyW * 0.62)
+    // the panel's width for the other styles, which lay themselves out in whatever
+    // they are given: what the strip takes with its default look, so that a wide
+    // strip (soft steps, three neighbours) does not widen the panel for them too
+    readonly property int wallBaseWidth: dockWindow.wallHeroW + 2 * (Math.round(dockWindow.wallHeroW * 0.70) + dockWindow.wallCardGap) + 2 * (Math.round(dockWindow.wallHeroW * 0.44) + dockWindow.wallCardGap)
+    readonly property int wallStripWidth: dockWindow.wallHeroW + 2 * (dockWindow.wallMidW + dockWindow.wallCardGap) + 2 * (dockWindow.wallSmallW + dockWindow.wallCardGap) + (Prefs.wallpaperStripSides === 3 ? 2 * (dockWindow.wallTinyW + dockWindow.wallCardGap) : 0)
+    readonly property int wallHoverRoom: Theme.dp(12)
+    // Tiles: the panel is cut to its grid. More rows make it taller and fewer
+    // wallpapers narrower, instead of the tiles shrinking to fit a fixed panel
+    readonly property bool wallIsTiles: Prefs.wallpaperPickerStyle === "tiles"
+    readonly property int wallTilesRows: Math.max(2, Math.min(5, Math.round(Prefs.wallpaperTilesRows) || 2))
+    readonly property int wallTilesBase: Math.round(dockWindow.wallHeroH * 0.5)
+    // what the grid leaves around itself: a margin above, the caption and one below
+    readonly property int wallTilesChrome: Theme.dp(56)
+    // a grid may stand taller than the other panels (it grows with its rows) but not
+    // past this; only then do the tiles shrink, and the width follows the real size
+    readonly property real wallTilesContentMax: Math.max(dockWindow.menuContentMax, Math.round((dockWindow.screen ? dockWindow.screen.height : 1080) * 0.62))
+    readonly property int wallTilesTile: Math.max(Theme.dp(40), Math.min(dockWindow.wallTilesBase, Math.floor((dockWindow.wallTilesContentMax - dockWindow.wallTilesChrome) / dockWindow.wallTilesRows)))
+    readonly property int wallTilesCellW: Prefs.wallpaperTilesAspect === "wide" ? Math.round(dockWindow.wallTilesTile * 16 / 9) : dockWindow.wallTilesTile
+    // the Pictures / Live switch beside the picker, and the gap after it; only once
+    // the folder holds a video, so a folder of pictures keeps the plain picker
+    readonly property bool wallHasVideos: liveModel.count > 0 || LiveWall.isVideo(dockWindow.appliedWallpaper)
+    readonly property int wallKindRailWidth: Prefs.liveWallpapers && dockWindow.wallHasVideos ? Theme.dp(108) : 0
+    readonly property int wallTilesWidth: Math.ceil(dockWindow.pickerModel.count / dockWindow.wallTilesRows) * dockWindow.wallTilesCellW + Theme.dp(24)
+    // Pills: the row with every wallpaper in it, when that is narrower than the
+    // panel, so a short folder doesn't leave the panel wider than its pills
+    // (from WallpaperPills.qml's pillW, fullPillMax and openW)
+    readonly property int wallPillsWidth: {
+        var slims = Math.max(0, dockWindow.pickerModel.count - 1);
+        var gap = dockWindow.wallCardGap;
+        var row;
+        if (Prefs.wallpaperPillsShape === "full")
+            row = Math.max(dockWindow.wallHeroW + slims * (64 + gap), Math.ceil(slims * (64 + gap) / 0.6));
+        else if (Prefs.wallpaperPillsShape === "wave")
+            row = Math.round(dockWindow.wallHeroW * 0.9) + slims * (40 + gap);
+        else
+            row = dockWindow.wallHeroW + slims * (52 + gap);
+        return Math.min(dockWindow.wallBaseWidth + dockWindow.wallHoverRoom, row);
+    }
 
     readonly property real menuWidth: {
-        if (dockWindow.mode === "wallpaper")
-            return dockWindow.wallStripWidth + dockWindow.panelPadding + dockWindow.wallHoverRoom;
+        if (dockWindow.pickerMode) {
+            if (dockWindow.wallIsTiles)
+                return Math.min(Math.max(Prefs.launcherPanelWidth, dockWindow.wallTilesWidth + dockWindow.wallKindRailWidth + dockWindow.panelPadding + dockWindow.wallHoverRoom), dockWindow.maxDockWidth - 48);
 
-        if (dockWindow.mode === "power")
-            return 660;
+            if (Prefs.wallpaperPickerStyle === "pills")
+                return Math.min(Math.max(Prefs.launcherPanelWidth, dockWindow.wallPillsWidth + dockWindow.wallKindRailWidth + dockWindow.panelPadding), dockWindow.maxDockWidth - 48);
 
-        return 420;
+            return Math.min((Prefs.wallpaperPickerStyle === "strip" ? dockWindow.wallStripWidth : dockWindow.wallBaseWidth) + dockWindow.wallKindRailWidth + dockWindow.panelPadding + dockWindow.wallHoverRoom, dockWindow.maxDockWidth - 48);
+        }
+
+        // the list plus its preview pane
+        if (dockWindow.mode === "clipboard")
+            return Math.min(Math.round(Prefs.launcherPanelWidth * 1.4), dockWindow.maxDockWidth - 48);
+
+        return Math.min(Prefs.launcherPanelWidth, dockWindow.maxDockWidth - 48);
     }
     property real resultsHeight: 0
-    readonly property real menuContentMax: dockWindow.menuMaxHeight - dockWindow.panelPadding - launcherFace.chromeHeight
+    property int resultCount: 0
+    readonly property real menuContentMax: dockWindow.menuMaxHeight - dockWindow.panelPadding - Prefs.launcherChromeH
+    // with no rows the panel is as tall as the empty state, not a fixed floor that cut it
+    readonly property real menuContentMin: dockWindow.resultsHeight > 0 || !launcherLoader.item ? Theme.dp(70) : Math.max(Theme.dp(70), launcherLoader.item.emptyHeight)
     readonly property real menuHeight: {
         var content;
-        if (dockWindow.mode === "wallpaper")
-            content = dockWindow.wallHeroH + 70;
-        else if (dockWindow.mode === "power")
-            content = 140;
+        if (dockWindow.pickerMode)
+            content = dockWindow.wallIsTiles ? dockWindow.wallTilesRows * dockWindow.wallTilesTile + dockWindow.wallTilesChrome : dockWindow.wallHeroH + Theme.dp(70);
+        // fixed, so deleting entries doesn't shrink the preview under the cursor
+        else if (dockWindow.mode === "clipboard")
+            content = dockWindow.menuContentMax;
         else
-            content = Math.max(70, Math.min(dockWindow.resultsHeight, dockWindow.menuContentMax));
-        return Math.round(dockWindow.panelPadding + launcherFace.chromeHeight + content);
+            content = Math.max(dockWindow.menuContentMin, Math.min(dockWindow.resultsHeight, dockWindow.menuContentMax));
+        return Math.round(dockWindow.panelPadding + Prefs.launcherChromeH + content);
     }
 
     readonly property var classIndex: {
@@ -344,6 +833,15 @@ PanelWindow {
         return null;
     }
 
+    // the bar's scratchpad stash goes through this so it shows the icons the dock shows
+    function iconForClass(cls) {
+        if (!cls || cls === "")
+            return "";
+
+        var entry = dockWindow.entryForClass(cls);
+        return IconTheme.resolve(entry && entry.iconName !== "" ? entry.iconName : cls);
+    }
+
     readonly property var pinnedAppIds: {
         var ids = {};
         for (var i = 0; i < appListModel.count; i++) {
@@ -355,26 +853,6 @@ PanelWindow {
         return ids;
     }
 
-    function arcPath(cx, cy, r, a0, a1) {
-        var t0 = a0 * Math.PI / 180, t1 = a1 * Math.PI / 180;
-        var large = Math.abs(a1 - a0) > 180 ? 1 : 0;
-        var sweep = a1 > a0 ? 0 : 1;
-        return "M" + (cx + r * Math.cos(t0)).toFixed(2) + "," + (cy - r * Math.sin(t0)).toFixed(2) + " A" + r + "," + r + " 0 " + large + " " + sweep + " " + (cx + r * Math.cos(t1)).toFixed(2) + "," + (cy - r * Math.sin(t1)).toFixed(2);
-    }
-
-    function sparklePath(x, y, s) {
-        var k = s * 0.3, j = s * 0.13;
-        return "M" + x + "," + (y - s) + " C" + (x + j) + "," + (y - k) + " " + (x + k) + "," + (y - j) + " " + (x + s) + "," + y + " C" + (x + k) + "," + (y + j) + " " + (x + j) + "," + (y + k) + " " + x + "," + (y + s) + " C" + (x - j) + "," + (y + k) + " " + (x - k) + "," + (y + j) + " " + (x - s) + "," + y + " C" + (x - k) + "," + (y - j) + " " + (x - j) + "," + (y - k) + " " + x + "," + (y - s) + " Z";
-    }
-
-    function circlePath(cx, cy, r) {
-        return "M" + (cx - r) + "," + cy + " A" + r + "," + r + " 0 1 0 " + (cx + r) + "," + cy + " A" + r + "," + r + " 0 1 0 " + (cx - r) + "," + cy + " Z";
-    }
-
-    readonly property string lucidaRing: dockWindow.arcPath(12, 12, 7.4, 58, 340)
-    readonly property string lucidaStar: dockWindow.sparklePath(12, 12, 4.6)
-    readonly property string lucidaCompanion: dockWindow.circlePath(21, 9.4, 1)
-
     function makeRow(kind, key, title, subtitle, opts) {
         opts = opts || {};
         return {
@@ -384,9 +862,12 @@ PanelWindow {
             "subtitle": subtitle,
             "iconName": opts.iconName || "",
             "glyph": opts.glyph || "",
+            "emoji": opts.emoji || "",
             "swatchBg": opts.swatchBg || "",
             "swatchAccent": opts.swatchAccent || "",
             "trailing": opts.trailing || "",
+            "thumb": opts.thumb || "",
+            "running": opts.running === true,
             "disabled": opts.disabled === true,
             "selectable": opts.selectable !== false,
             "payload": opts.payload || ""
@@ -432,6 +913,9 @@ PanelWindow {
         var scored = [];
         for (var i = 0; i < dockWindow.scannedApps.length; i++) {
             var app = dockWindow.scannedApps[i];
+            if (Prefs.isLauncherHidden(app.base))
+                continue;
+
             var score = q !== "" ? dockWindow.matchScore(app, q) : 0;
             if (q !== "" && score < 0)
                 continue;
@@ -454,66 +938,450 @@ PanelWindow {
         return scored;
     }
 
+    // settings pages whose name or keywords hold every word typed
+    function settingRows(q, limit) {
+        var words = q.split(/\s+/).filter(function(w) {
+            return w !== "";
+        });
+        if (words.length === 0)
+            return [];
+
+        var out = [];
+        for (var i = 0; i < Prefs.settingsPages.length && out.length < limit; i++) {
+            var pg = Prefs.settingsPages[i];
+            var hay = (pg.label + " " + pg.title + " " + (pg.keys || "")).toLowerCase();
+            if (!words.every(function(w) {
+                return hay.indexOf(w) >= 0;
+            }))
+                continue;
+
+            out.push(dockWindow.makeRow("setting", "set-" + pg.key, pg.title, pg.blurb, {
+                "glyph": pg.icon,
+                "payload": pg.key
+            }));
+        }
+        return out;
+    }
+
+    // the names of every application with a window open, so a result can carry
+    // the dock's own running mark
+    readonly property var runningAppNames: {
+        var out = {};
+        for (var i = 0; i < dockWindow.clientsData.length; i++) {
+            var entry = dockWindow.entryForClass(dockWindow.clientsData[i].class);
+            if (entry)
+                out[entry.name] = true;
+
+        }
+        return out;
+    }
+
+    onRunningAppNamesChanged: {
+        if (dockWindow.menuOpen)
+            dockWindow.rebuildResults();
+
+    }
+
     function rowForApp(app) {
-        return dockWindow.makeRow("app", "app-" + app.name, app.name, "", {
+        return dockWindow.makeRow("app", "app-" + app.name, app.name, Prefs.launcherAppDescriptions ? (app.desc || "") : "", {
             "iconName": app.iconName,
-            "payload": app.command
+            "payload": app.command,
+            "running": dockWindow.runningAppNames[app.name] === true
         });
     }
 
+    function looksUrl(q) {
+        return /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(q) && q.indexOf(" ") === -1;
+    }
+
+    function urlRow(q) {
+        return dockWindow.makeRow("web", "web-url", "Open " + q, "In your browser", {
+            "glyph": "open_in_new",
+            "payload": /^https?:/.test(q) ? q : "https://" + q
+        });
+    }
+
+    function webRow(q, searchOnly) {
+        if (dockWindow.looksUrl(q) && !searchOnly)
+            return dockWindow.makeRow("web", "web-url", "Open " + q, "In your browser", {
+            "glyph": "open_in_new",
+            "payload": /^https?:/.test(q) ? q : "https://" + q
+        });
+
+        return dockWindow.makeRow("web", "web-search", "Search " + dockWindow.engine.name + " for \u201c" + q + "\u201d", "Opens in your browser", {
+            "glyph": "travel_explore",
+            "payload": dockWindow.engine.url + encodeURIComponent(q)
+        });
+    }
+
+    // found by a typed search, beside the apps. restart, shut down and log out
+    // want a second Return, as on the session screen
+    readonly property var powerCommands: Power.actions.map((a) => {
+        const more = {
+            "lock": ["Lock the session", "screen", ""],
+            "suspend": ["Sleep, keeping the session in memory", "sleep", ""],
+            "logout": ["End the session", "sign out exit", "log out"],
+            "reboot": ["Reboot the computer", "reboot", "restart"],
+            "shutdown": ["Power the computer off", "shutdown poweroff power off", "shut down"]
+        }[a.id] || ["", "", ""];
+        return {
+            "id": a.id,
+            "name": a.label,
+            "desc": more[0],
+            "keywords": more[1],
+            "confirm": more[2],
+            "glyph": a.icon
+        };
+    })
+
+    // 100 at the start, 90 at a word start, 80 anywhere, -1 when absent
+    function textScore(text, q) {
+        var at = text.indexOf(q);
+        if (at === -1)
+            return -1;
+
+        if (at === 0)
+            return 100;
+
+        return text.indexOf(" " + q) !== -1 ? 90 : 80;
+    }
+
+    // every word of the query somewhere in the text, in any order
+    function wordsIn(text, q) {
+        var words = q.split(/\s+/);
+        for (var i = 0; i < words.length; i++) {
+            if (words[i] !== "" && text.indexOf(words[i]) === -1)
+                return false;
+
+        }
+        return true;
+    }
+
+    // short queries only match names, or every command turns up for one letter
+    function commandScore(cmd, q) {
+        if (q.length < 2)
+            return -1;
+
+        var s = dockWindow.textScore(cmd.name.toLowerCase(), q);
+        if (s === 80 && q.length < 3)
+            s = -1;
+
+        if (s >= 0)
+            return s;
+
+        if (q.length < 3)
+            return -1;
+
+        return dockWindow.wordsIn((cmd.name + " " + cmd.desc + " " + (cmd.keywords || "")).toLowerCase(), q) ? 60 : -1;
+    }
+
+    function windowScore(client, app, q) {
+        var best = -1;
+        if (app) {
+            // no loose letter-by-letter hits: a window is there to be switched to on purpose
+            var byApp = dockWindow.matchScore(app, q);
+            if (byApp >= 50)
+                best = byApp;
+
+        } else {
+            best = dockWindow.textScore(client.class.toLowerCase(), q);
+        }
+        var title = (client.title || "").toLowerCase();
+        if (q.length >= 2) {
+            var byTitle = dockWindow.textScore(title, q);
+            // a title hit ranks under the same hit on the app's own name
+            if (byTitle >= 0)
+                best = Math.max(best, byTitle - 15);
+            else if (q.length >= 3 && dockWindow.wordsIn(title, q))
+                best = Math.max(best, 55);
+        }
+        // the window behind the launcher is the one least likely wanted
+        if (best >= 0 && client.address === dockWindow.focusedAddress)
+            best -= 25;
+
+        return best;
+    }
+
+    readonly property var kindRank: ({
+        "window": 0,
+        "app": 1,
+        "command": 2,
+        "power": 3,
+        "action": 4
+    })
+
+    // score, then kind, then each kind's own order (carried in tie, since sort isn't stable)
+    function byRank(items) {
+        return items.sort(function(x, y) {
+            if (x.score !== y.score)
+                return y.score - x.score;
+
+            var k = dockWindow.kindRank[x.kind] - dockWindow.kindRank[y.kind];
+            return k !== 0 ? k : x.tie - y.tie;
+        });
+    }
+
+    function rowForWindow(client, app) {
+        var name = app ? app.name : client.class;
+        var ws = client.workspace ? client.workspace.name : "";
+        // special workspaces keep their own name, numbered ones read as words
+        if (ws !== "" && client.workspace.id > 0)
+            ws = "Workspace " + ws;
+        else if (ws.indexOf("special:") === 0)
+            ws = ws.substring(8);
+        return dockWindow.makeRow("window", "win-" + client.address, client.title && client.title !== "" ? client.title : name, ws !== "" ? name + " · " + ws : name, {
+            "iconName": app ? app.iconName : client.class,
+            "payload": client.address
+        });
+    }
+
+    // nested rows sit under their app, so they drop the icon and the app name
+    function rowForAction(app, action, nested) {
+        return dockWindow.makeRow("action", "act-" + app.name + "-" + action.name, action.name, nested ? "" : app.name, {
+            "iconName": nested ? "" : app.iconName,
+            "glyph": nested ? "chevron_right" : "",
+            "payload": JSON.stringify({
+                "app": app.name,
+                "command": action.command
+            })
+        });
+    }
+
+    // a typed search: windows, apps, commands, the power actions and apps' own
+    // actions in one ranking, an address first when nothing matches it better
+    function searchRows(text, q, rows, scoredApps) {
+        var ranked = [];
+        for (var a = 0; a < scoredApps.length; a++) ranked.push({
+            "kind": "app",
+            "score": scoredApps[a].score,
+            "tie": a,
+            "app": scoredApps[a].app
+        })
+        if (Prefs.launcherWindows) {
+            var wins = [];
+            for (var w = 0; w < dockWindow.clientsData.length; w++) {
+                var c = dockWindow.clientsData[w];
+                if (!c.address)
+                    continue;
+
+                var owner = dockWindow.entryForClass(c.class);
+                var ws = dockWindow.windowScore(c, owner, q);
+                if (ws >= 0)
+                    wins.push({
+                    "kind": "window",
+                    "score": ws,
+                    // most recently focused first
+                    "tie": c.focusHistoryID === undefined ? 999 : c.focusHistoryID,
+                    "client": c,
+                    "app": owner
+                });
+
+            }
+            ranked = ranked.concat(dockWindow.byRank(wins).slice(0, 6));
+        }
+        for (var m = 0; m < dockWindow.allCommands.length; m++) {
+            var cs = dockWindow.commandScore(dockWindow.allCommands[m], q);
+            if (cs >= 0)
+                ranked.push({
+                "kind": "command",
+                "score": cs,
+                "tie": m,
+                "cmd": dockWindow.allCommands[m]
+            });
+
+        }
+        // never from two letters: "re" shouldn't put Restart one Return away
+        if (Prefs.launcherPowerSearch && q.length >= 3) {
+            for (var pw = 0; pw < dockWindow.powerCommands.length; pw++) {
+                var ps = dockWindow.commandScore(dockWindow.powerCommands[pw], q);
+                if (ps >= 0)
+                    ranked.push({
+                    "kind": "power",
+                    "score": ps,
+                    "tie": pw,
+                    "cmd": dockWindow.powerCommands[pw]
+                });
+
+            }
+        }
+        ranked = dockWindow.byRank(ranked);
+        // the leading app, on a real name hit, lists its actions right under it
+        var expanded = null;
+        if (Prefs.launcherAppActions) {
+            for (var r = 0; r < ranked.length; r++) {
+                if (ranked[r].kind !== "app")
+                    continue;
+
+                if (ranked[r].score >= 90 && ranked[r].app.actions.length > 0)
+                    expanded = ranked[r].app;
+
+                break;
+            }
+        }
+        if (Prefs.launcherAppActions && q.length >= 3) {
+            var acts = [];
+            for (var p = 0; p < dockWindow.scannedApps.length; p++) {
+                var host = dockWindow.scannedApps[p];
+                if (host === expanded || Prefs.isLauncherHidden(host.base))
+                    continue;
+
+                for (var x = 0; x < host.actions.length; x++) {
+                    var act = host.actions[x];
+                    var actScore = dockWindow.textScore(act.name.toLowerCase(), q);
+                    // "zen private" finds Zen's New Private Window
+                    if (actScore < 0 && dockWindow.wordsIn((host.name + " " + act.name).toLowerCase(), q))
+                        actScore = 65;
+
+                    // below the apps: "new" is mostly a way to find an app
+                    if (actScore >= 0)
+                        acts.push({
+                        "kind": "action",
+                        "score": actScore - 20,
+                        "tie": acts.length,
+                        "app": host,
+                        "action": act
+                    });
+
+                }
+            }
+            ranked = dockWindow.byRank(ranked.concat(dockWindow.byRank(acts).slice(0, 5)));
+        }
+        // an address beats weak name matches, not a real hit
+        if (Prefs.launcherAddressFirst && dockWindow.looksUrl(text) && (ranked.length === 0 || ranked[0].score < 80))
+            rows.push(dockWindow.urlRow(text));
+
+        for (var i = 0; i < ranked.length; i++) {
+            var it = ranked[i];
+            if (it.kind === "window") {
+                rows.push(dockWindow.rowForWindow(it.client, it.app));
+            } else if (it.kind === "app") {
+                rows.push(dockWindow.rowForApp(it.app));
+                if (it.app === expanded) {
+                    for (var n = 0; n < Math.min(5, expanded.actions.length); n++) rows.push(dockWindow.rowForAction(expanded, expanded.actions[n], true))
+                }
+            } else if (it.kind === "action") {
+                rows.push(dockWindow.rowForAction(it.app, it.action, false));
+            } else if (it.kind === "command") {
+                rows.push(dockWindow.makeRow("command", "cmd-" + it.cmd.id, it.cmd.name, it.cmd.desc, {
+                    "glyph": it.cmd.glyph,
+                    "payload": it.cmd.id
+                }));
+            } else if (it.kind === "power") {
+                var armed = dockWindow.armedPower === it.cmd.id;
+                rows.push(dockWindow.makeRow("power", "pow-" + it.cmd.id, it.cmd.name, armed ? "Press Return again to " + it.cmd.confirm : it.cmd.desc, {
+                    "glyph": it.cmd.glyph,
+                    "payload": it.cmd.id
+                }));
+            }
+        }
+    }
+
+    // the power action waiting on a second press; one at a time, for rows and buttons alike
+    property string armedPower: ""
+
+    onArmedPowerChanged: {
+        if (dockWindow.menuOpen && dockWindow.mode === "apps" && dockWindow.filterQuery !== "")
+            dockWindow.rebuildResults();
+
+    }
+
+    Timer {
+        id: powerDisarm
+
+        interval: 3000
+        onTriggered: dockWindow.armedPower = ""
+    }
+
+    // restart, shut down and log out lose unsaved work: the first press only arms them
+    function requestPower(id) {
+        var risky = id === "reboot" || id === "shutdown" || id === "logout";
+        if (risky && dockWindow.armedPower !== id) {
+            dockWindow.armedPower = id;
+            powerDisarm.restart();
+            return ;
+        }
+        powerDisarm.stop();
+        dockWindow.armedPower = "";
+        dockWindow.menuOpen = false;
+        Power.run(id);
+    }
+
+    // after the launcher lets go of the keyboard, or its focus grab hands focus back behind us
+    Timer {
+        id: windowFocus
+
+        property string address: ""
+
+        interval: 60
+        onTriggered: Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + windowFocus.address + "\" })")
+    }
+
+    function emojiRows(q, limit) {
+        var words = q.toLowerCase().split(/\s+/).filter((x) => {
+            return x !== "";
+        });
+        var out = [];
+        var list = dockWindow.emojiList;
+        for (var i = 0; i < list.length && out.length < limit; i++) {
+            var em = list[i];
+            var hay = em.n + " " + (em.k || "");
+            if (words.length && !words.every((x) => {
+                return hay.indexOf(x) >= 0;
+            }))
+                continue;
+
+            out.push(dockWindow.makeRow("emoji", "emoji-" + i, em.n, "", {
+                "emoji": em.e,
+                "payload": em.e
+            }));
+        }
+        return out;
+    }
+
     function rebuildResults() {
-        var raw = launcherFace.searchText;
+        var raw = dockWindow.rawQuery;
         var mode = dockWindow.modeFor(raw);
         var rows = [];
         var q = dockWindow.queryFor(raw).toLowerCase();
         if (mode === "apps") {
-            var calc = DockCalc.evaluate(dockWindow.queryFor(raw));
+            var calc = Prefs.launcherCalculator ? DockCalc.evaluate(dockWindow.queryFor(raw)) : "";
             if (calc !== "")
-                rows.push(dockWindow.makeRow("calc", "calc", "= " + calc, "Press Return to copy", {
+                rows.push(dockWindow.makeRow("calc", "calc", calc, dockWindow.queryFor(raw), {
                     "glyph": DockIcons.equals,
                     "payload": calc
                 }));
 
             var scored = dockWindow.appRows(q);
             if (q === "") {
-                var frequent = scored.filter(function(s) {
-                    return s.uses > 0;
-                }).slice(0, 5);
-                if (frequent.length > 0) {
-                    rows.push(dockWindow.headerRow("Frequent"));
-                    for (var f = 0; f < frequent.length; f++) rows.push(dockWindow.rowForApp(frequent[f].app));
-                    rows.push(dockWindow.headerRow("All applications"));
-                }
                 var rest = scored.slice().sort(function(a, b) {
                     return a.app.name.toLowerCase() < b.app.name.toLowerCase() ? -1 : 1;
                 });
+                var often = Prefs.launcherFrequentFirst ? scored.filter(function(x) {
+                    return x.uses > 0;
+                }).sort(function(a, b) {
+                    return b.uses - a.uses;
+                }).slice(0, 5) : [];
+                // one frequent app ahead of a full alphabet is not worth the break
+                if (often.length < 2)
+                    often = [];
+
+                if (often.length > 0) {
+                    rows.push(dockWindow.headerRow("Frequent"));
+                    for (var f = 0; f < often.length; f++) rows.push(dockWindow.rowForApp(often[f].app));
+                    rows.push(dockWindow.headerRow("All apps"));
+                }
                 for (var r = 0; r < rest.length; r++) rows.push(dockWindow.rowForApp(rest[r].app));
             } else {
-                for (var s2 = 0; s2 < scored.length; s2++) rows.push(dockWindow.rowForApp(scored[s2].app));
-            }
-            // emoji suggestions — all emojis matching query (up to 8)
-            if (q !== "" && dockWindow.emojiData.length > 0) {
-                var emojiRows = [];
-                for (var ei = 0; ei < dockWindow.emojiData.length && emojiRows.length < 8; ei++) {
-                    var em = dockWindow.emojiData[ei];
-                    var hay = (em.n + " " + (em.k || "")).toLowerCase();
-                    if (hay.indexOf(q) !== -1 || em.e.indexOf(q) !== -1) {
-                        emojiRows.push(dockWindow.makeRow("emoji", "emoji-" + em.e + "-" + ei, em.e + "  " + em.n, em.k ? em.k.split(" ").slice(0,4).join(", ") : "Copy to clipboard", {"payload": em.e}));
-                    }
+                dockWindow.searchRows(dockWindow.queryFor(raw), q, rows, scored);
+                var addressUp = rows.length > 0 && rows[0].key === "web-url";
+                var pages = Prefs.launcherSettingsResults ? dockWindow.settingRows(q, 3) : [];
+                if (pages.length > 0) {
+                    rows.push(dockWindow.headerRow("Settings"));
+                    rows = rows.concat(pages);
                 }
-                if (emojiRows.length > 0) {
-                    rows.push(dockWindow.headerRow("Emoji"));
-                    for (var ei2 = 0; ei2 < emojiRows.length; ei2++) rows.push(emojiRows[ei2]);
-                }
-            }
-            // browser fallback — when no app fully matches or always as last option
-            if (q !== "") {
-                var rawQ = dockWindow.queryFor(raw);
-                if (rawQ.charAt(0) !== "=") {
-                    var isUrl = rawQ.match(/^(https?:\/\/|www\.|[^ ]+\.[a-z]{2,}(\/.*)?$)/i);
-                    var title = isUrl ? "Open \"" + rawQ + "\"" : "Search \"" + rawQ + "\" in browser";
-                    var sub = isUrl ? "Open in default browser" : "No application found — open in browser";
-                    rows.push(dockWindow.makeRow("browser", "browser-" + rawQ, title, sub, {"iconName": "web-browser", "payload": rawQ}));
+                if (Prefs.launcherWebRow && calc === "") {
+                    rows.push(dockWindow.headerRow("Web"));
+                    rows.push(dockWindow.webRow(dockWindow.queryFor(raw), addressUp));
                 }
             }
         } else if (mode === "commands") {
@@ -526,36 +1394,83 @@ PanelWindow {
                     }));
 
             }
+            if (q !== "") {
+                var found = Prefs.launcherSettingsResults ? dockWindow.settingRows(q, 6) : [];
+                if (found.length > 0) {
+                    rows.push(dockWindow.headerRow("Settings"));
+                    rows = rows.concat(found);
+                }
+            }
+        } else if (mode === "web") {
+            var wq = dockWindow.queryFor(raw);
+            if (wq !== "")
+                rows.push(dockWindow.webRow(wq));
+            else
+                rows.push(dockWindow.headerRow("Type what to search " + dockWindow.engine.name + " for"));
+        } else if (mode === "run") {
+            var line = dockWindow.queryFor(raw);
+            if (line !== "") {
+                rows.push(dockWindow.makeRow("run", "run-bg", "Run  " + line, "In the background", {
+                    "glyph": "play_arrow",
+                    "payload": line
+                }));
+                rows.push(dockWindow.makeRow("runterm", "run-term", "Run in a terminal", "Keeps the window open to read the output", {
+                    "glyph": "terminal_2",
+                    "payload": line
+                }));
+            } else {
+                rows.push(dockWindow.headerRow("Type a command line to run"));
+            }
+        } else if (mode === "emoji") {
+            dockWindow.emojiWanted = true;
+
+            rows = dockWindow.emojiRows(q, 48);
+        } else if (mode === "clipboard") {
+            var ents = Clip.entries;
+            for (var e = 0; e < ents.length; e++) {
+                var ent = ents[e];
+                if (q !== "" && ent.preview.toLowerCase().indexOf(q) === -1)
+                    continue;
+
+                rows.push(dockWindow.makeRow("clip", "clip-" + ent.id, ent.preview, ent.meta, {
+                    "glyph": dockWindow.clipGlyph(ent),
+                    "thumb": ent.isImage ? ent.id : "",
+                    "swatchBg": ent.kind === "color" ? ent.color : "",
+                    "payload": ent.id
+                }));
+            }
         } else if (mode === "theme") {
             for (var t = 0; t < dockWindow.allThemes.length; t++) {
                 var th = dockWindow.allThemes[t];
                 if (q !== "" && th.name.toLowerCase().indexOf(q) === -1)
                     continue;
 
-                var noWall = th.id !== "matugen" && dockWindow.themeHasWallpaper[th.id] === false;
-                rows.push(dockWindow.makeRow("theme", "theme-" + th.id, th.name, noWall ? "No wallpapers installed for this theme" : th.desc, {
+                rows.push(dockWindow.makeRow("theme", "theme-" + th.id, th.name, th.desc, {
                     "swatchBg": th.swatchBg,
                     "swatchAccent": th.swatchAccent,
                     "trailing": th.id === dockWindow.currentTheme ? "check" : "",
-                    "disabled": noWall,
                     "payload": th.id
                 }));
             }
-        } else if (mode === "wallpaper") {
-            dockWindow.syncWallpaperFilter();
-            dockWindow.selectWallpaperForDisplay();
-
+        } else if (mode === "wallpaper" || mode === "live") {
+            // the picker's cards come from the filtered copies rather than from
+            // rows, and what is typed narrows them
+            dockWindow.syncPickerFilter();
+            dockWindow.selectPickerForDisplay();
         }
         dockWindow.syncResults(rows);
     }
 
     function syncResults(rows) {
+        // a key can repeat: frequent apps show up again in the full list
         var wanted = {};
-        for (var j = 0; j < rows.length; j++) wanted[rows[j].key] = true;
+        for (var j = 0; j < rows.length; j++) wanted[rows[j].key] = (wanted[rows[j].key] || 0) + 1;
         for (var i = resultsModel.count - 1; i >= 0; i--) {
-            if (!wanted[resultsModel.get(i).key])
+            var key = resultsModel.get(i).key;
+            if (!wanted[key])
                 resultsModel.remove(i, 1);
-
+            else
+                wanted[key]--;
         }
         for (var k = 0; k < rows.length; k++) {
             var existing = -1;
@@ -574,17 +1489,56 @@ PanelWindow {
                 resultsModel.set(k, rows[k]);
             }
         }
+        if (resultsModel.count > rows.length)
+            resultsModel.remove(rows.length, resultsModel.count - rows.length);
+
         dockWindow.resultsHeight = dockWindow.measure(rows);
-        launcherFace.resultsChanged();
+        var pickable = 0;
+        for (var n = 0; n < rows.length; n++) {
+            if (rows[n].selectable)
+                pickable++;
+
+        }
+        dockWindow.resultCount = pickable;
+        if (launcherLoader.item)
+            launcherLoader.item.resultsChanged();
     }
 
+    // must agree with LauncherList.rowHeight()
     function measure(rows) {
-        var h = 8;
+        if (rows.length === 0)
+            return 0;
+
+        // the loop adds one gap too many; the pad is the view's bottom margin
+        var gap = Prefs.launcherRowGap;
+        var h = Prefs.launcherListPad - gap;
         for (var i = 0; i < rows.length; i++) {
-            h += rows[i].kind === "header" ? 30 : (rows[i].subtitle !== "" ? 58 : 48);
-            h += 2;
+            if (rows[i].kind === "header")
+                h += Prefs.launcherRowHeader;
+            else if (rows[i].kind === "calc")
+                h += Prefs.launcherRowCalc;
+            else
+                h += rows[i].subtitle !== "" ? Prefs.launcherRowTwo : Prefs.launcherRowOne;
+            h += gap;
         }
         return h;
+    }
+
+    function hideResult(index) {
+        var row = resultsModel.get(index);
+        if (!row || row.kind !== "app")
+            return ;
+
+        var app = null;
+        for (var i = 0; i < dockWindow.scannedApps.length; i++) {
+            if (dockWindow.scannedApps[i].name === row.title) {
+                app = dockWindow.scannedApps[i];
+                break;
+            }
+        }
+        if (app)
+            Prefs.setLauncherHidden(app.base, true);
+
     }
 
     function activateResult(index) {
@@ -596,37 +1550,97 @@ PanelWindow {
             Quickshell.execDetached(["sh", "-c", row.payload]);
             dockWindow.recordLaunch(row.title);
             dockWindow.menuOpen = false;
+        } else if (row.kind === "setting") {
+            dockWindow.menuOpen = false;
+            Prefs.settingsRequested(row.payload);
         } else if (row.kind === "calc") {
             Quickshell.execDetached(["wl-copy", "--", row.payload]);
             dockWindow.menuOpen = false;
-        } else if (row.kind === "emoji") {
-            Quickshell.execDetached(["wl-copy", "--", row.payload]);
-            // also try to paste via wtype if available, fallback to copy
-            dockWindow.menuOpen = false;
-        } else if (row.kind === "browser") {
-            var q = row.payload;
-            Quickshell.execDetached(["sh", "-c", "q=\"$1\"; if echo \"$q\" | grep -qE '^(https?://)'; then xdg-open \"$q\" >/dev/null 2>&1 & elif echo \"$q\" | grep -qE '^www\\.'; then xdg-open \"https://$q\" >/dev/null 2>&1 & elif echo \"$q\" | grep -qE '^[^ ]+\\.[a-z]{2,}(/.*)?$' && ! echo \"$q\" | grep -q ' '; then xdg-open \"https://$q\" >/dev/null 2>&1 & else xdg-open \"https://duckduckgo.com/?q=$(printf '%s' \"$q\" | jq -sRr @uri 2>/dev/null || printf '%s' \"$q\" | sed 's/ /%20/g')\" >/dev/null 2>&1 & fi", "sh", q]);
+        } else if (row.kind === "clip") {
+            Clip.copy(row.payload);
             dockWindow.menuOpen = false;
         } else if (row.kind === "theme") {
             dockWindow.switchTheme(row.payload);
         } else if (row.kind === "command") {
             dockWindow.runCommand(row.payload);
+        } else if (row.kind === "web") {
+            dockWindow.menuOpen = false;
+            Qt.openUrlExternally(row.payload);
+        } else if (row.kind === "run") {
+            dockWindow.menuOpen = false;
+            Quickshell.execDetached(["sh", "-c", row.payload]);
+        } else if (row.kind === "runterm") {
+            dockWindow.menuOpen = false;
+            // the shell stays behind the command so its output can be read
+            Quickshell.execDetached(["sh", "-c", "exec xdg-terminal-exec sh -c \"$1; echo; printf 'done, press Return'; read _\"", "sh", row.payload]);
+        } else if (row.kind === "emoji") {
+            Quickshell.execDetached(["wl-copy", "--", row.payload]);
+            dockWindow.menuOpen = false;
+        } else if (row.kind === "window") {
+            dockWindow.menuOpen = false;
+            windowFocus.address = row.payload;
+            windowFocus.restart();
+        } else if (row.kind === "action") {
+            var act = JSON.parse(row.payload);
+            Quickshell.execDetached(["sh", "-c", act.command]);
+            dockWindow.recordLaunch(act.app);
+            dockWindow.menuOpen = false;
+        } else if (row.kind === "power") {
+            dockWindow.requestPower(row.payload);
         }
+    }
+
+    function clipGlyph(ent) {
+        switch (ent.kind) {
+        case "image":
+        case "color":
+            return "";
+        case "url":
+            return DockIcons.link;
+        case "email":
+            return DockIcons.mail;
+        case "text":
+            return DockIcons.notes;
+        }
+        return DockIcons.clipboard;
+    }
+
+    // clipboard rows are the only removable ones
+    function deleteResult(index) {
+        var row = resultsModel.get(index);
+        if (!row || row.kind !== "clip")
+            return;
+
+        Clip.remove(row.payload);
     }
 
     function runCommand(id) {
         if (id === "wallpaper") {
-            launcherFace.searchText = ">wallpaper";
+            dockWindow.setSearchText(">wallpaper");
         } else if (id === "theme") {
-            launcherFace.searchText = ">theme";
+            dockWindow.setSearchText(">theme");
         } else if (id === "power") {
-            launcherFace.searchText = ">power";
+            dockWindow.menuOpen = false;
+            dockWindow.openSession();
+        } else if (id === "clipboard") {
+            dockWindow.setSearchText(">clip");
         } else if (id === "shuffle") {
             wallpaperShuffle.pick();
             dockWindow.menuOpen = false;
+        } else if (id === "keyboard") {
+            dockWindow.menuOpen = false;
+            Prefs.keyboardRequested();
         } else if (id === "settings") {
             dockWindow.menuOpen = false;
             Prefs.settingsRequested("");
+        } else if (id === "widgets") {
+            dockWindow.openWidgetPanel();
+        } else if (id === "emoji") {
+            dockWindow.setSearchText(":");
+        } else if (id === "run") {
+            dockWindow.setSearchText("$");
+        } else if (id === "web") {
+            dockWindow.setSearchText("?");
         }
     }
 
@@ -638,9 +1652,15 @@ PanelWindow {
         dockWindow.rebuildResults();
     }
 
+    // a live wallpaper is the video, not the frame set-wallpaper.sh puts under it
     function currentWallpaperPath() {
         try {
-            return currentWallFile.text().trim();
+            var p = currentWallFile.text().trim();
+            if (p.indexOf("/lucid/live-frames/") === -1)
+                return p;
+
+            var live = LiveWall.video !== "" ? LiveWall.video : currentLiveFile.text().split("\n")[0].trim();
+            return live !== "" ? live : p;
         } catch (e) {
             return "";
         }
@@ -651,149 +1671,199 @@ PanelWindow {
             return;
 
         dockWindow.pendingWallpaper = path;
+        // where the card being previewed sits, for transitions that grow from it
+        var picker = launcherLoader.item ? launcherLoader.item.wallStrip : null;
+        dockWindow.pendingOrigin = picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1);
         wallpaperDebounce.restart();
     }
 
-    function applyWallpaper(path) {
+    // a point given as fractions of this window, as fractions of the screen it is on:
+    // the window is as wide as the panel, centred, and sits on the bottom edge
+    function screenFraction(o) {
+        if (!o || o.x < 0 || o.x > 1 || o.y < 0 || o.y > 1 || !dockWindow.screen || dockWindow.screen.width <= 0 || dockWindow.screen.height <= 0)
+            return null;
+
+        var sx = ((dockWindow.screen.width - dockWindow.width) / 2 + o.x * dockWindow.width) / dockWindow.screen.width;
+        var sy = (dockWindow.screen.height - dockWindow.height + o.y * dockWindow.height) / dockWindow.screen.height;
+        if (sx < 0 || sx > 1 || sy < 0 || sy > 1)
+            return null;
+
+        return Qt.point(sx, sy);
+    }
+
+    // origin: where the picked card sits, as fractions of the window (or nothing);
+    // with Settings -> Theme -> Origin on "chosen card" the transition grows from there.
+    // WALL_POS counts y from the bottom, set-wallpaper.sh ignores it for other types
+    function applyWallpaper(path, origin) {
         if (path === "")
             return;
 
         dockWindow.appliedWallpaper = path;
         wallpaperState.current = path;
-        Quickshell.execDetached([Quickshell.env("HOME") + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", path]);
+        dockWindow.requestedWallpapers[path] = true;
+        var cmd = [Quickshell.env("HOME") + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", path];
+        var pos = dockWindow.screenFraction(origin);
+        if (Prefs.wallTransOrigin === "card" && pos)
+            cmd = ["env", "WALL_POS=" + pos.x.toFixed(3) + "," + (1 - pos.y).toFixed(3)].concat(cmd);
+
+        Quickshell.execDetached(cmd);
     }
 
-    function syncStripToCurrent() {
-        if (dockWindow.mode !== "wallpaper")
+    // the wallpaper on the desktop changed. One the picker asked for earlier can
+    // land late (a video's first frame takes ffmpeg a while) while the selection
+    // has moved on: that is not news, and following it would pull the selection
+    // back. Anything else (a keybind, another tool) moves the picker to it.
+    function desktopWallpaperChanged() {
+        var p = dockWindow.currentWallpaperPath();
+        if (p === "")
             return;
 
-        for (var i = 0; i < filteredWallpapersModel.count; i++) {
-            if (filteredWallpapersModel.get(i).path === wallpaperState.current) {
-                launcherFace.setWallpaperIndex(i);
-                return;
+        if (p === dockWindow.appliedWallpaper) {
+            dockWindow.requestedWallpapers = {};
+            return;
+        }
+        if (dockWindow.requestedWallpapers[p] === true)
+            return;
+
+        dockWindow.requestedWallpapers = {};
+        dockWindow.appliedWallpaper = p;
+        wallpaperState.current = p;
+        dockWindow.syncStripToCurrent();
+    }
+
+    // the picker's search: a name typed after the prefix narrows the strip, so
+    // the copies are what it holds and the source lists stay the scanner's
+    function pickerModelFor(mode) {
+        return mode === "live" ? filteredLiveModel : filteredWallpapersModel;
+    }
+
+    // a picture's own name: the last part of its path, without the extension
+    function wallpaperName(path) {
+        const n = String(path).split("/").pop();
+        const dot = n.lastIndexOf(".");
+        return dot > 0 ? n.substring(0, dot) : n;
+    }
+
+    // only while the picker is up: an app query ("fire") must not leave the
+    // strip filtered behind the scenes
+    function pickerQuery() {
+        return dockWindow.pickerMode ? dockWindow.filterQuery.toLowerCase() : "";
+    }
+
+    // both tabs are kept in step, so the switch beside the picker finds its
+    // matches already cut. Moving cards about in place rather than clearing and
+    // refilling keeps the delegates (and their thumbnails) for the ones that stay
+    function syncPickerFilter() {
+        const query = dockWindow.pickerQuery();
+        const tabs = [[wallpapersModel, filteredWallpapersModel], [liveModel, filteredLiveModel]];
+        for (let t = 0; t < tabs.length; t++) {
+            const source = tabs[t][0];
+            const shown = tabs[t][1];
+            const wanted = [];
+            for (let i = 0; i < source.count; i++) {
+                const e = source.get(i);
+                const name = e.name !== undefined && e.name !== "" ? e.name : dockWindow.wallpaperName(e.path);
+                if (query === "" || name.toLowerCase().indexOf(query) === 0)
+                    wanted.push({
+                    "path": e.path,
+                    "name": name,
+                    "thumb": e.thumb
+                });
+            }
+            const keep = {};
+            for (let w = 0; w < wanted.length; w++) keep[wanted[w].path] = true;
+
+            for (let r = shown.count - 1; r >= 0; r--) {
+                if (!keep[shown.get(r).path])
+                    shown.remove(r, 1);
+            }
+            for (let k = 0; k < wanted.length; k++) {
+                let at = -1;
+                for (let m = k; m < shown.count; m++) {
+                    if (shown.get(m).path === wanted[k].path) {
+                        at = m;
+                        break;
+                    }
+                }
+                if (at === -1) {
+                    shown.insert(k, wanted[k]);
+                } else {
+                    if (at !== k)
+                        shown.move(at, k, 1);
+
+                    if (shown.get(k).thumb !== wanted[k].thumb)
+                        shown.set(k, wanted[k]);
+
+                }
             }
         }
     }
 
-    function syncWallpaperFilter() {
-        var q = dockWindow.filterQuery.toLowerCase();
-        var matches = [];
-        for (var i = 0; i < wallpapersModel.count; i++) {
-            var e = wallpapersModel.get(i);
-            var n = (e.name || "").toLowerCase();
-            if (q === "" || n.indexOf(q) === 0)
-                matches.push({
-                    "path": e.path,
-                    "name": e.name
-                });
+    // where the strip sits: with a query up the first match, otherwise the
+    // picture on the desktop. The strip's model re-attaches as the picker
+    // fades in and a ListView starts at its first card again, so this runs
+    // once more when it is actually showing.
+    function selectPickerForDisplay() {
+        if (!dockWindow.pickerMode || !launcherLoader.item)
+            return ;
 
-        }
-        var wanted = {};
-        for (var j = 0; j < matches.length; j++) wanted[matches[j].path] = true;
-        for (var r = filteredWallpapersModel.count - 1; r >= 0; r--) {
-            if (!wanted[filteredWallpapersModel.get(r).path])
-                filteredWallpapersModel.remove(r, 1);
+        const model = dockWindow.pickerModel;
+        if (model.count === 0)
+            return ;
 
-        }
-        for (var k = 0; k < matches.length; k++) {
-            var existing = -1;
-            for (var m = k; m < filteredWallpapersModel.count; m++) {
-                if (filteredWallpapersModel.get(m).path === matches[k].path) {
-                    existing = m;
+        let idx = 0;
+        if (dockWindow.filterQuery.toLowerCase() === "") {
+            const want = dockWindow.appliedWallpaper !== "" ? dockWindow.appliedWallpaper : wallpaperState.current;
+            for (let i = 0; i < model.count; i++) {
+                if (model.get(i).path === want) {
+                    idx = i;
                     break;
                 }
             }
-            if (existing === -1) {
-                filteredWallpapersModel.insert(k, matches[k]);
-            } else {
-                if (existing !== k)
-                    filteredWallpapersModel.move(existing, k, 1);
+        }
+        const strip = launcherLoader.item.wallStrip;
+        if (strip && strip.currentIndex === idx)
+            return ;
 
-                if (filteredWallpapersModel.get(k).name !== matches[k].name)
-                    filteredWallpapersModel.set(k, matches[k]);
+        launcherLoader.item.setWallpaperIndex(idx);
+    }
 
+    function syncStripToCurrent(orFirst) {
+        const model = dockWindow.pickerModel;
+        for (let i = 0; i < model.count; i++) {
+            if (model.get(i).path === wallpaperState.current) {
+                if (launcherLoader.item)
+                    launcherLoader.item.setWallpaperIndex(i);
+
+                return;
             }
         }
-    }
-
-    function wallpaperTargetPath() {
-        if (wallpaperState.current !== "")
-            return wallpaperState.current;
-
-        return dockWindow.appliedWallpaper;
-    }
-
-    function selectWallpaperForDisplay() {
-        if (dockWindow.mode !== "wallpaper")
-            return;
-
-        if (filteredWallpapersModel.count === 0)
-            return;
-
-        if (dockWindow.filterQuery.toLowerCase() !== "") {
-            if (launcherFace.wallpaperCurrentIndex !== 0)
-                launcherFace.setWallpaperIndex(0);
-
-            return;
-        }
-        // No filter: start from the currently selected wallpaper,
-        // not from the very start.
-        var want = dockWindow.wallpaperTargetPath();
-        var idx = 0;
-        for (var i = 0; i < filteredWallpapersModel.count; i++) {
-            if (filteredWallpapersModel.get(i).path === want) {
-                idx = i;
-                break;
-            }
-        }
-        if (launcherFace.wallpaperCurrentIndex !== idx)
-            launcherFace.setWallpaperIndex(idx);
-
-    }
-
-    function scanThemeWallpapers() {
-        var home = Quickshell.env("HOME");
-        var script = "";
-        for (var i = 0; i < dockWindow.allThemes.length; i++) {
-            var id = dockWindow.allThemes[i].id;
-            if (id === "matugen")
-                continue;
-
-            script += "d=\"" + home + "/Pictures/wallpapers/" + id + "\"; " + "if [ -d \"$d\" ] && [ -n \"$(find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) -print -quit)\" ]; " + "then echo \"" + id + ":1\"; else echo \"" + id + ":0\"; fi; ";
-        }
-        themeWallpaperScan.command = ["sh", "-c", script];
-        themeWallpaperScan.running = true;
+        // not in this tab: the index left from the other one may not even exist here
+        if (orFirst && launcherLoader.item)
+            launcherLoader.item.setWallpaperIndex(0);
     }
 
     function switchTheme(id) {
-        var home = Quickshell.env("HOME");
+        // built from one colour rather than from a picture, so the wallpaper
+        // stays as it is and there is no folder to look in
+        if (id === "colour") {
+            Quickshell.execDetached(["sh", "-c", "echo colour > \"$0/.cache/current_theme\" && \"$0/.config/lucid/apply-colour.sh\"", Quickshell.env("HOME")]);
+            dockWindow.menuOpen = false;
+            return ;
+        }
         themeSwitchProbe.pendingId = id;
-        themeSwitchProbe.command = ["sh", "-c", "d=\"" + home + "/Pictures/wallpapers/" + id + "\"; " + "[ -d \"$d\" ] && find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) | sort | head -n1; true"];
+        themeSwitchProbe.command = ["sh", "-c", "d=\"" + Prefs.wallpaperDirFor(id) + "\"; " + "[ -d \"$d\" ] && find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) | sort | head -n1; true"];
         themeSwitchProbe.running = true;
         dockWindow.menuOpen = false;
     }
 
-    function runPowerAction(id) {
-        if (id === "lock") {
-            if (dockWindow.lockScreen)
-                dockWindow.lockScreen.locked = true;
-
-            dockWindow.menuOpen = false;
-            return;
-        }
-        var cmds = {
-            // uwsm only stops a session it started, so fall back to hyprland
-            "logout": ["sh", "-c", "uwsm stop 2>/dev/null || hyprctl dispatch exit"],
-            "suspend": ["systemctl", "suspend"],
-            "shutdown": ["systemctl", "poweroff"],
-            "hibernate": ["systemctl", "hibernate"],
-            "reboot": ["systemctl", "reboot"]
-        };
-        var cmd = cmds[id];
-        if (cmd)
-            Quickshell.execDetached(cmd);
-
+    function openWidgetPanel() {
         dockWindow.menuOpen = false;
+        Widgets.openPanel(dockWindow.screen ? dockWindow.screen.name : "");
+    }
+
+    function openSession() {
+        Quickshell.execDetached(["qs", "ipc", "call", "session", "open"]);
     }
 
     function loadAppsFromDisk() {
@@ -905,7 +1975,18 @@ PanelWindow {
         var lx = pinnedRow.mapFromItem(null, runningRow.pinDragCenter, 0).x;
         return Math.max(0, Math.min(appListModel.count, Math.round(lx / dockWindow.slotPitch)));
     }
-    readonly property bool pinArmed: runningRow.pinDragCenter >= 0 && pinnedRow.mapFromItem(null, runningRow.pinDragCenter, 0).x < appListModel.count * dockWindow.slotPitch
+    property bool pinArmed: false
+
+    // the slot an armed icon opens counts as pinned row, so opening it can't disarm the icon
+    function updatePinArm() {
+        if (runningRow.pinDragCenter < 0) {
+            dockWindow.pinArmed = false;
+            return;
+        }
+        var lx = pinnedRow.mapFromItem(null, runningRow.pinDragCenter, 0).x;
+        var slots = appListModel.count + (dockWindow.pinArmed ? 1 : 0);
+        dockWindow.pinArmed = lx < slots * dockWindow.slotPitch;
+    }
 
     function shQuote(v) {
         return "'" + v.split("'").join("'\\''") + "'";
@@ -1026,6 +2107,7 @@ PanelWindow {
         var arr = [];
         for (var o = 0; o < order.length; o++) arr.push({
             "workspaceId": order[o],
+            "workspaceName": groups[order[o]][0].workspace.name || "",
             "count": groups[order[o]].length,
             "address": groups[order[o]][0].address
         });
@@ -1075,10 +2157,11 @@ PanelWindow {
         for (var j = 0; j < targets.length; j++) Hyprland.dispatch("hl.dsp.window.close({window='address:" + targets[j] + "'})");
     }
 
+    // off for a beat when displays change, so a surface torn down with an
+    // unplugged one is remapped rather than staying gone until a reload
+    visible: Monitors.surfacesUp
     margins.bottom: 0
-    // HARD-OFF with the shell above: never reserve tiling space (same
-    // prefs-not-applying story). Menu opens as overlay when called.
-    exclusiveZone: 0
+    exclusiveZone: (!Prefs.loaded || !Prefs.dockEnabled || Prefs.dockAutoHide) ? 0 : (shell.implicitHeight + Prefs.effectiveDockBottomMargin + Prefs.shellGap)
     WlrLayershell.keyboardFocus: dockWindow.menuOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     WlrLayershell.layer: dockWindow.menuOpen ? WlrLayer.Overlay : WlrLayer.Top
     color: "transparent"
@@ -1096,6 +2179,10 @@ PanelWindow {
             dockWindow.applyWallpaper(dockWindow.fallbackWallpaper);
 
         appScanner.running = true;
+        if (Prefs.loaded)
+            wallpaperScanner.scan(false);
+
+        dockWindow.seam = dockWindow.splitWanted ? 1 : 0;
     }
 
     Connections {
@@ -1105,6 +2192,26 @@ PanelWindow {
 
         function onWallpapersChanged() {
             wallpaperScanner.scan();
+        }
+
+        function onWallpaperDirChanged() {
+            wallpaperScanner.scan(false);
+        }
+
+        // the videos are only listed while live wallpapers are on, and the Live
+        // tab goes with them
+        function onLiveWallpapersChanged() {
+            wallpaperScanner.scan(false);
+            if (!Prefs.liveWallpapers && dockWindow.mode === "live")
+                dockWindow.setSearchText(">wallpaper", true);
+
+        }
+
+        // the strip's cards and thumbnails are ready before it first opens
+        function onLoadedChanged() {
+            if (Prefs.loaded)
+                wallpaperScanner.scan(false);
+
         }
 
         function onDockShowRunningChanged() {
@@ -1132,19 +2239,22 @@ PanelWindow {
         target: Prefs
     }
 
-    // The wallpaper strip detaches its model while hidden; a selection made
-    // before the fade-in completes would be lost when the model re-attaches
-    // (ListView resets to 0). Re-apply once the strip is actually showing.
+    // The wallpaper strip takes its model as it is built, and the picker only
+    // exists while its tab is up: a selection made before that would be lost
+    // when the cards arrive (a ListView starts at its first one). Put it back
+    // once the picker is showing.
     Connections {
-        function onDisplayModeChanged() {
-            if (launcherFace.displayMode === "wallpaper")
-                Qt.callLater(function() {
-                    dockWindow.selectWallpaperForDisplay();
-                });
+        target: launcherLoader.item
 
+        function onDisplayModeChanged() {
+            if (!launcherLoader.item || !dockWindow.pickerMode)
+                return ;
+
+            Qt.callLater(function() {
+                dockWindow.selectPickerForDisplay();
+            });
         }
 
-        target: launcherFace
     }
 
     IpcHandler {
@@ -1152,42 +2262,80 @@ PanelWindow {
 
         function toggle(): void {
             if (!dockWindow.menuOpen)
-                launcherFace.searchText = "";
+                dockWindow.setSearchText("");
 
+            dockWindow.aimLauncher();
             dockWindow.menuOpen = !dockWindow.menuOpen;
         }
 
         function open(): void {
-            launcherFace.searchText = "";
-            dockWindow.menuOpen = true;
+            dockWindow.openLauncher("");
         }
 
         function close(): void {
             dockWindow.menuOpen = false;
         }
 
+        // the hidden-applications list, by desktop file id, for scripting the
+        // same thing the row's button and the settings page do
+        function hide(id: string): string {
+            if (id === "")
+                return "usage: hide <desktop-file-id>";
+
+            Prefs.setLauncherHidden(id, true);
+            return "hidden: " + id;
+        }
+
+        function unhide(id: string): string {
+            if (id === "")
+                return "usage: unhide <desktop-file-id>";
+
+            Prefs.setLauncherHidden(id, false);
+            return "shown: " + id;
+        }
+
+        function hidden(): string {
+            return Prefs.hiddenLauncherApps.join("\n");
+        }
+
         function wallpaper(): void {
-            launcherFace.searchText = ">wallpaper";
-            dockWindow.menuOpen = true;
+            dockWindow.openLauncher(">wallpaper");
+        }
+
+        function live(): void {
+            dockWindow.openLauncher(">live");
         }
 
         function theme(): void {
-            launcherFace.searchText = ">theme";
-            dockWindow.menuOpen = true;
+            dockWindow.openLauncher(">theme");
         }
 
+        // qs ipc call launcher power: the full-screen session screen
         function power(): void {
-            launcherFace.searchText = ">power";
-            dockWindow.menuOpen = true;
+            dockWindow.menuOpen = false;
+            dockWindow.openSession();
+        }
+
+        function emoji(): void {
+            dockWindow.openLauncher(":");
+        }
+
+        // a second call closes it, so one key both opens and dismisses it
+        function clipboard(): void {
+            if (dockWindow.menuOpen && dockWindow.mode === "clipboard")
+                dockWindow.menuOpen = false;
+            else
+                dockWindow.openLauncher(">clip");
         }
 
         function blur(): void {
             dockWindow.menuOpen = false;
-            Prefs.settingsRequested("general");
+            Prefs.settingsRequested("glass");
         }
 
         function command(): void {
-            launcherFace.searchText = ">";
+            dockWindow.setSearchText(">");
+            dockWindow.aimLauncher();
             dockWindow.menuOpen = true;
         }
 
@@ -1196,7 +2344,8 @@ PanelWindow {
         }
 
         function search(q: string): void {
-            launcherFace.searchText = q;
+            dockWindow.setSearchText(q);
+            dockWindow.aimLauncher();
             dockWindow.menuOpen = true;
         }
 
@@ -1236,25 +2385,86 @@ PanelWindow {
         x: shell.x
         width: shell.width
         anchors.bottom: parent.bottom
-        height: dockWindow.dockRevealed ? dockWindow.placementMargin + 3 : 3
+        height: dockWindow.dockRevealed ? dockWindow.placementMargin + Theme.dp(3) : Theme.dp(3)
         hoverEnabled: true
         acceptedButtons: Qt.NoButton
-        enabled: Prefs.dockAutoHide
-        visible: Prefs.dockAutoHide
+        enabled: Prefs.dockEnabled && Prefs.dockAutoHide
+        visible: Prefs.dockEnabled && Prefs.dockAutoHide
     }
 
-    StackPopup {
-        id: stackPopup
+    // both dock popups live in one layer window of their own: hyprland frosts
+    // layer surfaces, and a popup surface never picked up the blur
+    PanelWindow {
+        id: dockOverlay
 
-        hostWindow: dockWindow
-        activeWorkspaceId: dockWindow.activeWorkspaceId
-    }
+        // the dock's surface is bottom-anchored and centred, so its own local
+        // coordinates land here once shifted by this much
+        readonly property real dockX: (dockOverlay.width - dockWindow.width) / 2
+        readonly property real dockY: dockOverlay.height - dockWindow.height
+        readonly property var card: contextMenu.menuVisible ? contextMenu : (stackPopup.popupVisible ? stackPopup : null)
+        readonly property real cx: dockOverlay.card ? Math.ceil(dockOverlay.card.cardX - 0.002) : 0
+        readonly property real cy: dockOverlay.card ? Math.ceil(dockOverlay.card.cardY - 0.002) : 0
+        readonly property real cw: dockOverlay.card ? Math.max(0, Math.floor(dockOverlay.card.cardX + (contextMenu.menuVisible ? contextMenu.cardW : stackPopup.cardW2) + 0.002) - dockOverlay.cx) : 0
+        readonly property real ch: dockOverlay.card ? Math.max(0, Math.floor(dockOverlay.card.cardY + (contextMenu.menuVisible ? contextMenu.cardH : stackPopup.cardH2) + 0.002) - dockOverlay.cy) : 0
 
-    ContextMenu {
-        id: contextMenu
+        screen: dockWindow.screen
+        color: "transparent"
+        visible: contextMenu.showing || stackPopup.showing
+        exclusionMode: ExclusionMode.Ignore
+        exclusiveZone: 0
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        WlrLayershell.namespace: "lucid-dockmenu"
 
-        hostWindow: dockWindow
-        onActionChosen: (id) => dockWindow.handleContextAction(id)
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+
+        // only the open card takes clicks; everything else falls through
+        mask: Region {
+            x: dockOverlay.cx
+            y: dockOverlay.cy
+            width: dockOverlay.cw
+            height: dockOverlay.ch
+        }
+
+        BackgroundEffect.blurRegion: (Theme.blurAmount > 0 && dockOverlay.card !== null) ? dockBlur : null
+
+        Region {
+            id: dockBlur
+
+            x: dockOverlay.cx
+            y: dockOverlay.cy
+            width: dockOverlay.cw
+            height: dockOverlay.ch
+            radius: contextMenu.menuVisible ? Theme.radiusMd : Theme.radiusXl
+        }
+
+        ContextMenu {
+            id: contextMenu
+
+            anchors.fill: parent
+            hostWindow: dockWindow
+            grabWindow: dockOverlay
+            originX: dockOverlay.dockX
+            originY: dockOverlay.dockY
+            onActionChosen: (id) => dockWindow.handleContextAction(id)
+        }
+
+        StackPopup {
+            id: stackPopup
+
+            anchors.fill: parent
+            hostWindow: dockWindow
+            grabWindow: dockOverlay
+            originX: dockOverlay.dockX
+            originY: dockOverlay.dockY
+            activeWorkspaceId: dockWindow.activeWorkspaceId
+        }
+
     }
 
     ListModel {
@@ -1273,26 +2483,71 @@ PanelWindow {
         id: wallpapersModel
     }
 
+    // the videos in the same folder, with Settings -> Theme -> Live wallpapers on
+    ListModel {
+        id: liveModel
+    }
+
+    // what the picker actually holds: the scanner only ever appends to the two
+    // lists above, and these copies are narrowed by what is typed after
+    // >wallpaper / >live. A tab each, so a query follows the switch beside the
+    // picker.
     ListModel {
         id: filteredWallpapersModel
     }
 
-    FileView {
-        id: themeFile
+    ListModel {
+        id: filteredLiveModel
+    }
 
-        path: Quickshell.env("HOME") + "/.cache/current_theme"
-        blockLoading: true
-        watchChanges: true
-        onFileChanged: reload()
+    // the strip rescan rides on wallpaperDir, which follows the theme
+    onCurrentThemeChanged: dockWindow.rebuildResults()
+
+    Connections {
+        function onEntriesChanged() {
+            if (dockWindow.mode === "clipboard")
+                dockWindow.rebuildResults();
+
+        }
+
+        target: Clip
+    }
+
+    // the emoji picker's own list, read the first time : is typed
+    FileView {
+        id: emojiFile
+
+        path: dockWindow.emojiWanted ? Qt.resolvedUrl("../lucidmoji/emoji.json") : ""
+        printErrors: false
         onLoaded: {
-            var t = text().trim();
-            dockWindow.currentTheme = t !== "" ? t : "matugen";
+            try {
+                dockWindow.emojiList = JSON.parse(emojiFile.text()).emoji || [];
+            } catch (e) {
+                dockWindow.emojiList = [];
+            }
+            if (dockWindow.mode === "emoji")
+                dockWindow.rebuildResults();
+
         }
     }
 
-    onCurrentThemeChanged: {
-        wallpaperScanner.scan();
-        dockWindow.rebuildResults();
+    // read once at start, before LiveWall has loaded it
+    FileView {
+        id: currentLiveFile
+
+        path: Quickshell.env("HOME") + "/.cache/current_live_wallpaper"
+        blockLoading: true
+        printErrors: false
+    }
+
+    // the frame under a video lands in current_wallpaper either side of the video
+    // itself, so the video is taken from LiveWall as well
+    Connections {
+        function onVideoChanged() {
+            dockWindow.desktopWallpaperChanged();
+        }
+
+        target: LiveWall
     }
 
     FileView {
@@ -1303,13 +2558,7 @@ PanelWindow {
         watchChanges: true
         onFileChanged: reload()
         onLoaded: {
-            var p = text().trim();
-            if (p === "" || p === dockWindow.appliedWallpaper)
-                return;
-
-            dockWindow.appliedWallpaper = p;
-            wallpaperState.current = p;
-            dockWindow.syncStripToCurrent();
+            dockWindow.desktopWallpaperChanged();
         }
     }
 
@@ -1355,6 +2604,9 @@ PanelWindow {
         adapter: JsonAdapter {
             id: pinnedAdapter
 
+            // last-resort fallback only: the installer writes pinned.json from
+            // what is actually installed. This is this machine's own set, kept
+            // so a missing or reset pinned.json comes back to it.
             property var pinnedApps: [{
                 "appKey": "nautilus",
                 "iconName": "org.gnome.Nautilus",
@@ -1390,24 +2642,10 @@ PanelWindow {
 
     }
 
-    // emoji source — all emojis from lucidmoji for launcher suggestions
-    FileView {
-        id: emojiFile
-        path: Quickshell.env("HOME") + "/.config/quickshell/lucidmoji/emoji.json"
-        blockLoading: true
-        onLoaded: {
-            try {
-                var d = JSON.parse(text());
-                dockWindow.emojiData = d.emoji || [];
-                dockWindow.rebuildResults();
-            } catch(e) { dockWindow.emojiData = []; }
-        }
-    }
-
     Process {
         id: appScanner
 
-        command: ["sh", "-c", "for d in /usr/share/applications \"$HOME/.local/share/applications\" " + "/var/lib/flatpak/exports/share/applications \"$HOME/.local/share/flatpak/exports/share/applications\" " + "/var/lib/snapd/desktop/applications; do " + "[ -d \"$d\" ] && find \"$d\" -maxdepth 1 -name '*.desktop' -print0; " + "done | xargs -0 -r awk '" + "function clean(v) { gsub(/\\|/, \" \", v); gsub(/\\r/, \"\", v); return v } " + "function flush(   n, e) { " + "n = clean(name); e = clean(ex); " + "if (nodisp || hidden) return; " + "if (type != \"\" && type != \"Application\") return; " + "if (n == \"\" || e == \"\") return; " + "gsub(/ ?%[a-zA-Z]/, \"\", e); sub(/[ \\t]+$/, \"\", e); " + "if (term == \"true\") e = \"kitty -e \" e; " + "print n \"|\" clean(icon) \"|\" clean(kw \" \" gen \" \" com \" \" cats) \"|\" e \"|\" clean(wm) \"|\" base } " + "BEGINFILE { name=\"\"; icon=\"\"; ex=\"\"; kw=\"\"; gen=\"\"; com=\"\"; cats=\"\"; wm=\"\"; type=\"\"; term=\"\"; nodisp=0; hidden=0; insec=0; " + "base=FILENAME; sub(/.*\\//, \"\", base); sub(/\\.desktop$/, \"\", base) } " + "/^[ \\t]*\\[/ { insec = ($0 ~ /^\\[Desktop Entry\\]/) ? 1 : 0; next } " + "!insec { next } " + "/^Name=/ { if (name == \"\") name = substr($0, 6) } " + "/^Icon=/ { if (icon == \"\") icon = substr($0, 6) } " + "/^Exec=/ { if (ex == \"\") ex = substr($0, 6) } " + "/^Keywords=/ { if (kw == \"\") { kw = substr($0, 10); gsub(/;/, \" \", kw) } } " + "/^GenericName=/ { if (gen == \"\") gen = substr($0, 13) } " + "/^Comment=/ { if (com == \"\") com = substr($0, 9) } " + "/^Categories=/ { if (cats == \"\") { cats = substr($0, 12); gsub(/;/, \" \", cats) } } " + "/^StartupWMClass=/ { if (wm == \"\") wm = substr($0, 16) } " + "/^Type=/ { if (type == \"\") type = substr($0, 6) } " + "/^Terminal=/ { if (term == \"\") term = substr($0, 10) } " + "/^NoDisplay=true/ { nodisp = 1 } " + "/^Hidden=true/ { hidden = 1 } " + "ENDFILE { flush() }'"]
+        command: ["sh", "-c", "for d in \"$HOME/.local/share/applications\" \"$HOME/.local/share/flatpak/exports/share/applications\" /var/lib/flatpak/exports/share/applications /usr/local/share/applications /usr/share/applications /var/lib/snapd/desktop/applications; do [ -d \"$d\" ] && find \"$d\" -maxdepth 1 -name '*.desktop' -print0; done | awk -v RS='\\0' -F/ '!seen[$NF]++ { printf \"%s%c\", $0, 0 }' | xargs -0 -r awk -v de=\"${XDG_CURRENT_DESKTOP:-Hyprland}\" 'function clean(v) { gsub(/\\|/, \" \", v); gsub(/\\r/, \"\", v); return v } function inde(l,   i, j, n, m, a, b) { n = split(l, a, \";\"); m = split(de, b, \":\"); for (i = 1; i <= n; i++) { if (a[i] == \"\") continue; for (j = 1; j <= m; j++) if (a[i] == b[j]) return 1 } return 0 } function flush(   n, e, ids, na, k, id, ae, al) { n = clean(name); e = clean(ex); if (nodisp || hidden) return; if (type != \"\" && type != \"Application\") return; if (only != \"\" && !inde(only)) return; if (notin != \"\" && inde(notin)) return; if (n == \"\" || e == \"\") return; gsub(/ ?%[a-zA-Z]/, \"\", e); sub(/[ \\t]+$/, \"\", e); if (term == \"true\") e = \"kitty -e \" e; al = \"\"; na = split(actlist, ids, \";\"); for (k = 1; k <= na; k++) { id = ids[k]; if (id == \"\" || !(id in AN) || !(id in AE)) continue; ae = clean(AE[id]); gsub(/ ?%[a-zA-Z]/, \"\", ae); sub(/[ \\t]+$/, \"\", ae); if (ae == \"\") continue; if (term == \"true\") ae = \"kitty -e \" ae; al = al (al == \"\" ? \"\" : \"\\036\") clean(AN[id]) \"\\037\" ae } print n \"|\" clean(icon) \"|\" clean(kw \" \" gen \" \" com \" \" cats) \"|\" e \"|\" clean(wm) \"|\" base \"|\" al \"|\" clean(com != \"\" ? com : gen) } BEGINFILE { name=\"\"; icon=\"\"; ex=\"\"; kw=\"\"; gen=\"\"; com=\"\"; cats=\"\"; wm=\"\"; type=\"\"; term=\"\"; only=\"\"; notin=\"\"; nodisp=0; hidden=0; insec=0; actlist=\"\"; act=\"\"; delete AN; delete AE; base=FILENAME; sub(/.*\\//, \"\", base); sub(/\\.desktop$/, \"\", base) } /^[ \\t]*\\[/ { insec = ($0 ~ /^\\[Desktop Entry\\]/) ? 1 : 0; act = \"\"; if ($0 ~ /^\\[Desktop Action /) { act = $0; sub(/^\\[Desktop Action /, \"\", act); sub(/\\].*$/, \"\", act) } next } act != \"\" && /^Name=/ { if (!(act in AN)) AN[act] = substr($0, 6); next } act != \"\" && /^Exec=/ { if (!(act in AE)) AE[act] = substr($0, 6); next } !insec { next } /^Actions=/ { if (actlist == \"\") actlist = substr($0, 9) } /^Name=/ { if (name == \"\") name = substr($0, 6) } /^Icon=/ { if (icon == \"\") icon = substr($0, 6) } /^Exec=/ { if (ex == \"\") ex = substr($0, 6) } /^Keywords=/ { if (kw == \"\") { kw = substr($0, 10); gsub(/;/, \" \", kw) } } /^GenericName=/ { if (gen == \"\") gen = substr($0, 13) } /^Comment=/ { if (com == \"\") com = substr($0, 9) } /^Categories=/ { if (cats == \"\") { cats = substr($0, 12); gsub(/;/, \" \", cats) } } /^StartupWMClass=/ { if (wm == \"\") wm = substr($0, 16) } /^Type=/ { if (type == \"\") type = substr($0, 6) } /^Terminal=/ { if (term == \"\") term = substr($0, 10) } /^OnlyShowIn=/ { if (only == \"\") only = substr($0, 12) } /^NotShowIn=/ { if (notin == \"\") notin = substr($0, 11) } /^NoDisplay=true/ { nodisp = 1 } /^Hidden=true/ { hidden = 1 } ENDFILE { flush() }'"]
 
         stdout: StdioCollector {
             onStreamFinished: {
@@ -1432,6 +2670,18 @@ PanelWindow {
                     var initials = name.split(/[\s\-_]+/).map(function(w) {
                         return w.charAt(0);
                     }).join("").toLowerCase();
+                    // [Desktop Action] entries: name and command split by US, entries by RS
+                    var actions = [];
+                    var packed = p.length > 6 && p[6] !== "" ? p[6].split("\u001e") : [];
+                    for (var a = 0; a < packed.length; a++) {
+                        var pair = packed[a].split("\u001f");
+                        if (pair.length === 2 && pair[0] !== "" && pair[1] !== "")
+                            actions.push({
+                            "name": pair[0],
+                            "command": pair[1]
+                        });
+
+                    }
                     arr.push({
                         "name": name,
                         "iconName": p[1],
@@ -1439,10 +2689,16 @@ PanelWindow {
                         "initials": initials,
                         "command": p[3],
                         "wmClass": p[4],
-                        "base": p[5]
+                        "base": p[5],
+                        "actions": actions,
+                        // the Comment, or the GenericName without one; never the name again
+                        "desc": p.length > 7 && p[7].toLowerCase() !== key ? p[7] : ""
                     });
                 }
                 dockWindow.scannedApps = arr;
+                var names = {};
+                for (var n = 0; n < arr.length; n++) names[arr[n].base] = arr[n].name
+                Prefs.launcherAppNames = names;
                 dockWindow.rebuildResults();
                 dockWindow.syncRunningApps();
             }
@@ -1479,7 +2735,7 @@ PanelWindow {
         id: wallpaperDebounce
 
         interval: 250
-        onTriggered: dockWindow.applyWallpaper(dockWindow.pendingWallpaper)
+        onTriggered: dockWindow.applyWallpaper(dockWindow.pendingWallpaper, dockWindow.pendingOrigin)
     }
 
     Timer {
@@ -1494,7 +2750,7 @@ PanelWindow {
 
         function pick() {
             wallpaperShuffle.running = false;
-            wallpaperShuffle.command = ["sh", "-c", "d=\"$HOME/Pictures/wallpapers/" + dockWindow.currentTheme + "\"; " + "[ -d \"$d\" ] || exit 0; " + "find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) | shuf -n1"];
+            wallpaperShuffle.command = ["sh", "-c", "d=\"" + Prefs.wallpaperDir + "\"; " + "[ -d \"$d\" ] || exit 0; " + "find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) | shuf -n1"];
             wallpaperShuffle.running = true;
         }
 
@@ -1517,13 +2773,24 @@ PanelWindow {
         stdout: StdioCollector {
             onStreamFinished: {
                 var id = themeSwitchProbe.pendingId;
-                var wallpaper = text.trim();
-                if (wallpaper === "" && id === "matugen")
+                var found = text.trim();
+                var wallpaper = found;
+
+                // already browsing that folder, so keep the picture and just
+                // re-derive the theme. only while the folder still has one:
+                // otherwise this re-applies a path that no longer exists,
+                // set-wallpaper.sh bails on the missing file, and the fallback
+                // below never gets its turn
+                if (found !== "" && dockWindow.appliedWallpaper.indexOf(Prefs.wallpaperDirFor(id) + "/") === 0)
+                    wallpaper = dockWindow.appliedWallpaper;
+
+                // an empty theme folder is the normal state on a fresh install.
+                // last word, so nothing above can override it back to a dead path
+                if (wallpaper === "")
                     wallpaper = dockWindow.fallbackWallpaper;
 
-                if (wallpaper === "")
-                    return;
-
+                // the theme is switched before the wallpaper and never gated on
+                // it: bailing out here used to leave the palette on the old theme
                 var home = Quickshell.env("HOME");
                 if (id === "matugen" || id === "pywal") {
                     Quickshell.execDetached(["sh", "-c", "echo " + id + " > " + home + "/.cache/current_theme"]);
@@ -1537,65 +2804,116 @@ PanelWindow {
     }
 
     Process {
-        id: themeWallpaperScan
+        id: wallpaperScanner
+
+        // typing a folder that turns up empty shouldn't swap the desktop out
+        property bool applyFallbackIfEmpty: true
+        readonly property string script: Qt.resolvedUrl("./wallpaper-thumbs.sh").toString().replace("file://", "")
+
+        // a scan asked for while one runs waits for it: stopping one cut its
+        // output short, which read as an empty folder and put up the fallback
+        property bool again: false
+
+        function scan(applyFallback) {
+            wallpaperScanner.applyFallbackIfEmpty = applyFallback !== false;
+            if (wallpaperScanner.running) {
+                wallpaperScanner.again = true;
+                return ;
+            }
+            wallpaperScanner.command = [wallpaperScanner.script, Prefs.wallpaperDir].concat(Prefs.liveWallpapers ? ["live"] : []);
+            wallpaperScanner.running = true;
+        }
+
+        onExited: {
+            if (!wallpaperScanner.again)
+                return ;
+
+            wallpaperScanner.again = false;
+            wallpaperScanner.scan(wallpaperScanner.applyFallbackIfEmpty);
+        }
+
+        // the same files keep their cards, and with them their decoded images:
+        // a rebuild decoded every one again on each open
+        function fill(model, rows) {
+            var same = rows.length === model.count;
+            for (var j = 0; same && j < rows.length; j++) {
+                same = model.get(j).path === rows[j].path;
+            }
+            if (same) {
+                for (var m = 0; m < rows.length; m++) {
+                    if (model.get(m).thumb !== rows[m].thumb)
+                        model.setProperty(m, "thumb", rows[m].thumb);
+
+                }
+                return false;
+            }
+            model.clear();
+            for (var r = 0; r < rows.length; r++) {
+                var base = rows[r].path.substring(rows[r].path.lastIndexOf("/") + 1);
+                var dot = base.lastIndexOf(".");
+                model.append({
+                    "path": rows[r].path,
+                    "name": dot > 0 ? base.substring(0, dot) : base,
+                    "thumb": rows[r].thumb
+                });
+            }
+            return true;
+        }
 
         stdout: StdioCollector {
             onStreamFinished: {
-                var map = {};
-                var lines = text.trim().split("\n");
+                // path, the small copy the strip decodes ("" until it exists), and
+                // "video" for a live wallpaper
+                var pictures = [];
+                var videos = [];
+                var lines = text.split("\n");
                 for (var i = 0; i < lines.length; i++) {
-                    var parts = lines[i].split(":");
-                    if (parts.length === 2)
-                        map[parts[0]] = parts[1] === "1";
+                    var cols = lines[i].split("\t");
+                    var p = cols[0].trim();
+                    if (p !== "")
+                        (cols.length > 2 && cols[2].trim() === "video" ? videos : pictures).push({
+                        "path": p,
+                        "thumb": cols.length > 1 ? cols[1].trim() : ""
+                    });
 
                 }
-                dockWindow.themeHasWallpaper = map;
-                dockWindow.rebuildResults();
+                var changed = wallpaperScanner.fill(wallpapersModel, pictures);
+                changed = wallpaperScanner.fill(liveModel, videos) || changed;
+                // the picker holds copies, so they follow the lists
+                dockWindow.syncPickerFilter();
+                // a picture without its thumbnail shows the original, a video shows
+                // nothing: look again while the thumbnails are being cut
+                if (videos.some((v) => {
+                    return v.thumb === "";
+                }) && thumbRetry.tries < 10) {
+                    thumbRetry.tries++;
+                    thumbRetry.restart();
+                } else {
+                    thumbRetry.tries = 0;
+                }
+                if (wallpapersModel.count === 0 && liveModel.count === 0) {
+                    if (wallpaperScanner.applyFallbackIfEmpty && dockWindow.appliedWallpaper !== dockWindow.fallbackWallpaper)
+                        dockWindow.applyWallpaper(dockWindow.fallbackWallpaper);
+
+                    return;
+                }
+                // the open already put the strip on the current picture
+                if (!changed && dockWindow.pickerQuery() === "")
+                    return ;
+
+                dockWindow.selectPickerForDisplay();
             }
         }
 
     }
 
-    Process {
-        id: wallpaperScanner
+    Timer {
+        id: thumbRetry
 
-        function scan() {
-            wallpaperScanner.running = false;
-            wallpaperScanner.command = ["sh", "-c", "d=\"$HOME/Pictures/wallpapers/" + dockWindow.currentTheme + "\"; " + "[ -d \"$d\" ] || exit 0; " + "find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) | sort"];
-            wallpaperScanner.running = true;
-        }
+        property int tries: 0
 
-        stdout: StdioCollector {
-            onStreamFinished: {
-                wallpapersModel.clear();
-                var lines = text.split("\n");
-                for (var i = 0; i < lines.length; i++) {
-                    var p = lines[i].trim();
-                    if (p === "")
-                        continue;
-
-                    var base = p.substring(p.lastIndexOf("/") + 1);
-                    var dot = base.lastIndexOf(".");
-                    wallpapersModel.append({
-                        "path": p,
-                        "name": dot > 0 ? base.substring(0, dot) : base
-                    });
-                }
-                if (wallpapersModel.count === 0) {
-                    filteredWallpapersModel.clear();
-                    if (dockWindow.appliedWallpaper !== dockWindow.fallbackWallpaper)
-                        dockWindow.applyWallpaper(dockWindow.fallbackWallpaper);
-
-                    return;
-                }
-                dockWindow.syncWallpaperFilter();
-                if (filteredWallpapersModel.count === 0)
-                    return;
-
-                dockWindow.selectWallpaperForDisplay();
-            }
-        }
-
+        interval: 1500
+        onTriggered: wallpaperScanner.scan(false)
     }
 
     Process {
@@ -1628,10 +2946,10 @@ PanelWindow {
         running: true
         repeat: true
         onTriggered: {
-            if (dockWindow.mode === "wallpaper")
+            if (dockWindow.pickerMode)
                 return;
 
-            wallpaperWatch.command = ["sh", "-c", "d=\"$HOME/Pictures/wallpapers/" + dockWindow.currentTheme + "\"; " + "cur=\"$1\"; " + "if [ -n \"$cur\" ] && [ ! -f \"$cur\" ]; then echo MISSING; fi; " + "if [ -d \"$d\" ]; then " + "f=$(find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) | sort | head -n1); " + "if [ -n \"$f\" ]; then echo \"FIRST:$f\"; fi; " + "fi; exit 0", "sh", dockWindow.appliedWallpaper];
+            wallpaperWatch.command = ["sh", "-c", "d=\"" + Prefs.wallpaperDir + "\"; " + "cur=\"$1\"; " + "if [ -n \"$cur\" ] && [ ! -f \"$cur\" ]; then echo MISSING; fi; " + "if [ -d \"$d\" ]; then " + "f=$(find \"$d\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) | sort | head -n1); " + "if [ -n \"$f\" ]; then echo \"FIRST:$f\"; fi; " + "fi; exit 0", "sh", dockWindow.appliedWallpaper];
             wallpaperWatch.running = true;
         }
     }
@@ -1692,34 +3010,32 @@ PanelWindow {
 
     }
 
-    Rectangle {
+    SquircleRect {
         id: shell
 
         property int pendingDropIndex: -1
         property bool dropActive: false
         property bool shellReady: false
 
-        // HARD-OFF: dock icons stay hidden regardless of Prefs (the
-        // prefs file is not applying at runtime - in-memory stays at
-        // defaults - so dockEnabled=false never takes). Menu still opens
-        // on demand via menuOpen. Delete this qualifier to restore dock.
-        visible: dockWindow.menuOpen
-        clip: false
+        visible: dockWindow.shellShown
+        clip: dockWindow.menuOpen || dockWindow.morphing
         anchors.bottom: parent.bottom
         anchors.bottomMargin: dockWindow.hiddenOffset + dockWindow.placementMargin
         anchors.horizontalCenter: parent.horizontalCenter
         implicitWidth: dockFace.implicitWidth
-        implicitHeight: dockWindow.iconSlot + 20
+        implicitHeight: dockWindow.iconSlot + Theme.dp(20)
         width: dockWindow.menuOpen ? dockWindow.menuWidth : shell.implicitWidth
         height: dockWindow.menuOpen ? dockWindow.menuHeight : shell.implicitHeight
-        radius: Math.min(Theme.radiusXl, Math.round(shell.height / 2))
-        color: "transparent"
+        radius: Math.min(Theme.rad(Prefs.dockRadius), Math.round(Theme.pill(shell.height)))
+        // split, the islands below paint it
+        fillColor: (dockWindow.splitDrawn || dockWindow.extGlass) ? "transparent" : Theme.bg
+        smoothing: Prefs.squircleF
         // corners meeting the screen edge square off in notch mode
         bottomLeftRadius: dockWindow.renderAsNotch ? 0 : shell.radius
         bottomRightRadius: dockWindow.renderAsNotch ? 0 : shell.radius
-        // External glass (liquid-glass-hypr plugin draws bg + shadow): the
-        // offscreen layer + QML shadow would blob around glyphs on the
-        // transparent bg, so both go away together. Single source of truth.
+        // the plugin draws glass and shadow: the offscreen layer and a QML
+        // shadow would blob around glyphs on the transparent fill, so both go
+        // with it. single source of truth.
         layer.enabled: !dockWindow.extGlass
         layer.effect: MultiEffect {
             shadowEnabled: true
@@ -1732,39 +3048,13 @@ PanelWindow {
             autoPaddingEnabled: true
         }
 
-        LucidBar.LiquidGlassBg {
-            anchors.fill: parent
-            hostWindow: dockWindow
-            targetScreen: dockWindow.screen
-            // Glass is drawn by the liquid-glass-hypr compositor plugin (see
-            // ~/src/liquid-glass-hypr); QML only publishes the pill geometry.
-            externalGlass: dockWindow.extGlass
-            powerFactor: Prefs.liquidGlassPower + (dockWindow.menuOpen ? 0.6 : -0.2)
-            bgRadius: Math.min(Theme.radiusXl, Math.round(shell.height / 2))
-            bgBottomLeftRadius: dockWindow.renderAsNotch ? 0 : Math.min(Theme.radiusXl, Math.round(shell.height / 2))
-            bgBottomRightRadius: dockWindow.renderAsNotch ? 0 : Math.min(Theme.radiusXl, Math.round(shell.height / 2))
-            usePill: true
-            blurRadius: 0
-            blurIters: 0
-            blurDownscale: 1
-        }
-
         LucidBar.GlassLayout {
             name: "dock"
+            surfaceNamespace: "quickshell"
             targetScreen: dockWindow.screen
             surfaceW: dockWindow.width
             surfaceH: dockWindow.height
-            // No geometry for a hidden shell: otherwise the plugin keeps
-            // drawing the last pill as a ghost (seen live after the dock
-            // hard-off). Menu open resizes shell, so its glass publishes
-            // itself here with no extra code.
-            pills: (Prefs.liquidGlassEnabled && shell.visible && shell.width > 1 && shell.height > 1) ? [{
-                x: shell.x,
-                y: shell.y,
-                w: shell.width,
-                h: shell.height,
-                r: [shell.radius, shell.radius, shell.bottomLeftRadius, shell.bottomRightRadius]
-            }] : []
+            pills: dockWindow.glassPills
         }
 
         Component.onCompleted: readyTimer.start()
@@ -1813,6 +3103,96 @@ PanelWindow {
 
         }
 
+        // split: an island per group, each hugging its group at seam 1. towards 0 they
+        // spread over the shell between them and their inner corners square off, so
+        // they close up into the slab the launcher grows from
+        Item {
+            id: islands
+
+            readonly property real s: dockWindow.seam
+            readonly property real pad: dockWindow.splitPad
+            // the face's row, in the shell's coordinates
+            readonly property real fx: dockFace.x + iconRow.x
+            readonly property real lx0: islands.fx + launcherItem.x - islands.pad
+            readonly property real lx1: islands.fx + launcherItem.x + launcherItem.width + islands.pad
+            // the rows' own test, not visible: that reads false while the face is faded out
+            readonly property bool hasPins: pinnedRow.width > 0.5 || pinnedRow.dragging
+            readonly property real px0: islands.fx + pinnedRow.x - islands.pad
+            readonly property real px1: islands.fx + pinnedRow.x + pinnedRow.width + islands.pad
+            readonly property bool hasRunning: runningGroup.width > 0.5 || runningRow.dragging
+            // the running apps' island buds off the one before it as the first arrives
+            readonly property real rx0: (islands.hasPins ? islands.px1 : islands.lx1) + dockWindow.splitGap * runningGroup.fill
+            readonly property real rx1: islands.fx + runningGroup.x + runningGroup.width + islands.pad * runningGroup.fill
+            // where neighbours meet once closed up, leaving the end pieces wide enough
+            // for the shell's own corners so nothing pops as the shell takes over
+            readonly property real reach: shell.radius * 2
+            readonly property real m1: Math.min(Math.max((islands.lx1 + (islands.hasPins ? islands.px0 : islands.rx0)) / 2, islands.reach), shell.width - islands.reach)
+            readonly property real m2: Math.max(Math.min((islands.px1 + islands.rx0) / 2, shell.width - islands.reach), islands.m1)
+            // the corner an island rounds where it faces a neighbour
+            readonly property real inner: Math.min(Theme.rad(Prefs.dockRadius), Math.round(Theme.pill(shell.implicitHeight))) * islands.s
+
+            function mix(closed, apart) {
+                return closed + (apart - closed) * islands.s;
+            }
+
+            function corner(r, piece) {
+                return Math.max(0, Math.min(r, piece.width / 2, piece.height / 2));
+            }
+
+            anchors.fill: parent
+            visible: dockWindow.splitDrawn
+
+            SquircleRect {
+                id: islandL
+
+                readonly property bool joined: islands.hasPins || islands.hasRunning
+
+                x: islands.mix(0, islands.lx0)
+                y: islands.mix(0, dockFace.y)
+                width: islands.mix(islandL.joined ? islands.m1 : shell.width, islands.lx1) - islandL.x
+                height: shell.height - islandL.y
+                fillColor: dockWindow.extGlass ? "transparent" : Theme.bg
+                smoothing: Prefs.squircleF
+                topLeftRadius: islands.corner(shell.radius, islandL)
+                bottomLeftRadius: islands.corner(shell.bottomLeftRadius, islandL)
+                topRightRadius: islands.corner(islandL.joined ? islands.inner : shell.radius, islandL)
+                bottomRightRadius: islands.corner(islandL.joined ? islands.inner : shell.bottomRightRadius, islandL)
+            }
+
+            SquircleRect {
+                id: islandP
+
+                visible: islands.hasPins
+                x: islands.mix(islands.m1, islands.px0)
+                y: islandL.y
+                width: islands.mix(islands.hasRunning ? islands.m2 : shell.width, islands.px1) - islandP.x
+                height: islandL.height
+                fillColor: dockWindow.extGlass ? "transparent" : Theme.bg
+                smoothing: Prefs.squircleF
+                topLeftRadius: islands.corner(islands.inner, islandP)
+                bottomLeftRadius: islands.corner(islands.inner, islandP)
+                topRightRadius: islands.corner(islands.hasRunning ? islands.inner : shell.radius, islandP)
+                bottomRightRadius: islands.corner(islands.hasRunning ? islands.inner : shell.bottomRightRadius, islandP)
+            }
+
+            SquircleRect {
+                id: islandR
+
+                visible: islands.hasRunning && islandR.width > 0.5
+                x: islands.mix(islands.hasPins ? islands.m2 : islands.m1, islands.rx0)
+                y: islandL.y
+                width: Math.max(0, islands.mix(shell.width, islands.rx1) - islandR.x)
+                height: islandL.height
+                fillColor: dockWindow.extGlass ? "transparent" : Theme.bg
+                smoothing: Prefs.squircleF
+                topLeftRadius: islands.corner(islands.inner, islandR)
+                bottomLeftRadius: islands.corner(islands.inner, islandR)
+                topRightRadius: islands.corner(shell.radius, islandR)
+                bottomRightRadius: islands.corner(shell.bottomRightRadius, islandR)
+            }
+
+        }
+
         DropArea {
             anchors.fill: parent
             keys: ["text/uri-list"]
@@ -1848,7 +3228,7 @@ PanelWindow {
         Item {
             id: dockFace
 
-            implicitWidth: iconRow.implicitWidth + 24
+            implicitWidth: iconRow.implicitWidth + (Prefs.dockSplit ? dockWindow.splitPad * 2 : Theme.dp(24))
             width: shell.implicitWidth
             height: shell.implicitHeight
             anchors.left: parent.left
@@ -1869,9 +3249,9 @@ PanelWindow {
                 id: iconRow
 
                 anchors.left: parent.left
-                anchors.leftMargin: 12
+                anchors.leftMargin: Prefs.dockSplit ? dockWindow.splitPad : Theme.dp(12)
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 10
+                spacing: Theme.dp(10)
 
                 DockItem {
                     id: launcherItem
@@ -1881,61 +3261,25 @@ PanelWindow {
                     pointerInside: dockWindow.pointerOnDock
                     toggleActive: dockWindow.menuOpen
                     iconContent: Component {
-                        Shape {
-                            preferredRendererType: Shape.CurveRenderer
-
-                            ShapePath {
-                                strokeColor: Theme.accent
-                                strokeWidth: 3
-                                fillColor: "transparent"
-                                capStyle: ShapePath.RoundCap
-
-                                PathSvg {
-                                    path: dockWindow.lucidaRing
-                                }
-
-                            }
-
-                            ShapePath {
-                                strokeWidth: 0
-                                fillColor: Theme.text
-
-                                PathSvg {
-                                    path: dockWindow.lucidaStar
-                                }
-
-                            }
-
-                            ShapePath {
-                                strokeWidth: 0
-                                fillColor: Theme.accent
-
-                                PathSvg {
-                                    path: dockWindow.lucidaCompanion
-                                }
-
-                            }
-
-                            transform: Scale {
-                                xScale: width / 24
-                                yScale: height / 24
-                            }
-
+                        LP.LucidaMark {
                         }
 
                     }
                     onRequestToggle: {
                         if (!dockWindow.menuOpen)
-                            launcherFace.searchText = "";
+                            dockWindow.setSearchText("");
 
+                        dockWindow.aimLauncher();
                         dockWindow.menuOpen = !dockWindow.menuOpen;
                     }
                 }
 
+                // split, the gap between the launcher's island and the pins'
                 Rectangle {
-                    width: 1
+                    width: Prefs.dockSplit ? dockWindow.splitGap : 1
                     height: Math.round(dockWindow.iconSlot * 0.5)
-                    color: Theme.outline
+                    color: Prefs.dockSplit ? "transparent" : Theme.outline
+                    visible: !Prefs.dockSplit || islands.hasPins
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -1943,6 +3287,8 @@ PanelWindow {
                     id: pinnedRow
 
                     dragMode: "reorder"
+                    // with desktop icons on, a pin pulled off lands there instead of unpinning
+                    desktopDrop: DesktopIcons.live
                     model: appListModel
                     clients: dockWindow.clientsData
                     activeWorkspaceId: dockWindow.activeWorkspaceId
@@ -1950,7 +3296,7 @@ PanelWindow {
                     ready: shell.shellReady
                     pointerInside: dockWindow.pointerOnDock
                     dropActive: shell.dropActive || dockWindow.pinArmed
-                    reserveSlot: shell.dropActive
+                    reserveSlot: shell.dropActive || dockWindow.pinArmed
                     dropIndex: shell.dropActive ? shell.pendingDropIndex : dockWindow.pinDropIndex
                     onStackPopupRequested: (view, appId, iconName, command) => dockWindow.openStackPopup(view, appId, iconName, command)
                     onContextMenuRequested: (view, appId, command) => dockWindow.openContextMenu(view, appId, true, command)
@@ -1962,7 +3308,7 @@ PanelWindow {
                 Item {
                     id: runningGroup
 
-                    readonly property int lead: 21
+                    readonly property int lead: Prefs.dockSplit ? dockWindow.splitGap + dockWindow.splitPad : Theme.dp(21)
                     readonly property real fill: Math.min(1, runningRow.width / runningGroup.lead)
 
                     width: runningRow.width > 0.5 ? runningRow.width + runningGroup.lead * runningGroup.fill : 0
@@ -1970,6 +3316,7 @@ PanelWindow {
                     visible: runningGroup.width > 0.5 || runningRow.dragging
 
                     Rectangle {
+                        visible: !Prefs.dockSplit
                         width: 1
                         height: Math.round(dockWindow.iconSlot * 0.5)
                         color: Theme.outline
@@ -1982,6 +3329,7 @@ PanelWindow {
                         id: runningRow
 
                         x: runningGroup.lead
+                        originX: shell.x + runningGroup.x
                         dragMode: "pin"
                         model: runningAppsModel
                         clients: dockWindow.clientsData
@@ -1994,7 +3342,12 @@ PanelWindow {
                         pointerInside: dockWindow.pointerOnDock
                         pinArmed: dockWindow.pinArmed
                         dropIndex: dockWindow.pinDropIndex
-                        onPinRequested: (appId, index) => dockWindow.pinRunningApp(appId, index)
+                        onPinDragCenterChanged: dockWindow.updatePinArm()
+                        onPinRequested: (appId, index, from) => {
+                            pinnedRow.landFrom = from;
+                            dockWindow.pinRunningApp(appId, index);
+                            pinnedRow.landFrom = -1;
+                        }
                     }
 
                 }
@@ -2003,58 +3356,88 @@ PanelWindow {
 
         }
 
-        LauncherFace {
-            id: launcherFace
+        // under glass the shell has no fill of its own, so the menu's cards
+        // would spill past its rounded corners: cut the face to the same curve.
+        // Free while the loader is closed or invisible.
+        Item {
+            id: launcherMask
 
-            // Rounded clip for expanded content: the shell has no QML bg or
-            // clip under external glass, so menu cards would spill past the
-            // rounded corners. Always on (zero cost when closed/invisible).
+            anchors.fill: launcherLoader
+            visible: false
+            layer.enabled: true
+
+            SquircleMask {
+                anchors.fill: parent
+                radius: shell.radius
+                bottomLeftRadius: dockWindow.renderAsNotch ? 0 : shell.radius
+                bottomRightRadius: dockWindow.renderAsNotch ? 0 : shell.radius
+                smoothing: Prefs.squircleF
+            }
+
+        }
+
+        Loader {
+            id: launcherLoader
+
+            active: dockWindow.launcherBuilt
+            width: dockWindow.menuWidth - dockWindow.panelPadding
+            height: dockWindow.menuHeight - dockWindow.panelPadding
+            anchors.centerIn: parent
+            opacity: dockWindow.menuOpen ? 1 : 0
+            visible: launcherLoader.opacity > 0
             layer.enabled: true
             layer.effect: MultiEffect {
                 maskEnabled: true
                 maskSource: launcherMask
             }
 
-            width: dockWindow.menuWidth - dockWindow.panelPadding
-            height: dockWindow.menuHeight - dockWindow.panelPadding
-            targetWidth: dockWindow.menuWidth - dockWindow.panelPadding
-            targetHeight: dockWindow.menuHeight - dockWindow.panelPadding
-            anchors.centerIn: parent
-            opacity: dockWindow.menuOpen ? 1 : 0
-            visible: launcherFace.opacity > 0
-            mode: dockWindow.mode
-            model: resultsModel
-            wallpaperModel: filteredWallpapersModel
-            wallHeroW: dockWindow.wallHeroW
-            wallHeroH: dockWindow.wallHeroH
-            wallMidW: dockWindow.wallMidW
-            wallMidH: dockWindow.wallMidH
-            wallSmallW: dockWindow.wallSmallW
-            wallSmallH: dockWindow.wallSmallH
-            wallCardGap: dockWindow.wallCardGap
-            appliedWallpaper: dockWindow.appliedWallpaper
-            highlightQuery: dockWindow.filterQuery
-            onActivated: (index) => dockWindow.activateResult(index)
-            onCloseRequested: dockWindow.menuOpen = false
-            onBackRequested: launcherFace.searchText = dockWindow.mode === "commands" ? "" : ">"
-            onWallpaperPreviewed: (path) => dockWindow.requestWallpaper(path)
-            onWallpaperChosen: (path) => {
-                dockWindow.applyWallpaper(path);
-                dockWindow.menuOpen = false;
-            }
-            onPowerActionChosen: (id) => dockWindow.runPowerAction(id)
-
-            Item {
-                id: launcherMask
-                anchors.fill: parent
-                visible: false
-                layer.enabled: true
-                SquircleMask {
-                    anchors.fill: parent
-                    radius: shell.radius
-                    bottomLeftRadius: dockWindow.renderAsNotch ? 0 : shell.radius
-                    bottomRightRadius: dockWindow.renderAsNotch ? 0 : shell.radius
-                    smoothing: Prefs.squircleF
+            sourceComponent: LauncherFace {
+                targetWidth: dockWindow.menuWidth - dockWindow.panelPadding
+                targetHeight: dockWindow.menuHeight - dockWindow.panelPadding
+                mode: dockWindow.mode
+                model: resultsModel
+                resultCount: dockWindow.resultCount
+                wallpaperModel: dockWindow.pickerModel
+                kindRailWidth: dockWindow.wallKindRailWidth
+                onPickerKindRequested: (kind) => dockWindow.setSearchText(kind === "live" ? ">live" : ">wallpaper", true)
+                wallHeroW: dockWindow.wallHeroW
+                wallHeroH: dockWindow.wallHeroH
+                wallMidW: dockWindow.wallMidW
+                wallMidH: dockWindow.wallMidH
+                wallSmallW: dockWindow.wallSmallW
+                wallSmallH: dockWindow.wallSmallH
+                wallTinyW: dockWindow.wallTinyW
+                wallTinyH: dockWindow.wallTinyH
+                wallCardGap: dockWindow.wallCardGap
+                appliedWallpaper: dockWindow.appliedWallpaper
+                highlightQuery: dockWindow.filterQuery
+                showPowerChips: Prefs.launcherPowerChips
+                powerButtons: String(Prefs.launcherPowerButtons).split(",")
+                armedPower: dockWindow.armedPower
+                onPowerChipTapped: (id) => dockWindow.requestPower(id)
+                onActivated: (index) => dockWindow.activateResult(index)
+                onCloseRequested: dockWindow.menuOpen = false
+                onBackRequested: dockWindow.setSearchText(dockWindow.mode === "commands" ? "" : ">")
+                onModeRequested: (m) => {
+                    if (m === "power") {
+                        dockWindow.menuOpen = false;
+                        dockWindow.openSession();
+                        return ;
+                    }
+                    if (m === "widgets") {
+                        dockWindow.openWidgetPanel();
+                        return ;
+                    }
+                    dockWindow.setSearchText(dockWindow.prefixFor(m));
+                }
+                onDeleteRequested: (index) => dockWindow.deleteResult(index)
+                onHideRequested: (index) => dockWindow.hideResult(index)
+                onClearRequested: Clip.wipe()
+                onWallpaperPreviewed: (path) => dockWindow.requestWallpaper(path)
+                onWallpaperChosen: (path) => {
+                    var picker = launcherLoader.item ? launcherLoader.item.wallStrip : null;
+                    dockWindow.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
+                    dockWindow.menuOpen = false;
                 }
             }
 
@@ -2111,25 +3494,24 @@ PanelWindow {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 8
+            anchors.bottomMargin: Theme.dp(8)
             text: "dock surface headroom - " + Math.round(parent.width) + " x " + Math.round(parent.height) + " transparent" + (dockWindow.dragging ? " (INPUT LIVE: dragging)" : ", input masked out")
             color: "#cc80d8ff"
-            font.pixelSize: 12
+            font.pixelSize: Theme.dp(12)
+            font.variableAxes: Theme.axes(12, 420, 0)
             font.family: Theme.fontFamily
         }
 
     }
 
     mask: Region {
-        // No input when the shell is hidden (hard-off dock): otherwise the
-        // invisible shell rect keeps eating clicks where the launcher was.
-        x: dockWindow.dragging ? 0 : shell.x
-        y: dockWindow.dragging ? 0 : shell.y
-        width: dockWindow.dragging ? dockWindow.width : (shell.visible ? shell.width : 0)
-        height: dockWindow.dragging ? dockWindow.height : (shell.visible ? shell.height : 0)
+        x: dockWindow.maskWhole ? 0 : shell.x
+        y: dockWindow.maskWhole ? 0 : shell.y
+        width: dockWindow.maskWhole ? dockWindow.width : (dockWindow.shellShown ? shell.width : 0)
+        height: dockWindow.maskWhole ? dockWindow.height : (dockWindow.shellShown ? shell.height : 0)
 
         Region {
-            item: (Prefs.dockAutoHide && shell.visible) ? revealArea : null
+            item: revealArea.enabled ? revealArea : null
         }
 
     }
@@ -2142,7 +3524,7 @@ PanelWindow {
 
             readonly property bool isRight: index === 1
 
-            size: Prefs.dockNotchFlare
+            size: Theme.dp(Prefs.dockNotchFlare)
             mirrored: isRight
             x: isRight ? shell.x + shell.width : shell.x - width
             y: shell.y + shell.height - height
@@ -2152,21 +3534,66 @@ PanelWindow {
 
     }
 
-    // Compositor blur yields to the plugin glass (see Moji.qml): a circular
-    // blur region under squircle glass leaves an unblurred lune at every
-    // corner.
-    BackgroundEffect.blurRegion: (Theme.blurAmount > 0 && shell.shellReady && shell.visible && !Prefs.liquidGlassEnabled) ? dockBlurRegion : null
 
+    // compositor blur yields to the plugin glass: a circular blur region under
+    // squircle glass leaves an unblurred lune at every corner
+    BackgroundEffect.blurRegion: (Theme.blurAmount > 0 && shell.shellReady && dockWindow.shellShown && !dockWindow.extGlass) ? dockBlurRegion : null
+
+    function regionLo(v) {
+        return Math.ceil(v - 0.002);
+    }
+
+    function regionHi(v) {
+        return Math.floor(v + 0.002);
+    }
+
+    // the shell, or while it is split, one part per island
     Region {
         id: dockBlurRegion
 
-        x: Math.ceil(shell.x - 0.002)
-        y: Math.ceil(shell.y - 0.002)
-        width: Math.max(0, Math.floor(shell.x + shell.width + 0.002) - Math.ceil(shell.x - 0.002))
-        height: Math.max(0, Math.floor(shell.y + shell.height + 0.002) - Math.ceil(shell.y - 0.002))
-        radius: shell.radius
-        bottomLeftRadius: shell.bottomLeftRadius
-        bottomRightRadius: shell.bottomRightRadius
+        Region {
+            x: dockWindow.regionLo(shell.x)
+            y: dockWindow.regionLo(shell.y)
+            width: dockWindow.splitDrawn ? 0 : Math.max(0, dockWindow.regionHi(shell.x + shell.width) - dockWindow.regionLo(shell.x))
+            height: Math.max(0, dockWindow.regionHi(shell.y + shell.height) - dockWindow.regionLo(shell.y))
+            radius: shell.radius
+            bottomLeftRadius: shell.bottomLeftRadius
+            bottomRightRadius: shell.bottomRightRadius
+        }
+
+        Region {
+            x: dockWindow.regionLo(shell.x + islandL.x)
+            y: dockWindow.regionLo(shell.y + islandL.y)
+            width: islandL.visible ? Math.max(0, dockWindow.regionHi(shell.x + islandL.x + islandL.width) - dockWindow.regionLo(shell.x + islandL.x)) : 0
+            height: Math.max(0, dockWindow.regionHi(shell.y + islandL.y + islandL.height) - dockWindow.regionLo(shell.y + islandL.y))
+            topLeftRadius: islandL.topLeftRadius
+            topRightRadius: islandL.topRightRadius
+            bottomLeftRadius: islandL.bottomLeftRadius
+            bottomRightRadius: islandL.bottomRightRadius
+        }
+
+        Region {
+            x: dockWindow.regionLo(shell.x + islandP.x)
+            y: dockWindow.regionLo(shell.y + islandP.y)
+            width: islandP.visible ? Math.max(0, dockWindow.regionHi(shell.x + islandP.x + islandP.width) - dockWindow.regionLo(shell.x + islandP.x)) : 0
+            height: Math.max(0, dockWindow.regionHi(shell.y + islandP.y + islandP.height) - dockWindow.regionLo(shell.y + islandP.y))
+            topLeftRadius: islandP.topLeftRadius
+            topRightRadius: islandP.topRightRadius
+            bottomLeftRadius: islandP.bottomLeftRadius
+            bottomRightRadius: islandP.bottomRightRadius
+        }
+
+        Region {
+            x: dockWindow.regionLo(shell.x + islandR.x)
+            y: dockWindow.regionLo(shell.y + islandR.y)
+            width: islandR.visible ? Math.max(0, dockWindow.regionHi(shell.x + islandR.x + islandR.width) - dockWindow.regionLo(shell.x + islandR.x)) : 0
+            height: Math.max(0, dockWindow.regionHi(shell.y + islandR.y + islandR.height) - dockWindow.regionLo(shell.y + islandR.y))
+            topLeftRadius: islandR.topLeftRadius
+            topRightRadius: islandR.topRightRadius
+            bottomLeftRadius: islandR.bottomLeftRadius
+            bottomRightRadius: islandR.bottomRightRadius
+        }
+
     }
 
 }

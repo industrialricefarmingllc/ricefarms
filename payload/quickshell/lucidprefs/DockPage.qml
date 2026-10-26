@@ -4,10 +4,87 @@ import qs
 Column {
     id: page
 
-    spacing: 26
+    spacing: Theme.dp(26)
 
     DockPreview {
         width: parent.width
+    }
+
+    SettingCard {
+        title: "STYLE"
+
+        SettingRow {
+            title: "Dock style"
+            resetKey: "dockStyle"
+            description: Prefs.dockSplit ? "The launcher, your pinned apps and the running ones each float on an island of their own, the way the bar's modules do. They close up into one as the launcher opens out of them, and part again when it closes." : (Prefs.dockNotch ? "The dock sits flush against the bottom edge, its lower corners sweeping out into it." : "The dock floats above the bottom edge as one rounded island.")
+
+            M3Segmented {
+                width: Math.max(Theme.dp(300), fitWidth)
+                current: Prefs.dockStyle
+                options: [{
+                    "key": "island",
+                    "label": "Island"
+                }, {
+                    "key": "notch",
+                    "label": "Notch"
+                }, {
+                    "key": "split",
+                    "label": "Split"
+                }]
+                onChosen: (key) => {
+                    return Prefs.dockStyle = key;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: "Edge blend"
+            resetKey: "dockNotchFlare"
+            description: "How far the dock's lower corners sweep out into the bottom of the screen, so it reads as carved out of the edge rather than resting on it."
+            enabled: Prefs.dockNotch
+            disabledReason: "Only a notch meets the screen edge, so there is nothing to blend into - set Dock style to Notch above."
+            stacked: true
+
+            M3Slider {
+                width: parent.width
+                enabled: Prefs.dockNotch
+                from: 0
+                to: 40
+                stepSize: 1
+                suffix: " px"
+                value: Prefs.dockNotchFlare
+                onMoved: (v) => {
+                    return Prefs.dockNotchFlare = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: "Island gap"
+            resetKey: "dockSplitGap"
+            description: "How far apart the launcher's island, the pinned apps' and the running apps' sit."
+            enabled: Prefs.dockSplit
+            disabledReason: "Only a split dock has islands to space out - set Dock style to Split above."
+            showDivider: false
+            stacked: true
+
+            M3Slider {
+                width: parent.width
+                enabled: Prefs.dockSplit
+                from: 4
+                to: 24
+                stepSize: 1
+                suffix: " px"
+                value: Prefs.dockSplitGap
+                onMoved: (v) => {
+                    return Prefs.dockSplitGap = v;
+                }
+            }
+
+        }
+
     }
 
     SettingCard {
@@ -34,6 +111,26 @@ Column {
         }
 
         SettingRow {
+            title: "Icon padding"
+            resetKey: "dockIconPadding"
+            description: "How far each icon is inset inside its own slot. More padding shrinks the icon without moving the dock."
+            stacked: true
+
+            M3Slider {
+                width: parent.width
+                from: 0
+                to: 16
+                stepSize: 1
+                suffix: " px"
+                value: Prefs.dockIconPadding
+                onMoved: (v) => {
+                    return Prefs.dockIconPadding = v;
+                }
+            }
+
+        }
+
+        SettingRow {
             title: "Icon spacing"
             resetKey: "dockSpacing"
             description: "The gap between neighbouring icons."
@@ -54,11 +151,31 @@ Column {
         }
 
         SettingRow {
+            title: "Dock radius"
+            resetKey: "dockRadius"
+            description: "How round the dock's corners are. Each icon's own corners follow it, up to a full circle."
+            stacked: true
+
+            M3Slider {
+                width: parent.width
+                from: 0
+                to: 40
+                stepSize: 1
+                suffix: " px"
+                value: Prefs.dockRadius
+                onMoved: (v) => {
+                    return Prefs.dockRadius = v;
+                }
+            }
+
+        }
+
+        SettingRow {
             title: "Distance from bottom"
             resetKey: "dockBottomMargin"
             description: "How far the dock floats above the bottom edge of the screen."
             enabled: !Prefs.dockNotch
-            disabledReason: "Notches sit flush against the screen edge by definition - switch back to islands on the General page to float the dock."
+            disabledReason: "A notch sits flush against the screen edge by definition - set Dock style to Island or Split above to float the dock."
             showDivider: false
             stacked: true
 
@@ -81,29 +198,6 @@ Column {
 
     SettingCard {
         title: "BEHAVIOUR"
-
-        SettingRow {
-            title: "Edge blend"
-            resetKey: "dockNotchFlare"
-            description: "How far the dock's lower corners sweep out into the bottom of the screen, so it reads as carved out of the edge rather than resting on it."
-            enabled: Prefs.dockNotch
-            disabledReason: "Islands float clear of the screen edge, so there is nothing to blend into - switch the dock to Notches on the General page."
-            stacked: true
-
-            M3Slider {
-                width: parent.width
-                enabled: Prefs.dockNotch
-                from: 0
-                to: 40
-                stepSize: 1
-                suffix: " px"
-                value: Prefs.dockNotchFlare
-                onMoved: (v) => {
-                    return Prefs.dockNotchFlare = v;
-                }
-            }
-
-        }
 
         SettingRow {
             title: "Hover strength"
@@ -140,12 +234,25 @@ Column {
 
         SettingRow {
             title: "Auto-hide"
-            description: "The dock slides off the bottom of the screen and comes back when the pointer reaches the edge."
+            description: "Always slides the dock off the bottom of the screen until the pointer reaches the edge. Dynamic only does it while a tiled window is open on the workspace, or a floating one overlaps the dock, so it is back whenever the desktop is clear."
+            stacked: true
 
-            M3Switch {
-                checked: Prefs.dockAutoHide
-                onToggled: (v) => {
-                    return Prefs.dockAutoHide = v;
+            M3Segmented {
+                width: parent.width
+                current: !Prefs.dockAutoHide ? "off" : (Prefs.dockDynamicHide ? "dynamic" : "always")
+                options: [{
+                    "key": "off",
+                    "label": "Off"
+                }, {
+                    "key": "always",
+                    "label": "Always"
+                }, {
+                    "key": "dynamic",
+                    "label": "Dynamic"
+                }]
+                onChosen: (k) => {
+                    Prefs.dockAutoHide = k !== "off";
+                    Prefs.dockDynamicHide = k === "dynamic";
                 }
             }
 
@@ -206,6 +313,24 @@ Column {
                 onToggled: (v) => {
                     return Prefs.dockShowTooltips = v;
                 }
+            }
+
+        }
+
+    }
+
+    SettingCard {
+        title: "LAUNCHER"
+
+        SettingRow {
+            title: "Launcher"
+            description: "The search panel the dock opens into, its modes, prefixes and the clipboard behind them now has a page of its own."
+            showDivider: false
+
+            M3Button {
+                text: "Launcher\u2026"
+                variant: "tonal"
+                onClicked: Prefs.settingsRequested("launcher")
             }
 
         }

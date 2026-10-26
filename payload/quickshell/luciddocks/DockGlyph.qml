@@ -1,36 +1,26 @@
 import QtQuick
-import QtQuick.Shapes
 import qs
+import qs.lucidui
 
+// a material symbol, by name
 Item {
     id: glyph
 
-    property real viewBox: 24
     property string pathData: ""
     property color glyphColor: Theme.text
+    property real fill: 0
+    property bool animateColor: true
 
-    implicitWidth: 24
-    implicitHeight: 24
+    implicitWidth: Theme.dp(24)
+    implicitHeight: Theme.dp(24)
 
-    Shape {
-        anchors.fill: parent
-        preferredRendererType: Shape.CurveRenderer
-
-        ShapePath {
-            strokeWidth: 0
-            fillColor: glyph.glyphColor
-
-            PathSvg {
-                path: glyph.pathData
-            }
-
-        }
-
-        transform: Scale {
-            xScale: glyph.width / glyph.viewBox
-            yScale: glyph.height / glyph.viewBox
-        }
-
+    Icon {
+        anchors.centerIn: parent
+        name: glyph.pathData
+        size: Math.round(Math.min(glyph.width, glyph.height) * 1.08)
+        fill: glyph.fill
+        color: glyph.glyphColor
+        animateColor: glyph.animateColor
     }
 
 }

@@ -19,7 +19,11 @@ Scope {
     // NOTE: shaders/reading_mode.glsl exempts these corners from the e-ink
     // pass via CORNER_FRAC = cornerSize / 1600 (all monitors are 1600
     // logical px wide) — keep the two in sync.
-    property int cornerSize: 54
+    // Logical px — identical radius to Hyprland windows (Theme.windowRadius,
+    // currently 16) on the shared squircle exponent (Prefs.squircleF ->
+    // n = 2 + 4f). Keep in sync with shaders/reading_mode.glsl CORNER_FRAC,
+    // which is cornerSize / 1600.
+    property int cornerSize: Theme.windowRadius
     property color cornerColor: "black"
 
     Variants {

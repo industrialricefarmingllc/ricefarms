@@ -8,9 +8,13 @@ import qs
 PanelWindow {
     id: mojiWindow
 
-    readonly property real panelW: 520
-    readonly property real panelH: 600
+    readonly property real panelW: Theme.dp(520)
+    readonly property real panelH: Theme.dp(600)
     property bool open: false
+    // stays true through the exit animation
+    property bool rendered: false
+    // how far below its spot the panel sits while hidden
+    property real rise: Theme.dp(16)
     property bool dataRequested: false
     property var emojiGroups: []
     property var emojiData: []
@@ -266,7 +270,7 @@ PanelWindow {
     }
 
     color: "transparent"
-    visible: open
+    visible: rendered
     exclusiveZone: -1
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: open && !handingOff ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
@@ -280,8 +284,87 @@ PanelWindow {
     }
 
     onOpenChanged: {
-        if (mojiWindow.open)
+        if (mojiWindow.open) {
             mojiWindow.dataRequested = true;
+            faceExit.stop();
+            mojiWindow.rendered = true;
+            faceEnter.restart();
+        } else {
+            faceEnter.stop();
+            faceExit.restart();
+        }
+    }
+
+    // clicks fall through while it animates out
+    mask: mojiWindow.open ? null : closedMask
+
+    Region {
+        id: closedMask
+    }
+
+    ParallelAnimation {
+        id: faceEnter
+
+        NumberAnimation {
+            target: faceLoader
+            property: "opacity"
+            to: 1
+            duration: Theme.durEnter
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Theme.easeEmphasizedDecel
+        }
+
+        NumberAnimation {
+            target: faceLoader
+            property: "scale"
+            to: 1
+            duration: Theme.durEnter
+            easing.type: Easing.OutBack
+            easing.overshoot: Theme.emphasizedOvershoot
+        }
+
+        NumberAnimation {
+            target: mojiWindow
+            property: "rise"
+            to: 0
+            duration: Theme.durEnter
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Theme.easeEmphasizedDecel
+        }
+
+    }
+
+    ParallelAnimation {
+        id: faceExit
+
+        onFinished: mojiWindow.rendered = false
+
+        NumberAnimation {
+            target: faceLoader
+            property: "opacity"
+            to: 0
+            duration: Theme.durExit
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Theme.easeEmphasizedAccel
+        }
+
+        NumberAnimation {
+            target: faceLoader
+            property: "scale"
+            to: 0.92
+            duration: Theme.durExit
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Theme.easeEmphasizedAccel
+        }
+
+        NumberAnimation {
+            target: mojiWindow
+            property: "rise"
+            to: 16
+            duration: Theme.durExit
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Theme.easeEmphasizedAccel
+        }
 
     }
 
@@ -440,35 +523,51 @@ PanelWindow {
         onClicked: mojiWindow.open = false
     }
 
-    MojiFace {
-        id: face
+    // the face and its gif pane are ~1700 lines of delegates; build them on the
+    // first open rather than at startup, same gate the emoji data already uses
+    Loader {
+        id: faceLoader
 
-        host: mojiWindow
+        active: mojiWindow.dataRequested
         x: mojiWindow.panelX
-        y: mojiWindow.panelY
+        y: mojiWindow.panelY + mojiWindow.rise
         width: mojiWindow.panelW
         height: mojiWindow.panelH
-        onCloseRequested: mojiWindow.open = false
-        onDragged: (dx, dy) => {
-            st.panelX = Math.max(0, Math.min(mojiWindow.width - mojiWindow.panelW, mojiWindow.panelX + dx));
-            st.panelY = Math.max(0, Math.min(mojiWindow.height - mojiWindow.panelH, mojiWindow.panelY + dy));
+        opacity: 0
+        scale: 0.92
+
+        sourceComponent: MojiFace {
+            host: mojiWindow
+            onCloseRequested: mojiWindow.open = false
+            onDragged: (dx, dy) => {
+                st.panelX = Math.max(0, Math.min(mojiWindow.width - mojiWindow.panelW, mojiWindow.panelX + dx));
+                st.panelY = Math.max(0, Math.min(mojiWindow.height - mojiWindow.panelH, mojiWindow.panelY + dy));
+            }
         }
+
     }
 
     // Compositor blur yields to the plugin glass (which owns the backdrop
     // and draws it squircle): a circular blur region under squircle glass
     // leaves an unblurred lune at every corner. Blur stays for the
     // no-glass fallback, where the opaque fill covers the region anyway.
-    BackgroundEffect.blurRegion: Theme.blurAmount > 0 && mojiWindow.open && !Prefs.liquidGlassEnabled ? panelBlurRegion : null
+    // A region cannot fade, so it only exists once the panel has some body.
+    BackgroundEffect.blurRegion: Theme.blurAmount > 0 && mojiWindow.open && mojiWindow.rendered && faceLoader.opacity > 0.15 && !Prefs.liquidGlassEnabled ? panelBlurRegion : null
 
+    // the painted rect: scale and rise included, or the frost leads the panel
     Region {
         id: panelBlurRegion
 
-        x: Math.ceil(face.x - 0.002)
-        y: Math.ceil(face.y - 0.002)
-        width: Math.max(0, Math.floor(face.x + face.width + 0.002) - Math.ceil(face.x - 0.002))
-        height: Math.max(0, Math.floor(face.y + face.height + 0.002) - Math.ceil(face.y - 0.002))
-        radius: Theme.radiusXl
+        readonly property real paintedWidth: mojiWindow.panelW * faceLoader.scale
+        readonly property real paintedHeight: mojiWindow.panelH * faceLoader.scale
+        readonly property real paintedX: mojiWindow.panelX + (mojiWindow.panelW - panelBlurRegion.paintedWidth) / 2
+        readonly property real paintedY: mojiWindow.panelY + mojiWindow.rise + (mojiWindow.panelH - panelBlurRegion.paintedHeight) / 2
+
+        x: Math.ceil(panelBlurRegion.paintedX - 0.002)
+        y: Math.ceil(panelBlurRegion.paintedY - 0.002)
+        width: Math.max(0, Math.floor(panelBlurRegion.paintedX + panelBlurRegion.paintedWidth + 0.002) - Math.ceil(panelBlurRegion.paintedX - 0.002))
+        height: Math.max(0, Math.floor(panelBlurRegion.paintedY + panelBlurRegion.paintedHeight + 0.002) - Math.ceil(panelBlurRegion.paintedY - 0.002))
+        radius: Math.round(Theme.radiusXl * faceLoader.scale)
     }
 
     IpcHandler {

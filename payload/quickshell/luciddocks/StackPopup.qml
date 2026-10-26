@@ -7,9 +7,19 @@ import Quickshell.Widgets
 import qs
 import "../squircle"
 
-PopupWindow {
+// the dock's window previews. a layer window of its own, like the right-click
+// menu: hyprland only frosts layer surfaces, never popups
+Item {
     id: popup
 
+    property var grabWindow: null
+    property real originX: 0
+    property real originY: 0
+    readonly property real cardW2: row.implicitWidth + Theme.dp(24)
+    readonly property real cardH2: popup.cardH + Theme.dp(66)
+    readonly property real cardX: Math.max(Theme.dp(8), Math.min(popup.width - popup.cardW2 - Theme.dp(8), popup.originX + popup.anchorLocalX - popup.cardW2 / 2))
+    readonly property real cardY: Math.max(Theme.dp(8), popup.originY + popup.anchorLocalY - popup.cardH2 - Theme.dp(12))
+    readonly property bool showing: popup.popupVisible || fadeAnim.running
     property bool popupVisible: false
     property string appId: ""
     property string iconName: ""
@@ -19,9 +29,8 @@ PopupWindow {
     property var hostWindow: null
     property real anchorLocalX: 0
     property real anchorLocalY: 0
-
-    readonly property int cardW: 172
-    readonly property int cardH: 106
+    readonly property int cardW: Theme.dp(172)
+    readonly property int cardH: Theme.dp(106)
     readonly property bool showOpenHere: {
         for (var i = 0; i < popup.groups.length; i++) {
             if (popup.groups[i].workspaceId === popup.activeWorkspaceId)
@@ -30,32 +39,30 @@ PopupWindow {
         }
         return true;
     }
-
     property int fadeDuration: Theme.durEnter
     property var fadeEasing: Theme.easeEmphasizedDecel
-
-    onPopupVisibleChanged: {
-        popup.fadeDuration = popup.popupVisible ? Theme.durEnter : Theme.durExit;
-        popup.fadeEasing = popup.popupVisible ? Theme.easeEmphasizedDecel : Theme.easeEmphasizedAccel;
-    }
 
     function normalizeAddress(a) {
         a = (a || "").toLowerCase();
         return a.indexOf("0x") === 0 ? a : "0x" + a;
     }
 
-    anchor.window: popup.hostWindow
-    anchor.rect.x: popup.anchorLocalX - popup.width / 2
-    anchor.rect.y: popup.anchorLocalY - popup.height - 12
-    color: "transparent"
-    implicitWidth: row.implicitWidth + 24
-    implicitHeight: popup.cardH + 66
-    visible: popup.popupVisible || fadeAnim.running
+    function workspaceLabel(group) {
+        var name = group.workspaceName || "";
+        if (name.indexOf("special:") !== 0)
+            return "Workspace " + group.workspaceId;
+
+        var s = name.slice(8);
+        return s === "" || s === "special" ? "Scratchpad" : "Scratchpad · " + s;
+    }
+
+    onPopupVisibleChanged: {
+        popup.fadeDuration = popup.popupVisible ? Theme.durEnter : Theme.durExit;
+        popup.fadeEasing = popup.popupVisible ? Theme.easeEmphasizedDecel : Theme.easeEmphasizedAccel;
+    }
 
     HyprlandFocusGrab {
-        id: focusGrab
-
-        windows: [popup]
+        windows: popup.grabWindow ? [popup.grabWindow] : []
         active: popup.popupVisible
         onActiveChanged: {
             if (!active)
@@ -67,7 +74,10 @@ PopupWindow {
     SquircleRect {
         id: contentRoot
 
-        anchors.fill: parent
+        x: popup.cardX
+        y: popup.cardY
+        width: popup.cardW2
+        height: popup.cardH2
         radius: Theme.radiusXl
         fillColor: Theme.bg
         smoothing: Prefs.squircleF
@@ -90,7 +100,7 @@ PopupWindow {
             id: row
 
             anchors.centerIn: parent
-            spacing: 14
+            spacing: Theme.dp(14)
 
             Repeater {
                 model: popup.groups
@@ -99,7 +109,6 @@ PopupWindow {
                     id: entry
 
                     required property var modelData
-
                     readonly property bool hovered: hoverHandler.hovered
                     readonly property var toplevel: {
                         var want = popup.normalizeAddress(entry.modelData.address);
@@ -114,11 +123,11 @@ PopupWindow {
                     readonly property string windowTitle: {
                         var t = entry.toplevel;
                         var o = t && t.lastIpcObject ? t.lastIpcObject : null;
-                        return o && o.title ? o.title : ("Workspace " + entry.modelData.workspaceId);
+                        return o && o.title ? o.title : popup.workspaceLabel(entry.modelData);
                     }
 
                     width: popup.cardW
-                    height: popup.cardH + 40
+                    height: popup.cardH + Theme.dp(40)
 
                     HoverHandler {
                         id: hoverHandler
@@ -182,10 +191,10 @@ PopupWindow {
                         }
 
                         IconImage {
-                            width: 40
-                            height: 40
+                            width: Theme.dp(40)
+                            height: Theme.dp(40)
                             anchors.centerIn: parent
-                            source: popup.iconName !== "" ? Quickshell.iconPath(popup.iconName, true) : ""
+                            source: popup.iconName === "" ? "" : (IconTheme.generation >= 0 && IconTheme.pathFor(popup.iconName) !== "" ? IconTheme.pathFor(popup.iconName) : Quickshell.iconPath(popup.iconName, true))
                             visible: !preview.hasContent
                         }
 
@@ -235,22 +244,23 @@ PopupWindow {
 
                     Rectangle {
                         visible: entry.modelData.count >= 2
-                        width: 22
-                        height: 22
-                        radius: 11
+                        width: Theme.dp(22)
+                        height: Theme.dp(22)
+                        radius: Theme.dp(11)
                         color: Theme.accent
                         anchors.left: mainCard.left
                         anchors.top: mainCard.top
-                        anchors.leftMargin: -6
-                        anchors.topMargin: -6
+                        anchors.leftMargin: -Theme.dp(6)
+                        anchors.topMargin: -Theme.dp(6)
                         z: 20
 
                         Text {
                             anchors.centerIn: parent
                             text: entry.modelData.count
-                            color: Theme.onAccent
+                            color: Theme.fgAccent
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(10)
+                            font.variableAxes: Theme.axes(Theme.fs(10), 600, 0)
                             font.weight: Font.DemiBold
                         }
 
@@ -258,7 +268,7 @@ PopupWindow {
 
                     Column {
                         anchors.top: mainCard.bottom
-                        anchors.topMargin: 7
+                        anchors.topMargin: Theme.dp(7)
                         anchors.left: parent.left
                         anchors.right: parent.right
                         spacing: 1
@@ -269,6 +279,7 @@ PopupWindow {
                             color: entry.hovered ? Theme.text : Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontLabel
+                            font.variableAxes: Theme.axes(Theme.fontLabel, 520, 0)
                             font.weight: Font.Medium
                             elide: Text.ElideRight
                             horizontalAlignment: Text.AlignHCenter
@@ -284,10 +295,11 @@ PopupWindow {
 
                         Text {
                             width: parent.width
-                            text: "Workspace " + entry.modelData.workspaceId
+                            text: popup.workspaceLabel(entry.modelData)
                             color: Theme.subtextDim
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontLabel
+                            font.variableAxes: Theme.axes(Theme.fontLabel, 420, 0)
                             horizontalAlignment: Text.AlignHCenter
                         }
 
@@ -311,7 +323,7 @@ PopupWindow {
 
                 visible: popup.showOpenHere
                 width: popup.cardW
-                height: popup.cardH + 40
+                height: popup.cardH + Theme.dp(40)
 
                 HoverHandler {
                     id: openHereHover
@@ -343,8 +355,8 @@ PopupWindow {
 
                     DockGlyph {
                         anchors.centerIn: parent
-                        width: 30
-                        height: 30
+                        width: Theme.dp(30)
+                        height: Theme.dp(30)
                         pathData: DockIcons.newWindow
                         glyphColor: Theme.accent
                     }
@@ -361,12 +373,13 @@ PopupWindow {
 
                 Text {
                     anchors.top: openHereCard.bottom
-                    anchors.topMargin: 7
+                    anchors.topMargin: Theme.dp(7)
                     anchors.horizontalCenter: openHereCard.horizontalCenter
                     text: "Open here"
                     color: openHereEntry.hovered ? Theme.text : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabel
+                    font.variableAxes: Theme.axes(Theme.fontLabel, 520, 0)
                     font.weight: Font.Medium
 
                     Behavior on color {

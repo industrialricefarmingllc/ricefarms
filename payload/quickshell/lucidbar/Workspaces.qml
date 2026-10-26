@@ -8,12 +8,13 @@ import qs
 Item {
     id: root
     property var hostWindow: null
+    property var dockMod: null
     property real restX: 0
     property real restY: 0
     property bool expanded: false
     property real reveal: expanded ? 1 : 0
     property int slotCount: 6
-    property bool shown: Prefs.showWorkspaces
+    property bool shown: Prefs.showWorkspaces && Prefs.barHas("workspaces")
     property bool popupMode: false
     // Fully rounded like the other widgets (BarPill closed state)
     property real cornerRadius: Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius
@@ -31,8 +32,20 @@ Item {
     // the 200px footprint instead of 0 (which made solo panels shrink).
     property bool soloCollapse: false
     property int compactWidth: 200
+    property int compactHeight: Theme.dp(Prefs.barHeight)
+    // Bar/overview plumbing: the upstream bar asks every module for these.
+    readonly property bool anyOpen: expanded
+    readonly property bool surfaceOpen: expanded
+    readonly property bool notchedPopup: false
+    readonly property bool popupOpen: false
+    readonly property var popupItem: null
+    readonly property bool compactHovered: false
+    readonly property bool surfaceHovered: false
+    readonly property bool joined: false
+    readonly property bool joinLeft: false
+    readonly property bool joinRight: false
     implicitWidth: 200
-    implicitHeight: 35
+    implicitHeight: Theme.dp(Prefs.barHeight)
     // Collapse the footprint when hidden so the remaining left modules
     // (mpris/tray) slide back to the bar margin instead of leaving a gap.
     // Width (not just visible) is what the bar layout, glass pills, flares

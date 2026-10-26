@@ -6,7 +6,9 @@ Item {
     id: flare
 
     property bool mirrored: false
-    property int size: 14
+    // upside down, for an edge below it
+    property bool flipped: false
+    property int size: Theme.dp(14)
     property color fillColor: Theme.bg
     property bool hovered: false
 
@@ -31,6 +33,7 @@ Item {
         anchors.fill: parent
         size: flare.size
         mirrored: flare.mirrored
+        flipped: flare.flipped
         fillColor: Qt.tint(flare.fillColor, Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, flare.tint))
         smoothing: Prefs.squircleF
     }

@@ -1,16 +1,17 @@
 import QtQuick
-import QtQuick.Shapes
 import qs
+import qs.lucidui
 
+// m3 expressive common button: full-shape at rest, corners morph in under press
 Item {
     id: btn
 
     property string text: ""
-    property string variant: "tonal" // "filled" | "tonal" | "text"
+    property string variant: "tonal" // "filled" | "tonal" | "outlined" | "text"
     property bool enabled: true
     property bool destructive: false
+    // a material symbol name
     property string iconPath: ""
-
     readonly property color baseColor: {
         if (btn.variant === "filled")
             return btn.destructive ? Theme.error : Theme.accent;
@@ -22,38 +23,26 @@ Item {
     }
     readonly property color labelColor: {
         if (btn.variant === "filled")
-            return btn.destructive ? Theme.onError : Theme.onAccent;
+            return btn.destructive ? Theme.fgError : Theme.fgAccent;
 
         if (btn.variant === "tonal")
-            return btn.destructive ? Theme.onErrorContainer : Theme.onSecondaryContainer;
+            return btn.destructive ? Theme.fgErrorContainer : Theme.fgSecondaryContainer;
 
         return btn.destructive ? Theme.error : Theme.text;
     }
 
     signal clicked()
 
-    implicitHeight: 40
-    implicitWidth: content.implicitWidth + (btn.variant === "text" ? 24 : 48)
+    implicitHeight: Theme.dp(40)
+    implicitWidth: content.implicitWidth + (btn.variant === "text" ? Theme.dp(26) : Theme.dp(46))
     opacity: btn.enabled ? 1 : 0.38
-
-    Behavior on opacity {
-        NumberAnimation {
-            duration: Theme.durShort
-        }
-
-    }
 
     Rectangle {
         anchors.fill: parent
-        radius: height / 2
+        radius: area.pressed ? Theme.shapeMd : Theme.pill(height)
         color: btn.baseColor
-
-        Behavior on color {
-            ColorAnimation {
-                duration: Theme.durShort
-            }
-
-        }
+        border.width: btn.variant === "outlined" ? 1 : 0
+        border.color: Theme.outlineStrong
 
         Rectangle {
             anchors.fill: parent
@@ -70,37 +59,36 @@ Item {
 
         }
 
+        Behavior on radius {
+            NumberAnimation {
+                duration: Theme.durFastSpatial
+                easing.type: Easing.Bezier
+                easing.bezierCurve: Theme.curveDefaultSpatial
+            }
+
+        }
+
+        Behavior on color {
+            ColorAnimation {
+                duration: Theme.durShort
+            }
+
+        }
+
     }
 
     Row {
         id: content
 
         anchors.centerIn: parent
-        spacing: 8
+        spacing: Theme.dp(8)
 
-        Shape {
-            width: btn.iconPath === "" ? 0 : 18
-            height: 18
+        Icon {
             anchors.verticalCenter: parent.verticalCenter
             visible: btn.iconPath !== ""
-            preferredRendererType: Shape.CurveRenderer
-
-            ShapePath {
-                strokeWidth: 0
-                fillColor: btn.labelColor
-
-                PathSvg {
-                    path: btn.iconPath
-                }
-
-            }
-
-            // authored on a 24x24 grid
-            transform: Scale {
-                xScale: 18 / 24
-                yScale: 18 / 24
-            }
-
+            name: btn.iconPath
+            size: Theme.dp(19)
+            color: btn.labelColor
         }
 
         Text {
@@ -108,8 +96,10 @@ Item {
             text: btn.text
             color: btn.labelColor
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontBody
-            font.bold: true
+            font.pixelSize: Theme.fontLabelLg
+            font.variableAxes: Theme.axes(Theme.fontLabelLg, 520, 0)
+            font.weight: Font.Medium
+            font.letterSpacing: 0.1
 
             Behavior on color {
                 ColorAnimation {
@@ -130,6 +120,13 @@ Item {
         enabled: btn.enabled
         cursorShape: Qt.PointingHandCursor
         onClicked: btn.clicked()
+    }
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: Theme.durShort
+        }
+
     }
 
 }

@@ -1,68 +1,232 @@
 import QtQuick
 import qs
+import qs.lucidui
 
+// the launcher's face, on the m3 search anatomy: a head that carries the mark
+// and the modes, the results under it, and a 56dp search bar at whichever end
+// the settings put it
 Item {
     id: face
 
-    // "apps" | "commands" | "theme" | "wallpaper" | "power"
+    // "apps" | "commands" | "web" | "run" | "emoji" | "theme" | "wallpaper" | "live" | "clipboard"
     property string mode: "apps"
     property var model: null
     property var wallpaperModel: null
+    // Settings -> Theme picks the style; unknown names fall back to the strip
+    readonly property var pickerFiles: ({
+        "strip": "WallpaperStrip.qml",
+        "pills": "WallpaperPills.qml",
+        "tiles": "WallpaperTiles.qml",
+        "bento": "WallpaperBento.qml"
+    })
+    property int pickerIndex: -1
+    readonly property bool pickerGrid: face.pickerStyle === "tiles"
+    readonly property bool pickerUpDown: Prefs.wallpaperPickerKeys === "updown"
+    property bool pickerSettling: false
+    // set by hand, never bound: see the Connections on Prefs below for why
+    property string pickerStyle: "strip"
+    readonly property var wallStrip: pickerLoader.item
     property string appliedWallpaper: ""
-    property int wallHeroW: 340
-    property int wallHeroH: 211
-    property int wallMidW: 238
-    property int wallMidH: 148
-    property int wallSmallW: 150
-    property int wallSmallH: 93
-    property int wallCardGap: 10
+    property int wallHeroW: Theme.dp(340)
+    property int wallHeroH: Theme.dp(211)
+    property int wallMidW: Theme.dp(238)
+    property int wallMidH: Theme.dp(148)
+    property int wallSmallW: Theme.dp(150)
+    property int wallSmallH: Theme.dp(93)
+    property int wallTinyW: Theme.dp(100)
+    property int wallTinyH: Theme.dp(62)
+    property int wallCardGap: Theme.dp(10)
     property alias searchText: searchInput.text
     property string highlightQuery: ""
-    property string placeholder: "Search apps, or type > for commands"
+    // how many rows can actually be picked, set by the dock as it builds them
+    property int resultCount: 0
+    readonly property string placeholder: ({
+        "clipboard": "Search clipboard history",
+        "web": "Search the web",
+        "run": "Type a command line",
+        "emoji": "Find an emoji",
+        "commands": "Search commands",
+        "theme": "Search themes",
+        "wallpaper": "Search wallpapers",
+        "live": "Search live wallpapers"
+    })[face.displayMode] || "Search apps and settings"
+    readonly property string modeIcon: ({
+        "commands": "keyboard_command_key",
+        "clipboard": "content_paste",
+        "wallpaper": "wallpaper",
+        "live": "movie",
+        "theme": "palette",
+        "web": "travel_explore",
+        "run": "terminal_2",
+        "emoji": "mood"
+    })[face.displayMode] || "search"
+    // the head's trailing readout: what the panel is holding right now
+    readonly property string countLabel: {
+        if (face.pickerMode || face.resultCount === 0)
+            return "";
+
+        if (face.displayMode === "apps" && face.highlightQuery === "")
+            return face.resultCount + (face.resultCount === 1 ? " app" : " apps");
+
+        return face.resultCount + (face.resultCount === 1 ? " result" : " results");
+    }
     property real targetWidth: width
     property real targetHeight: height
-
-    readonly property int searchHeight: 44
-    readonly property int chromeHeight: face.searchHeight + 12
+    // m3 metrics, shared with the dock's geometry through Prefs
+    readonly property real cs: Prefs.launcherScale
+    readonly property int searchHeight: Prefs.launcherSearchH
+    readonly property int headHeight: Prefs.launcherHeadH
+    readonly property bool headOn: Prefs.launcherModeBar
+    readonly property bool searchTop: Prefs.launcherSearchTop
+    readonly property int chromeHeight: Prefs.launcherChromeH
+    readonly property int headBlock: face.headOn ? face.headHeight + Prefs.launcherHeadGap : 0
+    // the launcher's modes, reachable by prefix, by pill or by Ctrl and a digit
+    readonly property var modes: [{
+        "key": "apps",
+        "label": "Apps",
+        "icon": "apps"
+    }, {
+        "key": "commands",
+        "label": "Commands",
+        "icon": "keyboard_command_key"
+    }, {
+        "key": "clipboard",
+        "label": "Clipboard",
+        "icon": "content_paste"
+    }, {
+        "key": "wallpaper",
+        "label": "Wallpapers",
+        "icon": "wallpaper"
+    }, {
+        "key": "theme",
+        "label": "Themes",
+        "icon": "palette"
+    }, {
+        "key": "widgets",
+        "label": "Widgets",
+        "icon": "widgets",
+        "leaves": true
+    }, {
+        "key": "power",
+        "label": "Power",
+        "icon": "power_settings_new",
+        "leaves": true
+    }]
     readonly property real stableContentHeight: Math.max(0, face.targetHeight - face.chromeHeight)
-
+    // what the empty state needs, so the dock never sizes the panel under it
+    readonly property real emptyHeight: resultList.emptyExtent
     property string displayMode: "apps"
-    readonly property bool listVisible: face.displayMode !== "wallpaper" && face.displayMode !== "power"
+    // the Pictures / Live switch beside the picker, as wide as the dock makes room for
+    property int kindRailWidth: 0
+    // pictures and videos share the picker, a tab each
+    readonly property bool pickerMode: face.displayMode === "wallpaper" || face.displayMode === "live"
+    readonly property bool listVisible: !face.pickerMode
+    // clipboard: the first Ctrl+Shift+Del arms clearing everything, a second within 3 s does it
+    property bool clearArmed: false
+    // bumped whenever the dock rewrites the results, so the preview re-reads the selected row
+    property int resultsRevision: 0
+    readonly property string clipEntryId: {
+        face.resultsRevision;
+        const r = face.displayMode === "clipboard" ? resultList.rowAt(resultList.currentIndex) : null;
+        return r && r.selectable && r.kind === "clip" ? r.payload : "";
+    }
     property bool justOpened: false
+    // the power buttons at the end of the search field, while nothing is typed
+    property bool showPowerChips: false
+    property var powerButtons: []
+    // the one waiting on a second press
+    property string armedPower: ""
+
+    signal powerChipTapped(string id)
 
     signal activated(int index)
     signal closeRequested()
+    // "wallpaper" or "live", from the switch beside the picker
+    signal pickerKindRequested(string kind)
     signal wallpaperChosen(string path)
     signal wallpaperPreviewed(string path)
-    signal powerActionChosen(string id)
     signal backRequested()
+    signal modeRequested(string mode)
+    signal deleteRequested(int index)
+    signal hideRequested(int index)
+    signal clearRequested()
+
+    Component.onCompleted: face.pickerStyle = Prefs.wallpaperPickerStyle
 
     function setWallpaperIndex(i) {
-        wallStrip.setIndexImmediate(i);
+        face.pickerIndex = i;
+        if (wallStrip)
+            wallStrip.setIndexImmediate(i);
+    }
+
+    // a picker that was just swapped in (the style changed) starts where the last one was
+    function restorePickerIndex() {
+        if (wallStrip && face.pickerIndex >= 0)
+            wallStrip.setIndexImmediate(face.pickerIndex);
     }
 
     readonly property int wallpaperCurrentIndex: wallStrip.currentIndex
 
     function resetSelection() {
         resultList.resetSelection();
-        powerRow.currentIndex = 0;
     }
 
     function resultsChanged() {
         resultList.ensureSelectable();
+        face.resultsRevision++;
+    }
+
+    function armOrClear() {
+        if (face.clearArmed) {
+            face.clearArmed = false;
+            disarmTimer.stop();
+            face.clearRequested();
+        } else {
+            face.clearArmed = true;
+            disarmTimer.restart();
+        }
     }
 
     function syncDisplayMode() {
         face.displayMode = face.mode;
+        face.clearArmed = false;
         face.resetSelection();
     }
 
     function requestModeTransition() {
         if (!face.visible || face.justOpened) {
             face.syncDisplayMode();
-            return;
+            return ;
         }
         modeFade.restart();
+    }
+
+    // Tab walks the mode set, so every mode is one key away from the keyboard too.
+    // the entries that leave the launcher for a panel of their own are skipped
+    function cycleMode(delta) {
+        var stops = face.modes.filter((m) => {
+            return m.leaves !== true;
+        });
+        var at = -1;
+        for (var i = 0; i < stops.length; i++) {
+            if (stops[i].key === face.displayMode)
+                at = i;
+
+        }
+        if (at === -1)
+            at = 0;
+
+        var next = stops[(at + delta + stops.length) % stops.length];
+        face.modeRequested(next.key);
+    }
+
+    function submit() {
+        if (face.pickerMode) {
+            if (wallStrip)
+                wallStrip.activateCurrent();
+
+        } else
+            resultList.activateCurrent();
     }
 
     onModeChanged: face.requestModeTransition()
@@ -77,14 +241,24 @@ Item {
 
     onVisibleChanged: {
         if (!face.visible)
-            return;
+            return ;
 
         face.justOpened = true;
         face.syncDisplayMode();
         searchInput.forceActiveFocus();
         face.justOpened = false;
+        headBand.playEntrance();
     }
 
+    Timer {
+        id: disarmTimer
+
+        interval: 3000
+        onTriggered: face.clearArmed = false
+    }
+
+    // m3 fade through: the old mode leaves on the accelerating curve, the new
+    // one grows back in rather than cross-fading over it
     SequentialAnimation {
         id: modeFade
 
@@ -92,22 +266,77 @@ Item {
             target: contentArea
             property: "opacity"
             to: 0
-            duration: Theme.ms(120)
+            duration: Theme.ms(90)
             easing.type: Easing.Bezier
             easing.bezierCurve: Theme.easeEmphasizedAccel
         }
 
         ScriptAction {
-            script: face.syncDisplayMode()
+            script: {
+                contentArea.scale = 0.94;
+                face.syncDisplayMode();
+            }
         }
 
-        NumberAnimation {
-            target: contentArea
-            property: "opacity"
-            to: 1
-            duration: Theme.ms(240)
-            easing.type: Easing.Bezier
-            easing.bezierCurve: Theme.easeEmphasizedDecel
+        ParallelAnimation {
+            NumberAnimation {
+                target: contentArea
+                property: "opacity"
+                to: 1
+                duration: Theme.ms(210)
+                easing.type: Easing.Bezier
+                easing.bezierCurve: Theme.easeEmphasizedDecel
+            }
+
+            NumberAnimation {
+                target: contentArea
+                property: "scale"
+                to: 1
+                duration: Theme.ms(210)
+                easing.type: Easing.Bezier
+                easing.bezierCurve: Theme.easeEmphasizedDecel
+            }
+
+        }
+
+    }
+
+    LauncherHead {
+        id: headBand
+
+        x: 0
+        y: 0
+        width: face.width
+        height: face.headHeight
+        visible: face.headOn
+        modes: face.modes
+        // the Live tab is the wallpaper picker too
+        current: face.displayMode === "live" ? "wallpaper" : face.displayMode
+        countLabel: face.countLabel
+        onChosen: (key) => {
+            face.modeRequested(key);
+            searchInput.forceActiveFocus();
+        }
+        onHomeRequested: {
+            face.modeRequested("apps");
+            searchInput.forceActiveFocus();
+        }
+    }
+
+    Rectangle {
+        x: 0
+        y: face.headHeight + Math.round(Prefs.launcherHeadGap / 2)
+        width: face.width
+        height: 1
+        color: Theme.divider
+        visible: face.headOn && !face.searchTop
+        opacity: resultList.scrolled && resultList.visible ? 1 : 0
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Theme.durFastEffects
+            }
+
         }
 
     }
@@ -115,85 +344,275 @@ Item {
     Item {
         id: contentArea
 
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: searchBar.top
-        anchors.bottomMargin: 12
-        clip: false
+        // explicit y, not a conditional anchor: an anchor once set never lets go
+        x: 0
+        y: face.headBlock + (face.searchTop ? face.searchHeight + Prefs.launcherContentGap : 0)
+        width: face.width
+        height: face.stableContentHeight
+        transformOrigin: Item.Center
+        clip: true
 
         LauncherList {
             id: resultList
 
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            // the clipboard shares the width with its preview
+            width: face.displayMode === "clipboard" ? Math.round(parent.width * 0.54) : parent.width
             visible: face.listVisible
             // Detach the model while hidden so the 50-row list (icons included)
             // doesn't keep delegates alive in wallpaper/power modes; the ListView
             // only instantiates the visible window on return.
             model: face.listVisible ? face.model : null
             query: face.highlightQuery
-            emptyLabel: face.displayMode === "commands" ? "No commands found" : (face.displayMode === "theme" ? "No themes found" : "No apps found")
-            onActivated: (index) => face.activated(index)
+            stableHeight: face.stableContentHeight
+            emptyLabel: {
+                if (face.displayMode === "commands")
+                    return "No commands found";
+
+                if (face.displayMode === "theme")
+                    return "No themes found";
+
+                if (face.displayMode === "emoji")
+                    return "No emoji match";
+
+                if (face.displayMode === "clipboard")
+                    return Clip.available ? "Nothing copied yet" : "Clipboard history is off";
+
+                return "Nothing matches that";
+            }
+            emptyHint: {
+                if (face.displayMode === "clipboard")
+                    return Clip.available ? "Anything you copy from here on shows up in this list." : "Install cliphist and what you copy is kept for you.";
+
+                if (face.displayMode === "apps")
+                    return "Try a shorter word, or start with one of these:";
+
+                return "";
+            }
+            // the prefixes, offered where an empty result is the moment they help
+            showPrefixes: face.displayMode === "apps"
+            onPrefixChosen: (p) => {
+                searchInput.text = p;
+                searchInput.forceActiveFocus();
+            }
+            onActivated: (index) => {
+                return face.activated(index);
+            }
+            onDeleteRequested: (index) => {
+                return face.deleteRequested(index);
+            }
+            onHideRequested: (index) => {
+                return face.hideRequested(index);
+            }
         }
 
-        WallpaperStrip {
-            id: wallStrip
-
-            anchors.fill: parent
-            visible: face.displayMode === "wallpaper"
-            // The wallpaper folder can hold hundreds of entries; keep the model
-            // detached unless this mode is showing so opening the launcher in
-            // apps mode never pays for those delegates/images.
-            model: face.displayMode === "wallpaper" ? face.wallpaperModel : null
-            heroW: face.wallHeroW
-            heroH: face.wallHeroH
-            midW: face.wallMidW
-            midH: face.wallMidH
-            smallW: face.wallSmallW
-            smallH: face.wallSmallH
-            itemGap: face.wallCardGap
-            appliedPath: face.appliedWallpaper
-            stableHeight: face.stableContentHeight
-            filterText: face.displayMode === "wallpaper" ? face.highlightQuery : ""
-            onChosen: (path) => face.wallpaperChosen(path)
-            onPreviewed: (path) => face.wallpaperPreviewed(path)
+        ClipPreview {
+            anchors.left: resultList.right
+            anchors.leftMargin: Theme.dp(12)
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            visible: face.displayMode === "clipboard"
+            entryId: face.clipEntryId
+            clearArmed: face.clearArmed
         }
 
-        PowerRow {
-            id: powerRow
+        // Pictures and Live, tall enough to be seen as the two halves of the picker
+        Column {
+            id: kindRail
+
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: Math.max(0, face.kindRailWidth - Theme.dp(12))
+            spacing: Theme.dp(8)
+            visible: face.pickerMode && face.kindRailWidth > 0
+
+            Repeater {
+                model: [{
+                    "key": "wallpaper",
+                    "label": "Pictures",
+                    "icon": "wallpaper"
+                }, {
+                    "key": "live",
+                    "label": "Live",
+                    "icon": "movie"
+                }]
+
+                Item {
+                    id: kind
+
+                    required property var modelData
+                    readonly property bool on: face.displayMode === kind.modelData.key
+                    readonly property color content: kind.on ? Theme.fgAccent : Theme.subtext
+
+                    width: kindRail.width
+                    height: (kindRail.height - kindRail.spacing) / 2
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: Theme.shapeXl
+                        color: kind.on ? Theme.accent : Theme.withBlur(Theme.surfaceHigh)
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: Theme.durDefaultEffects
+                            }
+
+                        }
+
+                        StateLayer {
+                            radius: Theme.shapeXl
+                            tint: kind.content
+                            onClicked: {
+                                face.pickerKindRequested(kind.modelData.key);
+                                searchInput.forceActiveFocus();
+                            }
+                        }
+
+                    }
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: Theme.dp(6)
+
+                        Icon {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            name: kind.modelData.icon
+                            size: Theme.dp(26)
+                            fill: kind.on ? 1 : 0
+                            color: kind.content
+                        }
+
+                        LText {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            role: "labelLarge"
+                            text: kind.modelData.label
+                            color: kind.content
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
+        Loader {
+            id: pickerLoader
 
             anchors.fill: parent
-            visible: face.displayMode === "power"
-            stableHeight: face.stableContentHeight
-            onActionChosen: (id) => face.powerActionChosen(id)
+            anchors.leftMargin: kindRail.visible ? face.kindRailWidth : 0
+            visible: face.pickerMode
+            source: face.pickerFiles[face.pickerStyle] || face.pickerFiles.strip
+            onLoaded: pickerRestore.restart()
+        }
+
+        // A style change is taken in this order on purpose: the old picker reports
+        // index 0 as it is torn down, and the new one does the same while its model
+        // arrives, neither of which is the user moving. So the index is read first,
+        // moves in the middle are ignored, and the new picker is put back where it was.
+        Connections {
+            function onWallpaperPickerStyleChanged() {
+                if (wallStrip)
+                    face.pickerIndex = wallStrip.currentIndex;
+
+                face.pickerSettling = true;
+                face.pickerStyle = Prefs.wallpaperPickerStyle;
+                pickerRestore.restart();
+            }
+
+            target: Prefs
+        }
+
+        Timer {
+            id: pickerRestore
+
+            interval: 60
+            onTriggered: {
+                face.restorePickerIndex();
+                pickerSettle.restart();
+            }
+        }
+
+        Timer {
+            id: pickerSettle
+
+            interval: 300
+            onTriggered: face.pickerSettling = false
+        }
+
+        // the picker styles share one interface; these hand it the panel's numbers
+        Binding { target: pickerLoader.item; property: "model"; value: face.wallpaperModel; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "heroW"; value: face.wallHeroW; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "heroH"; value: face.wallHeroH; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "midW"; value: face.wallMidW; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "midH"; value: face.wallMidH; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "smallW"; value: face.wallSmallW; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "smallH"; value: face.wallSmallH; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "tinyW"; value: face.wallTinyW; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "tinyH"; value: face.wallTinyH; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "itemGap"; value: face.wallCardGap; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "appliedPath"; value: face.appliedWallpaper; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "live"; value: face.displayMode === "live"; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "stableHeight"; value: face.stableContentHeight; when: pickerLoader.item !== null }
+
+        Connections {
+            function onChosen(path) {
+                face.wallpaperChosen(path);
+            }
+
+            function onPreviewed(path) {
+                face.wallpaperPreviewed(path);
+            }
+
+            function onCurrentIndexChanged() {
+                if (pickerLoader.item && !face.pickerSettling)
+                    face.pickerIndex = pickerLoader.item.currentIndex;
+            }
+
+            target: pickerLoader.item
+            ignoreUnknownSignals: true
         }
 
     }
 
+    // m3 search bar: 56dp tall, fully rounded, on surface container high
     Rectangle {
         id: searchBar
 
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        readonly property bool typing: searchInput.text !== ""
+
+        x: 0
+        y: face.searchTop ? face.headBlock : face.height - face.searchHeight
+        width: face.width
         height: face.searchHeight
-        radius: Theme.radiusPill
-        color: Theme.withBlur(Theme.bgTile)
+        radius: Theme.pill(height)
+        color: searchBar.typing ? Theme.withBlur(Theme.surfaceHighest) : Theme.withBlur(Theme.surfaceHigh)
+
+        Behavior on color {
+            ColorAnimation {
+                duration: Theme.durDefaultEffects
+            }
+
+        }
 
         Item {
             id: leadingButton
 
             readonly property bool isBack: face.mode !== "apps"
 
-            width: 34
-            height: 34
-            anchors.left: parent.left
-            anchors.leftMargin: 5
+            width: Math.round(40 * face.cs)
+            height: Math.round(40 * face.cs)
+            x: Theme.dp(8)
             anchors.verticalCenter: parent.verticalCenter
 
             Rectangle {
                 anchors.fill: parent
-                radius: width / 2
+                radius: Theme.pill(width)
                 color: Theme.text
                 opacity: leadingButton.isBack ? (leadTap.pressed ? Theme.statePressed : (leadHover.hovered ? Theme.stateHover : 0)) : 0
 
@@ -206,12 +625,11 @@ Item {
 
             }
 
-            DockGlyph {
+            Icon {
                 anchors.centerIn: parent
-                width: 17
-                height: 17
-                pathData: leadingButton.isBack ? DockIcons.arrowBack : DockIcons.search
-                glyphColor: leadingButton.isBack ? Theme.accent : Theme.subtext
+                name: leadingButton.isBack ? "arrow_back" : face.modeIcon
+                size: Math.round(24 * face.cs)
+                color: Theme.primary
             }
 
             HoverHandler {
@@ -232,74 +650,206 @@ Item {
         TextInput {
             id: searchInput
 
+            // m3 InputTextFont: body large, on surface
+            readonly property int typeSize: Math.round(Theme.typeSize("bodyLarge") * face.cs)
+
             anchors.left: leadingButton.right
-            anchors.leftMargin: 6
-            anchors.right: clearButton.left
-            anchors.rightMargin: 6
+            anchors.leftMargin: Theme.dp(8)
+            anchors.right: powerChips.visible ? powerChips.left : clearButton.left
+            anchors.rightMargin: Theme.dp(8)
             anchors.verticalCenter: parent.verticalCenter
             color: Theme.text
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontBody
-            font.weight: Font.Medium
+            font.pixelSize: searchInput.typeSize
+            font.variableAxes: Theme.axes(searchInput.typeSize, Theme.typeWeight("bodyLarge"), 0)
             clip: true
             focus: true
             selectByMouse: true
             selectionColor: Theme.alpha(Theme.accent, 0.35)
             selectedTextColor: Theme.text
-
             onTextChanged: face.resetSelection()
+            // the picker takes one pair of arrows (Settings -> Theme -> Arrow keys)
+            // and the search field keeps the other; Tiles is a grid and takes all four
             Keys.onUpPressed: {
                 if (face.listVisible)
                     resultList.step(-1);
+                else if (face.pickerMode && wallStrip && face.pickerGrid)
+                    wallStrip.stepVertical(-1);
+                else if (face.pickerMode && wallStrip && face.pickerUpDown)
+                    wallStrip.step(-1);
 
             }
             Keys.onDownPressed: {
                 if (face.listVisible)
                     resultList.step(1);
+                else if (face.pickerMode && wallStrip && face.pickerGrid)
+                    wallStrip.stepVertical(1);
+                else if (face.pickerMode && wallStrip && face.pickerUpDown)
+                    wallStrip.step(1);
 
             }
             Keys.onLeftPressed: (event) => {
-                if (face.displayMode === "wallpaper") {
-                    wallStrip.currentIndex = Math.max(0, wallStrip.currentIndex - 1);
-                    event.accepted = true;
-                } else if (face.displayMode === "power") {
-                    powerRow.step(-1);
+                if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown)) {
+                    if (wallStrip)
+                        wallStrip.step(-1);
                     event.accepted = true;
                 } else {
                     event.accepted = false;
                 }
             }
             Keys.onRightPressed: (event) => {
-                if (face.displayMode === "wallpaper" && face.wallpaperModel) {
-                    wallStrip.currentIndex = Math.min(face.wallpaperModel.count - 1, wallStrip.currentIndex + 1);
-                    event.accepted = true;
-                } else if (face.displayMode === "power") {
-                    powerRow.step(1);
+                if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown) && face.wallpaperModel) {
+                    if (wallStrip)
+                        wallStrip.step(1);
                     event.accepted = true;
                 } else {
                     event.accepted = false;
                 }
             }
-            Keys.onEscapePressed: face.closeRequested()
-            Keys.onReturnPressed: face.submit()
-            Keys.onEnterPressed: face.submit()
+            Keys.onDeletePressed: (event) => {
+                if (face.displayMode === "clipboard" && (event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier)) {
+                    face.armOrClear();
+                    event.accepted = true;
+                } else if (face.displayMode === "clipboard" && resultList.isSelectable(resultList.currentIndex)) {
+                    face.deleteRequested(resultList.currentIndex);
+                    event.accepted = true;
+                } else {
+                    event.accepted = false;
+                }
+            }
+            Keys.onTabPressed: (event) => {
+                face.cycleMode(event.modifiers & Qt.ShiftModifier ? -1 : 1);
+                event.accepted = true;
+            }
+            // Ctrl and a digit jumps straight to a mode, in the order the head shows them
             Keys.onPressed: (event) => {
                 if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
                     face.closeRequested()
                     event.accepted = true
+                    return ;
                 }
-            }
+                if (!(event.modifiers & Qt.ControlModifier) || event.key < Qt.Key_1 || event.key > Qt.Key_9) {
+                    event.accepted = false;
+                    return ;
+                }
+                var at = event.key - Qt.Key_1;
+                if (at < face.modes.length)
+                    face.modeRequested(face.modes[at].key);
 
-            Text {
+                event.accepted = true;
+            }
+            Keys.onEscapePressed: face.closeRequested()
+            Keys.onReturnPressed: face.submit()
+            Keys.onEnterPressed: face.submit()
+
+            // the placeholder rolls over when the mode changes, rather than cutting
+            LText {
+                id: ghost
+
                 anchors.verticalCenter: parent.verticalCenter
-                x: 2
+                x: Theme.dp(2)
+                role: "bodyLarge"
+                size: searchInput.typeSize
                 text: face.placeholder
-                color: Theme.subtextDim
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontBody
-                font.weight: Font.Medium
+                color: Theme.subtext
                 visible: searchInput.text === ""
                 z: -1
+
+                onTextChanged: rollIn.restart()
+
+                SequentialAnimation {
+                    id: rollIn
+
+                    ParallelAnimation {
+                        NumberAnimation {
+                            target: ghost
+                            property: "opacity"
+                            from: 0
+                            to: 1
+                            duration: Theme.durEnter
+                        }
+
+                        NumberAnimation {
+                            target: ghost
+                            property: "anchors.verticalCenterOffset"
+                            from: 7
+                            to: 0
+                            duration: Theme.durEnter
+                            easing.type: Easing.Bezier
+                            easing.bezierCurve: Theme.easeEmphasizedDecel
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
+        // in a fixed order whatever order they were picked in; restart, shut down
+        // and log out turn to the error colour and want a second press
+        Row {
+            id: powerChips
+
+            readonly property var shown: Power.actions.filter((a) => {
+                return face.powerButtons.indexOf(a.id) !== -1;
+            })
+
+            visible: face.showPowerChips && !searchBar.typing && face.mode === "apps" && powerChips.shown.length > 0
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.dp(8)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Theme.dp(2)
+
+            Repeater {
+                model: powerChips.shown
+
+                Item {
+                    id: chip
+
+                    required property var modelData
+                    readonly property bool armed: face.armedPower === chip.modelData.id
+
+                    width: Math.round(36 * face.cs)
+                    height: Math.round(36 * face.cs)
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: chip.armed ? Math.round(10 * face.cs) : Theme.pill(width)
+                        color: chip.armed ? Theme.error : Theme.text
+                        opacity: chip.armed ? 1 : (chipTap.pressed ? Theme.statePressed : (chipHover.hovered ? Theme.stateHover : 0))
+
+                        Behavior on radius {
+                            NumberAnimation {
+                                duration: Theme.durFastSpatial
+                                easing.type: Easing.Bezier
+                                easing.bezierCurve: Theme.curveFastSpatial
+                            }
+
+                        }
+
+                    }
+
+                    Icon {
+                        anchors.centerIn: parent
+                        name: chip.modelData.icon
+                        size: Math.round(20 * face.cs)
+                        color: chip.armed ? Theme.fgError : (chipHover.hovered ? Theme.text : Theme.subtext)
+                    }
+
+                    HoverHandler {
+                        id: chipHover
+                    }
+
+                    TapHandler {
+                        id: chipTap
+
+                        onTapped: face.powerChipTapped(chip.modelData.id)
+                    }
+
+                }
+
             }
 
         }
@@ -307,16 +857,16 @@ Item {
         Item {
             id: clearButton
 
-            width: searchInput.text !== "" ? 34 : 0
-            height: 34
+            width: searchBar.typing ? Math.round(40 * face.cs) : 0
+            height: Math.round(40 * face.cs)
             anchors.right: parent.right
-            anchors.rightMargin: searchInput.text !== "" ? 5 : 0
+            anchors.rightMargin: searchBar.typing ? Theme.dp(8) : 0
             anchors.verticalCenter: parent.verticalCenter
-            visible: searchInput.text !== ""
+            visible: searchBar.typing
 
             Rectangle {
                 anchors.fill: parent
-                radius: width / 2
+                radius: Theme.pill(width)
                 color: Theme.text
                 opacity: clearTap.pressed ? Theme.statePressed : (clearHover.hovered ? Theme.stateHover : 0)
 
@@ -329,12 +879,11 @@ Item {
 
             }
 
-            DockGlyph {
+            Icon {
                 anchors.centerIn: parent
-                width: 15
-                height: 15
-                pathData: DockIcons.close
-                glyphColor: clearHover.hovered ? Theme.text : Theme.subtext
+                name: "close"
+                size: Math.round(22 * face.cs)
+                color: clearHover.hovered ? Theme.text : Theme.subtext
             }
 
             HoverHandler {
@@ -360,15 +909,6 @@ Item {
 
         }
 
-    }
-
-    function submit() {
-        if (face.displayMode === "wallpaper")
-            wallStrip.activateCurrent();
-        else if (face.displayMode === "power")
-            powerRow.activateCurrent();
-        else
-            resultList.activateCurrent();
     }
 
 }
