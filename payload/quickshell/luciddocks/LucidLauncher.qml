@@ -57,11 +57,7 @@ PanelWindow {
     Item {
         id: canvas
         anchors.fill: parent
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            maskEnabled: true
-            maskSource: revealMask
-        }
+        // mask temporarily disabled: verify the surface, then re-enable the circle
 
     onVisibleChanged: {
         if (visible) {
@@ -78,7 +74,7 @@ PanelWindow {
         target: root
         property: "revealSize"
         from: 0
-        to: Math.max(root.width, root.height) * 1.45
+        to: 2600
         duration: Theme.durEnter
         easing.type: Easing.OutCubic
     }
@@ -89,7 +85,7 @@ PanelWindow {
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80))
         height: root.height
-        opacity: root.revealSize > 1 ? 1 : 0
+        opacity: 1
         targetWidth: root.width - root.panelPad
         targetHeight: root.bodyOpen ? root.height - root.panelPad : root.headHeight
         mode: root.dock ? root.dock.mode : "apps"

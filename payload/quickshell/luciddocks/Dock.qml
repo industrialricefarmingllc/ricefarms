@@ -100,7 +100,7 @@ PanelWindow {
     readonly property int placementMargin: dockWindow.launcherFromHidden ? 0 : Prefs.effectiveDockBottomMargin
     readonly property real hiddenOffset: dockWindow.dockRevealed ? 0 : -(shell.implicitHeight + dockWindow.placementMargin - 1)
     // a disabled dock's panel exists only while the launcher is up or shrinking away
-    readonly property bool shellShown: Prefs.dockEnabled || dockWindow.menuOpen || dockWindow.morphing
+    readonly property bool shellShown: Prefs.dockEnabled || (!dockWindow.externalLauncher && (dockWindow.menuOpen || dockWindow.morphing))
 
     onDockRevealedChanged: {
         if (dockWindow.dockRevealed) {
