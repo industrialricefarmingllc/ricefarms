@@ -60,9 +60,9 @@ PanelWindow {
 
         anchors.fill: parent
         fillMode: Image.Stretch
-        asynchronous: true
+        asynchronous: false
         cache: true
-        smooth: true
-        opacity: 0.25
+        smooth: false
+        mipmap: false
     }
 }

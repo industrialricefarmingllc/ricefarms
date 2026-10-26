@@ -23,7 +23,7 @@ KEY = os.path.join(CACHE, "wallpaper-softlight.key")
 PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
 MIX = 1.0
-VERSION = 3
+VERSION = 4
 
 
 def screen_size():
@@ -99,7 +99,35 @@ def main():
         b = np.array(base, dtype=np.float32)
         blended = soft_light(b, blurred)
         result = np.clip(b * (1.0 - MIX) + blended * MIX, 0.0, 1.0)
-        out_image = Image.fromarray((result * 255.0 + 0.5).astype(np.uint8), "RGB")
+        # bake the screen-bezel squircle corners into the overlay: black and
+        # opaque outside the superellipse, the 25% wash inside. This removes a
+        # second full-screen shader pass.
+        try:
+            prefs = json.load(open(os.path.join(HOME, ".config", "quickshell", "lucidprefs", "prefs.json")))
+            corner = min(72, round(float(prefs.get("barHeight", 35)) / 2))
+            f = float(prefs.get("squircleF", 0.5))
+        except (OSError, ValueError, TypeError):
+            corner, f = 19, 0.5
+        exponent = 2.0 + 4.0 * max(0.0, min(1.0, f))
+        alpha = np.full((height, width), 0.25, dtype=np.float32)
+        corner = max(1, min(corner, height // 2, width // 2))
+        yy, xx = np.mgrid[0:corner, 0:corner].astype(np.float32) + 0.5
+        edge = exponent / corner
+        quads = [
+            ((corner - xx) / corner, (corner - yy) / corner),
+            (xx / corner, (corner - yy) / corner),
+            ((corner - xx) / corner, yy / corner),
+            (xx / corner, yy / corner),
+        ]
+        for i, (qx, qy) in enumerate(quads):
+            v = np.power(qx, exponent) + np.power(qy, exponent)
+            cover = np.clip((v - 1.0) / edge + 0.5, 0.0, 1.0)
+            ys = 0 if i < 2 else height - corner
+            xs = 0 if i in (0, 2) else width - corner
+            alpha[ys:ys + corner, xs:xs + corner] = 1.0 - (1.0 - alpha[ys:ys + corner, xs:xs + corner]) * (1.0 - cover)
+            result[ys:ys + corner, xs:xs + corner] *= (1.0 - cover[..., None])
+        out_rgba = np.dstack([np.clip(result, 0.0, 1.0), np.clip(alpha, 0.0, 1.0)])
+        out_image = Image.fromarray((out_rgba * 255.0 + 0.5).astype(np.uint8), "RGBA")
 
         os.makedirs(CACHE, exist_ok=True)
         tmp = out + ".tmp"

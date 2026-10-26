@@ -1,7 +1,6 @@
 //@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING=gray
 // qt's default subpixel text splits into colour fringes on translucent surfaces
 import "./lucidbar"
-import "./lucidcorners"
 import "./luciddesktop"
 import "./luciddocks"
 import "./lucidkeys"
@@ -1762,12 +1761,6 @@ ShellRoot {
         WallpaperOverlay {
         }
 
-    }
-
-    // Fake rounded screen corners on every monitor (black inverted corners,
-    // Overlay layer so they mask windows like a physical rounded bezel).
-    ScreenCorners {
-        id: cornersMod
     }
 
 

@@ -797,7 +797,7 @@ Item {
         // layer, so force the same shadow here (skipped during the liquid
         // morph, whose LiquidShape already carries a shadow, and under
         // external glass, where the plugin draws it).
-        layer.enabled: pill.surfaceLayered || (!pill.popupMode && !pill.anyOpen && !pill.liquidDrawBody && !pill.externalGlass)
+        layer.enabled: pill.surfaceLayered || (pill.anyOpen && !pill.liquidDrawBody && !pill.externalGlass)
         layer.samples: 4
         layer.effect: MultiEffect {
             shadowEnabled: true
@@ -827,7 +827,9 @@ Item {
             id: shellContentClip
             anchors.fill: parent
             clip: true
-            layer.enabled: true
+            // the shader mask is only needed while a panel is morphing; the
+            // compact pills are already inside the squircle body
+            layer.enabled: pill.anyOpen || pill.popupMode || pill.liquidActive
             layer.effect: MultiEffect {
                 maskEnabled: true
                 maskSource: shellContentMask
