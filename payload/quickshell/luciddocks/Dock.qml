@@ -3028,16 +3028,8 @@ PanelWindow {
         height: dockWindow.menuOpen ? dockWindow.menuHeight : shell.implicitHeight
         radius: Math.min(Theme.rad(Prefs.dockRadius), Math.round(Theme.pill(shell.height)))
         // split, the islands below paint it
-        fillColor: (dockWindow.splitDrawn || dockWindow.extGlass) ? "transparent" : Theme.bg
+        fillColor: "transparent"
         smoothing: Prefs.squircleF
-
-        LucidBar.WallpaperBlur {
-            anchors.fill: parent
-            visible: !dockWindow.extGlass
-            hostWindow: dockWindow
-            offsetX: shell.x
-            offsetY: (dockWindow.screen ? dockWindow.screen.height : 912) - dockWindow.height + shell.y
-        }
 
         // corners meeting the screen edge square off in notch mode
         bottomLeftRadius: dockWindow.renderAsNotch ? 0 : shell.radius

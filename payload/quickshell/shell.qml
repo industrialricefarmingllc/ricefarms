@@ -26,6 +26,41 @@ import Quickshell.Wayland
 ShellRoot {
     id: root
 
+    // True once the running liquid-glass-hypr plugin understands the
+    // two-shape `u` union geometry. 0.8.32 is the first build with it; until
+    // the compositor is restarted with that build the bar keeps publishing
+    // ordinary one-shape pills (no shader-over-glass artifacts).
+    property bool glassUnion: false
+
+    Process {
+        id: glassCaps
+
+        command: ["hyprctl", "plugin", "list"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const m = /liquid-glass-hypr[\s\S]*?Version:\s*(\d+)\.(\d+)\.(\d+)/.exec(this.text);
+                if (m)
+                    root.glassUnion = Number(m[1]) > 0 || Number(m[2]) > 8 || (Number(m[2]) === 8 && Number(m[3]) >= 32);
+            }
+        }
+    }
+
+    // The shell can start before the compositor has finished loading plugins.
+    // Keep checking for a little while so a boot-order race does not disable
+    // the glass union for the whole session.
+    property int glassCapsTries: 0
+
+    Timer {
+        interval: 1500
+        repeat: true
+        running: !root.glassUnion && root.glassCapsTries < 12
+        onTriggered: {
+            root.glassCapsTries++;
+            glassCaps.running = true;
+        }
+    }
+
     // singletons are made lazily, and these have to be up before anything
     // asks: the KDE Connect bridge and its ipc target, the bluez extras, the
     // idle daemon, which owns hypridle.conf, the environment, which owns
@@ -215,6 +250,8 @@ ShellRoot {
             // the bar that speaks for the shell: it alone turns into notification
             // popups, raises the privacy toast and answers the modules' ipc
             readonly property bool primary: !Monitors.barEverywhere || bar.screen === Monitors.popupScreen
+            // Two-shape glass union support (see root.glassUnion).
+            readonly property bool glassUnion: root.glassUnion
             // what the shell's ipc targets reach on the main bar
             readonly property var clockModule: clockMod
             readonly property var mprisModule: mprisMod
@@ -329,9 +366,45 @@ ShellRoot {
                 return Math.round(v * 2) / 2;
             }
 
+            // One union pill for the liquid morph. The plugin draws the two
+            // sub-shapes as one glass body, with uUnionK as the smooth-min
+            // neck, so the glass itself stretches instead of a QML overlay
+            // being painted over it.
+            function liquidGlassPill(m) {
+                const cx = m.x + m.liquidCompactX;
+                const cy = m.y + m.liquidCompactY;
+                const cw = m.liquidCompactW;
+                const ch = m.liquidCompactH;
+                const px = m.x + m.liquidPanelX;
+                const py = m.y + m.liquidPanelY;
+                const pw = m.liquidPanelW;
+                const ph = m.liquidPanelH;
+                const x0 = Math.min(cx, px);
+                const y0 = Math.min(cy, py);
+                const x1 = Math.max(cx + cw, px + pw);
+                const y1 = Math.max(cy + ch, py + ph);
+                const cr = m.liquidCompactRadii;
+                const pr = m.liquidPanelRadii;
+                return {
+                    "x": bar.glassQ(x0),
+                    "y": bar.glassQ(y0),
+                    "w": Math.max(1, bar.glassQ(x1 - x0)),
+                    "h": Math.max(1, bar.glassQ(y1 - y0)),
+                    "r": [0, 0, 0, 0],
+                    "fl": [0, 0],
+                    "u": [
+                        cx - x0, cy - y0, cw, ch, cr.x, cr.y, cr.z, cr.w,
+                        px - x0, py - y0, pw, ph, pr.x, pr.y, pr.z, pr.w,
+                        m.liquidGoo
+                    ]
+                };
+            }
+
             function glassPillFor(m) {
                 if (!m || m.visible === false || m.shown === false || m.width <= 0.5)
                     return null;
+                if (m.liquidActive === true && root.glassUnion && !Prefs.barNotch)
+                    return [bar.liquidGlassPill(m)];
                 var isBarPill = m.surfaceX !== undefined;
                 var bx = bar.glassQ(isBarPill ? m.x + m.surfaceX : m.x);
                 var by = bar.glassQ(isBarPill ? m.y + m.surfaceY : m.y);
@@ -1685,6 +1758,55 @@ ShellRoot {
     // Overlay layer so they mask windows like a physical rounded bezel).
     ScreenCorners {
         id: cornersMod
+    }
+
+    // One screen-aligned soft-light wallpaper per monitor, below every normal
+    // window (WlrLayer.Bottom) and above the actual wallpaper. Window
+    // backgrounds are transparent, so the crop stays correct through drags,
+    // resizes and workspace switches for free.
+    Variants {
+        model: Quickshell.screens
+
+        PanelWindow {
+            required property var modelData
+
+            screen: modelData
+            color: "transparent"
+            exclusiveZone: -1
+            WlrLayershell.layer: WlrLayer.Bottom
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            WlrLayershell.namespace: "lucid-underlay"
+            mask: Region {
+            }
+
+            anchors {
+                top: true
+                bottom: true
+                left: true
+                right: true
+            }
+
+            FileView {
+                id: underlayPath
+
+                path: Quickshell.env("HOME") + "/.cache/quickshell/wallpaper-softlight.path"
+                watchChanges: true
+                onFileChanged: reload()
+                onLoaded: underlayImage.source = text().trim() !== "" ? "file://" + text().trim() : ""
+            }
+
+            Image {
+                id: underlayImage
+
+                anchors.fill: parent
+                fillMode: Image.Stretch
+                asynchronous: true
+                cache: true
+                smooth: true
+            }
+
+        }
+
     }
 
     PinnedWindows {

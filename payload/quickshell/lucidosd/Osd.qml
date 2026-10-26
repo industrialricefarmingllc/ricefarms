@@ -648,18 +648,10 @@ PanelWindow {
         height: osdWindow.isLevelType ? Theme.dp(50) : Theme.dp(56)
         width: osdWindow.isLevelType ? card.levelWidth : card.toggleWidth
         radius: height / 2
-        fillColor: Prefs.liquidGlassEnabled ? "transparent" : Theme.bg
+        fillColor: "transparent"
         // deliberately circular, not squircle: radius == height / 2 must draw a
         // true stadium pill. smoothing would flatten the ends into a blob.
         smoothing: 0
-
-        LucidBar.WallpaperBlur {
-            anchors.fill: parent
-            visible: !Prefs.liquidGlassEnabled
-            hostWindow: osdWindow
-            offsetX: ((osdWindow.screen ? osdWindow.screen.width : 1368) - osdWindow.width) / 2 + card.x
-            offsetY: (osdWindow.screen ? osdWindow.screen.height : 912) - osdWindow.height - osdWindow.margins.bottom + card.y
-        }
 
         opacity: osdWindow.cardVisible ? 1 : 0
         scale: osdWindow.cardVisible ? 1 : 0.9
