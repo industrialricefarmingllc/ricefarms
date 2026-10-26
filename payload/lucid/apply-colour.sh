@@ -36,4 +36,7 @@ jq --arg image "$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null || true)" '.i
 # the login screen cannot read a per-user palette, so paint the theme
 "$LUCID_DIR/sync-sddm.sh" 2>/dev/null || true
 
+# match kitty/GTK to the widget surface the shell just wrote
+"$HOME/.config/lucid/app-surface-sync.sh" 2>/dev/null || true
+
 echo "applied colour $THEME_COLOUR ($MATUGEN_SCHEME, contrast $MATUGEN_CONTRAST, $MODE)"
