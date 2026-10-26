@@ -91,8 +91,7 @@ Item {
     Row {
         id: modeRow
 
-        anchors.left: mark.right
-        anchors.leftMargin: Math.round(10 * head.cs)
+        x: (head.width - width) / 2
         anchors.verticalCenter: parent.verticalCenter
         spacing: head.gap
 
@@ -128,25 +127,14 @@ Item {
                         duration: Theme.ms(30 + entry.index * 34)
                     }
 
-                    ParallelAnimation {
-                        NumberAnimation {
-                            target: entry
-                            property: "opacity"
-                            from: 0
-                            to: 1
-                            duration: Theme.durEnter
-                        }
-
-                        NumberAnimation {
-                            target: entry
-                            property: "scale"
-                            from: 0.6
-                            to: 1
-                            duration: Theme.durEnter
-                            easing.type: Easing.Bezier
-                            easing.bezierCurve: Theme.curveDefaultSpatial
-                        }
-
+                    NumberAnimation {
+                        target: entry
+                        property: "scale"
+                        from: 0.6
+                        to: 1
+                        duration: Theme.durEnter
+                        easing.type: Easing.Bezier
+                        easing.bezierCurve: Theme.curveDefaultSpatial
                     }
 
                 }
@@ -223,26 +211,6 @@ Item {
 
                 }
 
-            }
-
-        }
-
-    }
-
-    LText {
-        anchors.right: parent.right
-        anchors.rightMargin: Math.round(6 * head.cs)
-        anchors.verticalCenter: parent.verticalCenter
-        role: "labelSmall"
-        size: Math.round(Theme.typeSize("labelSmall") * head.cs)
-        text: head.countLabel
-        color: Theme.subtextDim
-        visible: head.countLabel !== ""
-        opacity: head.countLabel !== "" ? 1 : 0
-
-        Behavior on opacity {
-            NumberAnimation {
-                duration: Theme.durFastEffects
             }
 
         }
