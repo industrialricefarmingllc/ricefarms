@@ -33,11 +33,24 @@ PanelWindow {
         right: true
     }
 
-    margins.top: Theme.dp(72)
+    margins.top: Theme.dp(72 + 20)
     implicitWidth: dock ? dock.menuWidth : Theme.dp(760)
-    implicitHeight: (root.bodyOpen ? (dock ? Math.min(dock.menuHeight, screen.height - Theme.dp(160)) : Theme.dp(520)) : headHeight) * 1.1
-    readonly property real headHeight: Theme.dp(72)
+
+    readonly property real scaleFactor: 1.35
+    readonly property real padH: 6
+    readonly property real padV: 8
+    readonly property real faceWidth: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80))
+    readonly property real openContentH: Math.min(root.dock ? root.dock.menuHeight : Theme.dp(520), (root.screen.height - root.margins.top - Theme.dp(32)) / root.scaleFactor - root.padV * 2)
+    readonly property real collapsedContentH: root.face ? root.face.headHeight : Prefs.launcherHeadH
+    readonly property real contentH: root.bodyOpen ? root.openContentH : root.collapsedContentH
     readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
+    implicitHeight: root.contentH * root.scaleFactor + root.padV * 2
+    Behavior on implicitHeight {
+        NumberAnimation {
+            duration: Theme.durDefault
+            easing.type: Easing.OutCubic
+        }
+    }
 
     // mask sources must live outside the item they mask
     Item {
@@ -54,21 +67,21 @@ PanelWindow {
         }
     }
 
+    onVisibleChanged: {
+        if (!visible)
+            return ;
+        bodyOpen = false;
+        revealSize = 0;
+        revealAnim.restart();
+        if (face)
+            face.focusSearch();
+    }
+
     // everything is layered so the window can be revealed through a circle
     Item {
         id: canvas
         anchors.fill: parent
         // mask temporarily disabled: verify the surface, then re-enable the circle
-
-    onVisibleChanged: {
-        if (visible) {
-            bodyOpen = false;
-            revealSize = 0;
-            revealAnim.restart();
-            if (face)
-                face.forceActiveFocus();
-        }
-    }
 
     NumberAnimation {
         id: revealAnim
@@ -81,9 +94,10 @@ PanelWindow {
     }
 
     SquircleRect {
-        anchors.fill: face
-        scale: 1.1
-        transformOrigin: Item.Top
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 0
+        width: face.width * root.scaleFactor + root.padH * 2
+        height: face.height * root.scaleFactor + root.padV * 2
         fillColor: Theme.bg
         radius: Theme.radiusXl
         smoothing: Prefs.squircleF
@@ -94,14 +108,15 @@ PanelWindow {
         id: face
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80))
-        height: root.height / 1.1
-        scale: 1.1
+        width: root.faceWidth
+        height: root.contentH
+        anchors.topMargin: root.padV
+        scale: root.scaleFactor
         transformOrigin: Item.Top
         headOnly: !root.bodyOpen
         opacity: 1
-        targetWidth: root.width - root.panelPad
-        targetHeight: root.bodyOpen ? (root.height / 1.1 - root.panelPad) : (root.headHeight / 1.1)
+        targetWidth: root.faceWidth - root.panelPad
+        targetHeight: root.bodyOpen ? (root.contentH - root.panelPad) : root.collapsedContentH
         mode: root.dock ? root.dock.mode : "apps"
         model: root.dock ? root.dock.launcherResultsModel : null
         resultCount: root.dock ? root.dock.resultCount : 0
@@ -167,12 +182,7 @@ PanelWindow {
     function cycleTab(dir) {
         if (!face || !face.modes || face.modes.length === 0)
             return;
-        var keys = face.modes.map((m) => m.key);
-        var i = keys.indexOf(face.mode);
-        if (i < 0) i = 0;
-        var next = keys[(i + dir + keys.length) % keys.length];
         root.bodyOpen = true;
-        root.revealSize = Math.max(root.width, root.height) * 1.45;
-        face.modeRequested(next);
+        face.cycleMode(dir);
     }
 }
