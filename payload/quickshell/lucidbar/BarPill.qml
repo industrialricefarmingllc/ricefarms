@@ -36,6 +36,26 @@ Item {
 
     signal compactClicked()
 
+    // Arrow/Tab moves to the previous/next expanded bar item; the panel keeps
+    // focus while open so keys land here after the panel's own controls pass.
+    focus: pill.anyOpen
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Escape) {
+            pill.expanded = false;
+            pill.altOpen = false;
+            event.accepted = true;
+            return ;
+        }
+        if (!pill.anyOpen || !pill.hostWindow || !pill.hostWindow.navigateModules)
+            return ;
+        if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+            pill.hostWindow.navigateModules(pill, -1);
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+            pill.hostWindow.navigateModules(pill, 1);
+            event.accepted = true;
+        }
+    }
     // ── liquid morph ────────────────────────────────────────────────────
     // Shape animation ported from Vitreus' bar drawers: an underdamped
     // spring (`drip = 170, 18`) grows the body out of the exact pressed
@@ -443,9 +463,10 @@ Item {
     property bool popupIsAlt: false
 
     onAnyOpenChanged: {
-        if (pill.anyOpen)
+        if (pill.anyOpen) {
             pill.popupIsAlt = pill.altOpen && !pill.expanded;
-        else
+            pill.forceActiveFocus();
+        } else
             pill.hoverOpen = false;
 
         if (pill.liquidMorph) {

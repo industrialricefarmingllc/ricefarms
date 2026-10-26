@@ -272,6 +272,36 @@ ShellRoot {
             visible: Prefs.loaded && Prefs.barEnabled && Monitors.surfacesUp && !bar.fullScreenOpen
             property bool laidOut: false
             readonly property bool anyModuleShown: bar.leftGroupWidth + bar.centreGroupWidth + bar.rightGroupWidth > 0.5
+            readonly property bool anyOpen: bar.modules.some((m) => {
+                return m && m.anyOpen === true;
+            })
+            WlrLayershell.keyboardFocus: bar.anyOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+
+            // arrow/tab navigation between the bar's expanded items
+            function navigateModules(from, dir) {
+                const mods = bar.modules.filter((m) => {
+                    return m && m.shown !== false && m.width > 0.5;
+                }).sort((a, b) => {
+                    return a.x - b.x;
+                });
+                if (mods.length === 0)
+                    return ;
+                let i = mods.indexOf(from);
+                if (i < 0)
+                    i = 0;
+                else
+                    i = (i + dir + mods.length) % mods.length;
+                for (const m of bar.modules) {
+                    if (m && "expanded" in m)
+                        m.expanded = false;
+                }
+                const target = mods[i];
+                if (target && "expanded" in target) {
+                    target.expanded = true;
+                    if (target.forceActiveFocus)
+                        target.forceActiveFocus();
+                }
+            }
             // keys, when given, lets modules joined to the next one sit flush against it
             function placeGroup(widths, originX, keys) {
                 const gap = Theme.dp(Prefs.barSpacing);
