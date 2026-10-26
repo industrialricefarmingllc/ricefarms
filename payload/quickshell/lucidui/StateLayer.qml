@@ -11,6 +11,7 @@ MouseArea {
     property color tint: Theme.text
     property bool ripple: true
     property bool disabled: false
+    property bool showFocusRing: true
     property real hoverOpacity: Theme.stateHover
     property real pressOpacity: Theme.statePressed
     readonly property bool active: sl.containsMouse && !sl.disabled
@@ -122,7 +123,7 @@ MouseArea {
         color: "transparent"
         border.width: sl.activeFocus ? Math.max(1, Theme.dp(2)) : 0
         border.color: Theme.accent
-        visible: sl.activeFocus
+        visible: sl.activeFocus && sl.showFocusRing
         z: 1000
     }
 
