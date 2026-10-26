@@ -22,8 +22,8 @@ CACHE = os.path.join(HOME, ".cache", "quickshell")
 KEY = os.path.join(CACHE, "wallpaper-softlight.key")
 PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
-MIX = 0.25
-VERSION = 2
+MIX = 1.0
+VERSION = 3
 
 
 def screen_size():

@@ -736,6 +736,13 @@ Item {
             autoPaddingEnabled: true
         }
 
+        WallpaperBlur {
+            anchors.fill: parent
+            hostWindow: pill.hostWindow
+            offsetX: pillRect.x
+            offsetY: Prefs.effectiveBarTopMargin + pillRect.y
+        }
+
         HoverHandler {
             id: pillHover
 
@@ -762,7 +769,7 @@ Item {
 
         LiquidGlassBg {
             anchors.fill: parent
-            visible: false
+            visible: !pill.liquidDrawBody
             externalGlass: pill.externalGlass
             hostWindow: pill.hostWindow
             targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
@@ -812,7 +819,7 @@ Item {
 
         LiquidGlassBg {
             anchors.fill: parent
-            visible: false
+            visible: !pill.liquidDrawBody
             externalGlass: pill.externalGlass
             hostWindow: pill.hostWindow
             targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
@@ -831,6 +838,12 @@ Item {
             layer.effect: MultiEffect {
                 maskEnabled: true
                 maskSource: shellContentMask
+            }
+            WallpaperBlur {
+                anchors.fill: parent
+                hostWindow: pill.hostWindow
+                offsetX: shell.x
+                offsetY: Prefs.effectiveBarTopMargin + shell.y
             }
             // content inside clipped container
             Item {

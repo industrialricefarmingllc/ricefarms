@@ -37,6 +37,7 @@ Item {
         height: root.screenH
         source: root.imagePath !== "" ? "file://" + root.imagePath : ""
         fillMode: Image.Stretch
+        opacity: 0.25
         asynchronous: true
         cache: true
         smooth: true

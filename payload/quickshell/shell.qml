@@ -1765,7 +1765,7 @@ ShellRoot {
     Variants {
         model: Quickshell.screens
 
-        WallpaperUnderlay {
+        WallpaperOverlay {
         }
 
     }
