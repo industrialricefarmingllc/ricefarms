@@ -23,7 +23,7 @@ KEY = os.path.join(CACHE, "wallpaper-softlight.key")
 PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
 MIX = 1.0
-VERSION = 5
+VERSION = 6
 
 
 def screen_size():
@@ -99,6 +99,20 @@ def main():
         b = np.array(base, dtype=np.float32)
         blended = soft_light(b, blurred)
         result = np.clip(b * (1.0 - MIX) + blended * MIX, 0.0, 1.0)
+        # 8x8 ordered dither: the wash is a near-flat gradient, and the
+        # 10/25% alpha quantisation bands visibly on a large screen
+        bayer = np.array([
+            [0, 32, 8, 40, 2, 34, 10, 42],
+            [48, 16, 56, 24, 50, 18, 58, 26],
+            [12, 44, 4, 36, 14, 46, 6, 38],
+            [60, 28, 52, 20, 62, 30, 54, 22],
+            [3, 35, 11, 43, 1, 33, 9, 41],
+            [51, 19, 59, 27, 49, 17, 57, 25],
+            [15, 47, 7, 39, 13, 45, 5, 37],
+            [63, 31, 55, 23, 61, 29, 53, 21],
+        ], dtype=np.float32) / 64.0 - 0.5
+        tile = np.tile(bayer, (height // 8 + 1, width // 8 + 1))[:height, :width]
+        result = np.clip(result + tile[..., None] / 255.0, 0.0, 1.0)
         # bake the screen-bezel squircle corners into the overlay: black and
         # opaque outside the superellipse, the 25% wash inside. This removes a
         # second full-screen shader pass.
