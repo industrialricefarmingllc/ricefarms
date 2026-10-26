@@ -22,22 +22,6 @@ Item {
             i = 0;
         face.modeRequested(keys[(i + dir + keys.length) % keys.length]);
     }
-    Keys.onTabPressed: (event) => {
-        face.cycleTab(1);
-        event.accepted = true;
-    }
-    Keys.onBacktabPressed: (event) => {
-        face.cycleTab(-1);
-        event.accepted = true;
-    }
-    Shortcut {
-        sequence: "Tab"
-        onActivated: face.cycleTab(1)
-    }
-    Shortcut {
-        sequence: "Shift+Tab"
-        onActivated: face.cycleTab(-1)
-    }
     property var model: null
     property var wallpaperModel: null
     // Settings -> Theme picks the style; unknown names fall back to the strip
@@ -231,6 +215,10 @@ Item {
 
     // Tab walks the mode set, so every mode is one key away from the keyboard too.
     // the entries that leave the launcher for a panel of their own are skipped
+    function focusSearch() {
+        searchInput.forceActiveFocus();
+    }
+
     function cycleMode(delta) {
         var stops = face.modes.filter((m) => {
             return m.leaves !== true;
@@ -260,6 +248,13 @@ Item {
     onModeChanged: face.requestModeTransition()
     focus: true
     Keys.onEscapePressed: face.closeRequested()
+    Behavior on height {
+        NumberAnimation {
+            duration: Theme.durDefault
+            easing.type: Easing.OutCubic
+        }
+    }
+
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
             face.closeRequested()
@@ -617,7 +612,9 @@ Item {
     // m3 search bar: 56dp tall, fully rounded, on surface container high
     Rectangle {
         id: searchBar
-        // stays focusable so typing can start while the body is still folded
+        // stays focusable so typing can start while the body is still folded;
+        // zero height removes its layout space too
+        height: face.headOnly ? 0 : face.searchHeight
         opacity: face.headOnly ? 0 : 1
 
         readonly property bool typing: searchInput.text !== ""
@@ -625,7 +622,6 @@ Item {
         x: 0
         y: face.searchTop ? face.headBlock : face.height - face.searchHeight
         width: face.width
-        height: face.searchHeight
         radius: Theme.pill(height)
         color: searchBar.typing ? Theme.withBlur(Theme.surfaceHighest) : Theme.withBlur(Theme.surfaceHigh)
 
