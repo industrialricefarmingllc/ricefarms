@@ -17,7 +17,7 @@ Item {
     readonly property var screen: root.hostWindow ? root.hostWindow.screen : null
     readonly property real screenW: root.screen ? root.screen.width : 1368
     readonly property real screenH: root.screen ? root.screen.height : 912
-    readonly property string imagePath: texture.text().trim()
+    property string imagePath: ""
 
     clip: true
 
@@ -27,6 +27,7 @@ Item {
         path: Quickshell.env("HOME") + "/.cache/quickshell/wallpaper-softlight.path"
         watchChanges: true
         onFileChanged: reload()
+        onLoaded: root.imagePath = text().trim()
     }
 
     Image {
