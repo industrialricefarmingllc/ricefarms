@@ -428,12 +428,38 @@ def light_tint():
     return float(k) if isinstance(k, (int, float)) and k >= 0 else TINT_AUTO
 
 
-def _tint(c, k, primary):
-    """Theme.qml's tint(): pull a neutral toward the accent's hue, then pin it
+def surface_seed():
+    """(hue 0..1, saturation) of the wallpaper's dominant chromatic colour.
+
+    app-surface-sync.sh writes it to ~/.cache/quickshell/surface-seed.json.
+    Theme.qml uses the same file for its surface ladder, so a yellow accent can
+    sit on the wallpaper's blue-grey background. None = tint by the accent.
+    """
+    try:
+        with open(os.path.expanduser("~/.cache/quickshell/surface-seed.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        hue = float(data.get("hue", -1))
+        sat = float(data.get("saturation", 0) or 0)
+        if 0 <= hue <= 360:
+            return (hue / 360.0, max(0.35, min(0.8, sat if sat > 0 else 0.4)))
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
+def _tint(c, k, primary, seed=None):
+    """Theme.qml's tintTo(): pull a neutral toward a source hue, then pin it
     back on its own tone so the ladder keeps its spacing."""
-    if k <= 0 or max(primary) == min(primary):
+    if k <= 0:
         return c
-    h, _, s = colorsys.rgb_to_hls(*primary)
+    if seed is not None:
+        h, s = seed
+    else:
+        if max(primary) == min(primary):
+            return c
+        h, _, s = colorsys.rgb_to_hls(*primary)
+    if h < 0:
+        return c
     t = tone(c)
     pure = at_tone(colorsys.hls_to_rgb(h, 0.55, max(0.55, min(1, s))), t)
     head = max(pure) - min(pure)
@@ -452,6 +478,7 @@ def app_surfaces(pal, k=None):
         return dict(pal)
     lowest = pal.get("surface_container_lowest") or surface
     shift = max(0, tone(lowest) - (100 - k * TINT_LIFT))
+    seed = surface_seed()
     out = dict(pal)
     for role in SURFACE_ROLES:
         v = pal.get(role)
@@ -459,5 +486,5 @@ def app_surfaces(pal, k=None):
             c = P(v)
             if shift:
                 c = at_tone(c, tone(c) - shift)
-            out[role] = hx(_tint(c, k, P(primary)))
+            out[role] = hx(_tint(c, k, P(primary), seed))
     return out
