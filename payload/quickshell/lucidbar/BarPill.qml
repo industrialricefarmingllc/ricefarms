@@ -54,7 +54,17 @@ Item {
     property real liquidOpenY: 0
     property real liquidOpenW: 0
     property real liquidOpenH: 0
-    readonly property bool liquidActive: pill.liquidMorph && pill.liquidRunning && !pill.externalGlass
+    readonly property bool glassUnion: !!(pill.hostWindow && pill.hostWindow.glassUnion)
+    readonly property bool liquidActive: pill.liquidMorph && pill.liquidRunning && (!pill.externalGlass || pill.glassUnion)
+    // The QML silhouette is only used when no external glass owns the body.
+    // With glass on, the compositor plugin draws the same union shape (see
+    // shell.qml's glassPillFor).
+    readonly property bool liquidDrawBody: pill.liquidActive && !pill.externalGlass
+    readonly property bool liquidCentre: pill.popupAlign === "center"
+    // Centre and right pills read as an extrusion when their body travels
+    // down from the click. Keep their top edge on the bar and let width lead;
+    // left pills keep the Vitreus drop/origin motion.
+    readonly property bool liquidTopPinned: pill.popupAlign === "center" || pill.popupAlign === "right"
     readonly property real liquidP: liquidSpring.value
     readonly property real liquidPad: 28
 
@@ -65,34 +75,68 @@ Item {
     readonly property real liquidCompactW: compactHolder.width
     readonly property real liquidCompactH: compactHolder.height
 
-    readonly property real liquidBubble: Math.max(10, Math.min(18, pill.compactHeight * 0.5))
-    // Vitreus' drawer growth curves: width rushes out first, height follows;
-    // the last of the overshoot shows as a bulge instead of a frozen cap.
-    readonly property real liquidGrowW: Math.min(1.25, Math.min(1, Math.max(0, pill.liquidP) * 1.6) + Math.max(0, pill.liquidP - 1) * 0.6)
-    readonly property real liquidGrowH: Math.min(1.25, Math.max(0, pill.liquidP) + Math.max(0, pill.liquidP - 1) * 0.6)
-    readonly property real liquidTravel: Math.min(1, Math.max(0, pill.liquidP) * 1.15)
+    readonly property real liquidBubble: Math.max(8, Math.min(12, pill.compactHeight * 0.34))
+    // The droplet is born at the click and dies back into it, so the shader
+    // silhouette at p=0 is exactly the compact pill (no last-frame pop).
+    readonly property real liquidBirth: Math.min(1, Math.max(0, pill.liquidP) * 8)
+    readonly property real liquidBubbleNow: pill.liquidBubble * pill.liquidBirth
+    // Vitreus' drawer growth curves: width rushes out first, height follows.
+    // The centre (clock) leads even harder with width and only drops its height
+    // once the stretch has widened — otherwise it reads as a tongue extruding
+    // down out of the bar.
+    readonly property real liquidGrowW: Math.min(1.18, Math.min(1, Math.max(0, pill.liquidP) * 1.45) + Math.max(0, pill.liquidP - 1) * 0.4)
+    readonly property real liquidGrowH: pill.liquidTopPinned ? Math.min(1.18, Math.max(0, (pill.liquidP - 0.30) / 0.70) + Math.max(0, pill.liquidP - 1) * 0.4) : Math.min(1.18, Math.max(0, pill.liquidP) + Math.max(0, pill.liquidP - 1) * 0.4)
+    readonly property real liquidTravel: Math.min(1, Math.max(0, pill.liquidP) * 1.3)
     // Drop stretch: the velocity of the spring bows the body wide for a
     // moment as it leaves the bar (capped; negatives do not squash it).
-    readonly property real liquidStretch: Math.max(0, Math.min(0.08, liquidSpring.velocity * 0.03))
-    readonly property real liquidPanelW: Math.max(1, (pill.liquidBubble + (Math.max(pill.liquidBubble, pill.liquidOpenW) - pill.liquidBubble) * pill.liquidGrowW) * (1 + pill.liquidStretch))
-    readonly property real liquidPanelH: Math.max(1, (pill.liquidBubble + (Math.max(pill.liquidBubble, pill.liquidOpenH) - pill.liquidBubble) * pill.liquidGrowH) * (1 - pill.liquidStretch * 0.5))
+    readonly property real liquidStretch: Math.max(0, Math.min(0.035, liquidSpring.velocity * 0.012))
+    readonly property real liquidPanelW: Math.max(0, (pill.liquidBubbleNow + (Math.max(pill.liquidBubbleNow, pill.liquidOpenW) - pill.liquidBubbleNow) * pill.liquidGrowW) * (1 + pill.liquidStretch))
+    readonly property real liquidPanelH: Math.max(0, (pill.liquidBubbleNow + (Math.max(pill.liquidBubbleNow, pill.liquidOpenH) - pill.liquidBubbleNow) * pill.liquidGrowH) * (1 - pill.liquidStretch * 0.5))
+    // Centre: top edge stays on the bar, width still grows from the click.
     readonly property real liquidPanelCx: pill.liquidOriginX + (pill.liquidOpenX + pill.liquidOpenW / 2 - pill.liquidOriginX) * pill.liquidTravel
-    readonly property real liquidPanelCy: pill.liquidOriginY + (pill.liquidOpenY + pill.liquidOpenH / 2 - pill.liquidOriginY) * pill.liquidTravel
-    readonly property real liquidPanelX: pill.liquidPanelCx - pill.liquidPanelW / 2
-    readonly property real liquidPanelY: pill.liquidPanelCy - pill.liquidPanelH / 2
+    readonly property real liquidPanelCy: pill.liquidTopPinned ? (pill.liquidOpenY + pill.liquidPanelH / 2) : (pill.liquidOriginY + (pill.liquidOpenY + pill.liquidOpenH / 2 - pill.liquidOriginY) * pill.liquidTravel)
+    readonly property real liquidPanelRawX: pill.liquidPanelCx - pill.liquidPanelW / 2
+    readonly property real liquidPanelRawY: pill.liquidPanelCy - pill.liquidPanelH / 2
+    // Keep the box inside compact ∪ open, with a little slack so a click near
+    // an edge still visibly bulges (and so the glass union never spills far
+    // over a neighbouring pill).
+    readonly property real liquidSlack: 8
+    readonly property real liquidClampX0: Math.min(pill.liquidCompactX, pill.liquidOpenX) - pill.liquidSlack
+    readonly property real liquidClampX1: Math.max(pill.liquidClampX0, Math.max(pill.liquidCompactX + pill.liquidCompactW, pill.liquidOpenX + pill.liquidOpenW) - pill.liquidPanelW + pill.liquidSlack)
+    readonly property real liquidClampY0: Math.min(pill.liquidCompactY, pill.liquidOpenY) - pill.liquidSlack
+    readonly property real liquidClampY1: Math.max(pill.liquidClampY0, Math.max(pill.liquidCompactY + pill.liquidCompactH, pill.liquidOpenY + pill.liquidOpenH) - pill.liquidPanelH + pill.liquidSlack)
+    readonly property real liquidPanelX: Math.max(pill.liquidClampX0, Math.min(pill.liquidClampX1, pill.liquidPanelRawX))
+    readonly property real liquidPanelY: Math.max(pill.liquidClampY0, Math.min(pill.liquidClampY1, pill.liquidPanelRawY))
+    // Neck width: in popup mode the compact pill and panel are separate, so
+    // pinch the neck off before the final handoff (otherwise the gap would
+    // visibly snap closed). Island mode can keep it.
+    readonly property real liquidGoo: {
+        const base = Math.max(6, Math.min(14, pill.compactHeight * 0.32)) * pill.liquidBirth;
+        if (!pill.popupMode)
+            return base;
+        return base * (1 - Math.max(0, Math.min(1, (pill.liquidP - 0.8) / 0.18)));
+    }
     // Round at birth (a drop), square up as it lands, exactly like Vitreus.
-    readonly property real liquidCornerMix: Math.max(0, Math.min(1, pill.liquidP * 1.6 - 0.1))
+    readonly property real liquidCornerMix: Math.max(0, Math.min(1, pill.liquidP * 2.2 - 0.05))
     readonly property real liquidCorner0: Math.min(pill.liquidPanelW, pill.liquidPanelH) / 2
+    readonly property real liquidPanelTL: pill.popupMode ? pill.capped(pill.notchedPopup ? pill.hangTops : null, "tl", pill.topRadius) : (pill.joinLeft ? 0 : pill.topRadius)
+    readonly property real liquidPanelTR: pill.popupMode ? pill.capped(pill.notchedPopup ? pill.hangTops : null, "tr", pill.topRadius) : (pill.joinRight ? 0 : pill.topRadius)
+    readonly property real liquidPanelBL: pill.popupMode ? pill.cornerRadius : pill.capped(pill.hangSides, "bl", pill.capped(pill.hangCorners, "bl", pill.joinLeft && !pill.hangSides ? 0 : pill.cornerRadius))
+    readonly property real liquidPanelBR: pill.popupMode ? pill.cornerRadius : pill.capped(pill.hangSides, "br", pill.capped(pill.hangCorners, "br", pill.joinRight && !pill.hangSides ? 0 : pill.cornerRadius))
+    readonly property real liquidCompactTL: pill.popupMode ? (pill.joinLeft ? 0 : pill.pillTopRadius) : (pill.joinLeft ? 0 : (Prefs.barFlush ? 0 : pill.closedRadius))
+    readonly property real liquidCompactTR: pill.popupMode ? (pill.joinRight ? 0 : pill.pillTopRadius) : (pill.joinRight ? 0 : (Prefs.barFlush ? 0 : pill.closedRadius))
+    readonly property real liquidCompactBL: pill.capped(pill.hangCorners, "bl", pill.joinLeft ? 0 : pill.closedRadius)
+    readonly property real liquidCompactBR: pill.capped(pill.hangCorners, "br", pill.joinRight ? 0 : pill.closedRadius)
     readonly property vector4d liquidPanelRadii: Qt.vector4d(
-        pill.liquidCorner0 + (pill.topRadius - pill.liquidCorner0) * pill.liquidCornerMix,
-        pill.liquidCorner0 + (pill.topRadius - pill.liquidCorner0) * pill.liquidCornerMix,
-        pill.liquidCorner0 + (pill.cornerRadius - pill.liquidCorner0) * pill.liquidCornerMix,
-        pill.liquidCorner0 + (pill.cornerRadius - pill.liquidCorner0) * pill.liquidCornerMix)
+        pill.liquidCorner0 + (pill.liquidPanelTL - pill.liquidCorner0) * pill.liquidCornerMix,
+        pill.liquidCorner0 + (pill.liquidPanelTR - pill.liquidCorner0) * pill.liquidCornerMix,
+        pill.liquidCorner0 + (pill.liquidPanelBR - pill.liquidCorner0) * pill.liquidCornerMix,
+        pill.liquidCorner0 + (pill.liquidPanelBL - pill.liquidCorner0) * pill.liquidCornerMix)
     readonly property vector4d liquidCompactRadii: Qt.vector4d(
-        pill.popupMode ? pill.pillTopRadius : (Prefs.barNotch ? 0 : pill.closedRadius),
-        pill.popupMode ? pill.pillTopRadius : (Prefs.barNotch ? 0 : pill.closedRadius),
-        pill.closedRadius,
-        pill.closedRadius)
+        pill.liquidCompactTL,
+        pill.liquidCompactTR,
+        pill.liquidCompactBR,
+        pill.liquidCompactBL)
 
     // Stable shader bounds for the whole transition: the layer texture must
     // not be reallocated on every spring frame.
@@ -404,7 +448,7 @@ Item {
         else
             pill.hoverOpen = false;
 
-        if (pill.liquidMorph && !pill.externalGlass) {
+        if (pill.liquidMorph) {
             if (pill.anyOpen) {
                 pill.captureLiquidOpen();
                 if (!pill.liquidHasOrigin)
@@ -412,7 +456,7 @@ Item {
                 pill.liquidHasOrigin = false;
                 pill.liquidRunning = true;
                 liquidSpring.target = 1;
-            } else if (pill.liquidRunning) {
+            } else if (pill.liquidP > 0.0001 || pill.liquidRunning) {
                 pill.liquidRunning = true;
                 liquidSpring.target = 0;
             }
@@ -621,8 +665,8 @@ Item {
     LiquidSpring {
         id: liquidSpring
 
-        stiffness: 170
-        damping: 18
+        stiffness: 190
+        damping: 24
         mass: 1
         epsilon: 0.002
         onSettled: {
@@ -637,19 +681,19 @@ Item {
         id: liquidBody
 
         z: -1
-        visible: pill.liquidActive
+        visible: pill.liquidDrawBody
         x: -pill.liquidPad
         y: -pill.liquidPad
         width: pill.liquidBoundsW
         height: pill.liquidBoundsH
         fillColor: Theme.bg
         smoothing: Prefs.squircleF
-        goo: Math.max(10, Math.min(26, pill.compactHeight * 0.55))
+        goo: pill.liquidGoo
         compactRect: Qt.vector4d(pill.liquidCompactX + pill.liquidPad, pill.liquidCompactY + pill.liquidPad, pill.liquidCompactW, pill.liquidCompactH)
         compactRadii: pill.liquidCompactRadii
         panelRect: Qt.vector4d(pill.liquidPanelX + pill.liquidPad, pill.liquidPanelY + pill.liquidPad, pill.liquidPanelW, pill.liquidPanelH)
         panelRadii: pill.liquidPanelRadii
-        layer.enabled: pill.liquidActive
+        layer.enabled: pill.liquidDrawBody
         layer.effect: MultiEffect {
             shadowEnabled: true
             shadowBlur: Theme.hyprShadowBlur
@@ -679,7 +723,7 @@ Item {
         bottomRightRadius: pill.capped(pill.hangCorners, "br", pill.joinRight ? 0 : Prefs.barPillRadius)
         // No QML shadow under external glass: the plugin draws it, and a
         // shadow of the transparent bg would blob around glyphs instead.
-        layer.enabled: !pill.externalGlass && !pill.liquidActive
+        layer.enabled: !pill.externalGlass && !pill.liquidDrawBody
         layer.samples: 4
         layer.effect: MultiEffect {
             shadowEnabled: true
@@ -690,6 +734,14 @@ Item {
             shadowVerticalOffset: Theme.hyprShadowOffsetY
             shadowScale: Theme.hyprShadowScale
             autoPaddingEnabled: true
+        }
+
+        WallpaperBlur {
+            anchors.fill: parent
+            visible: !pill.externalGlass
+            hostWindow: pill.hostWindow
+            offsetX: pill.hostWindow ? pill.hostWindow.x + pillRect.x : 0
+            offsetY: pill.hostWindow ? pill.hostWindow.y + pillRect.y : 0
         }
 
         HoverHandler {
@@ -718,7 +770,7 @@ Item {
 
         LiquidGlassBg {
             anchors.fill: parent
-            visible: !pill.liquidActive
+            visible: !pill.liquidDrawBody
             externalGlass: pill.externalGlass
             hostWindow: pill.hostWindow
             targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
@@ -749,7 +801,11 @@ Item {
         bottomLeftRadius: pill.popupMode ? pill.cornerRadius : pill.capped(pill.hangSides, "bl", pill.capped(pill.hangCorners, "bl", pill.joinLeft && !pill.hangSides ? 0 : pill.cornerRadius))
         bottomRightRadius: pill.popupMode ? pill.cornerRadius : pill.capped(pill.hangSides, "br", pill.capped(pill.hangCorners, "br", pill.joinRight && !pill.hangSides ? 0 : pill.cornerRadius))
         clip: true
-        layer.enabled: pill.surfaceLayered
+        // Panel path uses the layered shell; compact islands have no panel
+        // layer, so force the same shadow here (skipped during the liquid
+        // morph, whose LiquidShape already carries a shadow, and under
+        // external glass, where the plugin draws it).
+        layer.enabled: pill.surfaceLayered || (!pill.popupMode && !pill.anyOpen && !pill.liquidDrawBody && !pill.externalGlass)
         layer.samples: 4
         layer.effect: MultiEffect {
             shadowEnabled: true
@@ -764,7 +820,7 @@ Item {
 
         LiquidGlassBg {
             anchors.fill: parent
-            visible: !pill.liquidActive
+            visible: !pill.liquidDrawBody
             externalGlass: pill.externalGlass
             hostWindow: pill.hostWindow
             targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
@@ -783,6 +839,13 @@ Item {
             layer.effect: MultiEffect {
                 maskEnabled: true
                 maskSource: shellContentMask
+            }
+            WallpaperBlur {
+                anchors.fill: parent
+                visible: !pill.externalGlass
+                hostWindow: pill.hostWindow
+                offsetX: pill.hostWindow ? pill.hostWindow.x + shell.x : 0
+                offsetY: pill.hostWindow ? pill.hostWindow.y + shell.y : 0
             }
             // content inside clipped container
             Item {
