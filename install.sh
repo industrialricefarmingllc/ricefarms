@@ -293,6 +293,8 @@ phase_hypr_stack() {
   install_dir "$P/hypr" "$TARGET_HOME/.config/hypr"
   install_dir "$P/quickshell" "$TARGET_HOME/.config/quickshell"
   install_dir "$P/lucid" "$TARGET_HOME/.config/lucid"
+  install_file "$P/local-bin/nautilus" "$TARGET_HOME/.local/bin/nautilus" "755"
+  install_file "$P/dbus-1/services/org.gnome.Nautilus.service" "$TARGET_HOME/.local/share/dbus-1/services/org.gnome.Nautilus.service" "644"
   install_file "$P/systemd-user/quickshell.service" "$TARGET_HOME/.config/systemd/user/quickshell.service" "644"
   install_dir "$P/pibble" "$TARGET_HOME/src/pibble"
   # ~/.local/bin/pibble symlink
@@ -300,6 +302,7 @@ phase_hypr_stack() {
   else mkdir -p "$TARGET_HOME/.local/bin"; ln -sf "$TARGET_HOME/src/pibble/pibble" "$TARGET_HOME/.local/bin/pibble"; fi
   install_dir "$P/lucid-capture" "$TARGET_HOME/src/lucid-capture"
   build_lucid_capture
+  build_gtk_shim
   phase_hypr_plugins
   # user units: quickshell managed by hyprland.lua watchdog, service is fallback
   if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: systemctl --user enable quickshell.service (fallback)";
@@ -315,6 +318,18 @@ build_lucid_capture() {
   (run_cmd make -C "$d" || warn "lucid-capture build failed — Hyprland runs fine without it (source has it DISABLED since 2026-09-03 SEGV)") || true
 }
 
+build_gtk_shim() {
+  info "build: liblucidgtk.so (live gtk.css reload for Nautilus)"
+  local script="$TARGET_HOME/.config/lucid/build-gtk-shim.sh"
+  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: $script"; return 0; fi
+  [[ -f "$script" ]] || { warn "build-gtk-shim.sh missing — Nautilus will need a restart to recolour"; return 0; }
+  if ! command -v cc >/dev/null 2>&1 || ! pkg-config --exists gtk4 2>/dev/null; then
+    warn "cc/gtk4 headers missing — skipping GTK shim (Nautilus restart needed)"
+    return 0
+  fi
+  (run_cmd "$script" || warn "GTK shim build failed — Nautilus restart needed") || true
+}
+
 # Hyprland plugins + /usr/local/bin helpers.
 # liquid-glass-hypr (goo workspaces merged in since 0.5.0: GooMorph/GooPass
 # sources) is vendored as source and rebuilt (needs hyprland headers matching
@@ -323,8 +338,9 @@ build_lucid_capture() {
 # hypr-inputs-ready gates qs/pibble spawn on IPC+mice (DRM-master race fix).
 # minimize/restore-all + pin/unpin-all use lua-form `hyprctl eval hl.dispatch`
 # (native dispatch args are a parse error on this fork).
-# liquid-glass-toggle flips prefs.json liquidGlassEnabled (never unloads .so:
-# live unload SEGVs). gpu-tty-foot is the tty3 foot kiosk.
+# liquid-glass-toggle flips prefs.json liquidGlassEnabled + the independent
+# gooWorkspacesEnabled preference (never unloads .so: live unload SEGVs).
+# gpu-tty-foot is the tty3 foot kiosk.
 HYPR_HELPERS=(hypr-inputs-ready minimize-all restore-all liquid-glass-toggle pin-all unpin-all gpu-tty-foot)
 
 phase_hypr_plugins() {
@@ -438,10 +454,33 @@ install_bucklespring_sounds() {
 }
 
 build_buckle() {
-  info "build: buckle (manual make install upstream; binary not in pacman)"
-  if command -v buckle >/dev/null 2>&1; then info "buckle already present: $(command -v buckle)"; return 0; fi
-  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: build bucklespring from source -> /usr/local/bin/buckle"; return 0; fi
-  warn "buckle missing — build upstream: git clone https://github.com/zevv/bucklespring && cd bucklespring && make && sudo make install (then 'systemctl --user restart bucklespring')"
+  # Wayland: the X11 backend only sees XWayland clients, so build the libinput
+  # backend (reads /dev/input directly; user must be in the 'input' group).
+  info "build: buckle with libinput backend (not in pacman)"
+  local src="$TARGET_HOME/src/bucklespring"
+  local bin="$USRLOCAL_BIN/buckle"
+  local pin=""; [[ -f "$PAYLOAD_DIR/bucklespring-pin.txt" ]] && pin="$(cat "$PAYLOAD_DIR/bucklespring-pin.txt")"
+  local cur; cur="$(command -v buckle 2>/dev/null || true)"
+  if [[ -n "$cur" && "$(ldd "$cur" 2>/dev/null || true)" == *libinput* ]]; then
+    info "buckle with libinput already present: $cur"; return 0
+  fi
+  if [[ $DRY_RUN -eq 1 ]]; then
+    log "DRY-RUN: git clone bucklespring -> $src checkout ${pin:-master} + make libinput=1 + sudo install -> $bin"; return 0
+  fi
+  local pc
+  for pc in openal alure libinput libudev; do
+    pkg-config --exists "$pc" || { warn "buckle build dep missing: $pc (pacman -S alure openal libinput systemd-libs)"; return 0; }
+  done
+  if [[ -d "$src/.git" ]]; then
+    info "buckle src exists at $src (pin: ${pin:-unknown})"
+  else
+    run_cmd git clone https://github.com/zevv/bucklespring "$src" || { warn "buckle clone failed"; return 0; }
+  fi
+  if [[ -n "$pin" ]]; then (cd "$src" && run_cmd git checkout "$pin") || warn "buckle pin checkout failed"; fi
+  (cd "$src" && run_cmd make clean && run_cmd make libinput=1) || { warn "buckle build failed"; return 0; }
+  backup_file "$bin"
+  run_cmd sudo install -Dm755 "$src/buckle" "$bin" || { warn "buckle install failed"; return 0; }
+  log "installed libinput buckle -> $bin"
 }
 
 install_zed() {
@@ -679,6 +718,7 @@ export_payload() {
   export_dir "$S/.config/quickshell" "$P/quickshell"
   export_dir "$S/.config/lucid" "$P/lucid"
   export_file "$S/.config/systemd/user/quickshell.service" "$P/systemd-user/quickshell.service"
+  export_file "$S/.local/share/dbus-1/services/org.gnome.Nautilus.service" "$P/dbus-1/services/org.gnome.Nautilus.service"
   # pibble: full dir except .git
   if [[ -d "$S/src/pibble" ]]; then
     mkdir -p "$P/pibble"; (cd "$S/src/pibble" && tar --exclude=.git -cf - .) | (cd "$P/pibble" && tar -xf -); log "export-dir: src/pibble -> payload/pibble"
