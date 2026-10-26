@@ -1462,12 +1462,16 @@ BarPill {
                         sourceSize.height: Theme.dp(64)
                     }
 
-                    RotationAnimation on rotation {
-                        from: 0
-                        to: 360
-                        duration: 14000
-                        loops: Animation.Infinite
-                        running: root.isPlaying && compactArt.visible
+                    // 10fps instead of a continuous 60fps rotation: the bar is
+                    // a full-width layer surface and each frame recomposites
+                    // the whole strip for a 18px disc
+                    property real spin: 0
+                    rotation: compactArt.spin
+                    Timer {
+                        interval: 100
+                        repeat: true
+                        running: root.isPlaying && compactArt.visible && root.compactHovered
+                        onTriggered: compactArt.spin = (compactArt.spin + 2.571) % 360
                     }
 
                 }
@@ -1555,7 +1559,7 @@ BarPill {
                     // freeze while a panel is open: the compact face is faded
                     // out, so scrolling only burns texture churn through the
                     // morph for zero visible benefit
-                    scrolling: root.isPlaying && !root.anyOpen
+                    scrolling: root.isPlaying && !root.anyOpen && root.compactHovered
                     bold: true
                     // bar text uses one weight: the date's 700
                     weight: 700
@@ -2628,7 +2632,7 @@ BarPill {
 
                         // visible is the effective one: a closed panel stops the pulse
                         SequentialAnimation on opacity {
-                            running: root.isPlaying && liveDot.visible
+                            running: root.isPlaying && root.expanded && liveDot.visible
                             loops: Animation.Infinite
 
                             NumberAnimation {
