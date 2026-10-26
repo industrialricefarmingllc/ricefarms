@@ -459,7 +459,7 @@ BarPill {
                     anchors.verticalCenter: parent.verticalCenter
                     role: "labelLarge"
                     size: Theme.fs(13.5)
-                    weight: 600
+                    weight: 700
                     rounded: 100
                     text: root.wx ? Units.deg(root.wx.tempC, root.wx.tempF) : ""
                 }
