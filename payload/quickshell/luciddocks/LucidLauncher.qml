@@ -38,15 +38,7 @@ PanelWindow {
     readonly property real headHeight: Theme.dp(72)
     readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
 
-    // everything is layered so the window can be revealed through a circle
-    Item {
-        id: canvas
-        anchors.fill: parent
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            maskEnabled: true
-            maskSource: revealMask
-        }
+    // mask sources must live outside the item they mask
     Item {
         id: revealMask
         anchors.fill: parent
@@ -60,6 +52,16 @@ PanelWindow {
             color: "white"
         }
     }
+
+    // everything is layered so the window can be revealed through a circle
+    Item {
+        id: canvas
+        anchors.fill: parent
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: revealMask
+        }
 
     onVisibleChanged: {
         if (visible) {
