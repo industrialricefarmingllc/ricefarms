@@ -1,18 +1,60 @@
 #!/usr/bin/env bash
-# apply-theme.sh <theme-id>
+# apply-theme.sh [--shell-only|--apps-only] <theme-id> [dark|light]
 #
-# copies a static theme's palette into the cache Lucid reads, and mirrors it
-# into kitty and GTK if those are present. matugen and pywal don't go through
-# here — they generate their own palette and write the cache directly.
+# copies a theme's palette into the cache Lucid reads, then mirrors it into
+# kitty, spicetify's Sleek theme, VSCodium, Vesktop, GTK, starship and Steam —
+# each one only if it is actually installed — and renders every other template
+# in the matugen config with the theme's colours. pywal comes through here once
+# gen-pywal-palette.py has written its palette; matugen does not — it drives
+# those same apps from its own templates.
+#
+# in light mode the theme's own light palette is used. Only pywal ships one it
+# generated itself (from `wal -l`); every other theme is authored dark, so
+# gen-light-palette.py inverts it in tone space the first time it is needed and
+# again whenever the dark palette it came from has changed under it.
+#
+# --shell-only writes just the palette Lucid reads and --apps-only everything
+# else. set-wallpaper.sh splits the two, so a wallpaper being browsed recolours
+# the shell but leaves the other apps, and the gtk theme bounce that restyles
+# every window, until the browsing stops.
 
 set -euo pipefail
 
-THEME="${1:?usage: apply-theme.sh <theme-id>}"
-PALETTE="$HOME/.config/lucid/themes/$THEME/quickshell.json"
+STAGE=all
+case "${1:-}" in
+--shell-only) STAGE=shell; shift ;;
+--apps-only) STAGE=apps; shift ;;
+esac
+
+THEME="${1:?usage: apply-theme.sh [--shell-only|--apps-only] <theme-id> [dark|light]}"
+MODE="${2:-$(cat "$HOME/.cache/current_mode" 2>/dev/null || echo dark)}"
+THEME_DIR="$HOME/.config/lucid/themes/$THEME"
+PALETTE="$THEME_DIR/quickshell.json"
+
+if [[ "$MODE" != "dark" && "$MODE" != "light" ]]; then
+    echo "error: mode must be dark or light (got: $MODE)" >&2
+    exit 1
+fi
 
 if [[ ! -f "$PALETTE" ]]; then
     echo "error: no palette at $PALETTE" >&2
     exit 1
+fi
+
+if [[ "$MODE" == "light" ]]; then
+    LIGHT="$THEME_DIR/quickshell-light.json"
+    # rebuild when it is missing, or stale against the dark palette it came from
+    if [[ ! -f "$LIGHT" || "$PALETTE" -nt "$LIGHT" ]]; then
+        python3 "$HOME/.config/lucid/gen-light-palette.py" "$THEME_DIR" >/dev/null \
+            || echo "warning: could not build a light palette for $THEME" >&2
+    fi
+    # a bare [[ ]] as the last statement of the branch would take its non-zero
+    # exit straight out through set -e, so this stays an if
+    if [[ -f "$LIGHT" ]]; then
+        PALETTE="$LIGHT"
+    else
+        echo "warning: no light palette for $THEME, applying its dark one" >&2
+    fi
 fi
 
 if ! command -v jq &>/dev/null; then
@@ -20,22 +62,62 @@ if ! command -v jq &>/dev/null; then
     exit 1
 fi
 
-c() { jq -r --arg k "$1" '.[$k] // empty' "$PALETTE"; }
+# lucid — the only required output
+if [[ "$STAGE" != apps ]]; then
+    mkdir -p "$HOME/.cache/quickshell"
+    cp "$PALETTE" "$HOME/.cache/quickshell/matugen.json"
+fi
+if [[ "$STAGE" == shell ]]; then
+    echo "applied theme '$THEME' to the shell"
+    exit 0
+fi
+
+STARTED=$(date +%s)
+
+# the files written below get a light palette's surfaces as the shell draws them,
+# walked off white and tinted (app-palette.py). the templates take the raw one,
+# render-templates.sh does the same to them, and so does the login screen
+APP_PALETTE="$PALETTE"
+if [[ "$MODE" == light ]]; then
+    APPS=$(mktemp)
+    trap 'rm -f "$APPS"' EXIT
+    if python3 "$HOME/.config/lucid/app-palette.py" "$PALETTE" > "$APPS" 2>/dev/null; then
+        APP_PALETTE="$APPS"
+    else
+        echo "warning: could not build the apps' light surfaces" >&2
+    fi
+fi
+
+c() { jq -r --arg k "$1" '.[$k] // empty' "$APP_PALETTE"; }
+strip() { echo "${1#\#}"; }
 
 PRIMARY=$(c primary)
 ON_PRIMARY=$(c on_primary)
+PRIMARY_CONTAINER=$(c primary_container)
 SECONDARY=$(c secondary)
 SECONDARY_CONTAINER=$(c secondary_container)
 TERTIARY=$(c tertiary)
 ERROR=$(c error)
+ERROR_CONTAINER=$(c error_container)
 SURFACE=$(c surface)
 ON_SURFACE=$(c on_surface)
 SURFACE_VARIANT=$(c surface_variant)
+ON_SURFACE_VARIANT=$(c on_surface_variant)
 SURFACE_DIM=$(c surface_dim)
+SURFACE_CONTAINER_LOW=$(c surface_container_low)
+SURFACE_CONTAINER=$(c surface_container)
+SURFACE_CONTAINER_HIGH=$(c surface_container_high)
+SURFACE_CONTAINER_HIGHEST=$(c surface_container_highest)
+OUTLINE=$(c outline)
+OUTLINE_VARIANT=$(c outline_variant)
+SHADOW=$(c shadow)
 
-# lucid — the only required output
-mkdir -p "$HOME/.cache/quickshell"
-cp "$PALETTE" "$HOME/.cache/quickshell/matugen.json"
+# roles the matugen templates want that the older palettes never defined; use
+# the real one where a palette has it, otherwise the nearest role it does
+INVERSE_PRIMARY=$(c inverse_primary); INVERSE_PRIMARY="${INVERSE_PRIMARY:-$SECONDARY}"
+TERTIARY_CONTAINER=$(c tertiary_container); TERTIARY_CONTAINER="${TERTIARY_CONTAINER:-$SECONDARY_CONTAINER}"
+SURFACE_BRIGHT=$(c surface_bright); SURFACE_BRIGHT="${SURFACE_BRIGHT:-$SURFACE_CONTAINER_HIGH}"
+PRIMARY_FIXED_DIM=$(c primary_fixed_dim); PRIMARY_FIXED_DIM="${PRIMARY_FIXED_DIM:-$PRIMARY}"
 
 # kitty — 16 ansi slots over fewer roles, so some slots repeat
 if [[ -d "$HOME/.config/kitty" ]]; then
@@ -70,6 +152,150 @@ EOF
     killall -SIGUSR1 kitty 2>/dev/null || true
 fi
 
+# spotify — spicetify's Sleek theme reads color.ini, hex without the leading #
+SLEEK_DIR="$HOME/.config/spicetify/Themes/Sleek"
+if [[ -d "$SLEEK_DIR" ]]; then
+    cat > "$SLEEK_DIR/color.ini" <<EOF
+[matugen]
+text                = $(strip "$ON_SURFACE")
+subtext             = $(strip "$ON_SURFACE_VARIANT")
+main                = $(strip "$SURFACE")
+sidebar             = $(strip "$SURFACE_CONTAINER")
+player              = $(strip "$SURFACE_CONTAINER_HIGH")
+card                = $(strip "$SURFACE_CONTAINER_LOW")
+shadow              = $(strip "$SHADOW")
+selected-row        = $(strip "$SURFACE_CONTAINER_HIGHEST")
+button              = $(strip "$PRIMARY")
+button-active       = $(strip "$SECONDARY")
+button-disabled     = $(strip "$OUTLINE")
+tab-active          = $(strip "$SECONDARY_CONTAINER")
+notification        = $(strip "$PRIMARY")
+notification-error  = $(strip "$ERROR")
+misc                = $(strip "$OUTLINE_VARIANT")
+EOF
+    spicetify apply --no-restart &>/dev/null &
+fi
+
+# vscodium — the matugen theme extension hashes the raw list to spot a change
+# and reads it without a fallback, so it has to be written alongside the json
+mkdir -p "$HOME/.cache/matugen"
+cat > "$HOME/.cache/matugen/vscode-colors" <<EOF
+$SURFACE
+$ERROR
+$PRIMARY
+$TERTIARY
+$SECONDARY
+$INVERSE_PRIMARY
+$OUTLINE
+$ON_SURFACE
+$SURFACE_CONTAINER_HIGHEST
+$ERROR_CONTAINER
+$PRIMARY_CONTAINER
+$TERTIARY_CONTAINER
+$SECONDARY_CONTAINER
+$INVERSE_PRIMARY
+$OUTLINE_VARIANT
+$ON_SURFACE_VARIANT
+EOF
+cat > "$HOME/.cache/matugen/vscode-colors.json" <<EOF
+{
+  "workbench.colorCustomizations": {
+    "editor.background": "$SURFACE",
+    "editor.foreground": "$ON_SURFACE",
+    "sideBar.background": "$SURFACE_CONTAINER",
+    "sideBar.foreground": "$ON_SURFACE_VARIANT",
+    "activityBar.background": "$SURFACE_CONTAINER_HIGH",
+    "activityBar.foreground": "$PRIMARY",
+    "statusBar.background": "$SURFACE_CONTAINER_LOW",
+    "statusBar.foreground": "$ON_SURFACE",
+    "titleBar.activeBackground": "$SURFACE",
+    "titleBar.activeForeground": "$ON_SURFACE"
+  }
+}
+EOF
+
+# discord — vesktop watches its theme files and reloads them live
+if [[ -d "$HOME/.config/vesktop/themes" ]]; then
+    cat > "$HOME/.config/vesktop/themes/midnight-discord.css" <<EOF
+/**
+ * @name midnight
+ * @description A dark, rounded discord theme.
+ * @author refact0r
+ * @version 1.6.2
+ * @source https://github.com/refact0r/midnight-discord/blob/master/midnight.theme.css
+*/
+
+@import url('https://refact0r.github.io/midnight-discord/build/midnight.css');
+
+:root {
+	--font: 'figtree';
+	--corner-text: 'Midnight';
+
+    --online-indicator: $INVERSE_PRIMARY;
+	--dnd-indicator: $ERROR;
+	--idle-indicator: $TERTIARY_CONTAINER;
+	--streaming-indicator: $ON_PRIMARY;
+
+    --accent-1: $TERTIARY;
+	--accent-2: $PRIMARY;
+	--accent-3: $PRIMARY;
+	--accent-4: $SURFACE_BRIGHT;
+	--accent-5: $PRIMARY_FIXED_DIM;
+    --accent-new: $INVERSE_PRIMARY;
+	--mention: $SURFACE;
+	--mention-hover: $SURFACE_BRIGHT;
+
+	--text-0: $SURFACE;
+	--text-1: $ON_SURFACE;
+	--text-2: $ON_SURFACE;
+	--text-3: $ON_SURFACE_VARIANT;
+	--text-4: $ON_SURFACE_VARIANT;
+	--text-5: $OUTLINE;
+
+    --bg-1: $SURFACE_VARIANT;
+	--bg-2: $SURFACE_CONTAINER_HIGH;
+	--bg-3: $SURFACE_CONTAINER_LOW;
+	--bg-4: $SURFACE;
+	--hover: $SURFACE_BRIGHT;
+	--active: $SURFACE_BRIGHT;
+	--message-hover: $SURFACE_BRIGHT;
+
+	--spacing: 12px;
+	--list-item-transition: 0.2s ease;
+	--unread-bar-transition: 0.2s ease;
+	--moon-spin-transition: 0.4s ease;
+	--icon-spin-transition: 1s ease;
+
+	--roundness-xl: 22px;
+	--roundness-l: 20px;
+	--roundness-m: 16px;
+	--roundness-s: 12px;
+	--roundness-xs: 10px;
+	--roundness-xxs: 8px;
+
+	--discord-icon: none;
+	--moon-icon: block;
+	--moon-icon-url: url('https://upload.wikimedia.org/wikipedia/commons/c/c4/Font_Awesome_5_solid_moon.svg');
+	--moon-icon-size: auto;
+
+	--login-bg-filter: saturate(0.3) hue-rotate(-15deg) brightness(0.4);
+	--green-to-accent-3-filter: hue-rotate(56deg) saturate(1.43);
+	--blurple-to-accent-3-filter: hue-rotate(304deg) saturate(0.84) brightness(1.2);
+}
+
+.selected_f5eb4b,
+.selected_f6f816 .link_d8bfb3 {
+  color: var(--text-0) !important;
+  background: var(--accent-3) !important;
+}
+
+.selected_f6f816 .link_d8bfb3 * {
+  color: var(--text-0) !important;
+  fill: var(--text-0) !important;
+}
+EOF
+fi
+
 # gtk — only where the app already has a config dir
 for gtkdir in "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"; do
     [[ -d "$gtkdir" ]] || continue
@@ -93,5 +319,77 @@ for gtkdir in "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"; do
 @define-color sidebar_backdrop_color @window_bg_color;
 EOF
 done
+
+# gtk4 and libadwaita reread ~/.config/gtk-4.0/gtk.css when the colour scheme
+# changes, so flip it and back. a gtk-theme toggle reloads only the theme's own
+# css, and gtk3 reads its gtk.css once at startup: those apps need a reopen
+if SCHEME=$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null); then
+    SCHEME=${SCHEME//\'/}
+    [[ "$SCHEME" == prefer-light ]] && OTHER=prefer-dark || OTHER=prefer-light
+    gsettings set org.gnome.desktop.interface color-scheme "$OTHER" 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface color-scheme "$SCHEME" 2>/dev/null || true
+fi
+
+# starship — only its palette table is repainted, the prompt stays the user's
+"$HOME/.config/lucid/sync-starship.sh" "$APP_PALETTE" || echo "warning: could not repaint starship" >&2
+
+# every other app with a matugen template. matugen only renders its templates
+# from a wallpaper, so here they get this theme's colours instead: a scheme
+# matugen derives from the theme's primary fills the context (tonal palettes,
+# base16, the roles older palettes never defined) and the theme's own roles
+# replace its colours, so a template gets this theme's exact colours wherever
+# it has them. render-templates.sh does the rendering, as it does for the
+# wallpaper. templates for a file this script writes above are skipped — it
+# has its own writer, and starship's template would replace the whole prompt
+# where this script only swaps the palette.
+render_templates() {
+    local renderer="$HOME/.config/lucid/render-templates.sh"
+    command -v matugen &>/dev/null && [[ -x "$renderer" && -n "$PRIMARY" ]] || return 0
+
+    local work
+    work=$(mktemp -d)
+    printf '[config]\n\n[templates]\n' > "$work/empty.toml"
+    if matugen -c "$work/empty.toml" color hex "$PRIMARY" -m "$MODE" --dry-run --json hex -q \
+            > "$work/scheme.json" 2>/dev/null &&
+        jq --slurpfile p "$PALETTE" --arg mode "$MODE" \
+            --arg image "$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null || true)" '
+            .colors += ($p[0] | with_entries(select(.value | type == "string" and startswith("#"))
+                | .value = {dark: {color: .value}, light: {color: .value}, default: {color: .value}}))
+            | .mode = $mode | .is_dark_mode = ($mode == "dark") | .image = $image' \
+            "$work/scheme.json" > "$work/colours.json" 2>/dev/null; then
+        "$renderer" "$work/colours.json" "$MODE" "$THEME" \
+            --skip "$HOME/.cache/quickshell/matugen.json" \
+            --skip "$HOME/.config/kitty/matugen-colors.conf" \
+            --skip "$HOME/.cache/matugen/vscode-colors" \
+            --skip "$HOME/.cache/matugen/vscode-colors.json" \
+            --skip "$HOME/.config/vesktop/themes/midnight-discord.css" \
+            --skip "$HOME/.config/gtk-3.0/colors.css" \
+            --skip "$HOME/.config/gtk-4.0/colors.css" \
+            --skip "$HOME/.config/starship.toml" || true
+    else
+        echo "warning: could not build the colours for the matugen templates" >&2
+    fi
+    rm -rf "$work"
+}
+render_templates || true
+
+# steam — an older setup gave millennium's material theme a matugen config of its
+# own. the installer registers it as an ordinary template now, and once the
+# templates above have written that file this would only overwrite it, late, with
+# colours built from the accent alone
+STEAM_CFG="$HOME/.config/matugen-steam/config.toml"
+if command -v matugen &>/dev/null && [[ -f "$STEAM_CFG" ]]; then
+    STEAM_OUT=$(sed -n "s/^[[:space:]]*output_path[[:space:]]*=[[:space:]]*['\"]\([^'\"]*\)['\"].*/\1/p" "$STEAM_CFG" | head -n1)
+    STEAM_OUT="${STEAM_OUT/#\~/$HOME}"
+    if ! jq -e --arg o "$STEAM_OUT" --argjson since "$STARTED" \
+            '.time >= $since and any(.templates[]; .output == $o and .state == "ok")' \
+            "$HOME/.cache/lucid/templates.json" &>/dev/null; then
+        matugen -c "$STEAM_CFG" color hex "$PRIMARY" -m "$MODE" &>/dev/null &
+    fi
+fi
+
+# sddm — the login screen cannot read a per-user palette, so paint the theme.
+# a no-op unless the theme file is writable by whoever is applying.
+"$HOME/.config/lucid/sync-sddm.sh" "$PALETTE" 2>/dev/null || true
 
 echo "applied theme '$THEME'"

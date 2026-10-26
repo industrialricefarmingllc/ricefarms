@@ -74,6 +74,8 @@ fi
 touch /tmp/matugen-theme-toggle.lock
 mkdir -p "$HOME/.cache/quickshell"
 printf '%s' "$MODE" > "$HOME/.cache/quickshell/theme_mode.tmp" && mv -f "$HOME/.cache/quickshell/theme_mode.tmp" "$HOME/.cache/quickshell/theme_mode"
+# lucid 1.20.1 reads its mode from ~/.cache/current_mode (see set-mode.sh)
+printf '%s' "$MODE" > "$HOME/.cache/current_mode"
 printf '%s' "$MODE" > "$HOME/.cache/hypr_last_wallpaper_mode"
 if command -v gsettings >/dev/null 2>&1; then
   if [[ "$MODE" == "light" ]]; then gsettings set org.gnome.desktop.interface color-scheme 'prefer-light' 2>/dev/null || true; else gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true; fi

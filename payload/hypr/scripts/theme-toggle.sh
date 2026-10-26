@@ -14,6 +14,8 @@ touch /tmp/matugen-theme-toggle.lock
 mkdir -p "$(dirname "$THEME_FILE")"
 printf '%s' "$NEW" > "${THEME_FILE}.tmp" && mv -f "${THEME_FILE}.tmp" "$THEME_FILE"
 printf '%s' "$NEW" > "$HYPR_MODE_FILE"
+# lucid 1.20.1 reads its mode from ~/.cache/current_mode
+printf '%s' "$NEW" > "$HOME/.cache/current_mode"
 # keep gsettings in sync (for GTK apps & quickshell theme OS)
 # NOTE: Everforest themes are not installed - use built-in Adwaita base.
 # apply-gtk-mode.sh (via wallpaper-matugen.sh) layers pure-black on top in dark.
