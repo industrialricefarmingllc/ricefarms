@@ -1690,6 +1690,10 @@ ShellRoot {
 
     }
 
+    LucidLauncher {
+        dock: dock
+    }
+
     Dock {
         id: dock
     }

@@ -1,0 +1,166 @@
+import QtQuick
+import QtQuick.Effects
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import qs
+import qs.lucidui
+import qs.lucidprefs as LP
+
+// Raycast-like top-centre launcher. It reuses the dock's LauncherFace and its
+// models, but owns the surface: top anchored, collapsed to the head row until a
+// tab is picked or typing begins, revealed through a growing circle.
+PanelWindow {
+    id: root
+
+    property var dock: null
+    property bool bodyOpen: false
+    property real revealSize: 0
+
+    screen: dock ? (dock.launcherScreen || dock.screen) : null
+    visible: dock ? dock.menuOpen : false
+    color: "transparent"
+    exclusiveZone: -1
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: root.visible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    WlrLayershell.namespace: "lucid-launcher"
+    mask: Region { item: face }
+
+    anchors {
+        top: true
+        left: true
+        right: true
+    }
+
+    margins.top: Theme.dp(72)
+    implicitWidth: dock ? dock.menuWidth : Theme.dp(760)
+    implicitHeight: root.bodyOpen ? (dock ? Math.min(dock.menuHeight, screen.height - Theme.dp(160)) : Theme.dp(520)) : headHeight
+    readonly property real headHeight: Theme.dp(72)
+    readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
+
+    // everything is layered so the window can be revealed through a circle
+    Item {
+        id: canvas
+        anchors.fill: parent
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: revealMask
+        }
+    Item {
+        id: revealMask
+        anchors.fill: parent
+        visible: false
+        layer.enabled: true
+        Rectangle {
+            anchors.centerIn: parent
+            width: root.revealSize
+            height: root.revealSize
+            radius: width / 2
+            color: "white"
+        }
+    }
+
+    onVisibleChanged: {
+        if (visible) {
+            bodyOpen = false;
+            revealSize = 0;
+            revealAnim.restart();
+            if (face)
+                face.forceActiveFocus();
+        }
+    }
+
+    NumberAnimation {
+        id: revealAnim
+        target: root
+        property: "revealSize"
+        from: 0
+        to: Math.max(root.width, root.height) * 1.45
+        duration: Theme.durEnter
+        easing.type: Easing.OutCubic
+    }
+
+    LauncherFace {
+        id: face
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(root.dock ? root.dock.menuWidth : Theme.dp(760), root.screen.width - Theme.dp(80))
+        height: root.height
+        opacity: root.revealSize > 1 ? 1 : 0
+        targetWidth: root.width - root.panelPad
+        targetHeight: root.bodyOpen ? root.height - root.panelPad : root.headHeight
+        mode: root.dock ? root.dock.mode : "apps"
+        model: root.dock ? root.dock.launcherResultsModel : null
+        resultCount: root.dock ? root.dock.resultCount : 0
+        wallpaperModel: root.dock ? root.dock.launcherPickerModel : null
+        kindRailWidth: root.dock ? root.dock.wallKindRailWidth : 0
+        wallHeroW: root.dock ? root.dock.wallHeroW : 0
+        wallHeroH: root.dock ? root.dock.wallHeroH : 0
+        wallMidW: root.dock ? root.dock.wallMidW : 0
+        wallMidH: root.dock ? root.dock.wallMidH : 0
+        wallSmallW: root.dock ? root.dock.wallSmallW : 0
+        wallSmallH: root.dock ? root.dock.wallSmallH : 0
+        wallTinyW: root.dock ? root.dock.wallTinyW : 0
+        wallTinyH: root.dock ? root.dock.wallTinyH : 0
+        wallCardGap: root.dock ? root.dock.wallCardGap : 0
+        appliedWallpaper: root.dock ? root.dock.appliedWallpaper : ""
+        highlightQuery: root.dock ? root.dock.filterQuery : ""
+        showPowerChips: Prefs.launcherPowerChips
+        powerButtons: String(Prefs.launcherPowerButtons).split(",")
+        armedPower: root.dock ? root.dock.armedPower : ""
+        onPowerChipTapped: (id) => root.dock && root.dock.requestPower(id)
+        onActivated: (index) => root.dock && root.dock.activateResult(index)
+        onCloseRequested: if (root.dock) root.dock.menuOpen = false
+        onBackRequested: if (root.dock) root.dock.setSearchText(root.dock.mode === "commands" ? "" : ">")
+        onModeRequested: (m) => {
+            if (!root.dock) return;
+            root.bodyOpen = true;
+            root.revealSize = Math.max(root.width, root.height) * 1.45;
+            if (m === "power") { root.dock.menuOpen = false; root.dock.openSession(); return; }
+            if (m === "widgets") { root.dock.openWidgetPanel(); return; }
+            root.dock.setSearchText(root.dock.prefixFor(m));
+        }
+        onDeleteRequested: (index) => root.dock && root.dock.deleteResult(index)
+        onHideRequested: (index) => root.dock && root.dock.hideResult(index)
+        onClearRequested: Clip.wipe()
+        onWallpaperPreviewed: (path) => root.dock && root.dock.requestWallpaper(path)
+        onWallpaperChosen: (path) => {
+            if (!root.dock) return;
+            var picker = face.wallStrip;
+            root.dock.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
+            root.dock.menuOpen = false;
+        }
+        onSearchTextChanged: if (face.searchText !== "") {
+            root.bodyOpen = true;
+            root.revealSize = Math.max(root.width, root.height) * 1.45;
+        }
+    }
+    }
+
+    Component.onCompleted: if (root.dock) root.dock.externalFace = face
+    Component.onDestruction: if (root.dock) root.dock.externalFace = null
+
+    // Tab cycles only the launcher's tabs; nothing else in the window sees Tab.
+    Shortcut {
+        sequence: "Tab"
+        enabled: root.visible
+        onActivated: root.cycleTab(1)
+    }
+    Shortcut {
+        sequence: "Shift+Tab"
+        enabled: root.visible
+        onActivated: root.cycleTab(-1)
+    }
+    function cycleTab(dir) {
+        if (!face || !face.modes || face.modes.length === 0)
+            return;
+        var keys = face.modes.map((m) => m.key);
+        var i = keys.indexOf(face.mode);
+        if (i < 0) i = 0;
+        var next = keys[(i + dir + keys.length) % keys.length];
+        root.bodyOpen = true;
+        root.revealSize = Math.max(root.width, root.height) * 1.45;
+        face.modeRequested(next);
+    }
+}

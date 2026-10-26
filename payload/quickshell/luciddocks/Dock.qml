@@ -223,6 +223,12 @@ PanelWindow {
     // one being worked on; with the dock on it grows out of the dock and stays
     // there. shell.qml moves the window, so this runs before menuOpen flips
     property var launcherScreen: null
+    // when the standalone top-centre launcher is in use, it registers here
+    property bool externalLauncher: true
+    property var externalFace: null
+    readonly property var launcherItem: externalFace ? externalFace : launcherLoader.item
+    readonly property var launcherResultsModel: resultsModel
+    readonly property var launcherPickerModel: dockWindow.pickerModel
     // dropped once the dock is back on, or once that display is unplugged:
     // a surface sent to a dead display is never drawn
     readonly property var launcherPlacement: !Prefs.dockEnabled && dockWindow.launcherScreen && Quickshell.screens.indexOf(dockWindow.launcherScreen) >= 0 ? dockWindow.launcherScreen : null
@@ -297,8 +303,8 @@ PanelWindow {
             text = ">live";
 
         dockWindow.launcherBuilt = true;
-        if (launcherLoader.item)
-            launcherLoader.item.searchText = text;
+        if (dockWindow.launcherItem)
+            dockWindow.launcherItem.searchText = text;
     }
 
     onMenuOpenChanged: {
@@ -360,8 +366,6 @@ PanelWindow {
     property string fallbackWallpaper: Qt.resolvedUrl("../assets/fallback.jpg").toString().replace("file://", "")
     property var scannedApps: []
     readonly property string currentTheme: Prefs.currentTheme
-    property string pendingWallpaper: ""
-    property point pendingOrigin: Qt.point(-1, -1)
     property string appliedWallpaper: ""
     // what the picker asked set-wallpaper.sh for since the desktop last caught up
     property var requestedWallpapers: ({})
@@ -499,7 +503,7 @@ PanelWindow {
 
     }
 
-    readonly property string rawQuery: launcherLoader.item ? launcherLoader.item.searchText : ""
+    readonly property string rawQuery: dockWindow.launcherItem ? dockWindow.launcherItem.searchText : ""
 
     function modeFor(raw) {
         var q = raw.toLowerCase();
@@ -575,8 +579,8 @@ PanelWindow {
         dockWindow.armedPower = "";
         dockWindow.rebuildResults();
         // the face already reset itself, but against the pre-rebuild rows
-        if (launcherLoader.item)
-            launcherLoader.item.resetSelection();
+        if (dockWindow.launcherItem)
+            dockWindow.launcherItem.resetSelection();
     }
     // onModeChanged reads the mode itself: pickerMode and pickerModel may not
     // have caught up with it yet when the handler runs
@@ -771,7 +775,7 @@ PanelWindow {
     property int resultCount: 0
     readonly property real menuContentMax: dockWindow.menuMaxHeight - dockWindow.panelPadding - Prefs.launcherChromeH
     // with no rows the panel is as tall as the empty state, not a fixed floor that cut it
-    readonly property real menuContentMin: dockWindow.resultsHeight > 0 || !launcherLoader.item ? Theme.dp(70) : Math.max(Theme.dp(70), launcherLoader.item.emptyHeight)
+    readonly property real menuContentMin: dockWindow.resultsHeight > 0 || !dockWindow.launcherItem ? Theme.dp(70) : Math.max(Theme.dp(70), dockWindow.launcherItem.emptyHeight)
     readonly property real menuHeight: {
         var content;
         if (dockWindow.pickerMode)
@@ -1500,8 +1504,8 @@ PanelWindow {
 
         }
         dockWindow.resultCount = pickable;
-        if (launcherLoader.item)
-            launcherLoader.item.resultsChanged();
+        if (dockWindow.launcherItem)
+            dockWindow.launcherItem.resultsChanged();
     }
 
     // must agree with LauncherList.rowHeight()
@@ -1670,11 +1674,11 @@ PanelWindow {
         if (!dockWindow.wallpaperArmed || path === "" || path === dockWindow.appliedWallpaper)
             return;
 
-        dockWindow.pendingWallpaper = path;
-        // where the card being previewed sits, for transitions that grow from it
-        var picker = launcherLoader.item ? launcherLoader.item.wallStrip : null;
-        dockWindow.pendingOrigin = picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1);
-        wallpaperDebounce.restart();
+        // the picker debounces the selection before this fires (previewInterval),
+        // so the wallpaper can be set at once: a second delay here would let a
+        // stale card land while the strip is still moving
+        var picker = dockWindow.launcherItem ? dockWindow.launcherItem.wallStrip : null;
+        dockWindow.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
     }
 
     // a point given as fractions of this window, as fractions of the screen it is on:
@@ -1804,7 +1808,7 @@ PanelWindow {
     // fades in and a ListView starts at its first card again, so this runs
     // once more when it is actually showing.
     function selectPickerForDisplay() {
-        if (!dockWindow.pickerMode || !launcherLoader.item)
+        if (!dockWindow.pickerMode || !dockWindow.launcherItem)
             return ;
 
         const model = dockWindow.pickerModel;
@@ -1821,26 +1825,26 @@ PanelWindow {
                 }
             }
         }
-        const strip = launcherLoader.item.wallStrip;
+        const strip = dockWindow.launcherItem.wallStrip;
         if (strip && strip.currentIndex === idx)
             return ;
 
-        launcherLoader.item.setWallpaperIndex(idx);
+        dockWindow.launcherItem.setWallpaperIndex(idx);
     }
 
     function syncStripToCurrent(orFirst) {
         const model = dockWindow.pickerModel;
         for (let i = 0; i < model.count; i++) {
             if (model.get(i).path === wallpaperState.current) {
-                if (launcherLoader.item)
-                    launcherLoader.item.setWallpaperIndex(i);
+                if (dockWindow.launcherItem)
+                    dockWindow.launcherItem.setWallpaperIndex(i);
 
                 return;
             }
         }
         // not in this tab: the index left from the other one may not even exist here
-        if (orFirst && launcherLoader.item)
-            launcherLoader.item.setWallpaperIndex(0);
+        if (orFirst && dockWindow.launcherItem)
+            dockWindow.launcherItem.setWallpaperIndex(0);
     }
 
     function switchTheme(id) {
@@ -2244,10 +2248,10 @@ PanelWindow {
     // when the cards arrive (a ListView starts at its first one). Put it back
     // once the picker is showing.
     Connections {
-        target: launcherLoader.item
+        target: dockWindow.launcherItem
 
         function onDisplayModeChanged() {
-            if (!launcherLoader.item || !dockWindow.pickerMode)
+            if (!dockWindow.launcherItem || !dockWindow.pickerMode)
                 return ;
 
             Qt.callLater(function() {
@@ -2732,13 +2736,6 @@ PanelWindow {
     }
 
     Timer {
-        id: wallpaperDebounce
-
-        interval: 250
-        onTriggered: dockWindow.applyWallpaper(dockWindow.pendingWallpaper, dockWindow.pendingOrigin)
-    }
-
-    Timer {
         id: wallpaperArmTimer
 
         interval: 400
@@ -3017,7 +3014,7 @@ PanelWindow {
         property bool dropActive: false
         property bool shellReady: false
 
-        visible: dockWindow.shellShown
+        visible: dockWindow.shellShown && !(dockWindow.menuOpen && dockWindow.externalLauncher)
         clip: dockWindow.menuOpen || dockWindow.morphing
         anchors.bottom: parent.bottom
         anchors.bottomMargin: dockWindow.hiddenOffset + dockWindow.placementMargin
@@ -3380,7 +3377,7 @@ PanelWindow {
         Loader {
             id: launcherLoader
 
-            active: dockWindow.launcherBuilt
+            active: dockWindow.launcherBuilt && !dockWindow.externalLauncher
             width: dockWindow.menuWidth - dockWindow.panelPadding
             height: dockWindow.menuHeight - dockWindow.panelPadding
             anchors.centerIn: parent
@@ -3436,7 +3433,7 @@ PanelWindow {
                 onClearRequested: Clip.wipe()
                 onWallpaperPreviewed: (path) => dockWindow.requestWallpaper(path)
                 onWallpaperChosen: (path) => {
-                    var picker = launcherLoader.item ? launcherLoader.item.wallStrip : null;
+                    var picker = dockWindow.launcherItem ? dockWindow.launcherItem.wallStrip : null;
                     dockWindow.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
                     dockWindow.menuOpen = false;
                 }
