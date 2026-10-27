@@ -1,8 +1,11 @@
 import QtQuick
-import Quickshell.Widgets
 import qs
 import qs.lucidui
+import "../squircle"
 
+// Wallpaper selector strip, in Pibble's carousel language: a fixed window of
+// 1:2 cards laid out by their continuous rank, so a step slides the whole
+// row instead of asking a ListView to relayout a row of changing widths.
 Item {
     id: strip
 
@@ -17,32 +20,106 @@ Item {
     property int tinyH: Theme.dp(62)
     property int itemGap: Theme.dp(10)
     property int hoveredIndex: -1
-    readonly property int hoverGrow: Theme.dp(6)
-    property alias currentIndex: view.currentIndex
+    property int currentIndex: 0
     // the wallpaper actually in use
     property string appliedPath: ""
     property string filterText: ""
     // the Live tab: the same picker over the videos
     property bool live: false
     property real stableHeight: height
-    readonly property real rowHeight: strip.heroH + Theme.dp(62)
-    // the hero card at the screen's own density: every tier is drawn from it
-    readonly property size decodeSize: Qt.size(Math.ceil(strip.heroW * Math.max(1, Screen.devicePixelRatio)), Math.ceil(strip.heroH * Math.max(1, Screen.devicePixelRatio)))
-    // Settings -> Theme -> Strip: neighbours shown on each side
-    readonly property int sides: Prefs.wallpaperStripSides === 3 ? 3 : 2
-
-    property int previewInterval: 300
-    property string pendingPreviewPath: ""
-    property bool syncing: false
-    property int pendingCenterIndex: -1
 
     // where the card the user picked sits, as fractions of the window (-1 when
     // it is not known); the "from the chosen card" transition grows from there
     property real originX: -1
     property real originY: -1
 
+    readonly property int count: strip.model ? strip.model.count : 0
+    readonly property int sides: Prefs.wallpaperStripSides === 3 ? 3 : 2
+    readonly property int halfVisible: strip.sides
+
+    // 1:2 portrait previews, the same shape Pibble's carousel windows use.
+    // The stage's available height sets the card height; its width is half of
+    // it, and every rank scales from there so the aspect never changes.
+    readonly property int cardH: {
+        var hero = isFinite(strip.heroW) && strip.heroW > 0 ? strip.heroW : Theme.dp(280);
+        var room = strip.stableHeight - Theme.dp(50);
+        if (!isFinite(room) || room <= 0)
+            return hero * 2; // before the launcher has handed down its height
+        return Math.max(Theme.dp(160), Math.min(hero * 2, Math.round(room)));
+    }
+    readonly property int cardW: {
+        var h = strip.cardH;
+        return isFinite(h) && h > 0 ? Math.round(h / 2) : Theme.dp(140);
+    }
+    readonly property int cardCorner: Math.min(Theme.radiusSm, Math.max(Theme.shapeSm, Math.round(strip.cardW * 0.10)))
+    readonly property real rowHeight: strip.cardH + Theme.dp(50)
+    readonly property real stageTop: Math.max(0, (strip.stableHeight - strip.rowHeight) / 2)
+    readonly property real stageH: strip.cardH + Theme.dp(12)
+
+    // carousel metrics, straight from Pibble's carousel
+    readonly property real slotSpacing: strip.cardW + strip.itemGap
+    readonly property real parallaxFactor: 0.28
+    readonly property real parallaxPx: strip.slotSpacing * strip.parallaxFactor
+    readonly property real parallaxOverscan: (strip.halfVisible + 1) * strip.parallaxPx + Theme.dp(20)
+    readonly property size decodeSize: Qt.size(Math.ceil((strip.cardW + strip.parallaxOverscan * 2) * Math.max(1, Screen.devicePixelRatio)), Math.ceil(strip.cardH * Math.max(1, Screen.devicePixelRatio)))
+    readonly property real edgeFloor: 0.7
+    readonly property real edgeRate: 0.12
+    readonly property real edgeBreak: (1 - strip.edgeFloor) / strip.edgeRate
+    readonly property real edgeClampedStep: strip.slotSpacing - strip.cardW * (1 - strip.edgeFloor)
+    // exact visible extent of the outermost shown card: its centre offset plus
+    // the half-width it is actually drawn at after the rank shrink. The
+    // launcher sizes its face to this, so there is no empty side padding.
+    readonly property int idealWidth: {
+        var edge = strip.halfVisible;
+        var edgeScale = Math.max(strip.edgeFloor, 1 - edge * strip.edgeRate);
+        return Math.ceil(2 * strip.edgeOffset(edge) + strip.cardW * edgeScale);
+    }
+
+    // Magnitude of a card's x offset from the middle as a function of |rank|.
+    // A plain rank * spacing opens visibly growing gaps once each card shrinks
+    // around its own centre; this keeps the gap between neighbouring cards
+    // constant, like Pibble's carousel.
+    function edgeOffset(m) {
+        if (m <= strip.edgeBreak)
+            return strip.slotSpacing * m - (strip.cardW * strip.edgeRate / 2) * m * m;
+
+        var atBreak = strip.slotSpacing * strip.edgeBreak - (strip.cardW * strip.edgeRate / 2) * strip.edgeBreak * strip.edgeBreak;
+        return atBreak + strip.edgeClampedStep * (m - strip.edgeBreak);
+    }
+
+    // The unbounded animated rank. Arrow steps ease currentIndex into this;
+    // a drag writes it directly so the strip follows the finger frame for
+    // frame, then eases to whatever whole card the release commits to.
+    property real animIndex: strip.currentIndex
+    property bool dragging: false
+    property bool jumping: false
+    property real dragStartAnim: 0
+    property real dragGrabX: 0
+
+    Behavior on animIndex {
+        enabled: !strip.dragging && !strip.jumping
+
+        NumberAnimation {
+            duration: 420
+            easing.type: Easing.OutCubic
+        }
+
+    }
+
+    onCurrentIndexChanged: {
+        if (!strip.dragging)
+            strip.animIndex = strip.currentIndex;
+
+    }
+
     signal chosen(string path)
-    signal previewed(string path)
+
+    function clampIndex(i) {
+        if (strip.count <= 0)
+            return 0;
+
+        return Math.max(0, Math.min(strip.count - 1, i));
+    }
 
     function noteOrigin(card) {
         if (!card || strip.Window.width <= 0 || strip.Window.height <= 0) {
@@ -57,319 +134,342 @@ Item {
 
     // arrow keys: one card along, and (for the styles laid out in rows) one row over
     function step(d) {
-        if (strip.model)
-            view.currentIndex = Math.max(0, Math.min(strip.model.count - 1, view.currentIndex + d));
+        if (strip.count <= 0)
+            return;
+
+        strip.currentIndex = strip.clampIndex(strip.currentIndex + d);
     }
 
     function stepVertical(d) {
     }
 
     function activateCurrent() {
-        if (view.currentIndex < 0 || !strip.model)
+        if (strip.count <= 0)
             return;
 
-        var item = strip.model.get(view.currentIndex);
+        var item = strip.model.get(strip.currentIndex);
         if (item) {
-            strip.noteOrigin(view.currentItem);
+            var cell = cells.itemAt(strip.currentIndex);
+            strip.noteOrigin(cell ? cell.cardItem : null);
             strip.chosen(item.path);
         }
     }
 
     function setIndexImmediate(i) {
-        strip.syncing = true;
-        previewThrottle.stop();
-        strip.pendingPreviewPath = "";
-        view.highlightMoveDuration = 0;
-        view.currentIndex = i;
-        strip.pendingCenterIndex = i;
-        Qt.callLater(strip.centerPending);
+        if (strip.count <= 0)
+            return;
+
+        strip.jumping = true;
+        strip.animIndex = strip.clampIndex(i);
+        strip.currentIndex = strip.clampIndex(i);
         restoreAnim.restart();
     }
 
-    // deferred — straight from a delegate handler this crashes mid-incubation
-    function relayout() {
-        view.forceLayout();
-    }
-
-    function centerPending() {
-        if (strip.pendingCenterIndex < 0)
-            return;
-
-        view.positionViewAtIndex(strip.pendingCenterIndex, ListView.Center);
-        strip.pendingCenterIndex = -1;
-    }
-
-    function emitPreview() {
-        if (strip.pendingPreviewPath === "")
-            return;
-
-        // the transition can grow from the card being previewed
-        strip.noteOrigin(view.currentItem);
-        strip.previewed(strip.pendingPreviewPath);
-        strip.pendingPreviewPath = "";
+    onCountChanged: {
+        if (strip.count <= 0)
+            strip.currentIndex = 0;
+        else if (strip.currentIndex >= strip.count)
+            strip.currentIndex = strip.count - 1;
     }
 
     Timer {
         id: restoreAnim
 
         interval: 120
-        onTriggered: {
-            view.highlightMoveDuration = Theme.ms(260);
-            strip.syncing = false;
-        }
+        onTriggered: strip.jumping = false
     }
 
-    Timer {
-        id: previewThrottle
+    Item {
+        id: stage
 
-        interval: strip.previewInterval
-        onTriggered: strip.emitPreview()
-    }
-
-    ListView {
-        id: view
-
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.topMargin: Math.max(0, (strip.stableHeight - strip.rowHeight) / 2)
-        height: strip.heroH + Theme.dp(24)
-        orientation: ListView.Horizontal
-        spacing: strip.itemGap
+        y: strip.stageTop
+        width: parent.width
+        height: strip.stageH
         clip: true
-        interactive: true
-        boundsBehavior: Flickable.StopAtBounds
-        model: strip.model
-        highlightRangeMode: ListView.StrictlyEnforceRange
-        preferredHighlightBegin: (view.width - strip.heroW) / 2
-        preferredHighlightEnd: (view.width + strip.heroW) / 2
-        highlightMoveDuration: Theme.ms(260)
-        flickDeceleration: 3000
-        visible: count > 0
-        cacheBuffer: strip.heroW * 6
+        visible: strip.count > 0
 
-        onCurrentIndexChanged: {
-            Qt.callLater(strip.relayout);
-            if (strip.syncing || view.currentIndex < 0 || !strip.model)
-                return;
+        DragHandler {
+            id: drag
 
-            var item = strip.model.get(view.currentIndex);
-            if (!item)
-                return;
+            target: null
+            xAxis.enabled: true
+            yAxis.enabled: false
+            enabled: strip.count > 1
 
-            strip.pendingPreviewPath = item.path;
-            previewThrottle.restart();
-        }
-
-        add: Transition {
-            NumberAnimation {
-                properties: "scale"
-                from: 0.6
-                duration: Theme.durEnter
-                easing.type: Easing.OutBack
-                easing.overshoot: 1.4
+            onActiveChanged: {
+                if (active) {
+                    strip.dragging = true;
+                    strip.dragStartAnim = strip.animIndex;
+                    strip.dragGrabX = centroid.position.x;
+                } else {
+                    var dx = centroid.position.x - strip.dragGrabX;
+                    var carried = Math.abs(dx) + Math.abs(centroid.velocity.x) * 0.28;
+                    var dir = dx < 0 ? 1 : -1;
+                    var steps = carried >= 24 ? Math.max(1, Math.round(carried / strip.slotSpacing)) : 0;
+                    strip.dragging = false;
+                    strip.currentIndex = strip.clampIndex(strip.currentIndex + dir * steps);
+                    strip.animIndex = strip.currentIndex;
+                }
             }
 
-            NumberAnimation {
-                properties: "opacity"
-                from: 0
-                duration: Theme.ms(200)
+            onCentroidChanged: {
+                if (active) {
+                    var dx = centroid.position.x - strip.dragGrabX;
+                    strip.animIndex = Math.max(-0.25, Math.min(strip.count - 1 + 0.25, strip.dragStartAnim - dx / strip.slotSpacing));
+                }
             }
 
         }
 
-        delegate: Item {
-            id: slot
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
 
-            required property string path
-            required property string name
-            required property string thumb
-            required property int index
-
-            readonly property bool isCurrent: view.currentIndex === slot.index
-            readonly property bool isApplied: strip.appliedPath !== "" && strip.appliedPath === slot.path
-            readonly property bool hovered: cardHover.hovered && stripHover.hovered
-            readonly property bool pressed: cardTap.pressed && slot.hovered
-
-            onHoveredChanged: {
-                if (slot.hovered)
-                    strip.hoveredIndex = slot.index;
-                else if (strip.hoveredIndex === slot.index)
-                    strip.hoveredIndex = -1;
+            onWheel: (event) => {
+                var d = event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x;
+                if (d !== 0)
+                    strip.step(d < 0 ? 1 : -1);
 
             }
-            readonly property int tier: Math.min(strip.sides, Math.abs(slot.index - view.currentIndex))
-            readonly property int targetW: slot.tier === 0 ? strip.heroW : (slot.tier === 1 ? strip.midW : (slot.tier === 2 ? strip.smallW : strip.tinyW))
-            readonly property int targetH: slot.tier === 0 ? strip.heroH : (slot.tier === 1 ? strip.midH : (slot.tier === 2 ? strip.smallH : strip.tinyH))
+        }
 
-            width: slot.targetW
-            height: view.height
+        Repeater {
+            id: cells
+            model: strip.model
 
-            onWidthChanged: Qt.callLater(strip.relayout)
+            delegate: Item {
+                id: cell
 
-            Behavior on width {
+                required property int index
+                required property string path
+                required property string name
+                required property string thumb
+
+                readonly property real rank: cell.index - strip.animIndex
+                readonly property real absRank: Math.abs(cell.rank)
+                readonly property bool near: cell.absRank <= strip.halfVisible + 1
+                readonly property bool isCurrent: !strip.dragging && !strip.jumping && cell.index === strip.currentIndex
+                readonly property real rankGrow: Math.max(strip.edgeFloor, 1 - cell.absRank * strip.edgeRate)
+                readonly property real cellAlpha: cell.near ? Math.max(0, Math.min(1, strip.halfVisible + 1 - cell.absRank)) : 0
+                readonly property real parallaxShift: Math.max(-strip.parallaxOverscan, Math.min(strip.parallaxOverscan, cell.rank * strip.parallaxPx))
+                readonly property bool isApplied: strip.appliedPath !== "" && strip.appliedPath === cell.path
+                readonly property bool hovered: hover.hovered
+                readonly property bool pressed: tap.pressed && cell.hovered
+
+                property real popScale: 1
+                readonly property real growScale: cell.isCurrent ? cell.popScale : cell.rankGrow
+                property Item cardItem: null
+
+                onIsCurrentChanged: {
+                    if (cell.isCurrent) {
+                        cell.popScale = cell.rankGrow;
+                        popIn.restart();
+                    } else {
+                        popIn.stop();
+                        cell.popScale = 1;
+                    }
+                }
+
                 NumberAnimation {
-                    duration: Theme.ms(300)
-                    easing.type: Easing.Bezier
-                    easing.bezierCurve: Theme.easeEmphasizedDecel
+                    id: popIn
+                    target: cell
+                    property: "popScale"
+                    to: 1
+                    duration: Theme.durFastSpatial
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 2.2
                 }
 
-            }
+                x: stage.width / 2 - width / 2 + Math.sign(cell.rank) * strip.edgeOffset(cell.absRank)
+                y: (stage.height - height) / 2 + (cell.hovered ? -Theme.dp(4) : 0)
+                width: strip.cardW
+                height: strip.cardH
+                z: -cell.absRank
+                opacity: cell.cellAlpha
+                visible: cell.cellAlpha > 0.01
 
-            ClippingRectangle {
-                id: card
+                transform: Scale {
+                    origin.x: cell.width / 2
+                    origin.y: cell.height / 2
+                    xScale: cell.growScale
+                    yScale: cell.growScale
+                }
 
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: slot.hovered ? -Theme.dp(4) : 0
-                scale: slot.pressed ? 1 - 4 / card.width : (slot.hovered ? 1 + strip.hoverGrow / card.width : 1)
-                width: parent.width
-                height: slot.targetH
-
-                Behavior on anchors.verticalCenterOffset {
+                Behavior on y {
                     NumberAnimation {
                         duration: Theme.durShort
                         easing.type: Easing.OutCubic
-                    }
-
-                }
-
-                Behavior on scale {
-                    NumberAnimation {
-                        duration: Theme.durShort
-                        easing.type: Easing.OutCubic
-                    }
-
-                }
-                radius: slot.tier === 0 ? Theme.shapeXlInc : (slot.tier === 1 ? Theme.shapeLgInc : (slot.tier === 2 ? Theme.shapeMd : Theme.shapeSm))
-                color: Theme.bgTile
-                opacity: (slot.tier === 0 || slot.hovered) ? 1 : (slot.tier === 1 ? 0.78 : (slot.tier === 2 ? 0.5 : 0.36))
-
-                Behavior on height {
-                    NumberAnimation {
-                        duration: Theme.ms(300)
-                        easing.type: Easing.Bezier
-                        easing.bezierCurve: Theme.easeEmphasizedDecel
                     }
 
                 }
 
                 Behavior on opacity {
                     NumberAnimation {
-                        duration: Theme.ms(300)
+                        duration: Theme.ms(180)
                     }
 
                 }
 
+                Loader {
+                    id: cardLoader
 
-                // the small copy decodes in a millisecond, so it is read in step and
-                // is up on the card's first frame; an original still waiting for
-                // one stays off the gui thread
-                Image {
                     anchors.fill: parent
-                    // a video has no picture of its own until its thumbnail is cut; asked of
-                    // the file, since the model can change tab a moment before strip.live does
-                    source: slot.thumb !== "" ? "file://" + slot.thumb : /\.(mp4|webm|mkv|mov|m4v)$/i.test(slot.path) ? "" : "file://" + slot.path
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: slot.thumb === ""
-                    cache: true
-                    sourceSize: strip.decodeSize
+                    active: cell.near
+                    sourceComponent: cardComp
                 }
 
-                Rectangle {
-                    anchors.fill: parent
-                    color: Theme.text
-                    opacity: slot.pressed ? Theme.statePressed : (slot.hovered ? Theme.stateHover : 0)
+                Component {
+                    id: cardComp
 
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Theme.durShort
+                    SquircleClip {
+                        id: card
+
+                        anchors.fill: parent
+                        radius: strip.cardCorner
+                        smoothing: Prefs.squircleF
+                        color: Theme.bgTile
+                        opacity: (cell.isCurrent || cell.hovered || cell.absRank < 0.5) ? 1 : (cell.absRank <= 1 ? 0.78 : (cell.absRank <= 2 ? 0.5 : 0.36))
+                        scale: cell.pressed ? 1 - 4 / card.width : (cell.hovered ? 1 + Theme.dp(6) / card.width : 1)
+
+                        Component.onCompleted: cell.cardItem = card
+                        Component.onDestruction: if (cell.cardItem === card) cell.cardItem = null
+
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: Theme.durShort
+                                easing.type: Easing.OutCubic
+                            }
+
+                        }
+
+                        Behavior on opacity {
+                            NumberAnimation {
+                                duration: Theme.ms(180)
+                            }
+
+                        }
+
+                        // wider than the card and panned opposite the strip, so
+                        // the visible crop drifts slower than the frame. The
+                        // still and the video thumbnail share the box.
+                        Image {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width + strip.parallaxOverscan * 2
+                            height: parent.height
+                            x: (parent.width - width) / 2 - cell.parallaxShift
+                            source: cell.thumb !== "" ? "file://" + cell.thumb : /\.(mp4|webm|mkv|mov|m4v)$/i.test(cell.path) ? "" : "file://" + cell.path
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: cell.thumb === ""
+                            cache: true
+                            sourceSize: strip.decodeSize
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            color: Theme.text
+                            opacity: cell.pressed ? Theme.statePressed : (cell.hovered ? Theme.stateHover : 0)
+
+                            Behavior on opacity {
+                                NumberAnimation {
+                                    duration: Theme.durShort
+                                }
+
+                            }
+
+                        }
+
+                        // the wallpaper actually on the desktop
+                        Rectangle {
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: Theme.dp(10)
+                            width: Theme.dp(26)
+                            height: Theme.dp(26)
+                            radius: width / 2
+                            color: Theme.accent
+                            scale: cell.isApplied ? 1 : 0.4
+                            opacity: cell.isApplied ? 1 : 0
+                            visible: opacity > 0.01
+
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: Theme.durFastSpatial
+                                    easing.type: Easing.Bezier
+                                    easing.bezierCurve: Theme.curveDefaultSpatial
+                                }
+
+                            }
+
+                            Behavior on opacity {
+                                NumberAnimation {
+                                    duration: Theme.durShort
+                                }
+
+                            }
+
+                            DockGlyph {
+                                anchors.centerIn: parent
+                                width: Theme.dp(15)
+                                height: Theme.dp(15)
+                                pathData: DockIcons.check
+                                glyphColor: Theme.fgAccent
+                            }
+
                         }
 
                     }
 
                 }
 
-            }
+                HoverHandler {
+                    id: hover
 
-            Rectangle {
-                anchors.right: card.right
-                anchors.top: card.top
-                anchors.margins: Theme.dp(10)
-                width: Theme.dp(26)
-                height: Theme.dp(26)
-                radius: width / 2
-                color: Theme.accent
-                scale: slot.isApplied ? 1 : 0.4
+                    enabled: cell.near
+                    cursorShape: Qt.PointingHandCursor
+                }
 
-                Behavior on scale {
-                    NumberAnimation {
-                        duration: Theme.durFastSpatial
-                        easing.type: Easing.Bezier
-                        easing.bezierCurve: Theme.curveDefaultSpatial
+                onHoveredChanged: {
+                    if (cell.hovered)
+                        strip.hoveredIndex = cell.index;
+                    else if (strip.hoveredIndex === cell.index)
+                        strip.hoveredIndex = -1;
+
+                }
+
+                TapHandler {
+                    id: tap
+
+                    enabled: cell.near
+
+                    onTapped: {
+                        if (cell.isCurrent) {
+                            strip.noteOrigin(cell.cardItem);
+                            strip.chosen(cell.path);
+                        } else {
+                            strip.currentIndex = cell.index;
+                        }
                     }
-
-                }
-                opacity: slot.isApplied ? 1 : 0
-                visible: opacity > 0.01
-
-                DockGlyph {
-                    anchors.centerIn: parent
-                    width: Theme.dp(15)
-                    height: Theme.dp(15)
-                    pathData: DockIcons.check
-                    glyphColor: Theme.fgAccent
                 }
 
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: Theme.durShort
-                    }
-
-                }
-
-            }
-
-            HoverHandler {
-                id: cardHover
-
-                cursorShape: Qt.PointingHandCursor
-            }
-
-            TapHandler {
-                id: cardTap
-
-                onTapped: {
-                    if (slot.isCurrent) {
-                        strip.noteOrigin(slot);
-                        strip.chosen(slot.path);
-                    } else
-                        view.currentIndex = slot.index;
-                }
             }
 
         }
 
     }
 
-    HoverHandler {
-        id: stripHover
-    }
-
     Item {
         id: caption
 
-        anchors.top: view.bottom
-        anchors.topMargin: Theme.dp(12)
+        anchors.top: stage.bottom
+        anchors.topMargin: Theme.dp(8)
         anchors.left: parent.left
         anchors.right: parent.right
         height: Theme.dp(26)
-        visible: view.visible
+        visible: stage.visible
 
         Row {
             id: capRow
 
-            readonly property int at: strip.hoveredIndex >= 0 ? strip.hoveredIndex : view.currentIndex
+            readonly property int at: strip.hoveredIndex >= 0 ? strip.hoveredIndex : strip.currentIndex
             readonly property var entry: strip.model && capRow.at >= 0 && capRow.at < strip.model.count ? strip.model.get(capRow.at) : null
 
             anchors.centerIn: parent
@@ -417,7 +517,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 role: "labelMedium"
                 tabular: true
-                text: strip.model && strip.model.count > 0 ? (capRow.at + 1) + " / " + strip.model.count : ""
+                text: strip.count > 0 ? (capRow.at + 1) + " / " + strip.count : ""
                 color: Theme.subtextDim
             }
 
@@ -432,7 +532,7 @@ Item {
         anchors.topMargin: Math.max(0, (strip.stableHeight - emptyState.implicitHeight) / 2)
         anchors.horizontalCenter: parent.horizontalCenter
         spacing: Theme.dp(12)
-        visible: !strip.model || strip.model.count === 0
+        visible: strip.count === 0
 
         Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter

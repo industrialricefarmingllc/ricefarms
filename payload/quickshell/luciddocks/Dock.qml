@@ -214,9 +214,23 @@ PanelWindow {
     // the one way in from outside the dock — the launcher's modes are its
     // own search prefixes, so callers pass the prefix they want
     function openLauncher(query) {
+        dockWindow.pinnedMode = "apps";
+        dockWindow.pinnedMode = dockWindow.modeFor(query);
         dockWindow.setSearchText(query);
         dockWindow.aimLauncher();
         dockWindow.menuOpen = true;
+    }
+
+    function openTranslate(focusLanguage) {
+        if (dockWindow.launcherItem)
+            dockWindow.launcherItem.resetTranslate();
+        // Select the tab directly. The search field stays empty so a leading
+        // '>' remains the translator's ask/refine prefix.
+        dockWindow.selectMode("translate");
+        dockWindow.aimLauncher();
+        dockWindow.menuOpen = true;
+        if (focusLanguage && dockWindow.launcherItem)
+            dockWindow.launcherItem.armTranslateLanguageFocus();
     }
 
     // with the dock off the launcher belongs to no display, so it opens on the
@@ -228,6 +242,9 @@ PanelWindow {
     property var externalFace: null
     readonly property var launcherItem: externalFace ? externalFace : launcherLoader.item
     readonly property var launcherResultsModel: resultsModel
+    // the unfiltered app wall's model, separate from the mixed result stream
+    readonly property var launcherAppsModel: appsModel
+    readonly property var launcherEmojiModel: emojiGridModel
     readonly property var launcherPickerModel: dockWindow.pickerModel
     // dropped once the dock is back on, or once that display is unplugged:
     // a surface sent to a dead display is never drawn
@@ -290,6 +307,9 @@ PanelWindow {
     property bool snapPlacement: false
     property int contentFadeDelay: 0
     property bool menuOpen: false
+    // The tab selects a mode directly. Keeping it out of the search text lets
+    // the input show only what the user typed instead of a hidden prefix.
+    property string pinnedMode: "apps"
     // the launcher face is ~64mb of delegates and nothing shows it until the
     // menu opens, so it is built on the first open and then kept
     property bool launcherBuilt: false
@@ -325,11 +345,18 @@ PanelWindow {
             dockWindow.closingFromHidden = false;
             dockWindow.snapPlacement = true;
             snapClear.restart();
-        } else if (dockWindow.launcherFromHidden) {
-            dockWindow.closingFromHidden = true;
-            hideAfterClose.restart();
         } else {
-            dockWindow.launcherFromHidden = false;
+            if (dockWindow.launcherItem) {
+                dockWindow.launcherItem.resetTranslate();
+                dockWindow.launcherItem.cancelTranslateLanguageFocus();
+            }
+
+            if (dockWindow.launcherFromHidden) {
+                dockWindow.closingFromHidden = true;
+                hideAfterClose.restart();
+            } else {
+                dockWindow.launcherFromHidden = false;
+            }
         }
     }
 
@@ -369,7 +396,6 @@ PanelWindow {
     property string appliedWallpaper: ""
     // what the picker asked set-wallpaper.sh for since the desktop last caught up
     property var requestedWallpapers: ({})
-    property bool wallpaperArmed: false
     // a pin on its way to the desktop keeps the dock up, or the drag would lose its source
     readonly property bool dragging: pinnedRow.dragging || pinnedRow.sending || runningRow.dragging
     // an in-dock drag takes the whole window for input; a pin in the air to the desktop must
@@ -506,6 +532,11 @@ PanelWindow {
     readonly property string rawQuery: dockWindow.launcherItem ? dockWindow.launcherItem.searchText : ""
 
     function modeFor(raw) {
+        // A directly selected tab owns the field. In Translate this keeps a
+        // leading '>' available for ask/refine instead of switching modes.
+        if (dockWindow.pinnedMode === "translate")
+            return "translate";
+
         var q = raw.toLowerCase();
         if (q.indexOf(">wallpaper") === 0)
             return "wallpaper";
@@ -532,7 +563,7 @@ PanelWindow {
         if (q.indexOf(":") === 0)
             return "emoji";
 
-        return "apps";
+        return dockWindow.pinnedMode !== "" ? dockWindow.pinnedMode : "apps";
     }
 
     function prefixFor(mode) {
@@ -564,7 +595,21 @@ PanelWindow {
     }
 
     function queryFor(raw) {
-        return raw.substring(dockWindow.prefixFor(dockWindow.modeFor(raw)).length).trim();
+        const prefix = dockWindow.prefixFor(dockWindow.modeFor(raw));
+        if (prefix !== "" && raw.indexOf(prefix) === 0)
+            return raw.substring(prefix.length).trim();
+        return raw.trim();
+    }
+
+    // switch tabs without writing their prefix into the search field
+    function selectMode(mode) {
+        dockWindow.pinnedMode = mode;
+        const hadText = dockWindow.rawQuery !== "";
+        dockWindow.setSearchText("");
+        if (!hadText)
+            dockWindow.rebuildResults();
+        if (dockWindow.launcherItem)
+            dockWindow.launcherItem.resetSelection();
     }
 
     readonly property string mode: dockWindow.modeFor(dockWindow.rawQuery)
@@ -578,6 +623,10 @@ PanelWindow {
         powerDisarm.stop();
         dockWindow.armedPower = "";
         dockWindow.rebuildResults();
+        // a query typed in the picker should still jump to its first match
+        if (dockWindow.pickerMode)
+            dockWindow.selectPickerForDisplay();
+
         // the face already reset itself, but against the pre-rebuild rows
         if (dockWindow.launcherItem)
             dockWindow.launcherItem.resetSelection();
@@ -592,10 +641,7 @@ PanelWindow {
             dockWindow.syncPickerFilter();
             dockWindow.syncStripToCurrent(true);
             wallpaperScanner.scan();
-            dockWindow.wallpaperArmed = false;
-            wallpaperArmTimer.restart();
         } else {
-            dockWindow.wallpaperArmed = false;
             // leaving the picker hands the copies back whole, so the next open
             // never starts on the last search's matches
             dockWindow.syncPickerFilter();
@@ -719,7 +765,15 @@ PanelWindow {
     // they are given: what the strip takes with its default look, so that a wide
     // strip (soft steps, three neighbours) does not widen the panel for them too
     readonly property int wallBaseWidth: dockWindow.wallHeroW + 2 * (Math.round(dockWindow.wallHeroW * 0.70) + dockWindow.wallCardGap) + 2 * (Math.round(dockWindow.wallHeroW * 0.44) + dockWindow.wallCardGap)
-    readonly property int wallStripWidth: dockWindow.wallHeroW + 2 * (dockWindow.wallMidW + dockWindow.wallCardGap) + 2 * (dockWindow.wallSmallW + dockWindow.wallCardGap) + (Prefs.wallpaperStripSides === 3 ? 2 * (dockWindow.wallTinyW + dockWindow.wallCardGap) : 0)
+    readonly property int wallStripWidth: {
+        // the strip's cards are fixed 1:2 portraits, laid out by rank; ask for
+        // enough panel that seven of them fit inside the 0.75-wide face
+        var cards = Prefs.wallpaperStripSides === 3 ? 7 : 5;
+        var cardW = Math.round(dockWindow.wallHeroW * 0.62);
+        var spacing = cardW + dockWindow.wallCardGap;
+        var row = (cards - 1) * spacing + cardW;
+        return Math.round(row / 0.75) + Theme.dp(24);
+    }
     readonly property int wallHoverRoom: Theme.dp(12)
     // Tiles: the panel is cut to its grid. More rows make it taller and fewer
     // wallpapers narrower, instead of the tiles shrinking to fit a fixed panel
@@ -774,15 +828,21 @@ PanelWindow {
     property real resultsHeight: 0
     property int resultCount: 0
     readonly property real menuContentMax: dockWindow.menuMaxHeight - dockWindow.panelPadding - Prefs.launcherChromeH
+    // the app wall sizes the panel itself: three rows of tiles, no list slack
+    readonly property bool launcherGridOpen: dockWindow.mode === "apps" && dockWindow.filterQuery === "" && dockWindow.launcherItem !== null && dockWindow.launcherItem.appsHeight > Theme.dp(120)
     // with no rows the panel is as tall as the empty state, not a fixed floor that cut it
     readonly property real menuContentMin: dockWindow.resultsHeight > 0 || !dockWindow.launcherItem ? Theme.dp(70) : Math.max(Theme.dp(70), dockWindow.launcherItem.emptyHeight)
     readonly property real menuHeight: {
         var content;
-        if (dockWindow.pickerMode)
-            content = dockWindow.wallIsTiles ? dockWindow.wallTilesRows * dockWindow.wallTilesTile + dockWindow.wallTilesChrome : dockWindow.wallHeroH + Theme.dp(70);
+        if (dockWindow.launcherGridOpen)
+            content = dockWindow.launcherItem.appsHeight;
+        else if (dockWindow.pickerMode)
+            content = dockWindow.wallIsTiles ? dockWindow.wallTilesRows * dockWindow.wallTilesTile + dockWindow.wallTilesChrome : (Prefs.wallpaperPickerStyle === "strip" ? Math.min(dockWindow.menuContentMax, dockWindow.wallHeroW * 2 + Theme.dp(70)) : dockWindow.wallHeroH + Theme.dp(70));
         // fixed, so deleting entries doesn't shrink the preview under the cursor
         else if (dockWindow.mode === "clipboard")
             content = dockWindow.menuContentMax;
+        else if (dockWindow.mode === "translate")
+            content = Math.min(Theme.dp(430), dockWindow.menuContentMax);
         else
             content = Math.max(dockWindow.menuContentMin, Math.min(dockWindow.resultsHeight, dockWindow.menuContentMax));
         return Math.round(dockWindow.panelPadding + Prefs.launcherChromeH + content);
@@ -1320,6 +1380,22 @@ PanelWindow {
         onTriggered: Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + windowFocus.address + "\" })")
     }
 
+    function syncEmojiWall(q) {
+        emojiGridModel.clear();
+        var list = dockWindow.emojiList;
+        for (var i = 0; i < list.length; i++) {
+            var em = list[i];
+            if (q !== "" && String(em.n).toLowerCase().indexOf(q) === -1 && String(em.k || "").toLowerCase().indexOf(q) === -1 && String(em.s || "").toLowerCase().indexOf(q) === -1)
+                continue;
+
+            emojiGridModel.append({
+                "key": "emoji-" + i,
+                "title": em.n,
+                "emoji": em.e
+            });
+        }
+    }
+
     function emojiRows(q, limit) {
         var words = q.toLowerCase().split(/\s+/).filter((x) => {
             return x !== "";
@@ -1427,7 +1503,7 @@ PanelWindow {
             }
         } else if (mode === "emoji") {
             dockWindow.emojiWanted = true;
-
+            dockWindow.syncEmojiWall(q);
             rows = dockWindow.emojiRows(q, 48);
         } else if (mode === "clipboard") {
             var ents = Clip.entries;
@@ -1458,11 +1534,21 @@ PanelWindow {
             }
         } else if (mode === "wallpaper" || mode === "live") {
             // the picker's cards come from the filtered copies rather than from
-            // rows, and what is typed narrows them
+            // rows, and what is typed narrows them. Rebuilding for something
+            // else (the 20s app scan, for one) must not move the strip back to
+            // the applied wallpaper under the user's hands.
             dockWindow.syncPickerFilter();
-            dockWindow.selectPickerForDisplay();
+        }
+        // The Apps tab is always the wall. A query narrows the wall itself
+        // instead of falling through to the result list.
+        if (mode === "apps") {
+            var wallRows = [];
+            for (var wa = 0; wa < scored.length; wa++) wallRows.push(dockWindow.rowForApp(scored[wa].app));
+            dockWindow.syncApps(wallRows);
         }
         dockWindow.syncResults(rows);
+        if (mode === "apps")
+            dockWindow.resultCount = appsModel.count;
     }
 
     function syncResults(rows) {
@@ -1506,6 +1592,40 @@ PanelWindow {
         dockWindow.resultCount = pickable;
         if (dockWindow.launcherItem)
             dockWindow.launcherItem.resultsChanged();
+    }
+
+    // same reconciliation the result list gets, for the app wall. The face's
+    // cells read the model by index rather than through delegates, so the
+    // order has to be updated in place without tearing the model down.
+    function syncApps(rows) {
+        var wanted = {};
+        for (var j = 0; j < rows.length; j++) wanted[rows[j].key] = (wanted[rows[j].key] || 0) + 1;
+        for (var i = appsModel.count - 1; i >= 0; i--) {
+            var key = appsModel.get(i).key;
+            if (!wanted[key])
+                appsModel.remove(i, 1);
+            else
+                wanted[key]--;
+        }
+        for (var k = 0; k < rows.length; k++) {
+            var existing = -1;
+            for (var m = k; m < appsModel.count; m++) {
+                if (appsModel.get(m).key === rows[k].key) {
+                    existing = m;
+                    break;
+                }
+            }
+            if (existing === -1) {
+                appsModel.insert(k, rows[k]);
+            } else {
+                if (existing !== k)
+                    appsModel.move(existing, k, 1);
+
+                appsModel.set(k, rows[k]);
+            }
+        }
+        if (appsModel.count > rows.length)
+            appsModel.remove(rows.length, appsModel.count - rows.length);
     }
 
     // must agree with LauncherList.rowHeight()
@@ -1594,6 +1714,18 @@ PanelWindow {
         }
     }
 
+    // the app wall activates by its own index; an app row carries the same
+    // payload and title the list uses
+    function activateApp(index) {
+        var row = appsModel.get(index);
+        if (!row || !row.selectable || row.disabled)
+            return ;
+
+        Quickshell.execDetached(["sh", "-c", row.payload]);
+        dockWindow.recordLaunch(row.title);
+        dockWindow.menuOpen = false;
+    }
+
     function clipGlyph(ent) {
         switch (ent.kind) {
         case "image":
@@ -1668,17 +1800,6 @@ PanelWindow {
         } catch (e) {
             return "";
         }
-    }
-
-    function requestWallpaper(path) {
-        if (!dockWindow.wallpaperArmed || path === "" || path === dockWindow.appliedWallpaper)
-            return;
-
-        // the picker debounces the selection before this fires (previewInterval),
-        // so the wallpaper can be set at once: a second delay here would let a
-        // stale card land while the strip is still moving
-        var picker = dockWindow.launcherItem ? dockWindow.launcherItem.wallStrip : null;
-        dockWindow.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
     }
 
     // a point given as fractions of this window, as fractions of the screen it is on:
@@ -2265,8 +2386,10 @@ PanelWindow {
         target: "launcher"
 
         function toggle(): void {
-            if (!dockWindow.menuOpen)
+            if (!dockWindow.menuOpen) {
+                dockWindow.pinnedMode = "apps";
                 dockWindow.setSearchText("");
+            }
 
             dockWindow.aimLauncher();
             dockWindow.menuOpen = !dockWindow.menuOpen;
@@ -2330,6 +2453,67 @@ PanelWindow {
                 dockWindow.menuOpen = false;
             else
                 dockWindow.openLauncher(">clip");
+        }
+
+        function translate(): void {
+            if (dockWindow.menuOpen && dockWindow.mode === "translate")
+                dockWindow.menuOpen = false;
+            else
+                dockWindow.openTranslate(true);
+        }
+
+        function translateAsk(text: string): string {
+            dockWindow.openTranslate();
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.submitTranslate(text);
+            return "sent";
+        }
+
+        function translateLanguage(code: string): string {
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.translateLanguage(code);
+            return code;
+        }
+
+        // keyboard-free control for tests: Arrow Down's effect, then Tab's
+        function translateActivate(): string {
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.activateTranslateLanguage();
+            return "activated";
+        }
+
+        function translateCycle(delta: int): string {
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.cycleTranslateLanguage(delta);
+            return "cycled";
+        }
+
+        function translateTab(delta: int): string {
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.cycleMode(delta);
+            return "tab";
+        }
+
+        function translateTabs(): string {
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.focusModeTabs();
+            return "tabs";
+        }
+
+        function translateType(text: string): string {
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.typeIntoInput(text);
+            return "typed";
+        }
+
+        function translateStatus(): string {
+            return JSON.stringify({
+                "open": dockWindow.menuOpen,
+                "mode": dockWindow.mode,
+                "query": dockWindow.rawQuery,
+                "tabsFocused": dockWindow.launcherItem ? dockWindow.launcherItem.tabsFocused : false,
+                "pane": dockWindow.launcherItem ? dockWindow.launcherItem.translateStatus() : ""
+            });
         }
 
         function blur(): void {
@@ -2480,7 +2664,17 @@ PanelWindow {
     }
 
     ListModel {
+        id: emojiGridModel
+    }
+
+    ListModel {
         id: resultsModel
+    }
+
+    // the pibble-style apps page: every app, launch-frequency order, no
+    // headers and no frequent duplicates
+    ListModel {
+        id: appsModel
     }
 
     ListModel {
@@ -2521,7 +2715,7 @@ PanelWindow {
     FileView {
         id: emojiFile
 
-        path: dockWindow.emojiWanted ? Qt.resolvedUrl("../lucidmoji/emoji.json") : ""
+        path: dockWindow.emojiWanted ? Qt.resolvedUrl("./emoji.json") : ""
         printErrors: false
         onLoaded: {
             try {
@@ -2702,6 +2896,11 @@ PanelWindow {
                 dockWindow.scannedApps = arr;
                 var names = {};
                 for (var n = 0; n < arr.length; n++) names[arr[n].base] = arr[n].name
+                // warm the icon lookup while the launcher is closed: otherwise
+                // the first grid/list paint queues every unknown icon at once
+                // and reloads each IconImage when the batch lands
+                for (var ic = 0; ic < arr.length; ic++)
+                    IconTheme.pathFor(arr[ic].iconName)
                 Prefs.launcherAppNames = names;
                 dockWindow.rebuildResults();
                 dockWindow.syncRunningApps();
@@ -2733,13 +2932,6 @@ PanelWindow {
             }
         }
 
-    }
-
-    Timer {
-        id: wallpaperArmTimer
-
-        interval: 400
-        onTriggered: dockWindow.wallpaperArmed = true
     }
 
     Process {
@@ -3394,6 +3586,7 @@ PanelWindow {
                 targetHeight: dockWindow.menuHeight - dockWindow.panelPadding
                 mode: dockWindow.mode
                 model: resultsModel
+                appsModel: dockWindow.launcherAppsModel
                 resultCount: dockWindow.resultCount
                 wallpaperModel: dockWindow.pickerModel
                 kindRailWidth: dockWindow.wallKindRailWidth
@@ -3414,8 +3607,14 @@ PanelWindow {
                 armedPower: dockWindow.armedPower
                 onPowerChipTapped: (id) => dockWindow.requestPower(id)
                 onActivated: (index) => dockWindow.activateResult(index)
+                onAppActivated: (index) => dockWindow.activateApp(index)
                 onCloseRequested: dockWindow.menuOpen = false
                 onBackRequested: dockWindow.setSearchText(dockWindow.mode === "commands" ? "" : ">")
+                onTranslateSubmitted: (text) => {
+                    if (dockWindow.launcherItem)
+                        dockWindow.launcherItem.submitTranslate(text);
+                    dockWindow.setSearchText("");
+                }
                 onModeRequested: (m) => {
                     if (m === "power") {
                         dockWindow.menuOpen = false;
@@ -3426,12 +3625,11 @@ PanelWindow {
                         dockWindow.openWidgetPanel();
                         return ;
                     }
-                    dockWindow.setSearchText(dockWindow.prefixFor(m));
+                    dockWindow.selectMode(m);
                 }
                 onDeleteRequested: (index) => dockWindow.deleteResult(index)
                 onHideRequested: (index) => dockWindow.hideResult(index)
                 onClearRequested: Clip.wipe()
-                onWallpaperPreviewed: (path) => dockWindow.requestWallpaper(path)
                 onWallpaperChosen: (path) => {
                     var picker = dockWindow.launcherItem ? dockWindow.launcherItem.wallStrip : null;
                     dockWindow.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));

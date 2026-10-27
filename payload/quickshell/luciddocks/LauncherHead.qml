@@ -12,6 +12,7 @@ Item {
     property var modes: []
     property string current: "apps"
     property string countLabel: ""
+    property bool keyboardFocused: false
     readonly property real cs: Prefs.launcherScale
     readonly property int pill: Math.round(34 * head.cs)
     readonly property int glyph: Math.round(20 * head.cs)
@@ -132,7 +133,7 @@ Item {
                         property: "scale"
                         from: 0.6
                         to: 1
-                        duration: Theme.ms(700)
+                        duration: Theme.ms(933)
                         easing.type: Easing.Bezier
                         easing.bezierCurve: Theme.curveDefaultSpatial
                     }
@@ -143,6 +144,8 @@ Item {
                     anchors.fill: parent
                     radius: Theme.shapeFull
                     color: entry.on ? Theme.accent : "transparent"
+                    border.width: head.keyboardFocused && entry.on ? 2 : 0
+                    border.color: Theme.fgAccent
 
                     Behavior on color {
                         ColorAnimation {
@@ -171,7 +174,7 @@ Item {
 
                     Behavior on x {
                         NumberAnimation {
-                            duration: Theme.durFastSpatial
+                            duration: Theme.durShort
                             easing.type: Easing.Bezier
                             easing.bezierCurve: Theme.curveDefaultSpatial
                         }
@@ -204,7 +207,7 @@ Item {
 
                 Behavior on width {
                     NumberAnimation {
-                        duration: Theme.durFastSpatial
+                        duration: Theme.durShort
                         easing.type: Easing.Bezier
                         easing.bezierCurve: Theme.curveDefaultSpatial
                     }

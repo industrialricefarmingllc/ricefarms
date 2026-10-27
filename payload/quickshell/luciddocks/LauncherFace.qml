@@ -14,6 +14,10 @@ Item {
     property bool headOnly: false
 
     function cycleTab(dir) {
+        if (face.displayMode === "translate") {
+            face.cycleMode(dir);
+            return ;
+        }
         if (!face.modes || face.modes.length === 0)
             return ;
         const keys = face.modes.map((m) => m.key);
@@ -23,6 +27,11 @@ Item {
         face.modeRequested(keys[(i + dir + keys.length) % keys.length]);
     }
     property var model: null
+    // the unfiltered app wall, kept apart from `model`: that stream carries
+    // every result kind and the frequent/all-apps headers, which have no place
+    // on a tile grid
+    property var appsModel: null
+    property var emojiModel: null
     property var wallpaperModel: null
     // Settings -> Theme picks the style; unknown names fall back to the strip
     readonly property var pickerFiles: ({
@@ -54,6 +63,7 @@ Item {
     property int resultCount: 0
     readonly property string placeholder: ({
         "clipboard": "Search clipboard history",
+        "translate": "Type a sentence, or > to ask/refine",
         "web": "Search the web",
         "run": "Type a command line",
         "emoji": "Find an emoji",
@@ -65,6 +75,7 @@ Item {
     readonly property string modeIcon: ({
         "commands": "keyboard_command_key",
         "clipboard": "content_paste",
+        "translate": "translate",
         "wallpaper": "wallpaper",
         "live": "movie",
         "theme": "palette",
@@ -98,21 +109,17 @@ Item {
         "label": "Apps",
         "icon": "apps"
     }, {
-        "key": "commands",
-        "label": "Commands",
-        "icon": "keyboard_command_key"
+        "key": "translate",
+        "label": "Translate",
+        "icon": "translate"
     }, {
-        "key": "clipboard",
-        "label": "Clipboard",
-        "icon": "content_paste"
+        "key": "emoji",
+        "label": "Emoji",
+        "icon": "mood"
     }, {
         "key": "wallpaper",
         "label": "Wallpapers",
         "icon": "wallpaper"
-    }, {
-        "key": "theme",
-        "label": "Themes",
-        "icon": "palette"
     }, {
         "key": "widgets",
         "label": "Widgets",
@@ -128,11 +135,26 @@ Item {
     // what the empty state needs, so the dock never sizes the panel under it
     readonly property real emptyHeight: resultList.emptyExtent
     property string displayMode: "apps"
+    property bool tabsFocused: false
+    property bool pendingTranslateFocus: false
     // the Pictures / Live switch beside the picker, as wide as the dock makes room for
     property int kindRailWidth: 0
     // pictures and videos share the picker, a tab each
     readonly property bool pickerMode: face.displayMode === "wallpaper" || face.displayMode === "live"
-    readonly property bool listVisible: !face.pickerMode
+    // the picker styles are separate files and the strip builds its thumbnail
+    // model at construction; none of that is worth loading until the tab has
+    // been picked once, which for most sessions it never is
+    property bool pickerEverUsed: false
+    onPickerModeChanged: if (face.pickerMode) face.pickerEverUsed = true
+    readonly property bool resultsVisible: !face.pickerMode && face.displayMode !== "translate"
+    // the unfiltered app list is pibble's tile wall; anything typed falls
+    // through to the list, which carries windows, commands, settings and the
+    // calculator as well as apps
+    readonly property bool gridVisible: face.resultsVisible && face.displayMode === "apps"
+    readonly property bool emojiVisible: face.displayMode === "emoji"
+    readonly property bool listVisible: face.resultsVisible && !face.gridVisible && !face.emojiVisible
+    // what the dock sizes the panel to while the wall is the whole content
+    readonly property real appsHeight: appsGrid.naturalHeight
     // clipboard: the first Ctrl+Shift+Del arms clearing everything, a second within 3 s does it
     property bool clearArmed: false
     // bumped whenever the dock rewrites the results, so the preview re-reads the selected row
@@ -152,11 +174,15 @@ Item {
     signal powerChipTapped(string id)
 
     signal activated(int index)
+    // the app wall's own activation: its index is into `appsModel`, not the
+    // mixed result stream `activated` carries
+    signal appActivated(int index)
+    signal emojiCopied(string emoji)
     signal closeRequested()
+    signal translateSubmitted(string text)
     // "wallpaper" or "live", from the switch beside the picker
     signal pickerKindRequested(string kind)
     signal wallpaperChosen(string path)
-    signal wallpaperPreviewed(string path)
     signal backRequested()
     signal modeRequested(string mode)
     signal deleteRequested(int index)
@@ -177,10 +203,12 @@ Item {
             wallStrip.setIndexImmediate(face.pickerIndex);
     }
 
-    readonly property int wallpaperCurrentIndex: wallStrip.currentIndex
+    readonly property int wallpaperCurrentIndex: wallStrip ? wallStrip.currentIndex : -1
 
     function resetSelection() {
         resultList.resetSelection();
+        appsGrid.resetSelection();
+        emojiGrid.resetSelection();
     }
 
     function resultsChanged() {
@@ -210,19 +238,50 @@ Item {
             face.syncDisplayMode();
             return ;
         }
-        modeFade.restart();
+        // The fade-through used to hold the old content on screen for 90ms,
+        // then spend another 210ms growing the new content in. A tab switch
+        // has to feel like a switch; the head still animates its selection.
+        modeFade.stop();
+        contentArea.opacity = 1;
+        contentArea.scale = 1;
+        face.syncDisplayMode();
     }
 
     // Tab walks the mode set, so every mode is one key away from the keyboard too.
-    // the entries that leave the launcher for a panel of their own are skipped
     function focusSearch() {
+        face.tabsFocused = false;
         searchInput.forceActiveFocus();
     }
 
+    // the external launcher opens folded to its head. Reaching for the app wall
+    // from there should open it rather than move a selection nobody can see.
+    function revealGrid() {
+        if (!face.headOnly)
+            return false;
+
+        face.modeRequested("apps");
+        return true;
+    }
+
+    // Arrow Up from the language row lands here: the tab strip owns the arrow
+    // keys until Down or Return goes back to the search field.
+    function focusModeTabs() {
+        if (!face.headOn) {
+            face.focusSearch();
+            return ;
+        }
+        face.tabsFocused = true;
+        headBand.forceActiveFocus();
+    }
+
+    // Tab walks every launcher tab, including the Widgets and Power leaves.
     function cycleMode(delta) {
-        var stops = face.modes.filter((m) => {
-            return m.leaves !== true;
-        });
+        if (face.displayMode === "translate" && translatePane.languageEngaged) {
+            translatePane.cycleLanguage(delta);
+            return ;
+        }
+
+        var stops = face.modes;
         var at = -1;
         for (var i = 0; i < stops.length; i++) {
             if (stops[i].key === face.displayMode)
@@ -237,6 +296,26 @@ Item {
     }
 
     function submit() {
+        if (face.displayMode === "translate") {
+            const text = String(face.highlightQuery || "").trim();
+            if (text !== "")
+                face.translateSubmitted(text);
+            return ;
+        }
+
+        if (face.emojiVisible) {
+            emojiGrid.activateCurrent();
+            return ;
+        }
+
+        if (face.gridVisible) {
+            if (!face.headOnly)
+                appsGrid.activateCurrent();
+            else
+                face.revealGrid();
+            return ;
+        }
+
         if (face.pickerMode) {
             if (wallStrip)
                 wallStrip.activateCurrent();
@@ -245,16 +324,73 @@ Item {
             resultList.activateCurrent();
     }
 
+    function submitTranslate(text) {
+        translatePane.submit(text);
+    }
+
+    readonly property bool translateLanguageEngaged: translatePane.languageEngaged
+
+    function translateLanguage(code) {
+        translatePane.selectLanguage(code);
+    }
+
+    function activateTranslateLanguage() {
+        face.tabsFocused = false;
+        translatePane.activateLanguage();
+    }
+
+    function pasteTranslateImage() {
+        return translatePane ? translatePane.pasteImage() : false;
+    }
+
+    // Typing while the language row or the mode strip owns the keyboard should
+    // hand the field the character immediately, not wait for Return.
+    function typeIntoInput(text) {
+        if (text === "")
+            return;
+        face.focusSearch();
+        var pos = Math.max(0, Math.min(searchInput.text.length, searchInput.cursorPosition));
+        searchInput.text = searchInput.text.slice(0, pos) + text + searchInput.text.slice(pos);
+        searchInput.cursorPosition = pos + text.length;
+    }
+
+    // Super+T opens Translate with the language row already engaged. The timer
+    // covers the mode transition and the dock-embedded launcher; LucidLauncher
+    // consumes it earlier once its keyboard grab is armed.
+    function armTranslateLanguageFocus() {
+        face.pendingTranslateFocus = true;
+        translateFocusTimer.restart();
+    }
+
+    function cancelTranslateLanguageFocus() {
+        face.pendingTranslateFocus = false;
+        translateFocusTimer.stop();
+    }
+
+    function consumeTranslateLanguageFocus() {
+        if (!face.pendingTranslateFocus || face.displayMode !== "translate")
+            return false;
+        face.pendingTranslateFocus = false;
+        translateFocusTimer.stop();
+        face.activateTranslateLanguage();
+        return true;
+    }
+
+    function cycleTranslateLanguage(delta) {
+        translatePane.cycleLanguage(delta);
+    }
+
+    function translateStatus() {
+        return translatePane.status();
+    }
+
+    function resetTranslate() {
+        translatePane.reset();
+    }
+
     onModeChanged: face.requestModeTransition()
     focus: true
     Keys.onEscapePressed: face.closeRequested()
-    Behavior on height {
-        NumberAnimation {
-            duration: Theme.durDefault
-            easing.type: Easing.OutCubic
-        }
-    }
-
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
             face.closeRequested()
@@ -283,6 +419,14 @@ Item {
 
         interval: 3000
         onTriggered: face.clearArmed = false
+    }
+
+    Timer {
+        id: translateFocusTimer
+
+        interval: 140
+        repeat: false
+        onTriggered: face.consumeTranslateLanguageFocus()
     }
 
     // m3 fade through: the old mode leaves on the accelerating curve, the new
@@ -326,7 +470,6 @@ Item {
             }
 
         }
-
     }
 
     LauncherHead {
@@ -341,11 +484,45 @@ Item {
         // the Live tab is the wallpaper picker too
         current: face.displayMode === "live" ? "wallpaper" : face.displayMode
         countLabel: face.countLabel
+        focus: face.tabsFocused
+        keyboardFocused: face.tabsFocused
+        onActiveFocusChanged: if (!headBand.activeFocus) face.tabsFocused = false
+        Keys.onLeftPressed: face.cycleMode(-1)
+        Keys.onRightPressed: face.cycleMode(1)
+        Keys.onTabPressed: (event) => {
+            face.cycleMode(event.modifiers & Qt.ShiftModifier ? -1 : 1);
+            event.accepted = true;
+        }
+        Keys.onBacktabPressed: (event) => {
+            face.cycleMode(-1);
+            event.accepted = true;
+        }
+        Keys.onDownPressed: face.focusSearch()
+        Keys.onReturnPressed: face.focusSearch()
+        Keys.onEnterPressed: face.focusSearch()
+        Keys.onEscapePressed: face.closeRequested()
+        Keys.onPressed: (event) => {
+            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_V) {
+                event.accepted = true;
+                face.pasteTranslateImage();
+                return;
+            }
+            if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab || event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right || event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Escape)
+                return;
+            if ((event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0)
+                return;
+            if (event.text !== "" && event.text.charCodeAt(0) >= 32) {
+                event.accepted = true;
+                face.typeIntoInput(event.text);
+            }
+        }
         onChosen: (key) => {
+            face.tabsFocused = false;
             face.modeRequested(key);
             searchInput.forceActiveFocus();
         }
         onHomeRequested: {
+            face.tabsFocused = false;
             face.modeRequested("apps");
             searchInput.forceActiveFocus();
         }
@@ -381,6 +558,35 @@ Item {
         transformOrigin: Item.Center
         clip: true
 
+        LauncherGrid {
+            id: appsGrid
+
+            anchors.fill: parent
+            visible: face.gridVisible && !face.headOnly
+            active: face.gridVisible && !face.headOnly && face.mode === "apps"
+            // defer the whole wall (and its icon decodes) until the body is
+            // actually requested; the collapsed head needs none of it
+            model: face.headOnly ? null : face.appsModel
+            revision: face.resultsRevision
+            onActivated: (index) => face.appActivated(index)
+        }
+
+        LauncherGrid {
+            id: emojiGrid
+
+            anchors.fill: parent
+            visible: face.emojiVisible && !face.headOnly
+            active: face.emojiVisible && !face.headOnly
+            emojiMode: true
+            model: face.headOnly ? null : face.emojiModel
+            revision: face.resultsRevision
+            onActivated: (index) => {
+                var em = face.emojiModel ? face.emojiModel.get(index).emoji : "";
+                if (em !== "")
+                    face.emojiCopied(em);
+            }
+        }
+
         LauncherList {
             id: resultList
 
@@ -389,11 +595,11 @@ Item {
             anchors.bottom: parent.bottom
             // the clipboard shares the width with its preview
             width: face.displayMode === "clipboard" ? Math.round(parent.width * 0.54) : parent.width
-            visible: face.listVisible
+            visible: face.listVisible && !face.headOnly
             // Detach the model while hidden so the 50-row list (icons included)
             // doesn't keep delegates alive in wallpaper/power modes; the ListView
             // only instantiates the visible window on return.
-            model: face.listVisible ? face.model : null
+            model: face.listVisible && !face.headOnly ? face.model : null
             query: face.highlightQuery
             stableHeight: face.stableContentHeight
             emptyLabel: {
@@ -435,6 +641,18 @@ Item {
             onHideRequested: (index) => {
                 return face.hideRequested(index);
             }
+        }
+
+        TranslatePane {
+            id: translatePane
+
+            anchors.fill: parent
+            visible: face.displayMode === "translate"
+            // one M3 type step below the head's labelLarge, at the same scale
+            languageLabelSize: Theme.typeSize("labelMedium") * face.cs
+            onFocusInputRequested: face.focusSearch()
+            onTabsFocusRequested: face.focusModeTabs()
+            onTypeIntoInputRequested: (text) => face.typeIntoInput(text)
         }
 
         ClipPreview {
@@ -536,6 +754,7 @@ Item {
             anchors.fill: parent
             anchors.leftMargin: kindRail.visible ? face.kindRailWidth : 0
             visible: face.pickerMode
+            active: face.pickerEverUsed
             source: face.pickerFiles[face.pickerStyle] || face.pickerFiles.strip
             onLoaded: pickerRestore.restart()
         }
@@ -592,10 +811,6 @@ Item {
         Connections {
             function onChosen(path) {
                 face.wallpaperChosen(path);
-            }
-
-            function onPreviewed(path) {
-                face.wallpaperPreviewed(path);
             }
 
             function onCurrentIndexChanged() {
@@ -700,28 +915,54 @@ Item {
             selectionColor: Theme.alpha(Theme.accent, 0.35)
             selectedTextColor: Theme.text
             onTextChanged: face.resetSelection()
+            onActiveFocusChanged: if (searchInput.activeFocus) face.tabsFocused = false
             // the picker takes one pair of arrows (Settings -> Theme -> Arrow keys)
             // and the search field keeps the other; Tiles is a grid and takes all four
-            Keys.onUpPressed: {
-                if (face.listVisible)
+            Keys.onUpPressed: (event) => {
+                if (face.gridVisible) {
+                    if (!face.revealGrid())
+                        appsGrid.stepVertical(-1);
+                    event.accepted = true;
+                } else if (face.emojiVisible) {
+                    emojiGrid.stepVertical(-1);
+                    event.accepted = true;
+                } else if (face.listVisible) {
                     resultList.step(-1);
-                else if (face.pickerMode && wallStrip && face.pickerGrid)
+                    event.accepted = true;
+                } else if (face.pickerMode && wallStrip && face.pickerGrid)
                     wallStrip.stepVertical(-1);
                 else if (face.pickerMode && wallStrip && face.pickerUpDown)
                     wallStrip.step(-1);
 
             }
-            Keys.onDownPressed: {
-                if (face.listVisible)
+            Keys.onDownPressed: (event) => {
+                if (face.gridVisible) {
+                    if (!face.revealGrid())
+                        appsGrid.stepVertical(1);
+                    event.accepted = true;
+                } else if (face.displayMode === "translate") {
+                    translatePane.activateLanguage();
+                } else if (face.emojiVisible) {
+                    emojiGrid.stepVertical(1);
+                    event.accepted = true;
+                } else if (face.listVisible) {
                     resultList.step(1);
-                else if (face.pickerMode && wallStrip && face.pickerGrid)
+                    event.accepted = true;
+                } else if (face.pickerMode && wallStrip && face.pickerGrid)
                     wallStrip.stepVertical(1);
                 else if (face.pickerMode && wallStrip && face.pickerUpDown)
                     wallStrip.step(1);
 
             }
             Keys.onLeftPressed: (event) => {
-                if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown)) {
+                if (face.gridVisible) {
+                    if (!face.revealGrid())
+                        appsGrid.stepHorizontal(-1);
+                    event.accepted = true;
+                } else if (face.emojiVisible) {
+                    emojiGrid.stepHorizontal(-1);
+                    event.accepted = true;
+                } else if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown)) {
                     if (wallStrip)
                         wallStrip.step(-1);
                     event.accepted = true;
@@ -730,7 +971,14 @@ Item {
                 }
             }
             Keys.onRightPressed: (event) => {
-                if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown) && face.wallpaperModel) {
+                if (face.gridVisible) {
+                    if (!face.revealGrid())
+                        appsGrid.stepHorizontal(1);
+                    event.accepted = true;
+                } else if (face.emojiVisible) {
+                    emojiGrid.stepHorizontal(1);
+                    event.accepted = true;
+                } else if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown) && face.wallpaperModel) {
                     if (wallStrip)
                         wallStrip.step(1);
                     event.accepted = true;
@@ -753,11 +1001,26 @@ Item {
                 face.cycleMode(event.modifiers & Qt.ShiftModifier ? -1 : 1);
                 event.accepted = true;
             }
+            Keys.onBacktabPressed: (event) => {
+                face.cycleMode(-1);
+                event.accepted = true;
+            }
             // Ctrl and a digit jumps straight to a mode, in the order the head shows them
             Keys.onPressed: (event) => {
                 if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
                     face.closeRequested()
                     event.accepted = true
+                    return ;
+                }
+                if (face.gridVisible && (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)) {
+                    if (!face.revealGrid())
+                        appsGrid.pageMove(event.key === Qt.Key_PageDown ? 1 : -1);
+                    event.accepted = true;
+                    return ;
+                }
+                if (face.emojiVisible && (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)) {
+                    emojiGrid.pageMove(event.key === Qt.Key_PageDown ? 1 : -1);
+                    event.accepted = true;
                     return ;
                 }
                 if (!(event.modifiers & Qt.ControlModifier) || event.key < Qt.Key_1 || event.key > Qt.Key_9) {
