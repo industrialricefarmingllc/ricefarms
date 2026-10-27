@@ -44,14 +44,13 @@ Item {
     // 174px tile is 21% of its 820px launcher; four tiles across a 336px face
     // land on the same proportion, and everything inside scales with the tile.
     readonly property real cs: Prefs.launcherScale
-    // the tile's own contents (icon well, icon, caption) were a little tight
-    // against the four-column width; this grows the item without changing the
-    // page grid itself
-    readonly property real itemScale: 1.25
+    // item contents are sized against the four-column tile by this factor;
+    // the caption keeps its own (unscaled) size
+    readonly property real itemScale: 1.0
     readonly property real padX: Theme.dp(8)
     readonly property real gap: Theme.dp(18)
-    // vertical breathing room is spent on the fourth row instead of the
-    // margins, so the wall reaches the top and bottom of the body
+    // the fourth row gets the vertical room; gaps stay generous rather than
+    // stretching the tiles to fill every pixel
     readonly property real padY: Theme.dp(8)
     readonly property real rowGap: Theme.dp(12)
     readonly property real tileW: {
@@ -374,6 +373,15 @@ Item {
 
                                 anchors.fill: parent
                                 asynchronous: true
+                                cache: true
+                                // Decode above the drawn size so the surface's
+                                // 1.35x reveal scale (and any HiDPI factor)
+                                // never upsamples a tiny pixmap.
+                                sourceSize.width: Math.max(64, Math.ceil(width * 4))
+                                sourceSize.height: Math.max(64, Math.ceil(height * 4))
+                                // Smooth/downsample rather than nearest-neighbour.
+                                smooth: true
+                                mipmap: true
                                 fillMode: Image.PreserveAspectCrop
                                 source: {
                                     IconTheme.generation;
@@ -385,6 +393,12 @@ Item {
                                 }
                                 visible: status === Image.Ready
                                 layer.enabled: visible
+                                // Mask in a supersampled layer, otherwise the
+                                // mask is baked at 1x and the face scale blurs
+                                // the icon back down again.
+                                layer.textureSize: Qt.size(Math.ceil(width * 4), Math.ceil(height * 4))
+                                layer.smooth: true
+                                layer.mipmap: true
                                 layer.effect: ShaderEffect {
                                     property vector2d center: Qt.vector2d(0.5, 0.5)
                                     property real radius: 0.5

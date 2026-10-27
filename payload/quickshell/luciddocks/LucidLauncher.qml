@@ -80,7 +80,11 @@ PanelWindow {
     readonly property real contentH: root.bodyOpen ? root.openContentH : root.collapsedContentH
     readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
     readonly property real revealCenterY: root.ring + root.padV + root.collapsedContentH * root.scaleFactor * 0.5
-    readonly property real revealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH + root.ring, Math.max(root.revealCenterY, root.height - root.revealCenterY)) + 8
+    // Use the largest possible body, not the height that happens to be laid
+    // out at the first frame: opening straight onto a tab resizes the window
+    // after the animation target can already have been sampled.
+    readonly property real openPanelH: root.openContentH * root.scaleFactor + root.padV * 2 + root.ring * 2
+    readonly property real revealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH + root.ring, Math.max(root.revealCenterY, root.openPanelH - root.revealCenterY)) + 8
     readonly property real ring: Theme.dp(4)
     readonly property var activeBorderColours: HyprConfig.coloursOf(HyprConfig.value("general.col.active_border"))
     readonly property color activeBorderColour: root.activeBorderColours.length > 0 ? root.activeBorderColours[0] : Theme.accent
@@ -270,6 +274,14 @@ PanelWindow {
             var picker = face.wallStrip;
             root.dock.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
             root.dock.menuOpen = false;
+        }
+        onWallpaperDeleteRequested: (path) => {
+            if (root.dock)
+                root.dock.deleteWallpaper(path);
+        }
+        onWallpaperUndoRequested: {
+            if (root.dock)
+                root.dock.undoDeleteWallpaper();
         }
         onSearchTextChanged: if (face.searchText !== "") {
             root.bodyOpen = true;
