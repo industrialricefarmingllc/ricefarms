@@ -106,7 +106,7 @@ PanelWindow {
         target: face
 
         function onModeChanged() {
-            if (face.mode === "translate")
+            if (face.mode !== "apps")
                 root.bodyOpen = true;
         }
     }
@@ -123,7 +123,10 @@ PanelWindow {
                 // settle the body before the surface becomes visible, so a
                 // reopen never shows the last session's expanded content
                 // retracting under the reveal
-                root.bodyOpen = face ? face.searchText !== "" : false;
+                // A direct tab (Super+W, Super+T, emoji) needs its body even though the
+        // search field is intentionally blank. The pinned mode is set before
+        // menuOpen, while `face.mode` may still be settling from the old tab.
+        root.bodyOpen = root.dock ? (root.dock.pinnedMode !== "apps" || (face && face.searchText !== "")) : false;
                 root.panelVisible = true;
                 root.startOpen();
             } else {
@@ -325,9 +328,10 @@ PanelWindow {
     }
     function startOpen() {
         root.closing = false;
-        // Direct tab selection leaves the field empty; Translate still needs
-        // its body, unlike the folded app-launcher head.
-        root.bodyOpen = face ? (face.searchText !== "" || face.mode === "translate") : false;
+        // Direct tab selection leaves the field empty; every non-Apps tab
+        // still needs its body. pinnedMode is set before menuOpen, while
+        // face.mode may still be settling from the old tab.
+        root.bodyOpen = root.dock ? (root.dock.pinnedMode !== "apps" || (face && face.searchText !== "")) : false;
         // The surface is already mapped, so the circular gate can start in the
         // same frame without paying the old window-creation cost. Start at a
         // few pixels rather than zero so the first visible frame is the dot.
