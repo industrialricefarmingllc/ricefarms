@@ -16,6 +16,7 @@ import "./lucidshot"
 import "./lucidswitch"
 import "./lucidupdate"
 import "./lucidwidgets"
+import "./squircle"
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
@@ -251,6 +252,12 @@ ShellRoot {
             readonly property bool primary: !Monitors.barEverywhere || bar.screen === Monitors.popupScreen
             // Two-shape glass union support (see root.glassUnion).
             readonly property bool glassUnion: root.glassUnion
+            // Notch mode: the left/right groups draw as one continuous shape.
+            // With glass off that shape is the QML body; with glass on the
+            // compositor fills it and the same shape carries only the window
+            // hairline (NotchGroupBg.borderOnly), so the members' own bodies
+            // step aside either way.
+            readonly property bool notchGroupBg: Prefs.barNotch
             // what the shell's ipc targets reach on the main bar
             readonly property var clockModule: clockMod
             readonly property var mprisModule: mprisMod
@@ -388,6 +395,31 @@ ShellRoot {
                 return false;
             }
 
+            // Members of the left/right notch groups let the one group
+            // background carry their body when liquid glass is off.
+            function groupBackgroundFor(m) {
+                if (!bar.notchGroupBg || !m)
+                    return false;
+                return bar.leftMods.indexOf(m) >= 0 || bar.rightMods.indexOf(m) >= 0;
+            }
+
+            // In group-background mode only the group's inner edge keeps its
+            // shoulder; returns -1 for a module outside the side groups so the
+            // ordinary per-module flare math applies.
+            function notchGroupEdgeFlare(m, toTheLeft) {
+                if (!bar.notchGroupBg || !m)
+                    return -1;
+                var zone = bar.leftMods.indexOf(m) >= 0 ? "left" : (bar.rightMods.indexOf(m) >= 0 ? "right" : "");
+                if (zone === "")
+                    return -1;
+                var b = bar.notchGroupBounds(bar.zoneMods(zone));
+                if (!b)
+                    return 0;
+                if (zone === "left")
+                    return (!toTheLeft && m === b.last) ? bar.notchFlare(m, false) : 0;
+                return (toTheLeft && m === b.first) ? bar.notchFlare(m, true) : 0;
+            }
+
             // Geometry quantization: sub-half-pixel float noise from per-frame
             // interpolation would otherwise change the JSON signature (and
             // trigger a file write + plugin re-render) for no visible change.
@@ -494,10 +526,10 @@ ShellRoot {
                 return Math.max(0, Math.min(Theme.dp(Prefs.barNotchFlare), Math.floor(toNeighbour / 2), Math.floor(toEdge)));
             }
 
-            // Notch mode: one continuous background per side group, hugging
-            // the screen edge. Union of the members' live surface rects.
-            function glassGroupFor(mods, side) {
-                var out = [];
+            // Notch mode: union of a side group's live surface rects. Shared by
+            // the compositor glass and the QML group background used when
+            // liquid glass is off.
+            function notchGroupBounds(mods) {
                 var x0 = 1000000, x1 = -1000000, hMax = 0, any = false, anyOpen = false;
                 var first = null, last = null;
                 var cor = Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius;
@@ -526,17 +558,34 @@ ShellRoot {
                         cor = c;
                 }
                 if (!any)
-                    return out;
+                    return null;
                 if (anyOpen)
                     cor = Math.max(cor, Theme.radiusLg);
-                var fl = first ? bar.notchFlare(first, true) : 0;
-                var fr = last ? bar.notchFlare(last, false) : 0;
+                return {
+                    "x": x0,
+                    "w": x1 - x0,
+                    "h": hMax,
+                    "r": cor,
+                    "first": first,
+                    "last": last
+                };
+            }
+
+            // Notch mode: one continuous background per side group, hugging
+            // the screen edge.
+            function glassGroupFor(mods, side) {
+                var out = [];
+                var b = bar.notchGroupBounds(mods);
+                if (!b)
+                    return out;
+                var fl = b.first ? bar.notchFlare(b.first, true) : 0;
+                var fr = b.last ? bar.notchFlare(b.last, false) : 0;
                 out.push({
-                    "x": bar.glassQ(x0),
+                    "x": bar.glassQ(b.x),
                     "y": 0,
-                    "w": Math.max(1, bar.glassQ(x1 - x0)),
-                    "h": bar.glassQ(hMax),
-                    "r": side === "left" ? [0, 0, cor, 0] : (side === "right" ? [0, 0, 0, cor] : [0, 0, cor, cor]),
+                    "w": Math.max(1, bar.glassQ(b.w)),
+                    "h": bar.glassQ(b.h),
+                    "r": side === "left" ? [0, 0, b.r, 0] : (side === "right" ? [0, 0, 0, b.r] : [0, 0, b.r, b.r]),
                     "fl": [fl, fr]
                 });
                 if (Prefs.barPopupMode) {
@@ -1116,6 +1165,26 @@ ShellRoot {
 
             }
 
+            // full bar under liquid glass: the compositor plugin fills the
+            // strip, so trace its outline here (no fill, no QML shadow)
+            SquircleRect {
+                visible: Prefs.barFull && Prefs.liquidGlassEnabled && bar.anyModuleShown
+                x: 0
+                y: bar.hiddenOffset
+                z: -2
+                width: bar.width
+                height: Theme.dp(Prefs.barHeight)
+                fillColor: "transparent"
+                topLeftRadius: 0
+                topRightRadius: 0
+                bottomLeftRadius: Theme.dp(Prefs.barFullCorner)
+                bottomRightRadius: Theme.dp(Prefs.barFullCorner)
+                borderColor: WindowBorder.colour
+                borderWidth: WindowBorder.size
+                // the strip grows out of the screen edge
+                borderTop: 0
+            }
+
             // rounded corners hanging off the strip where it meets the screen sides
             BarFlare {
                 visible: fullStrip.visible && size > 0
@@ -1181,6 +1250,43 @@ ShellRoot {
 
             }
 
+            // Notch mode, liquid glass off: left/right read as one shape each,
+            // the same silhouette the compositor plugin draws when glass is on.
+            Repeater {
+                // The side travels with the model: comparing the delegate's
+                // modelData back to bar.leftMods can miss (the zone arrays are
+                // rebuilt), which mirrored the inward corner onto the screen
+                // edge and left the hard corner facing the centre.
+                model: bar.notchGroupBg ? [{
+                    "mods": bar.leftMods,
+                    "side": "left"
+                }, {
+                    "mods": bar.rightMods,
+                    "side": "right"
+                }] : []
+
+                NotchGroupBg {
+                    id: notchGroup
+
+                    required property var modelData
+
+                    readonly property var groupBounds: bar.notchGroupBounds(modelData.mods)
+
+                    bounds: notchGroup.groupBounds
+                    shown: bar.anyModuleShown
+                    hiddenOffset: bar.hiddenOffset
+                    side: modelData.side
+                    // under the glass plugin this item traces the same shape
+                    // over the compositor-drawn body
+                    borderOnly: Prefs.liquidGlassEnabled
+                    // only the inner edge carries a shoulder flare; the side
+                    // border stops where that flare's arc takes over
+                    borderLeftGap: (modelData.side === "right" && notchGroup.groupBounds && notchGroup.groupBounds.first) ? bar.notchFlare(notchGroup.groupBounds.first, true) : 0
+                    borderRightGap: (modelData.side === "left" && notchGroup.groupBounds && notchGroup.groupBounds.last) ? bar.notchFlare(notchGroup.groupBounds.last, false) : 0
+                }
+
+            }
+
             Mpris {
                 id: mprisMod
 
@@ -1188,6 +1294,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(mprisMod)
                 soloCollapse: bar.soloFor(mprisMod)
                 panelWidth: bar.soloPanel(mprisMod)
                 x: bar.placeFor("media")
@@ -1214,6 +1321,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(sysTrayMod)
                 soloCollapse: bar.soloFor(sysTrayMod)
                 panelWidth: bar.soloPanel(sysTrayMod)
                 x: bar.placeFor("tray")
@@ -1240,6 +1348,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(clockMod)
                 soloCollapse: bar.soloFor(clockMod)
                 panelWidth: bar.soloPanel(clockMod)
                 anchors.top: parent.top
@@ -1267,6 +1376,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(notifMod)
                 soloCollapse: bar.soloFor(notifMod)
                 panelWidth: bar.soloPanel(notifMod)
                 Component.onCompleted: if (bar.primary) Notifs.ui = notifMod
@@ -1296,6 +1406,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(privacyMod)
                 soloCollapse: bar.soloFor(privacyMod)
                 panelWidth: bar.soloPanel(privacyMod)
                 x: bar.placeFor("privacy")
@@ -1322,6 +1433,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(powerMod)
                 soloCollapse: bar.soloFor(powerMod)
                 panelWidth: bar.soloPanel(powerMod)
                 x: bar.placeFor("power")
@@ -1348,6 +1460,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(startMod)
                 soloCollapse: bar.soloFor(startMod)
                 dockMod: dock
                 x: bar.placeFor("start")
@@ -1374,6 +1487,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(windowMod)
                 soloCollapse: bar.soloFor(windowMod)
                 panelWidth: bar.soloPanel(windowMod)
                 x: bar.placeFor("window")
@@ -1400,6 +1514,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(systemMod)
                 soloCollapse: bar.soloFor(systemMod)
                 panelWidth: bar.soloPanel(systemMod)
                 mprisMod: mprisMod
@@ -1444,10 +1559,19 @@ ShellRoot {
 
                     readonly property bool present: flares.modelData && flares.modelData.width > 0.5 && flares.modelData.visible
                     readonly property bool modHovered: flares.modelData ? (flares.modelData.compactHovered === true && flares.modelData !== workspacesMod) : false
+                    // under external glass the plugin draws the wedge; the QML
+                    // flare keeps only its arc hairline (transparent fill)
+                    readonly property bool glassed: flares.modelData ? flares.modelData.externalGlass === true : false
 
                     function flareFor(toTheLeft) {
                         if (!flares.present)
                             return 0;
+
+                        // one group background: only its inner edge gets a
+                        // shoulder, not every member inside it
+                        var groupFlare = bar.notchGroupEdgeFlare(flares.modelData, toTheLeft);
+                        if (groupFlare >= 0)
+                            return groupFlare;
 
                         var mods = bar.modules;
                         var edge = toTheLeft ? flares.modelData.x : flares.modelData.x + flares.modelData.width;
@@ -1472,14 +1596,18 @@ ShellRoot {
 
                     anchors.fill: parent
                     z: -1
-                    // Flat wedges are the non-external fallback: under external
-                    // glass the plugin draws the flare silhouette.
-                    visible: Prefs.barNotch && flares.present && flares.modelData.externalGlass !== true
+                    // Flat wedges are the non-external fill; under external
+                    // glass only the border is left to draw over the plugin's
+                    // own flare silhouette.
+                    visible: Prefs.barNotch && flares.present
 
                     readonly property real bite: 0.5
 
                     BarFlare {
                         hovered: flares.modHovered
+                        fillColor: flares.glassed ? "transparent" : Theme.bg
+                        borderColor: WindowBorder.colour
+                        borderWidth: WindowBorder.size
                         size: flares.flareFor(true)
                         x: flares.modelData ? flares.modelData.x - width + flares.bite : 0
                         y: bar.hiddenOffset
@@ -1488,6 +1616,9 @@ ShellRoot {
                     BarFlare {
                         hovered: flares.modHovered
                         mirrored: true
+                        fillColor: flares.glassed ? "transparent" : Theme.bg
+                        borderColor: WindowBorder.colour
+                        borderWidth: WindowBorder.size
                         size: flares.flareFor(false)
                         x: flares.modelData ? flares.modelData.x + flares.modelData.width - flares.bite : 0
                         y: bar.hiddenOffset
@@ -1507,6 +1638,8 @@ ShellRoot {
 
                     visible: !Prefs.liquidGlassEnabled
                     z: 0
+                    borderColor: WindowBorder.colour
+                    borderWidth: WindowBorder.size
                     size: spec ? spec.size : 0
                     mirrored: spec ? spec.mirrored : false
                     flipped: spec ? spec.flipped : false
@@ -1521,6 +1654,7 @@ ShellRoot {
 
                 hostWindow: bar
                 externalGlass: Prefs.liquidGlassEnabled
+                groupBackground: bar.groupBackgroundFor(workspacesMod)
                 soloCollapse: bar.soloFor(workspacesMod)
                 dockMod: dock
                 restX: bar.placeFor("workspaces")
@@ -1692,6 +1826,7 @@ ShellRoot {
 
     LucidLauncher {
         dock: dock
+        toast: toastMod
     }
 
     Dock {
