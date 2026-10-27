@@ -1608,6 +1608,11 @@ ShellRoot {
                         fillColor: flares.glassed ? "transparent" : Theme.bg
                         borderColor: WindowBorder.colour
                         borderWidth: WindowBorder.size
+                        // shoulder, not a rounded corner: a superellipse turned
+                        // inside out hugs the tab side and reads as a straight
+                        // seam. The circular sweep stays curved over its whole
+                        // height (see BarFlare.smoothing).
+                        smoothing: 0
                         size: flares.flareFor(true)
                         x: flares.modelData ? flares.modelData.x - width + flares.bite : 0
                         y: bar.hiddenOffset
@@ -1619,6 +1624,7 @@ ShellRoot {
                         fillColor: flares.glassed ? "transparent" : Theme.bg
                         borderColor: WindowBorder.colour
                         borderWidth: WindowBorder.size
+                        smoothing: 0
                         size: flares.flareFor(false)
                         x: flares.modelData ? flares.modelData.x + flares.modelData.width - flares.bite : 0
                         y: bar.hiddenOffset
