@@ -183,6 +183,8 @@ Item {
     // "wallpaper" or "live", from the switch beside the picker
     signal pickerKindRequested(string kind)
     signal wallpaperChosen(string path)
+    signal wallpaperDeleteRequested(string path)
+    signal wallpaperUndoRequested()
     signal backRequested()
     signal modeRequested(string mode)
     signal deleteRequested(int index)
@@ -190,6 +192,14 @@ Item {
     signal clearRequested()
 
     Component.onCompleted: face.pickerStyle = Prefs.wallpaperPickerStyle
+
+    // undo the last picker delete; with a filter typed Ctrl+Z belongs to the
+    // search field instead
+    Shortcut {
+        sequence: "Ctrl+Z"
+        enabled: face.visible && face.pickerMode && face.highlightQuery === "" && face.wallStrip !== null
+        onActivated: face.wallpaperUndoRequested()
+    }
 
     function setWallpaperIndex(i) {
         face.pickerIndex = i;
@@ -813,6 +823,10 @@ Item {
                 face.wallpaperChosen(path);
             }
 
+            function onWallpaperDeleteRequested(path) {
+                face.wallpaperDeleteRequested(path);
+            }
+
             function onCurrentIndexChanged() {
                 if (pickerLoader.item && !face.pickerSettling)
                     face.pickerIndex = pickerLoader.item.currentIndex;
@@ -987,7 +1001,11 @@ Item {
                 }
             }
             Keys.onDeletePressed: (event) => {
-                if (face.displayMode === "clipboard" && (event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier)) {
+                // browsing the picker: Delete trashes the highlighted card.
+                // With a filter typed the key belongs to the search field.
+                if (face.pickerMode && face.highlightQuery === "" && wallStrip && wallStrip.deleteHighlighted()) {
+                    event.accepted = true;
+                } else if (face.displayMode === "clipboard" && (event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier)) {
                     face.armOrClear();
                     event.accepted = true;
                 } else if (face.displayMode === "clipboard" && resultList.isSelectable(resultList.currentIndex)) {

@@ -394,6 +394,11 @@ PanelWindow {
     property var scannedApps: []
     readonly property string currentTheme: Prefs.currentTheme
     property string appliedWallpaper: ""
+    // LIFO of picker deletions: the row data, its place in each model and the
+    // trash URI needed to put it back. Ctrl+Z pops the last one.
+    property var wallpaperUndo: []
+    // Ctrl+Z pressed while the trash/list process is still finishing
+    property bool undoAfterTrash: false
     // what the picker asked set-wallpaper.sh for since the desktop last caught up
     property var requestedWallpapers: ({})
     // a pin on its way to the desktop keeps the dock up, or the drag would lose its source
@@ -1968,6 +1973,141 @@ PanelWindow {
             dockWindow.launcherItem.setWallpaperIndex(0);
     }
 
+    // Delete on the picker: move the file to the XDG trash, then drop just that
+    // row from the source and filtered models. No folder rescan, so the other
+    // cards, their thumbnails and the selection stay exactly where they are.
+    // Ctrl+Z restores the last one from the trash and puts the row back.
+    function deleteWallpaper(path) {
+        if (path === "" || wallpaperTrash.running || wallpaperTrashList.running || wallpaperRestore.running)
+            return ;
+
+        const tab = dockWindow.mode === "live" ? "live" : "wallpaper";
+        const source = tab === "live" ? liveModel : wallpapersModel;
+        const shown = tab === "live" ? filteredLiveModel : filteredWallpapersModel;
+        let rec = null;
+        let sourceIndex = -1;
+        let pickerIndex = -1;
+        for (let i = 0; i < source.count; i++) {
+            if (source.get(i).path === path) {
+                const e = source.get(i);
+                rec = {
+                    "path": e.path,
+                    "name": e.name,
+                    "thumb": e.thumb,
+                    "tab": tab
+                };
+                sourceIndex = i;
+                break;
+            }
+        }
+        for (let i = 0; i < shown.count; i++) {
+            if (shown.get(i).path === path) {
+                if (!rec) {
+                    const e = shown.get(i);
+                    rec = {
+                        "path": e.path,
+                        "name": e.name,
+                        "thumb": e.thumb,
+                        "tab": tab
+                    };
+                }
+                pickerIndex = i;
+                break;
+            }
+        }
+        if (!rec)
+            return ;
+
+        rec.sourceIndex = sourceIndex;
+        rec.pickerIndex = pickerIndex;
+        wallpaperTrash.record = rec;
+        wallpaperTrash.path = path;
+        wallpaperTrash.running = true;
+    }
+
+    function dropWallpaperRow(path) {
+        const picker = dockWindow.pickerModel;
+        const strip = dockWindow.launcherItem ? dockWindow.launcherItem.wallStrip : null;
+        const oldIndex = strip ? strip.currentIndex : -1;
+        let delIndex = -1;
+        for (let i = 0; i < picker.count; i++) {
+            if (picker.get(i).path === path) {
+                delIndex = i;
+                break;
+            }
+        }
+
+        const models = [wallpapersModel, filteredWallpapersModel, liveModel, filteredLiveModel];
+        for (let m = 0; m < models.length; m++) {
+            const model = models[m];
+            for (let j = model.count - 1; j >= 0; j--) {
+                if (model.get(j).path === path)
+                    model.remove(j, 1);
+            }
+        }
+        if (strip)
+            strip.hoveredIndex = -1;
+
+        if (delIndex < 0 || !strip || picker.count === 0)
+            return ;
+
+        // the row after the removed one takes its place; anything before the
+        // selection shifts back by one so the same wallpaper stays selected
+        let next = oldIndex;
+        if (delIndex < oldIndex)
+            next = oldIndex - 1;
+        else if (delIndex === oldIndex)
+            next = Math.min(oldIndex, picker.count - 1);
+
+        dockWindow.launcherItem.setWallpaperIndex(Math.max(0, Math.min(picker.count - 1, next)));
+    }
+
+    function insertWallpaperRow(model, at, rec) {
+        for (let i = 0; i < model.count; i++) {
+            if (model.get(i).path === rec.path)
+                return i;
+        }
+        const index = Math.max(0, Math.min(model.count, at));
+        model.insert(index, {
+            "path": rec.path,
+            "name": rec.name,
+            "thumb": rec.thumb
+        });
+        return index;
+    }
+
+    function dropUndoRecord(rec) {
+        const stack = dockWindow.wallpaperUndo.slice();
+        const at = stack.lastIndexOf(rec);
+        if (at >= 0)
+            stack.splice(at, 1);
+        dockWindow.wallpaperUndo = stack;
+    }
+
+    function finishWallpaperUndo(rec) {
+        const source = rec.tab === "live" ? liveModel : wallpapersModel;
+        const shown = rec.tab === "live" ? filteredLiveModel : filteredWallpapersModel;
+        dockWindow.insertWallpaperRow(source, rec.sourceIndex, rec);
+        const at = dockWindow.insertWallpaperRow(shown, rec.pickerIndex, rec);
+        dockWindow.dropUndoRecord(rec);
+        if (dockWindow.launcherItem && dockWindow.pickerMode && (dockWindow.mode === "live") === (rec.tab === "live"))
+            dockWindow.launcherItem.setWallpaperIndex(at);
+    }
+
+    function undoDeleteWallpaper() {
+        if (wallpaperTrash.running || wallpaperTrashList.running || wallpaperRestore.running) {
+            dockWindow.undoAfterTrash = true;
+            return true;
+        }
+        if (dockWindow.wallpaperUndo.length === 0)
+            return false;
+
+        const stack = dockWindow.wallpaperUndo.slice();
+        wallpaperRestore.record = stack[stack.length - 1];
+        wallpaperRestore.running = true;
+        return true;
+    }
+
     function switchTheme(id) {
         // built from one colour rather than from a picture, so the wallpaper
         // stays as it is and there is no folder to look in
@@ -2993,6 +3133,91 @@ PanelWindow {
     }
 
     Process {
+        id: wallpaperTrash
+
+        property string path: ""
+        property var record: null
+
+        command: ["gio", "trash", wallpaperTrash.path]
+
+        onExited: (code) => {
+            if (code === 0) {
+                dockWindow.dropWallpaperRow(wallpaperTrash.path);
+                wallpaperTrashList.record = wallpaperTrash.record;
+                wallpaperTrashList.running = true;
+            } else {
+                Quickshell.execDetached(["notify-send", "Wallpaper", "Could not move to trash: " + wallpaperTrash.path]);
+                dockWindow.undoAfterTrash = false;
+            }
+            wallpaperTrash.record = null;
+            wallpaperTrash.path = "";
+        }
+    }
+
+    // resolve the trash URI of the newest delete for Ctrl+Z. This only lists the
+    // trash; it never rescans or reprocesses the wallpaper folder.
+    Process {
+        id: wallpaperTrashList
+
+        property var record: null
+
+        command: ["gio", "trash", "--list"]
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const rec = wallpaperTrashList.record;
+                if (!rec)
+                    return;
+
+                let uri = "";
+                const lines = text.split("\n");
+                for (let i = 0; i < lines.length; i++) {
+                    const cols = lines[i].split("\t");
+                    if (cols.length >= 2 && cols[1].trim() === rec.path)
+                        uri = cols[0].trim();
+                }
+                if (uri === "") {
+                    Quickshell.execDetached(["notify-send", "Wallpaper", "Could not find the trashed file for undo: " + rec.path]);
+                    dockWindow.undoAfterTrash = false;
+                } else {
+                    rec.trashUri = uri;
+                    const stack = dockWindow.wallpaperUndo.slice();
+                    stack.push(rec);
+                    dockWindow.wallpaperUndo = stack;
+                    if (dockWindow.undoAfterTrash) {
+                        dockWindow.undoAfterTrash = false;
+                        Qt.callLater(dockWindow.undoDeleteWallpaper);
+                    }
+                }
+                wallpaperTrashList.record = null;
+            }
+        }
+    }
+
+    Process {
+        id: wallpaperRestore
+
+        property var record: null
+
+        command: ["gio", "trash", "--restore", wallpaperRestore.record ? wallpaperRestore.record.trashUri : ""]
+
+        onExited: (code) => {
+            const rec = wallpaperRestore.record;
+            if (code === 0 && rec)
+                dockWindow.finishWallpaperUndo(rec);
+            else if (rec) {
+                dockWindow.dropUndoRecord(rec);
+                Quickshell.execDetached(["notify-send", "Wallpaper", "Could not restore from trash: " + rec.path]);
+            }
+            wallpaperRestore.record = null;
+            if (dockWindow.undoAfterTrash) {
+                dockWindow.undoAfterTrash = false;
+                Qt.callLater(dockWindow.undoDeleteWallpaper);
+            }
+        }
+    }
+
+    Process {
         id: wallpaperScanner
 
         // typing a folder that turns up empty shouldn't swap the desktop out
@@ -3635,6 +3860,8 @@ PanelWindow {
                     dockWindow.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
                     dockWindow.menuOpen = false;
                 }
+                onWallpaperDeleteRequested: (path) => dockWindow.deleteWallpaper(path)
+                onWallpaperUndoRequested: dockWindow.undoDeleteWallpaper()
             }
 
             Behavior on width {
