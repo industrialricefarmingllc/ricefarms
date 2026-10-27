@@ -263,7 +263,6 @@ PanelWindow {
             if (!root.dock) return;
             root.bodyOpen = true;
             if (m === "power") { root.dock.menuOpen = false; root.dock.openSession(); return; }
-            if (m === "widgets") { root.dock.openWidgetPanel(); return; }
             root.dock.selectMode(m);
         }
         onDeleteRequested: (index) => root.dock && root.dock.deleteResult(index)

@@ -113,6 +113,7 @@ Item {
     }
 
     signal chosen(string path)
+    signal wallpaperDeleteRequested(string path)
 
     function clampIndex(i) {
         if (strip.count <= 0)
@@ -153,6 +154,24 @@ Item {
             strip.noteOrigin(cell ? cell.cardItem : null);
             strip.chosen(item.path);
         }
+    }
+
+    // the card under the pointer if there is one, otherwise the selected card
+    function deleteHighlighted() {
+        if (strip.count <= 0)
+            return false;
+
+        var at = strip.hoveredIndex >= 0 && strip.hoveredIndex < strip.count ? strip.hoveredIndex : strip.currentIndex;
+        if (at < 0 || at >= strip.count)
+            return false;
+
+        var item = strip.model.get(at);
+        if (!item || item.path === "")
+            return false;
+
+        strip.hoveredIndex = -1;
+        strip.wallpaperDeleteRequested(item.path);
+        return true;
     }
 
     function setIndexImmediate(i) {
@@ -243,6 +262,8 @@ Item {
                 required property string path
                 required property string name
                 required property string thumb
+                required property string preview
+                required property string kind
 
                 readonly property real rank: cell.index - strip.animIndex
                 readonly property real absRank: Math.abs(cell.rank)
@@ -350,17 +371,18 @@ Item {
 
                         // wider than the card and panned opposite the strip, so
                         // the visible crop drifts slower than the frame. The
-                        // still and the video thumbnail share the box.
-                        Image {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width + strip.parallaxOverscan * 2
-                            height: parent.height
-                            x: (parent.width - width) / 2 - cell.parallaxShift
-                            source: cell.thumb !== "" ? "file://" + cell.thumb : /\.(mp4|webm|mkv|mov|m4v)$/i.test(cell.path) ? "" : "file://" + cell.path
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: cell.thumb === ""
-                            cache: true
-                            sourceSize: strip.decodeSize
+                        // still and the live preview share the box.
+                        WallpaperCardMedia {
+                            anchors.fill: parent
+                            path: cell.path
+                            thumb: cell.thumb
+                            preview: cell.preview
+                            kind: cell.kind
+                            active: cell.isCurrent || cell.hovered
+                            overscan: strip.parallaxOverscan
+                            parallax: cell.parallaxShift
+                            sourceSizeWidth: strip.decodeSize.width
+                            sourceSizeHeight: strip.decodeSize.height
                         }
 
                         Rectangle {
