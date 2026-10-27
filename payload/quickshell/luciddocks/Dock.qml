@@ -1978,7 +1978,7 @@ PanelWindow {
             for (let i = 0; i < source.count; i++) {
                 const e = source.get(i);
                 const name = e.name !== undefined && e.name !== "" ? e.name : dockWindow.wallpaperName(e.path);
-                if (query === "" || name.toLowerCase().indexOf(query) === 0)
+                if (query === "" || name.toLowerCase().indexOf(query) !== -1)
                     wanted.push({
                     "path": e.path,
                     "name": name,
