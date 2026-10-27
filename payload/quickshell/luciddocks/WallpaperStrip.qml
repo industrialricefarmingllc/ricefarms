@@ -529,7 +529,7 @@ Item {
 
                     anchors.centerIn: parent
                     role: "labelSmall"
-                    text: "On the desktop"
+                    text: "Active"
                     color: Theme.fgAccent
                 }
 

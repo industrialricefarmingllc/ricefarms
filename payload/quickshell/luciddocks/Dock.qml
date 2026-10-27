@@ -1801,24 +1801,36 @@ PanelWindow {
 
     // a live wallpaper is the video, not the frame set-wallpaper.sh puts under it
     function currentWallpaperPath() {
-        // skwd knows the real target, including a Wallpaper Engine scene that
-        // has no file of its own
-        if (SkwdWall.enabled && SkwdWall.currentPath !== "")
-            return SkwdWall.currentPath;
-
         try {
             var p = currentWallFile.text().trim();
-            if (p.indexOf("/lucid/live-frames/") === -1)
-                return p;
-
             var live = LiveWall.video !== "" ? LiveWall.video : currentLiveFile.text().split("\n")[0].trim();
             if (live.indexOf("skwd:") === 0)
                 return live;
 
+            if (p.indexOf("/lucid/live-frames/") === -1)
+                return p !== "" ? p : SkwdWall.currentPath;
+
             return live !== "" ? live : p;
         } catch (e) {
-            return "";
+            return SkwdWall.enabled ? SkwdWall.currentPath : "";
         }
+    }
+
+    // skwd changed the wallpaper itself (its own picker, helm, a playlist).
+    // A path this picker asked for is already on its way through the state
+    // files; only an outsider moves the selection.
+    function skwdWallpaperChanged() {
+        var p = SkwdWall.currentPath;
+        if (p === "" || p === dockWindow.appliedWallpaper)
+            return ;
+
+        if (dockWindow.requestedWallpapers[p] === true)
+            return ;
+
+        dockWindow.requestedWallpapers = {};
+        dockWindow.appliedWallpaper = p;
+        wallpaperState.current = p;
+        dockWindow.syncStripToCurrent();
     }
 
     // a point given as fractions of this window, as fractions of the screen it is on:
@@ -2611,14 +2623,24 @@ PanelWindow {
     // skwd's library and current scene, once its daemon has answered
     Connections {
         function onItemsChanged() {
-            if (SkwdWall.enabled)
+            if (!SkwdWall.enabled)
+                return ;
+
+            if (SkwdWall.loaded && SkwdWall.items.length === 0)
+                wallpaperScanner.scan(false);
+            else
                 dockWindow.applySkwdLibrary();
+        }
+
+        function onListingFailed() {
+            if (SkwdWall.enabled)
+                wallpaperScanner.scan(false);
 
         }
 
         function onCurrentPathChanged() {
-            if (dockWindow.pickerMode)
-                dockWindow.desktopWallpaperChanged();
+            if (SkwdWall.enabled)
+                dockWindow.skwdWallpaperChanged();
 
         }
 
@@ -3357,11 +3379,16 @@ PanelWindow {
         function scan(applyFallback) {
             wallpaperScanner.applyFallbackIfEmpty = applyFallback !== false;
             if (SkwdWall.enabled) {
-                SkwdWall.refresh();
-                if (SkwdWall.loaded)
+                if (!SkwdWall.loaded) {
+                    SkwdWall.refresh();
+                    return ;
+                }
+                if (SkwdWall.items.length > 0) {
                     dockWindow.applySkwdLibrary();
-
-                return ;
+                    return ;
+                }
+                // skwd answered with nothing (its daemon is down, or its
+                // library is empty): fall through to the folder scanner
             }
             if (wallpaperScanner.running) {
                 wallpaperScanner.again = true;
