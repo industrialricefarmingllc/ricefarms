@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../lucidwidgets"
 
 // the launcher's face, on the m3 search anatomy: a head that carries the mark
 // and the modes, the results under it, and a 56dp search bar at whichever end
@@ -70,7 +71,8 @@ Item {
         "commands": "Search commands",
         "theme": "Search themes",
         "wallpaper": "Search wallpapers",
-        "live": "Search live wallpapers"
+        "live": "Search live wallpapers",
+        "widgets": "Search widgets"
     })[face.displayMode] || "Search apps and settings"
     readonly property string modeIcon: ({
         "commands": "keyboard_command_key",
@@ -81,7 +83,8 @@ Item {
         "theme": "palette",
         "web": "travel_explore",
         "run": "terminal_2",
-        "emoji": "mood"
+        "emoji": "mood",
+        "widgets": "widgets"
     })[face.displayMode] || "search"
     // the head's trailing readout: what the panel is holding right now
     readonly property string countLabel: {
@@ -123,8 +126,7 @@ Item {
     }, {
         "key": "widgets",
         "label": "Widgets",
-        "icon": "widgets",
-        "leaves": true
+        "icon": "widgets"
     }, {
         "key": "power",
         "label": "Power",
@@ -152,7 +154,8 @@ Item {
     // calculator as well as apps
     readonly property bool gridVisible: face.resultsVisible && face.displayMode === "apps"
     readonly property bool emojiVisible: face.displayMode === "emoji"
-    readonly property bool listVisible: face.resultsVisible && !face.gridVisible && !face.emojiVisible
+    readonly property bool widgetVisible: face.displayMode === "widgets"
+    readonly property bool listVisible: face.resultsVisible && !face.gridVisible && !face.emojiVisible && !face.widgetVisible
     // what the dock sizes the panel to while the wall is the whole content
     readonly property real appsHeight: appsGrid.naturalHeight
     // clipboard: the first Ctrl+Shift+Del arms clearing everything, a second within 3 s does it
@@ -567,6 +570,30 @@ Item {
         height: face.stableContentHeight
         transformOrigin: Item.Center
         clip: true
+
+        Item {
+            id: widgetBoard
+
+            visible: false
+            width: 1
+            height: 1
+            property bool panelUp: true
+            property bool isPrimary: false
+            property string screenName: root.screen ? root.screen.name : ""
+            property var dragFrame: null
+            property int frameCount: 0
+            function frameAt(i) { return null; }
+            function frameFor(uid) { return null; }
+            function cardsHere() { return []; }
+        }
+
+        WidgetPanel {
+            id: widgetPanel
+
+            anchors.fill: parent
+            visible: face.widgetVisible
+            board: widgetBoard
+        }
 
         LauncherGrid {
             id: appsGrid

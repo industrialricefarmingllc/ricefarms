@@ -555,6 +555,9 @@ PanelWindow {
         if (q.indexOf(">live") === 0)
             return "live";
 
+        if (q.indexOf(">widgets") === 0)
+            return "widgets";
+
         if (q.indexOf(">") === 0)
             return "commands";
 
@@ -583,6 +586,9 @@ PanelWindow {
 
         if (mode === "live")
             return ">live";
+
+        if (mode === "widgets")
+            return ">widgets";
 
         if (mode === "commands")
             return ">";
@@ -795,7 +801,7 @@ PanelWindow {
     // the Pictures / Live switch beside the picker, and the gap after it; only once
     // the folder holds a video, so a folder of pictures keeps the plain picker
     readonly property bool wallHasVideos: liveModel.count > 0 || LiveWall.isVideo(dockWindow.appliedWallpaper)
-    readonly property int wallKindRailWidth: Prefs.liveWallpapers && dockWindow.wallHasVideos ? Theme.dp(108) : 0
+    readonly property int wallKindRailWidth: 0
     readonly property int wallTilesWidth: Math.ceil(dockWindow.pickerModel.count / dockWindow.wallTilesRows) * dockWindow.wallTilesCellW + Theme.dp(24)
     // Pills: the row with every wallpaper in it, when that is narrower than the
     // panel, so a short folder doesn't leave the panel wider than its pills
@@ -1795,12 +1801,20 @@ PanelWindow {
 
     // a live wallpaper is the video, not the frame set-wallpaper.sh puts under it
     function currentWallpaperPath() {
+        // skwd knows the real target, including a Wallpaper Engine scene that
+        // has no file of its own
+        if (SkwdWall.enabled && SkwdWall.currentPath !== "")
+            return SkwdWall.currentPath;
+
         try {
             var p = currentWallFile.text().trim();
             if (p.indexOf("/lucid/live-frames/") === -1)
                 return p;
 
             var live = LiveWall.video !== "" ? LiveWall.video : currentLiveFile.text().split("\n")[0].trim();
+            if (live.indexOf("skwd:") === 0)
+                return live;
+
             return live !== "" ? live : p;
         } catch (e) {
             return "";
@@ -1831,12 +1845,51 @@ PanelWindow {
         dockWindow.appliedWallpaper = path;
         wallpaperState.current = path;
         dockWindow.requestedWallpapers[path] = true;
+        var env = [];
+        // a scene has no file to sample, so hand the script its own preview
+        if (SkwdWall.isVirtual(path)) {
+            var scene = SkwdWall.entryForPath(path);
+            if (scene && scene.thumb !== "")
+                env.push("SKWD_SAMPLE=" + scene.thumb);
+        }
         var cmd = [Quickshell.env("HOME") + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", path];
         var pos = dockWindow.screenFraction(origin);
         if (Prefs.wallTransOrigin === "card" && pos)
-            cmd = ["env", "WALL_POS=" + pos.x.toFixed(3) + "," + (1 - pos.y).toFixed(3)].concat(cmd);
+            env.push("WALL_POS=" + pos.x.toFixed(3) + "," + (1 - pos.y).toFixed(3));
+        if (env.length > 0)
+            cmd = ["env"].concat(env).concat(cmd);
 
         Quickshell.execDetached(cmd);
+    }
+
+    // skwd's library, split the way the picker keeps it: stills in one list,
+    // videos and Wallpaper Engine scenes (both moving) in the other.
+    function applySkwdLibrary() {
+        var pictures = [];
+        var videos = [];
+        var items = SkwdWall.items || [];
+        for (var i = 0; i < items.length; i++) {
+            var e = items[i];
+            var row = {
+                "path": e.path,
+                "name": e.name,
+                "thumb": e.thumb,
+                "preview": e.preview || "",
+                "key": e.key || "",
+                "kind": e.kind || ""
+            };
+            if (e.kind === "video" || e.kind === "we")
+                videos.push(row);
+            else
+                pictures.push(row);
+        }
+        var changed = wallpaperScanner.fill(wallpapersModel, pictures);
+        changed = wallpaperScanner.fill(liveModel, videos) || changed;
+        dockWindow.syncPickerFilter();
+        if (!changed && dockWindow.pickerQuery() === "")
+            return ;
+
+        dockWindow.selectPickerForDisplay();
     }
 
     // the wallpaper on the desktop changed. One the picker asked for earlier can
@@ -1864,7 +1917,9 @@ PanelWindow {
     // the picker's search: a name typed after the prefix narrows the strip, so
     // the copies are what it holds and the source lists stay the scanner's
     function pickerModelFor(mode) {
-        return mode === "live" ? filteredLiveModel : filteredWallpapersModel;
+        // The picker no longer has separate Pictures/Live pages: both kinds
+        // share one strip, with videos simply appearing among the pictures.
+        return filteredPickerModel;
     }
 
     // a picture's own name: the last part of its path, without the extension
@@ -1897,7 +1952,10 @@ PanelWindow {
                     wanted.push({
                     "path": e.path,
                     "name": name,
-                    "thumb": e.thumb
+                    "thumb": e.thumb,
+                    "preview": e.preview || "",
+                    "key": e.key || "",
+                    "kind": e.kind || ""
                 });
             }
             const keep = {};
@@ -1921,11 +1979,39 @@ PanelWindow {
                     if (at !== k)
                         shown.move(at, k, 1);
 
-                    if (shown.get(k).thumb !== wanted[k].thumb)
+                    if (shown.get(k).thumb !== wanted[k].thumb || shown.get(k).preview !== wanted[k].preview)
                         shown.set(k, wanted[k]);
 
                 }
             }
+        }
+
+        // one flat list for the picker: pictures first, then videos, both
+        // narrowed by the same query
+        filteredPickerModel.clear();
+        for (let p = 0; p < filteredWallpapersModel.count; p++) {
+            const e = filteredWallpapersModel.get(p);
+            filteredPickerModel.append({
+                "path": e.path,
+                "name": e.name,
+                "thumb": e.thumb,
+                "preview": e.preview || "",
+                "key": e.key || "",
+                "kind": e.kind || "",
+                "tab": "wallpaper"
+            });
+        }
+        for (let v = 0; v < filteredLiveModel.count; v++) {
+            const e = filteredLiveModel.get(v);
+            filteredPickerModel.append({
+                "path": e.path,
+                "name": e.name,
+                "thumb": e.thumb,
+                "preview": e.preview || "",
+                "key": e.key || "",
+                "kind": e.kind || "",
+                "tab": "live"
+            });
         }
     }
 
@@ -1980,10 +2066,13 @@ PanelWindow {
     function deleteWallpaper(path) {
         if (path === "" || wallpaperTrash.running || wallpaperTrashList.running || wallpaperRestore.running)
             return ;
+        // scenes live in Steam's workshop, not in a folder we can trash
+        if (SkwdWall.isVirtual(path))
+            return ;
 
-        const tab = dockWindow.mode === "live" ? "live" : "wallpaper";
+        const tab = LiveWall.isVideo(path) ? "live" : "wallpaper";
         const source = tab === "live" ? liveModel : wallpapersModel;
-        const shown = tab === "live" ? filteredLiveModel : filteredWallpapersModel;
+        const shown = dockWindow.pickerModel;
         let rec = null;
         let sourceIndex = -1;
         let pickerIndex = -1;
@@ -1994,6 +2083,9 @@ PanelWindow {
                     "path": e.path,
                     "name": e.name,
                     "thumb": e.thumb,
+                    "preview": e.preview || "",
+                    "key": e.key || "",
+                    "kind": e.kind || "",
                     "tab": tab
                 };
                 sourceIndex = i;
@@ -2008,6 +2100,9 @@ PanelWindow {
                         "path": e.path,
                         "name": e.name,
                         "thumb": e.thumb,
+                        "preview": e.preview || "",
+                        "key": e.key || "",
+                        "kind": e.kind || "",
                         "tab": tab
                     };
                 }
@@ -2037,7 +2132,7 @@ PanelWindow {
             }
         }
 
-        const models = [wallpapersModel, filteredWallpapersModel, liveModel, filteredLiveModel];
+        const models = [wallpapersModel, filteredWallpapersModel, liveModel, filteredLiveModel, filteredPickerModel];
         for (let m = 0; m < models.length; m++) {
             const model = models[m];
             for (let j = model.count - 1; j >= 0; j--) {
@@ -2071,7 +2166,10 @@ PanelWindow {
         model.insert(index, {
             "path": rec.path,
             "name": rec.name,
-            "thumb": rec.thumb
+            "thumb": rec.thumb,
+            "preview": rec.preview || "",
+            "key": rec.key || "",
+            "kind": rec.kind || ""
         });
         return index;
     }
@@ -2088,9 +2186,10 @@ PanelWindow {
         const source = rec.tab === "live" ? liveModel : wallpapersModel;
         const shown = rec.tab === "live" ? filteredLiveModel : filteredWallpapersModel;
         dockWindow.insertWallpaperRow(source, rec.sourceIndex, rec);
-        const at = dockWindow.insertWallpaperRow(shown, rec.pickerIndex, rec);
+        dockWindow.insertWallpaperRow(shown, rec.pickerIndex, rec);
+        const at = dockWindow.insertWallpaperRow(filteredPickerModel, rec.pickerIndex, rec);
         dockWindow.dropUndoRecord(rec);
-        if (dockWindow.launcherItem && dockWindow.pickerMode && (dockWindow.mode === "live") === (rec.tab === "live"))
+        if (dockWindow.launcherItem && dockWindow.pickerMode)
             dockWindow.launcherItem.setWallpaperIndex(at);
     }
 
@@ -2472,6 +2571,11 @@ PanelWindow {
 
         }
 
+        // switching the engine swaps the library the picker is looking at
+        function onSkwdWallChanged() {
+            wallpaperScanner.scan(false);
+        }
+
         // the strip's cards and thumbnails are ready before it first opens
         function onLoadedChanged() {
             if (Prefs.loaded)
@@ -2502,6 +2606,23 @@ PanelWindow {
         }
 
         target: Prefs
+    }
+
+    // skwd's library and current scene, once its daemon has answered
+    Connections {
+        function onItemsChanged() {
+            if (SkwdWall.enabled)
+                dockWindow.applySkwdLibrary();
+
+        }
+
+        function onCurrentPathChanged() {
+            if (dockWindow.pickerMode)
+                dockWindow.desktopWallpaperChanged();
+
+        }
+
+        target: SkwdWall
     }
 
     // The wallpaper strip takes its model as it is built, and the picker only
@@ -2836,6 +2957,11 @@ PanelWindow {
 
     ListModel {
         id: filteredLiveModel
+    }
+
+    // the one model the picker renders: pictures and videos together
+    ListModel {
+        id: filteredPickerModel
     }
 
     // the strip rescan rides on wallpaperDir, which follows the theme
@@ -3230,6 +3356,13 @@ PanelWindow {
 
         function scan(applyFallback) {
             wallpaperScanner.applyFallbackIfEmpty = applyFallback !== false;
+            if (SkwdWall.enabled) {
+                SkwdWall.refresh();
+                if (SkwdWall.loaded)
+                    dockWindow.applySkwdLibrary();
+
+                return ;
+            }
             if (wallpaperScanner.running) {
                 wallpaperScanner.again = true;
                 return ;
@@ -3257,6 +3390,8 @@ PanelWindow {
                 for (var m = 0; m < rows.length; m++) {
                     if (model.get(m).thumb !== rows[m].thumb)
                         model.setProperty(m, "thumb", rows[m].thumb);
+                    if ((model.get(m).preview || "") !== (rows[m].preview || ""))
+                        model.setProperty(m, "preview", rows[m].preview || "");
 
                 }
                 return false;
@@ -3267,8 +3402,11 @@ PanelWindow {
                 var dot = base.lastIndexOf(".");
                 model.append({
                     "path": rows[r].path,
-                    "name": dot > 0 ? base.substring(0, dot) : base,
-                    "thumb": rows[r].thumb
+                    "name": rows[r].name !== undefined && rows[r].name !== "" ? rows[r].name : (dot > 0 ? base.substring(0, dot) : base),
+                    "thumb": rows[r].thumb,
+                    "preview": rows[r].preview || "",
+                    "key": rows[r].key || "",
+                    "kind": rows[r].kind || ""
                 });
             }
             return true;
@@ -3287,7 +3425,9 @@ PanelWindow {
                     if (p !== "")
                         (cols.length > 2 && cols[2].trim() === "video" ? videos : pictures).push({
                         "path": p,
-                        "thumb": cols.length > 1 ? cols[1].trim() : ""
+                        "thumb": cols.length > 1 ? cols[1].trim() : "",
+                        "preview": cols.length > 3 ? cols[3].trim() : "",
+                        "kind": cols.length > 2 && cols[2].trim() === "video" ? "video" : "static"
                     });
 
                 }
