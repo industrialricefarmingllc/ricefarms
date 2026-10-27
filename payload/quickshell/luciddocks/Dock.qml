@@ -401,6 +401,13 @@ PanelWindow {
     property bool undoAfterTrash: false
     // what the picker asked set-wallpaper.sh for since the desktop last caught up
     property var requestedWallpapers: ({})
+    // bumped whenever the wallpaper lists change, so the filtered copies (and
+    // their model rebuild) only run when there is something new
+    property int wallpaperRevision: 0
+    // the last query + list state the picker copies were built for
+    property string pickerSyncKey: ""
+    // the exact SkwdWall.items array already laid into the two ListModels
+    property var appliedSkwdItems: null
     // a pin on its way to the desktop keeps the dock up, or the drag would lose its source
     readonly property bool dragging: pinnedRow.dragging || pinnedRow.sending || runningRow.dragging
     // an in-dock drag takes the whole window for input; a pin in the air to the desktop must
@@ -1858,12 +1865,11 @@ PanelWindow {
         wallpaperState.current = path;
         dockWindow.requestedWallpapers[path] = true;
         var env = [];
-        // a scene has no file to sample, so hand the script its own preview
-        if (SkwdWall.isVirtual(path)) {
-            var scene = SkwdWall.entryForPath(path);
-            if (scene && scene.thumb !== "")
-                env.push("SKWD_SAMPLE=" + scene.thumb);
-        }
+        // a scene has no file of its own, and a video's skwd thumbnail is the
+        // first frame already cut: hand either to the script as its sampler
+        var scene = SkwdWall.entryForPath(path);
+        if (scene && scene.thumb !== "" && (SkwdWall.isVirtual(path) || scene.kind === "video"))
+            env.push("SKWD_SAMPLE=" + scene.thumb);
         var cmd = [Quickshell.env("HOME") + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", path];
         var pos = dockWindow.screenFraction(origin);
         if (Prefs.wallTransOrigin === "card" && pos)
@@ -1877,6 +1883,12 @@ PanelWindow {
     // skwd's library, split the way the picker keeps it: stills in one list,
     // videos and Wallpaper Engine scenes (both moving) in the other.
     function applySkwdLibrary() {
+        // opening the picker again is not a library change: the 142-row split
+        // it would rebuild is already in the two source models
+        if (dockWindow.appliedSkwdItems === SkwdWall.items && SkwdWall.items.length > 0) {
+            dockWindow.syncPickerFilter();
+            return ;
+        }
         var pictures = [];
         var videos = [];
         var items = SkwdWall.items || [];
@@ -1897,6 +1909,7 @@ PanelWindow {
         }
         var changed = wallpaperScanner.fill(wallpapersModel, pictures);
         changed = wallpaperScanner.fill(liveModel, videos) || changed;
+        dockWindow.appliedSkwdItems = SkwdWall.items;
         dockWindow.syncPickerFilter();
         if (!changed && dockWindow.pickerQuery() === "")
             return ;
@@ -1952,6 +1965,11 @@ PanelWindow {
     // refilling keeps the delegates (and their thumbnails) for the ones that stay
     function syncPickerFilter() {
         const query = dockWindow.pickerQuery();
+        const key = query + "|" + wallpapersModel.count + "|" + liveModel.count + "|" + dockWindow.wallpaperRevision;
+        if (key === dockWindow.pickerSyncKey)
+            return ;
+
+        dockWindow.pickerSyncKey = key;
         const tabs = [[wallpapersModel, filteredWallpapersModel], [liveModel, filteredLiveModel]];
         for (let t = 0; t < tabs.length; t++) {
             const source = tabs[t][0];
@@ -2152,6 +2170,7 @@ PanelWindow {
                     model.remove(j, 1);
             }
         }
+        dockWindow.wallpaperRevision++;
         if (strip)
             strip.hoveredIndex = -1;
 
@@ -2183,6 +2202,7 @@ PanelWindow {
             "key": rec.key || "",
             "kind": rec.kind || ""
         });
+        dockWindow.wallpaperRevision++;
         return index;
     }
 
@@ -2638,6 +2658,14 @@ PanelWindow {
 
         }
 
+        function onProbedChanged() {
+            // skwd is not available (or its switch is off): the folder scanner
+            // is the backend, and it was waiting for this answer
+            if (!SkwdWall.enabled)
+                wallpaperScanner.scan(false);
+
+        }
+
         function onCurrentPathChanged() {
             if (SkwdWall.enabled)
                 dockWindow.skwdWallpaperChanged();
@@ -2709,15 +2737,21 @@ PanelWindow {
         }
 
         function wallpaper(): void {
-            dockWindow.openLauncher(">wallpaper");
+            dockWindow.selectMode("wallpaper");
+            dockWindow.aimLauncher();
+            dockWindow.menuOpen = true;
         }
 
         function live(): void {
-            dockWindow.openLauncher(">live");
+            dockWindow.selectMode("live");
+            dockWindow.aimLauncher();
+            dockWindow.menuOpen = true;
         }
 
         function theme(): void {
-            dockWindow.openLauncher(">theme");
+            dockWindow.selectMode("theme");
+            dockWindow.aimLauncher();
+            dockWindow.menuOpen = true;
         }
 
         // qs ipc call launcher power: the full-screen session screen
@@ -2727,15 +2761,20 @@ PanelWindow {
         }
 
         function emoji(): void {
-            dockWindow.openLauncher(":");
+            dockWindow.selectMode("emoji");
+            dockWindow.aimLauncher();
+            dockWindow.menuOpen = true;
         }
 
         // a second call closes it, so one key both opens and dismisses it
         function clipboard(): void {
-            if (dockWindow.menuOpen && dockWindow.mode === "clipboard")
+            if (dockWindow.menuOpen && dockWindow.mode === "clipboard") {
                 dockWindow.menuOpen = false;
-            else
-                dockWindow.openLauncher(">clip");
+            } else {
+                dockWindow.selectMode("clipboard");
+                dockWindow.aimLauncher();
+                dockWindow.menuOpen = true;
+            }
         }
 
         function translate(): void {
@@ -3378,9 +3417,16 @@ PanelWindow {
 
         function scan(applyFallback) {
             wallpaperScanner.applyFallbackIfEmpty = applyFallback !== false;
+            // skwd's probe is a few ms at start; running the folder scan before
+            // it answers would fill every model twice and cut every thumbnail
+            // twice on a skwd machine
+            if (Prefs.skwdWall && !SkwdWall.probed)
+                return ;
             if (SkwdWall.enabled) {
                 if (!SkwdWall.loaded) {
-                    SkwdWall.refresh();
+                    if (!SkwdWall.listing)
+                        SkwdWall.refresh();
+
                     return ;
                 }
                 if (SkwdWall.items.length > 0) {
@@ -3414,13 +3460,20 @@ PanelWindow {
                 same = model.get(j).path === rows[j].path;
             }
             if (same) {
+                var touched = false;
                 for (var m = 0; m < rows.length; m++) {
-                    if (model.get(m).thumb !== rows[m].thumb)
+                    if (model.get(m).thumb !== rows[m].thumb) {
                         model.setProperty(m, "thumb", rows[m].thumb);
-                    if ((model.get(m).preview || "") !== (rows[m].preview || ""))
+                        touched = true;
+                    }
+                    if ((model.get(m).preview || "") !== (rows[m].preview || "")) {
                         model.setProperty(m, "preview", rows[m].preview || "");
-
+                        touched = true;
+                    }
                 }
+                if (touched)
+                    dockWindow.wallpaperRevision++;
+
                 return false;
             }
             model.clear();
@@ -3436,6 +3489,7 @@ PanelWindow {
                     "kind": rows[r].kind || ""
                 });
             }
+            dockWindow.wallpaperRevision++;
             return true;
         }
 
@@ -3524,7 +3578,10 @@ PanelWindow {
 
     Timer {
         interval: 30000
-        running: true
+        // skwd watches its library itself; this folder poll is the fallback
+        // backend's safety net and would wake a shell process every 30 s for
+        // nothing on a skwd machine
+        running: !SkwdWall.enabled
         repeat: true
         onTriggered: {
             if (dockWindow.pickerMode)
