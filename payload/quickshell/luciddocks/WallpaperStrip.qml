@@ -100,7 +100,7 @@ Item {
         enabled: !strip.dragging && !strip.jumping
 
         NumberAnimation {
-            duration: 420
+            duration: Theme.ms(280)
             easing.type: Easing.OutCubic
         }
 
@@ -295,7 +295,7 @@ Item {
                     target: cell
                     property: "popScale"
                     to: 1
-                    duration: Theme.durFastSpatial
+                    duration: Theme.ms(280)
                     easing.type: Easing.OutBack
                     easing.overshoot: 2.2
                 }
@@ -414,7 +414,7 @@ Item {
 
                             Behavior on scale {
                                 NumberAnimation {
-                                    duration: Theme.durFastSpatial
+                                    duration: Theme.ms(280)
                                     easing.type: Easing.Bezier
                                     easing.bezierCurve: Theme.curveDefaultSpatial
                                 }
