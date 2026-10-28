@@ -252,6 +252,10 @@ PanelWindow {
         onPowerChipTapped: (id) => root.dock && root.dock.requestPower(id)
         onActivated: (index) => root.dock && root.dock.activateResult(index)
         onAppActivated: (index) => root.dock && root.dock.activateApp(index)
+        onWidgetAdded: (name) => {
+            if (root.toast)
+                root.toast.popup("widgets", name + " added", false);
+        }
         onEmojiCopied: (emoji) => {
             Quickshell.execDetached(["wl-copy", "--", emoji]);
             if (root.toast)
