@@ -25,6 +25,17 @@ Singleton {
 
     }
 
+    FileView {
+        id: revealFlag
+
+        path: Quickshell.env("HOME") + "/.cache/quickshell/reveal-active"
+        watchChanges: true
+        blockLoading: true
+        onFileChanged: reload()
+    }
+
+    readonly property bool revealActive: (revealFlag.text() || "").trim() === "1"
+
     property string themeName: "matugen"
     property string themeMode: "dark"
     // false until the palette file has actually been parsed; every colour below
@@ -33,7 +44,7 @@ Singleton {
     // palette swaps crossfade: PaletteFade snapshots each window on
     // recolourRequested, holding the swap until its grab lands, then fades the
     // snapshot out on recoloured. one wallpaper fade long, to move with it
-    readonly property int recolourMs: pf.motionScale > 0 ? 1000 : 0
+    readonly property int recolourMs: root.revealActive ? 0 : (pf.motionScale > 0 ? 1000 : 0)
     property int _recolourHolds: 0
     property bool recolourPending: false
 

@@ -151,6 +151,17 @@ write_atomic() { # $1 = file, content on stdin
 is_current() {
     [ "$(cut -d'|' -f1 "$REQ_FILE" 2>/dev/null || true)" = "$TOKEN" ]
 }
+REVEAL_FILE="$CACHE_DIR/quickshell/wallpaper-reveal.json"
+REVEAL_FLAG="$CACHE_DIR/quickshell/reveal-active"
+REVEALING=0
+reveal_write() { # $1 = in|out
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg id "$TOKEN" --arg path "$WALLPAPER" --arg phase "$1" \
+            '{id:$id, path:$path, phase:$phase}' >"$REVEAL_FILE"
+    else
+        printf '{"id":"%s","path":"%s","phase":"%s"}\n' "$TOKEN" "$WALLPAPER" "$1" >"$REVEAL_FILE"
+    fi
+}
 write_restore_state() {
     # two lines, the same file LiveWall reads: the real moving target (a video
     # path or skwd:we:<id>) and the still that stands in for it in the palette.
@@ -252,8 +263,47 @@ fi
 # Latest selection wins. Every later invocation overwrites this token; stale
 # invocations exit before they can paint over the newer one.
 TOKEN="$(date +%s%N)-$$"
+COMMIT_AT_NS=""
 printf '%s|%s|%s' "$TOKEN" "$WALLPAPER" "$MODE" >"$REQ_FILE.tmp"
 mv -f "$REQ_FILE.tmp" "$REQ_FILE"
+
+# ── synchronized commit gate ────────────────────────────────────────────────
+# If this image already has a cached source colour, we can align every visible
+# change with OpenCode's built-in 1 s theme refresh. Start that timer now, wait
+# until just before it fires, then let the wallpaper transition, palette and
+# app surfaces all begin together. A never-seen image cannot be aligned without
+# adding a full second after its decode, so it keeps the normal fast path.
+EARLY_SENT=0
+EARLY_SOURCE_KEY=""
+if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
+        && "${LUCID_SYNC_COMMIT:-1}" != "0" ]]; then
+    EARLY_SOURCE_KEY=$(printf '%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" \
+        "$(stat_key "$MATUGEN_CFG")" | sha1sum | cut -d' ' -f1)
+    EARLY_SCHEME=$(jq -r '.matugenScheme // "scheme-tonal-spot"' "$PREFS" 2>/dev/null || echo scheme-tonal-spot)
+    EARLY_CONTRAST=$(jq -r '.matugenContrast // 0' "$PREFS" 2>/dev/null || echo 0)
+    EARLY_SCHEME_KEY=$(printf '%s|%s|%s|%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" \
+        "$MODE" "$EARLY_SCHEME" "$EARLY_CONTRAST" "$(stat_key "$MATUGEN_CFG")" | sha1sum | cut -d' ' -f1)
+    if [[ -s "$SOURCE_DIR/$EARLY_SOURCE_KEY" || -s "$SCHEME_DIR/$EARLY_SCHEME_KEY.json" ]]; then
+        "$LUCID_DIR/opencode-theme-notify.sh" --early >/dev/null 2>&1 || true
+        EARLY_SENT=1
+        COMMIT_AT_NS=$(( $(date +%s%N) + 1000000000 ))
+        REVEALING=1
+        printf '1' >"$REVEAL_FLAG"
+        reveal_at=$(( COMMIT_AT_NS - 800000000 ))
+        now=$(date +%s%N)
+        if (( reveal_at > now )); then
+            sleep "$(awk -v ns="$((reveal_at - now))" 'BEGIN { printf "%.3f", ns / 1000000000 }')"
+        fi
+        is_current || exit 0
+        reveal_write in
+        target=$(( COMMIT_AT_NS - 450000000 ))
+        now=$(date +%s%N)
+        if (( target > now )); then
+            sleep "$(awk -v ns="$((target - now))" 'BEGIN { printf "%.3f", ns / 1000000000 }')"
+        fi
+        is_current || exit 0
+    fi
+fi
 
 # ── wallpaper ───────────────────────────────────────────────────────────────
 # Start the transition in parallel with the palette work. The two have no
@@ -304,9 +354,14 @@ if [[ "${THEME_ONLY:-0}" != "1" ]]; then
             exec 8>"$CACHE_DIR/lucid/wallpaper.lock"
             flock 8
             if is_current; then
-                "$WP_CLI" img "$WALLPAPER" \
-                    --transition-type fade --transition-duration 1 --transition-fps 60 2>/dev/null || \
-                    "$WP_CLI" img "$WALLPAPER" 2>/dev/null || true
+                if [[ "$REVEALING" == "1" ]]; then
+                    "$WP_CLI" img "$WALLPAPER" --transition-type none 2>/dev/null || \
+                        "$WP_CLI" img "$WALLPAPER" 2>/dev/null || true
+                else
+                    "$WP_CLI" img "$WALLPAPER" \
+                        --transition-type fade --transition-duration 1 --transition-fps 60 2>/dev/null || \
+                        "$WP_CLI" img "$WALLPAPER" 2>/dev/null || true
+                fi
             fi
             flock -u 8
         ) &
@@ -367,7 +422,10 @@ matugen)
     # Cached scheme/source means the final theme will be ready well inside
     # OpenCode's 1 s refresh window. Start that window now, before the render,
     # so a normal wallpaper/mode change lands in ~1 s rather than 2-3 s.
-    if [[ "${THEME_ONLY:-0}" != "1" ]] && { [[ -s "$SCHEME_FILE" ]] || [[ -s "$SOURCE_FILE" ]]; }; then
+    if [[ "$EARLY_SENT" != "1" && "${THEME_ONLY:-0}" != "1" ]] \
+            && { [[ -s "$SCHEME_FILE" ]] || [[ -s "$SOURCE_FILE" ]]; }; then
+        # Sync disabled (or a source that only had a scheme): start OpenCode's
+        # timer now; the rest of the pipeline stays on its normal timing.
         "$LUCID_DIR/opencode-theme-notify.sh" --early >/dev/null 2>&1 || true
     fi
 
@@ -462,7 +520,16 @@ matugen)
         printf '%s' "$SIG" >"$SIG_FILE.tmp" && mv -f "$SIG_FILE.tmp" "$SIG_FILE"
         flock -u 7
         wait_wallpaper
-        ( setsid "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
+        if [[ "$REVEALING" == "1" && -n "${COMMIT_AT_NS:-}" ]]; then
+            target=$(( COMMIT_AT_NS + 50000000 ))
+            now=$(date +%s%N)
+            if (( target > now )); then
+                sleep "$(awk -v ns="$((target - now))" 'BEGIN { printf "%.3f", ns / 1000000000 }')"
+            fi
+            reveal_write out
+            printf '0' >"$REVEAL_FLAG"
+        fi
+        ( THEME_SETTLE_MS="${COMMIT_AT_NS:+0}" setsid "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
     else
         # The scheme-cache write path failed but matugen's direct fallback
         # succeeded; still deliver the side effects once.

@@ -1938,6 +1938,15 @@ ShellRoot {
 
     }
 
+    // The wallpaper-only iris used to hide a synchronized theme commit.
+    Variants {
+        model: Quickshell.screens
+
+        WallpaperReveal {
+        }
+
+    }
+
 
     PinnedWindows {
     }
