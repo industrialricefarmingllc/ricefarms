@@ -148,7 +148,7 @@ PanelWindow {
         property: "revealRadius"
         from: 0
         to: root.revealMax
-        duration: Theme.durEnter
+        duration: Theme.ms(280)
         easing.type: Easing.OutCubic
         onFinished: {
             root.revealRadius = Math.max(root.width, root.height) * 2;
@@ -221,6 +221,9 @@ PanelWindow {
         anchors.topMargin: root.ring + root.padV
         scale: root.scaleFactor
         transformOrigin: Item.Top
+        hostScreen: root.screen
+        windowX: root.margins.left
+        windowY: root.margins.top
         headOnly: !root.bodyOpen
         opacity: 1
         targetWidth: root.faceWidth - root.panelPad

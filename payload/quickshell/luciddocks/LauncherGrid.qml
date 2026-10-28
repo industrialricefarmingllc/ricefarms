@@ -209,6 +209,17 @@ Item {
 
     }
 
+    // the icon a launch should grow from. zoomed cells are not delegates, so
+    // the walk is over the wall's own children; an off-page index has none
+    function iconItemFor(index) {
+        for (var i = 0; i < tileGrid.children.length; i++) {
+            var cell = tileGrid.children[i];
+            if (cell && cell.appIndex === index && cell.filled && cell.iconItem)
+                return cell.iconItem;
+        }
+        return null;
+    }
+
     Item {
         id: drawer
 
@@ -236,7 +247,7 @@ Item {
                 property: "scale"
                 from: 0.9
                 to: 1
-                duration: Theme.ms(500)
+                duration: Theme.ms(280)
                 easing.type: Easing.OutBack
                 easing.overshoot: 1.8
             }
@@ -246,7 +257,7 @@ Item {
                 property: "anchors.verticalCenterOffset"
                 from: 40
                 to: 0
-                duration: Theme.ms(500)
+                duration: Theme.ms(280)
                 easing.type: Easing.OutBack
                 easing.overshoot: 1.8
             }
@@ -282,6 +293,8 @@ Item {
                     }
                     property var shownEntry: null
                     property bool filled: false
+                    // the tile's icon, for the launch animation's origin
+                    property Item iconItem: iconBox
                     readonly property bool isSelected: cell.filled && root.currentIndex === cell.appIndex
 
                     width: root.tileW
@@ -474,7 +487,7 @@ Item {
                         }
 
                         PauseAnimation {
-                            duration: cell.index * 35
+                            duration: cell.index * 22
                         }
 
                         ParallelAnimation {
@@ -490,7 +503,7 @@ Item {
                                 target: wrap
                                 property: "scale"
                                 to: 1
-                                duration: Theme.ms(400)
+                                duration: Theme.ms(280)
                                 easing.type: Easing.OutBack
                                 easing.overshoot: 2.2
                             }
@@ -499,7 +512,7 @@ Item {
                                 target: wrap
                                 property: "anchors.verticalCenterOffset"
                                 to: 0
-                                duration: Theme.ms(400)
+                                duration: Theme.ms(280)
                                 easing.type: Easing.OutBack
                                 easing.overshoot: 2.2
                             }
@@ -529,7 +542,7 @@ Item {
                                 target: wrap
                                 property: "scale"
                                 to: 0.4
-                                duration: Theme.ms(320)
+                                duration: Theme.ms(280)
                                 easing.type: Easing.InQuad
                             }
 
@@ -537,7 +550,7 @@ Item {
                                 target: wrap
                                 property: "opacity"
                                 to: 0
-                                duration: Theme.ms(320)
+                                duration: Theme.ms(280)
                                 easing.type: Easing.InQuad
                             }
 
