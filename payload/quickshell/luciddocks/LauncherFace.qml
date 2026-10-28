@@ -186,6 +186,7 @@ Item {
     // mixed result stream `activated` carries
     signal appActivated(int index)
     signal emojiCopied(string emoji)
+    signal widgetAdded(string name)
     signal closeRequested()
     signal translateSubmitted(string text)
     // "wallpaper" or "live", from the switch beside the picker
@@ -259,6 +260,7 @@ Item {
         resultList.resetSelection();
         appsGrid.resetSelection();
         emojiGrid.resetSelection();
+        widgetPage.resetSelection();
     }
 
     function resultsChanged() {
@@ -350,6 +352,11 @@ Item {
             const text = String(face.highlightQuery || "").trim();
             if (text !== "")
                 face.translateSubmitted(text);
+            return ;
+        }
+
+        if (face.widgetVisible) {
+            widgetPage.activateCurrent();
             return ;
         }
 
@@ -608,28 +615,13 @@ Item {
         transformOrigin: Item.Center
         clip: true
 
-        Item {
-            id: widgetBoard
-
-            visible: false
-            width: 1
-            height: 1
-            property bool panelUp: true
-            property bool isPrimary: false
-            property string screenName: root.screen ? root.screen.name : ""
-            property var dragFrame: null
-            property int frameCount: 0
-            function frameAt(i) { return null; }
-            function frameFor(uid) { return null; }
-            function cardsHere() { return []; }
-        }
-
-        WidgetPanel {
-            id: widgetPanel
+        WidgetsPage {
+            id: widgetPage
 
             anchors.fill: parent
             visible: face.widgetVisible
-            board: widgetBoard
+            query: face.highlightQuery
+            onAdded: (name) => face.widgetAdded(name)
         }
 
         LauncherGrid {
@@ -1004,6 +996,9 @@ Item {
                 } else if (face.emojiVisible) {
                     emojiGrid.stepVertical(-1);
                     event.accepted = true;
+                } else if (face.widgetVisible) {
+                    widgetPage.stepVertical(-1);
+                    event.accepted = true;
                 } else if (face.listVisible) {
                     resultList.step(-1);
                     event.accepted = true;
@@ -1023,6 +1018,9 @@ Item {
                 } else if (face.emojiVisible) {
                     emojiGrid.stepVertical(1);
                     event.accepted = true;
+                } else if (face.widgetVisible) {
+                    widgetPage.stepVertical(1);
+                    event.accepted = true;
                 } else if (face.listVisible) {
                     resultList.step(1);
                     event.accepted = true;
@@ -1040,6 +1038,9 @@ Item {
                 } else if (face.emojiVisible) {
                     emojiGrid.stepHorizontal(-1);
                     event.accepted = true;
+                } else if (face.widgetVisible) {
+                    widgetPage.stepHorizontal(-1);
+                    event.accepted = true;
                 } else if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown)) {
                     if (wallStrip)
                         wallStrip.step(-1);
@@ -1055,6 +1056,9 @@ Item {
                     event.accepted = true;
                 } else if (face.emojiVisible) {
                     emojiGrid.stepHorizontal(1);
+                    event.accepted = true;
+                } else if (face.widgetVisible) {
+                    widgetPage.stepHorizontal(1);
                     event.accepted = true;
                 } else if (face.pickerMode && (face.pickerGrid || !face.pickerUpDown) && face.wallpaperModel) {
                     if (wallStrip)
@@ -1102,6 +1106,11 @@ Item {
                 }
                 if (face.emojiVisible && (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)) {
                     emojiGrid.pageMove(event.key === Qt.Key_PageDown ? 1 : -1);
+                    event.accepted = true;
+                    return ;
+                }
+                if (face.widgetVisible && (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)) {
+                    widgetPage.pageMove(event.key === Qt.Key_PageDown ? 1 : -1);
                     event.accepted = true;
                     return ;
                 }
