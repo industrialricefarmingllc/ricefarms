@@ -39,16 +39,16 @@
       "light": "{{colors.on_surface_variant.light.hex}}"
     },
     "background": {
-      "dark": "{{colors.surface.dark.hex}}",
-      "light": "{{colors.surface.light.hex}}"
+      "dark": "{{colors.surface_container.dark.hex}}",
+      "light": "{{colors.surface_container.light.hex}}"
     },
     "backgroundPanel": {
-      "dark": "{{colors.surface.dark.hex}}",
-      "light": "{{colors.surface.light.hex}}"
+      "dark": "{{colors.surface_container.dark.hex}}",
+      "light": "{{colors.surface_container.light.hex}}"
     },
     "backgroundElement": {
-      "dark": "{{colors.surface.dark.hex}}",
-      "light": "{{colors.surface.light.hex}}"
+      "dark": "{{colors.surface_container.dark.hex}}",
+      "light": "{{colors.surface_container.light.hex}}"
     },
     "border": {
       "dark": "{{colors.outline_variant.dark.hex}}",

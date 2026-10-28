@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -253,7 +254,7 @@ WidgetBody {
         Repeater {
             model: w.actions
 
-            Rectangle {
+            SquircleRect {
                 id: act
 
                 required property var modelData
@@ -269,7 +270,8 @@ WidgetBody {
                 bottomLeftRadius: act.firstOne || actTap.pressed ? ag.btn / 2 : Theme.dp(10)
                 topRightRadius: act.lastOne || actTap.pressed ? ag.btn / 2 : Theme.dp(10)
                 bottomRightRadius: act.lastOne || actTap.pressed ? ag.btn / 2 : Theme.dp(10)
-                color: Theme.alpha(w.ink, 0.09)
+                fillColor: Theme.alpha(w.ink, 0.09)
+                smoothing: Prefs.squircleF
 
                 Icon {
                     anchors.centerIn: parent
@@ -421,13 +423,14 @@ WidgetBody {
         anchors.margins: Theme.dp(14)
         anchors.topMargin: Theme.dp(12)
 
-        Rectangle {
+        SquircleRect {
             id: nowPlaying
 
             width: parent.width
             height: Theme.dp(60)
             radius: Theme.rad(18)
-            color: Theme.alpha(w.ink, 0.07)
+            fillColor: Theme.alpha(w.ink, 0.07)
+            smoothing: Prefs.squircleF
 
             Icon {
                 id: npIcon
@@ -483,12 +486,13 @@ WidgetBody {
                     onClicked: KdeConnect.mpris(w.dev.id, "Previous")
                 }
 
-                Rectangle {
+                SquircleRect {
                     anchors.verticalCenter: parent.verticalCenter
                     width: Theme.dp(40)
                     height: Theme.dp(40)
                     radius: npTap.pressed ? Theme.dp(12) : Theme.dp(20)
-                    color: w.inkAccent
+                    fillColor: w.inkAccent
+                    smoothing: Prefs.squircleF
                     opacity: w.hasMedia ? 1 : 0.4
 
                     Icon {

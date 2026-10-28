@@ -51,6 +51,11 @@ struct Transition {
     PHLWORKSPACEREF newWs; // held for pointer-identity role matching
     PHLMONITORREF   mon;   // held so the tick handler can damage the monitor
     bool            finished = false;
+    // Endpoint-frame grace: at t>=1 we still draw one frame at exactly 1.0
+    // before releasing the warp; otherwise the last painted frame is a few
+    // percent short and the restore snaps to full size = the visible jump.
+    bool            atEnd   = false;
+    std::chrono::steady_clock::time_point endAt{};
 };
 
 class TransitionManager {

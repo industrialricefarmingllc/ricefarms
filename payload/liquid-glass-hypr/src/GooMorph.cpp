@@ -76,10 +76,13 @@ void sustainTick() {
         const auto* tr = G_MGR.get(monId);
         const double total = totalDurationMs();
         auto         tOpt  = G_MGR.progress(monId, total);
-        const bool   done  = (tOpt && *tOpt >= 1.0);
+        const auto   now   = std::chrono::steady_clock::now();
+        const bool   endpointDrawn = (tOpt && *tOpt >= 1.0 && tr && tr->atEnd &&
+                                      std::chrono::duration<double, std::milli>(now - tr->endAt).count() > 50.0);
+        const bool   done  = endpointDrawn;
         bool         stale = false;
         if (tr) {
-            const double ageMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tr->t0).count();
+            const double ageMs = std::chrono::duration<double, std::milli>(now - tr->t0).count();
             stale              = ageMs > total + 1000.0;
         }
         if (done || stale || !tr)
@@ -119,6 +122,12 @@ struct WindowPtrEq {
     bool operator()(const PHLWINDOW& a, const PHLWINDOW& b) const noexcept { return a.get() == b.get(); }
 };
 std::unordered_map<PHLWINDOW, SMorphSave, WindowPtrHash, WindowPtrEq> G_SAVES;
+struct SResizeState {
+    Vector2D startSize{0, 0};
+    Vector2D goal{0, 0};
+    Vector2D startPos{0, 0};
+};
+std::unordered_map<PHLWINDOW, SResizeState, WindowPtrHash, WindowPtrEq> G_RESIZE;
 
 using RoundingFn = float (*)(Desktop::View::CWindow*);
 RoundingFn g_roundOrig = nullptr;
@@ -195,10 +204,17 @@ void restoreSaves(MONITORID mon) {
         if (w.get()) {
             auto& posVar  = w->positionAnimation();
             auto& sizeVar = w->sizeAnimation();
-            if (posVar && posVar->value() != it->second.pos)
-                posVar->setValueAndWarp(it->second.pos);
-            if (sizeVar && sizeVar->value() != it->second.size)
-                sizeVar->setValueAndWarp(it->second.size);
+            if (it->second.rawValue) {
+                if (posVar && posVar->value() != it->second.pos)
+                    posVar->value() = it->second.pos;
+                if (sizeVar && sizeVar->value() != it->second.size)
+                    sizeVar->value() = it->second.size;
+            } else {
+                if (posVar && posVar->value() != it->second.pos)
+                    posVar->setValueAndWarp(it->second.pos);
+                if (sizeVar && sizeVar->value() != it->second.size)
+                    sizeVar->setValueAndWarp(it->second.size);
+            }
             if (it->second.alphaWarped) {
                 auto& aVar = w->alpha(Desktop::View::WINDOW_ALPHA_MOVE_FROM_WORKSPACE);
                 if (aVar && aVar->value() != it->second.alphaFrom)
@@ -305,14 +321,10 @@ void onRenderStage(eRenderStage stage) {
     const auto* tr = G_MGR.get(mon->m_id);
     if (!tr || tr->finished)
         return;
-    g_pHyprRenderer->m_renderPass.add(makeUnique<CGooPassElement>(&G_MGR, mon->m_id, tr->side, tr->vertical));
-    // Droplet tip: same slot, independent switch. takeTips drains the store
-    // so a skipped frame can't replay stale rects.
-    if (getInt(Key::TIP_ENABLE, 1) != 0) {
-        auto tips = takeTips(mon->m_id);
-        if (!tips.empty())
-            g_pHyprRenderer->m_renderPass.add(makeUnique<CGooTipElement>(&G_MGR, mon->m_id, tr->side, tr->vertical, std::move(tips)));
-    }
+    // Drain once: the liquid-shape pass uses the live morphed rects to
+    // reproject each window's captured pixels into an inflated silhouette.
+    auto tips = takeTips(mon->m_id);
+    g_pHyprRenderer->m_renderPass.add(makeUnique<CGooPassElement>(&G_MGR, mon->m_id, tr->side, tr->vertical, std::move(tips)));
 }
 
 float hkGooRounding(Desktop::View::CWindow* self) {
@@ -336,10 +348,7 @@ float hkGooRounding(Desktop::View::CWindow* self) {
     const double t = *tOpt;
     if (t <= 0.0)
         return base;
-    if (t >= 1.0) {
-        finishMon(monId);
-        return base;
-    }
+    // t == 1.0 is the endpoint frame: sin(pi) = 0, so this is already base.
     return base + droplet * (float)std::sin(3.14159265358979323846 * t);
 }
 
@@ -424,8 +433,80 @@ SMorphSave beginWindowMorph(PHLWINDOW window, PHLMONITOR monitor, bool ignorePos
     }
 
     const auto* tr = G_MGR.get(monId);
-    if (!tr)
+    if (!tr) {
+        // Manual/tiling resize: Hyprland's windowsMove owns the animation;
+        // add the same non-uniform liquid deformation for the frame, then
+        // restore at POST. Only while a size animation is actually running.
+        auto& sv = window->sizeAnimation();
+        auto& pv = window->positionAnimation();
+        if (!sv || !pv || !sv->isBeingAnimated()) {
+            G_RESIZE.erase(window);
+            return save;
+        }
+        // Restore-first for repeated passes in one frame.
+        if (auto sit = G_SAVES.find(window); sit != G_SAVES.end()) {
+            if (sit->second.rawValue) {
+                pv->value() = sit->second.pos;
+                sv->value() = sit->second.size;
+            } else {
+                pv->setValueAndWarp(sit->second.pos);
+                sv->setValueAndWarp(sit->second.size);
+            }
+            if (sit->second.warped && window->m_animatingIn != sit->second.wasAnimatingIn)
+                window->m_animatingIn = sit->second.wasAnimatingIn;
+            G_SAVES.erase(sit);
+        }
+        const Vector2D cur  = sv->value();
+        const Vector2D goal = sv->goal();
+        auto rit = G_RESIZE.find(window);
+        if (rit == G_RESIZE.end() || std::abs(rit->second.goal.x - goal.x) > 0.5 || std::abs(rit->second.goal.y - goal.y) > 0.5) {
+            SResizeState st;
+            st.startSize = cur;
+            st.goal      = goal;
+            st.startPos  = pv->value();
+            G_RESIZE[window] = st;
+            rit = G_RESIZE.find(window);
+        }
+        auto& st = rit->second;
+        const double dx = st.goal.x - st.startSize.x;
+        const double dy = st.goal.y - st.startSize.y;
+        double px = std::abs(dx) > 1.0 ? 1.0 - (st.goal.x - cur.x) / dx : 1.0;
+        double py = std::abs(dy) > 1.0 ? 1.0 - (st.goal.y - cur.y) / dy : 1.0;
+        px = std::clamp(px, 0.0, 1.0);
+        py = std::clamp(py, 0.0, 1.0);
+        const double prog = std::abs(dx) >= std::abs(dy) ? px : py;
+        if (prog >= 0.999) {
+            G_RESIZE.erase(window);
+            return save;
+        }
+        const double amp = (double)getFloat("plugin:gooworkspaces:resize_stretch", 0.10f);
+        const double shape = std::sin(3.14159265358979323846 * prog) * std::clamp(amp, 0.0, 0.25);
+        if (shape > 0.0005) {
+            Vector2D newSize = cur;
+            if (std::abs(dx) >= std::abs(dy)) {
+                newSize.x = cur.x * (1.0 + shape);
+                newSize.y = cur.y * (1.0 - shape * 0.5);
+            } else {
+                newSize.y = cur.y * (1.0 + shape);
+                newSize.x = cur.x * (1.0 - shape * 0.5);
+            }
+            const Vector2D curPos = pv->value();
+            const Vector2D center = curPos + cur / 2.0;
+            const Vector2D newPos = center - newSize / 2.0;
+            save.pos    = curPos;
+            save.size   = cur;
+            save.mon    = monId;
+            save.warped = true;
+            save.wasAnimatingIn = window->m_animatingIn;
+            save.rawValue       = true;
+            window->m_animatingIn = true;
+            pv->value() = newPos;
+            sv->value() = newSize;
+            G_SAVES[window] = save;
+            g_pHyprRenderer->damageMonitor(monitor);
+        }
         return save;
+    }
     if (tr->finished) {
         finishMon(monId); // lazy release if nothing else got there first
         return save;
@@ -441,10 +522,8 @@ SMorphSave beginWindowMorph(PHLWINDOW window, PHLMONITOR monitor, bool ignorePos
     if (!tOpt)
         return save;
     const double t = *tOpt;
-    if (t >= 1.0) {
-        finishMon(monId);
-        return save;
-    }
+    // Keep going at t == 1.0: this frame is the exact endpoint. sustainTick
+    // releases the transition ~50ms later, after it has painted.
 
     // Pinned/sticky and special-workspace windows stay put.
     if (window->m_pinned || (window->m_workspace && window->m_workspace->m_isSpecialWorkspace))
@@ -606,8 +685,17 @@ SMorphSave beginWindowMorph(PHLWINDOW window, PHLMONITOR monitor, bool ignorePos
                 break;
             }
         }
+        // Workspace slide is applied by Hyprland as m_renderOffset, not in
+        // positionAnimation(). The captured frame includes it, so the tip
+        // rect must too or the liquid warp lands on the wrong pixels.
+        Vector2D wsOff{0, 0};
+        if (window->m_workspace) {
+            const auto& ro = window->m_workspace->m_renderOffset;
+            if (ro)
+                wsOff = ro->value();
+        }
         if (!dup)
-            G_TIPS[monId].push_back(SMorphTip{CBox{newPos.x, newPos.y, newSize.x, newSize.y}, tr->side, vertical, role});
+            G_TIPS[monId].push_back(SMorphTip{CBox{newPos.x + wsOff.x, newPos.y + wsOff.y, newSize.x, newSize.y}, tr->side, vertical, role});
     }
 
     // Self-sustaining frames until expiry (tick can't be relied on: it only
@@ -633,6 +721,11 @@ std::vector<SMorphTip> takeTips(MONITORID mon) {
     auto out = std::move(it->second);
     G_TIPS.erase(it);
     return out;
+}
+
+bool transitioning(MONITORID mon) {
+    const auto* tr = G_MGR.get(mon);
+    return tr && !tr->finished;
 }
 
 } // namespace goo

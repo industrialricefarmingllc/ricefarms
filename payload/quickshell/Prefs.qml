@@ -418,6 +418,9 @@ Singleton {
     property alias wallpaperPickerStyle: s.wallpaperPickerStyle
     property alias wallpaperPickerKeys: s.wallpaperPickerKeys
     property alias liveWallpapers: s.liveWallpapers
+    // skwd-wall (when installed) owns the wallpaper backend: images, videos and
+    // Wallpaper Engine scenes, through its daemon and animated previews.
+    property alias skwdWall: s.skwdWall
     property alias liveDecoder: s.liveDecoder
     property alias livePauseUnder: s.livePauseUnder
     property alias liveGameMode: s.liveGameMode
@@ -1009,12 +1012,13 @@ Singleton {
         "wallpaperPickerStyle": "strip",
         "wallpaperPickerKeys": "sides",
         "liveWallpapers": true,
+        "skwdWall": true,
         "liveDecoder": "auto",
         "livePauseUnder": "fullscreen",
         "liveGameMode": "pause",
         "wallpaperPillsShape": "uniform",
         "wallpaperStripSteps": "normal",
-        "wallpaperStripSides": 2,
+        "wallpaperStripSides": 3,
         "wallpaperTilesRows": 2,
         "wallpaperTilesAspect": "square",
         "wallpaperBentoHero": "medium",
@@ -1716,6 +1720,11 @@ Singleton {
     }
 
     property bool modeLoaded: false
+    // Timestamp of the last external rewrite of prefs.json. A reload of the
+    // adapter schedules onAdapterUpdated; without this guard the still-stale
+    // adapter value can be written back and undo a liquid-glass-toggle --on/--off
+    // made while Quickshell is running.
+    property double prefsExternalChangeAt: 0
 
     Timer {
         id: envModeFollow
@@ -1738,8 +1747,15 @@ Singleton {
         path: Quickshell.env("HOME") + "/.config/quickshell/lucidprefs/prefs.json"
         blockLoading: true
         watchChanges: true
-        onFileChanged: reload()
-        onAdapterUpdated: writeDebounce.restart()
+        onFileChanged: {
+            root.prefsExternalChangeAt = Date.now();
+            reload();
+        }
+        onAdapterUpdated: {
+            if (Date.now() - root.prefsExternalChangeAt < 600)
+                return;
+            writeDebounce.restart();
+        }
         onLoaded: {
             root.barNotchRadius = s.barNotchRadius;
             root.loaded = true;
@@ -1769,12 +1785,14 @@ Singleton {
             // decoder: auto | vaapi | cuda | cpu; pause under: never | fullscreen | any;
             // in game mode: play | pause | still (the first frame, player stopped)
             property bool liveWallpapers: true
+            // use skwd-wall's engine and library when it is installed
+            property bool skwdWall: true
             property string liveDecoder: "auto"
             property string livePauseUnder: "fullscreen"
             property string liveGameMode: "pause"
             property string wallpaperPillsShape: "uniform"
             property string wallpaperStripSteps: "normal"
-            property int wallpaperStripSides: 2
+            property int wallpaperStripSides: 3
             property int wallpaperTilesRows: 2
             property string wallpaperTilesAspect: "square"
             property string wallpaperBentoHero: "medium"

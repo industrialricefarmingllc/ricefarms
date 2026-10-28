@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 // one face of a widget in the panel's gallery, drawn live. a click puts it on the
 // desktop in the first free spot; a drag carries it out to wherever it is let go
@@ -10,6 +11,8 @@ Item {
     property Item panel: null
     property string wtype: ""
     property var variant: null
+    // see WidgetPreview.hold: the gallery sets it while it is moving
+    property bool hold: false
 
     readonly property string variantId: tile.variant ? tile.variant.id : ""
     readonly property int placed: tile.variant ? Widgets.countOfVariant(tile.wtype, tile.variantId) : 0
@@ -44,15 +47,16 @@ Item {
 
     }
 
-    Rectangle {
+    SquircleRect {
         id: shell
 
         anchors.fill: parent
         radius: Theme.radiusLg
-        color: area.containsMouse && !Widgets.full ? Theme.withBlur(Theme.surfaceHighest) : Theme.withBlur(Theme.surfaceHigh)
+        fillColor: area.containsMouse && !Widgets.full ? Theme.withBlur(Theme.surfaceHighest) : Theme.withBlur(Theme.surfaceHigh)
+        smoothing: Prefs.squircleF
         scale: area.pressed && !area.carrying ? 0.97 : 1
 
-        Behavior on color {
+        Behavior on fillColor {
             ColorAnimation {
                 duration: Theme.durShort
             }
@@ -85,6 +89,7 @@ Item {
                 wvariant: tile.variantId
                 hovered: area.containsMouse
                 staggered: true
+                hold: tile.hold
             }
 
         }

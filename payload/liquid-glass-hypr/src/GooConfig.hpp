@@ -34,6 +34,7 @@ inline constexpr const char* TIP_ENABLE   = "plugin:gooworkspaces:tip_enable";
 inline constexpr const char* TIP_CURVE    = "plugin:gooworkspaces:tip_curve";
 inline constexpr const char* TIP_MAX      = "plugin:gooworkspaces:tip_max";
 inline constexpr const char* GENIE_PULL   = "plugin:gooworkspaces:genie_pull";
+inline constexpr const char* RESIZE_STRETCH = "plugin:gooworkspaces:resize_stretch";
 } // namespace Key
 
 void        registerConfig(void* handle);

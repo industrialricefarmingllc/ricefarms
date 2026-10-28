@@ -33,20 +33,31 @@ Item {
     property real bgBottomLeftRadius: -1
     property real bgBottomRightRadius: -1
     property bool usePill: true
+    // the window hairline the bar wears (WindowBorder), 0/clear for none
+    property color borderColor: "transparent"
+    property real borderWidth: 0
+    property real borderTop: 1
+    property vector2d borderGap: Qt.vector2d(0, 0)
     property real glassOpacity: Prefs.liquidGlassOpacity
     property var hostWindow: null
     property var targetScreen: null
 
     SquircleRect {
         anchors.fill: parent
-        fillColor: Theme.bg
+        // external glass: the compositor fills the shape, so this becomes a
+        // transparent fill that still traces the window hairline on top
+        fillColor: root.externalGlass ? "transparent" : Theme.bg
         radius: root.bgRadius
         topLeftRadius: root.bgTopLeftRadius >= 0 ? root.bgTopLeftRadius : root.bgRadius
         topRightRadius: root.bgTopRightRadius >= 0 ? root.bgTopRightRadius : root.bgRadius
         bottomLeftRadius: root.bgBottomLeftRadius >= 0 ? root.bgBottomLeftRadius : root.bgRadius
         bottomRightRadius: root.bgBottomRightRadius >= 0 ? root.bgBottomRightRadius : root.bgRadius
+        borderColor: root.borderColor
+        borderWidth: root.borderWidth
+        borderTop: root.borderTop
+        borderGap: root.borderGap
         smoothing: Prefs.squircleF
-        visible: !root.externalGlass
+        visible: !root.externalGlass || root.borderWidth > 0
         z: -1
     }
 }

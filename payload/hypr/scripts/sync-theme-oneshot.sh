@@ -10,6 +10,7 @@ if [[ -n "$WALL" && -f "$WALL" ]]; then
   exec "$HOME/.config/hypr/scripts/wallpaper-matugen.sh" "$WALL" "$MODE"
 else
   matugen color hex "#89b4fa" -m "$MODE" 2>&1 | tail -n 20
-  pkill -SIGUSR1 kitty 2>/dev/null || true
-  hyprctl reload 2>/dev/null || true
+  "$HOME/.config/lucid/app-surface-sync.sh" >/dev/null 2>&1 || true
+  "$HOME/.config/lucid/opencode-theme-notify.sh" >/dev/null 2>&1 || true
+  ( setsid "$HOME/.config/lucid/theme-fanout.sh" --request >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
 fi

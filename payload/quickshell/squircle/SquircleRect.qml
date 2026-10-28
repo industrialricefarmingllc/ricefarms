@@ -24,6 +24,12 @@ ShaderEffect {
     property color fillColor: "white"
     property color borderColor: "transparent"
     property real borderWidth: 0
+    // Which edges the border covers. A notch tab hangs off the screen edge, so
+    // its top edge has no outline (0); otherwise 1.
+    property real borderTop: 1
+    // Px of left/right border to drop from the top, where a concave shoulder
+    // flare takes the outline over. Qt.vector2d(left, right).
+    property vector2d borderGap: Qt.vector2d(0, 0)
     property real radius: 0
     // Per-corner overrides, Rectangle convention (-1 follows radius).
     property real topLeftRadius: -1

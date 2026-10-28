@@ -226,7 +226,7 @@ JsonAdapter {
     // gates notify-send calls pibble sends on its own behalf, split by kind:
     // errors (failed commands), missingDeps (a required external tool isn't
     // installed), actions (copy confirmations, custom page discovery, page
-    // trashed, wallpaper changed), battery (low battery warning)
+    // trashed), battery (low battery warning)
     property var pibbleAlerts: Defaults.pibbleAlerts
 
     // discharging battery % the low-battery alert fires at; gated by the

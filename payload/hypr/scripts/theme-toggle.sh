@@ -41,6 +41,8 @@ else
   echo "Toggling $CUR → $NEW (no wallpaper found, generating from fallback color)"
   if command -v matugen >/dev/null 2>&1; then
     matugen color hex "#89b4fa" -m "$NEW" 2>&1 | tail -n 20
+    "$HOME/.config/lucid/app-surface-sync.sh" >/dev/null 2>&1 || true
+    "$HOME/.config/lucid/opencode-theme-notify.sh" >/dev/null 2>&1 || true
     pkill -SIGUSR1 kitty 2>/dev/null || true
     hyprctl reload 2>/dev/null || true
   fi

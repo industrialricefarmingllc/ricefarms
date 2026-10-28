@@ -1,0 +1,9 @@
+#!/bin/sh
+# Zed on Mesa's software rasterizer (llvmpipe) instead of the Intel iGPU.
+# GPU load drops to ~0; all compositing moves to the CPU (expect lag on this
+# 2736x1824 @2x panel). Use only if the iGPU is the bottleneck.
+exec env \
+  MESA_LOADER_DRIVER_OVERRIDE=swrast \
+  LIBGL_ALWAYS_SOFTWARE=1 \
+  GALLIUM_DRIVER=llvmpipe \
+  /usr/lib/zed/zed-editor "$@"

@@ -25,7 +25,7 @@ out vec4 fragColor;
 // px (which the compositor scales already normalize across DPIs), so the
 // radius as a fraction of the output width is cornerSize / 1600.
 // Keep in sync with `cornerSize` there.
-const float CORNER_FRAC = 54.0 / 1600.0;
+const float CORNER_FRAC = 19.0 / 1600.0;
 // Superellipse exponent of the bezel cutout: matches the shared squircle
 // smoothing at its default f = 0.5 (n = 2 + 4f = 4). If the Lucid slider
 // moves far off default, a sub-pixel sliver of the crescent may ink-map;
@@ -98,6 +98,59 @@ float directionalGrain(vec2 uv) {
     return grain / 0.8;
 }
 
+// ---------------------------------------------------------------
+// Ebook paper noise
+// E-readers (Kindle, KOReader) don't paint a flat white page: they
+// lay a *static*, multi-scale speckle over it so the background reads
+// as a sheet instead of a backlight. paperTexture()/directionalGrain()
+// above only give fibre streaks on bright pixels, which leaves big
+// flat areas looking like a light panel. Real paper has four cues:
+//   mottle  - uneven pulp, low frequency, biggest visual cue
+//   clump   - fibre clumps, 2-3px, the "grain" you see while reading
+//   tooth   - per-pixel matte, breaks up banding in smooth fields
+//   fleck   - sparse dark inclusions (undissolved pulp)
+// Screen-space (gl_FragCoord) and hash-only: no texture lookups, no
+// time uniform, so it never crawls when windows redraw.
+// ---------------------------------------------------------------
+// Value noise: hashed lattice with Hermite interpolation between
+// cells. Plain hash(floor(px/56)) would give hard 56px blocks.
+float valueNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f); // smoothstep fade, no visible cell edges
+    return mix(mix(hash(i),                  hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+               f.y);
+}
+
+// Signed luminance offset. `weight` damps it over ink: noise on dark
+// pixels shows up as screen-door dithering on glyph edges rather than
+// paper tooth, and legibility matters more than texture there.
+float ebookPaper(vec2 px, float weight) {
+    // uneven pulp: two octaves, one cell per ~56px and ~17px on screen
+    float mottle = valueNoise(px / 56.0) * 0.65 + valueNoise(px / 17.0) * 0.35;
+
+    // fibre clumps: 3px cells so it reads as grain, not per-pixel fuzz
+    float clump = hash(floor(px / 3.0));
+
+    // per-pixel tooth: the matte feel at normal viewing distance
+    float tooth = hash(px + 91.7);
+
+    float n = (mottle - 0.5) * 0.040
+            + (clump  - 0.5) * 0.030
+            + (tooth  - 0.5) * 0.019;
+
+    // inclusions: ~0.4% of 2px cells darken, like unbleached specks
+    float fleck = step(0.996, hash(floor(px / 2.0) + 137.0));
+    n -= fleck * 0.075;
+
+    // Amplitudes above land at ~2/255 RMS on paper (peaks ~3/255);
+    // together with the existing grain the page sits near 3/255 RMS.
+    // Scale all four together: below ~2/255 total it stops reading as
+    // paper, above ~5/255 it becomes TV static at this pixel density.
+    return n * weight;
+}
+
 // Subtle vignette for paper edge darkening
 float vignette(vec2 uv) {
     vec2 center = uv - 0.5;
@@ -123,6 +176,9 @@ void main() {
     // Luma Conversion
     // not using average (r+g+b)/3 because eyes see green brighter than blue.
     float gray = dot(pixColor.rgb, vec3(0.299, 0.587, 0.114));
+    // Keep the untouched luma: the mid-tone weighting below is judged on
+    // source brightness, before the e-ink curve saturates light greys.
+    float srcLuma = gray;
     
     // E-ink characteristic response curve
     // real e-ink isn't linear. this exponent simulates ink clumping.
@@ -138,6 +194,15 @@ void main() {
     
     vec2 screenPos = gl_FragCoord.xy;
     
+    // Mid-tone attenuation: half noise strength on greys up to 225/255,
+    // ramping back to full only on true white. Judged on source luma
+    // because the tone curve above squeezes sRGB 200+ to ~0.99, so a mask
+    // keyed on `gray` treats light greys as paper. Applies to the legacy
+    // fibre grain as well as the ebook speckle — both ran at full strength
+    // through the 200-225 range before this.
+    float midTone = smoothstep(0.22, 0.38, srcLuma) * (1.0 - smoothstep(0.88, 1.0, srcLuma));
+    float toneWeight = 1.0 - 0.5 * midTone;
+
     // PAPER GRAIN 
     float paperGrain = (paperTexture(screenPos * 0.3) - 0.5) * 0.035; 
     float dirGrain = (directionalGrain(screenPos * 0.4) - 0.5) * 0.025; // directional grain
@@ -145,11 +210,17 @@ void main() {
     float bayerValue = getBayer(screenPos);
     
     // Apply to bright areas (paper), but also slightly to mid-tones for more visible grain
-    float textureMask = smoothstep(0.5, 0.95, gray); // Lower threshold for more coverage
+    float textureMask = smoothstep(0.5, 0.95, gray) * toneWeight; // Lower threshold for more coverage
     
     // Apply both grain types
     gray += paperGrain * textureMask;
     gray += dirGrain * textureMask * 0.7; // Directional grain is slightly weaker
+
+    // Ebook paper speckle: runs over the whole page, not just highlights,
+    // so flat white and flat ink both read as one sheet. Ink keeps its own
+    // 40% damping on top so glyph edges stay crisp.
+    float pageWeight = mix(0.4, 1.0, smoothstep(0.55, 0.95, gray)) * toneWeight;
+    gray += ebookPaper(screenPos, pageWeight);
     
     // Increased dithering for more texture
     float ditherStrength = 0.025; // Increased from 0.018

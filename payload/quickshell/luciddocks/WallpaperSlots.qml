@@ -27,8 +27,6 @@ Item {
     // the Live tab: the same picker over the videos
     property bool live: false
     property real stableHeight: height
-    property int previewInterval: 300
-    property string pendingPreviewPath: ""
     property bool syncing: false
     property real originX: -1
     property real originY: -1
@@ -49,7 +47,6 @@ Item {
     }
 
     signal chosen(string path)
-    signal previewed(string path)
 
     function noteOrigin(card) {
         if (!card || strip.Window.width <= 0 || strip.Window.height <= 0) {
@@ -86,20 +83,8 @@ Item {
 
     function setIndexImmediate(i) {
         strip.syncing = true;
-        previewThrottle.stop();
-        strip.pendingPreviewPath = "";
         strip.currentIndex = i;
         restoreAnim.restart();
-    }
-
-    function emitPreview() {
-        if (strip.pendingPreviewPath === "")
-            return;
-
-        // the transition can grow from the card being previewed
-        strip.noteOrigin(slots.itemAt(strip.currentIndex));
-        strip.previewed(strip.pendingPreviewPath);
-        strip.pendingPreviewPath = "";
     }
 
     // the model arrives after the picker does
@@ -108,30 +93,12 @@ Item {
             strip.currentIndex = 0;
 
     }
-    onCurrentIndexChanged: {
-        if (strip.syncing || strip.currentIndex < 0 || strip.count === 0)
-            return;
-
-        var path = strip.pathAt(strip.currentIndex);
-        if (path === "")
-            return;
-
-        strip.pendingPreviewPath = path;
-        previewThrottle.restart();
-    }
 
     Timer {
         id: restoreAnim
 
         interval: 120
         onTriggered: strip.syncing = false
-    }
-
-    Timer {
-        id: previewThrottle
-
-        interval: strip.previewInterval
-        onTriggered: strip.emitPreview()
     }
 
     Item {
@@ -164,6 +131,8 @@ Item {
                 readonly property var entry: strip.model ? strip.model.get(slot.index) : null
                 readonly property string path: slot.entry ? slot.entry.path : ""
                 readonly property string thumb: slot.entry ? slot.entry.thumb : ""
+                readonly property string preview: slot.entry ? (slot.entry.preview || "") : ""
+                readonly property string kind: slot.entry ? (slot.entry.kind || "") : ""
                 readonly property bool isCurrent: slot.offset === 0
                 readonly property bool isApplied: strip.appliedPath !== "" && strip.appliedPath === slot.path
                 readonly property bool hovered: slotHover.hovered
@@ -263,16 +232,17 @@ Item {
                     }
 
                     // a narrow shape shows the middle of the picture, a wide one all of it
-                    Image {
+                    WallpaperCardMedia {
                         anchors.centerIn: parent
                         width: Math.max(parent.width, parent.height * 1.6)
                         height: parent.height
-                        // a video shows the thumbnail cut from its first frame
-                        source: slot.path === "" ? "" : !/\.(mp4|webm|mkv|mov|m4v)$/i.test(slot.path) ? "file://" + slot.path : slot.thumb !== "" ? "file://" + slot.thumb : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
-                        sourceSize.width: Theme.dp(640)
+                        path: slot.path
+                        thumb: slot.thumb
+                        preview: slot.preview
+                        kind: slot.kind
+                        active: slot.isCurrent || slot.hovered
+                        sourceSizeWidth: Theme.dp(640)
+                        sourceSizeHeight: Theme.dp(400)
                     }
 
                     Rectangle {

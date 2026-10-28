@@ -28,7 +28,7 @@ PanelWindow {
     color: "transparent"
     exclusiveZone: -1
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: root.panelVisible ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: root.panelVisible && !root.closing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     WlrLayershell.namespace: "lucid-launcher"
     mask: Region { item: root.panelVisible ? face : null }
 

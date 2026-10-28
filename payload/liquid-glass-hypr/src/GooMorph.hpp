@@ -40,6 +40,7 @@ struct SMorphSave {
     bool      warped      = false;
     bool      alphaWarped = false;
     bool      wasAnimatingIn = false; // m_animatingIn before the warp (stretch flag)
+    bool      rawValue       = false; // restore via value() (resize), not setValueAndWarp
 };
 
 // One morphing window's rect for this frame (global logical px), consumed by
@@ -55,6 +56,10 @@ struct SMorphTip {
 
 void       initMorph(void* handle);
 void       exitMorph();
+// True while this monitor has a live goo transition. The window-glass
+// backdrop capture is skipped then: every window is warped and the glass
+// pass is skipped anyway, so the capture would be pure overhead.
+bool       transitioning(MONITORID mon);
 // Warp the window for this frame if it participates in a live transition.
 // Never throws; returns unwarped save when idle/skipped.
 SMorphSave beginWindowMorph(PHLWINDOW window, PHLMONITOR monitor, bool ignorePosition, bool standalone);

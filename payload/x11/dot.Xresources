@@ -1,6 +1,4 @@
-Xft.dpi:       96
-Xft.antialias: 1
-Xft.hinting:   1
-Xft.hintstyle: hintfull
-Xft.rgba:      rgb
-Xft.lcdfilter: lcddefault
+! X resources for XWayland (Hyprland runs with xwayland.force_zero_scaling = true,
+! so X11 clients must scale themselves).
+! eDP-1 is 2736x1824 @ scale 2 -> 192 DPI (96 * 2).
+Xft.dpi: 192

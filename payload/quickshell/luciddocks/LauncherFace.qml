@@ -173,6 +173,11 @@ Item {
     property var powerButtons: []
     // the one waiting on a second press
     property string armedPower: ""
+    // the surface's frame on its output, so an activation can give the launch
+    // animation the icon's rect in screen coordinates
+    property var hostScreen: null
+    property real windowX: 0
+    property real windowY: 0
 
     signal powerChipTapped(string id)
 
@@ -195,6 +200,38 @@ Item {
     signal clearRequested()
 
     Component.onCompleted: face.pickerStyle = Prefs.wallpaperPickerStyle
+
+    // the icon a launch starts from, in global logical screen coordinates:
+    // the view maps to this window's scene, the frame adds the output origin
+    function iconRectFor(index) {
+        var item = face.gridVisible && !face.headOnly ? appsGrid.iconItemFor(index) : (face.listVisible && !face.headOnly ? resultList.iconItemFor(index) : null);
+        if (!item)
+            return null;
+
+        var a = item.mapToItem(null, 0, 0);
+        var b = item.mapToItem(null, item.width, item.height);
+        const sx = face.windowX + (face.hostScreen ? face.hostScreen.x : 0);
+        const sy = face.windowY + (face.hostScreen ? face.hostScreen.y : 0);
+        return {
+            "x": a.x + sx,
+            "y": a.y + sy,
+            "width": Math.abs(b.x - a.x),
+            "height": Math.abs(b.y - a.y)
+        };
+    }
+
+    // the launcher's own centre, for a row whose icon is not on screen
+    function fallbackIconRect() {
+        const sx = face.windowX + (face.hostScreen ? face.hostScreen.x : 0);
+        const sy = face.windowY + (face.hostScreen ? face.hostScreen.y : 0);
+        const w = Math.round(Theme.dp(40) * face.cs);
+        return {
+            "x": sx + Math.round(face.width * face.scale / 2 - w / 2),
+            "y": sy + Math.round(Theme.dp(46)),
+            "width": w,
+            "height": w
+        };
+    }
 
     // undo the last picker delete; with a filter typed Ctrl+Z belongs to the
     // search field instead

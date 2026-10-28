@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, glob, struct, select, subprocess, time, re
+import os, glob, struct, select, subprocess, time, re, errno
 from pathlib import Path
 CONFIG_PATH = Path.home() / ".config/desktop-toggle/config"
 HOTKEY_STR = "KEY_F15"
@@ -63,12 +63,19 @@ def get_desired_kbd_paths():
         desired.add(path)
     return desired
 
+open_fail_seen=set()
 def open_device(path):
     try:
         fd=os.open(path, os.O_RDONLY|os.O_NONBLOCK)
+        open_fail_seen.discard(path)
         return fd
     except Exception as e:
-        print(f"[daemon] open {path} failed: {e}", flush=True)
+        # udev applies the uaccess ACL a moment after the event node appears.
+        # Retry every refresh, but only log the first failure per path so a
+        # reconnect doesn't flood the journal.
+        if path not in open_fail_seen:
+            print(f"[daemon] open {path} failed: {e} (will retry)", flush=True)
+            open_fail_seen.add(path)
         return None
 
 def refresh_devices():
@@ -134,11 +141,24 @@ if not devices:
     print("[daemon] no devices at start, will retry on hotplug", flush=True)
 
 pressed=set()
+children=[]
+def spawn(cmd):
+    p=subprocess.Popen(cmd, start_new_session=True)
+    children.append(p)
+    return p
+
+def reap_children():
+    # Popen objects were discarded after trigger(), so completed toggles
+    # stayed around as zombies. Poll them once per loop so they get reaped.
+    for p in children[:]:
+        if p.poll() is not None:
+            children.remove(p)
+
 def trigger():
     # use desktop-toggle for proper hypr dpms + kmscon handling (fast toggle_visibility)
     print(f"[daemon] HOTKEY {HOTKEY_STR} -> desktop-toggle", flush=True)
     try:
-        subprocess.Popen(["/usr/local/bin/desktop-toggle"], start_new_session=True)
+        spawn(["/usr/local/bin/desktop-toggle"])
     except Exception as e:
         print(f"[daemon] trigger failed {e}", flush=True)
         try:
@@ -147,7 +167,7 @@ def trigger():
             cur="tty1"
         tgt="1" if cur=="tty7" else "7"
         try:
-            subprocess.Popen(["/usr/local/bin/chvt-fast", tgt], start_new_session=True)
+            spawn(["/usr/local/bin/chvt-fast", tgt])
         except:
             pass
 
@@ -155,6 +175,7 @@ print(f"[daemon] listening for {HOTKEY_STR} on {len(devices)} devices...", flush
 last_refresh=time.time()
 while True:
     try:
+        reap_children()
         now=time.time()
         if now - last_refresh >= 1.0:
             refresh_devices()
@@ -167,11 +188,14 @@ while True:
         r,_,_=select.select([fd for _,fd in devices],[],[],1)
         if not r:
             continue
+        stale_fds=set()
         for fd in r:
             path=fd_to_path.get(fd, f"fd{fd}")
             try:
                 data=os.read(fd, size*64)
                 if not data:
+                    print(f"[daemon] device {path} fd {fd} reached EOF; dropping", flush=True)
+                    stale_fds.add(fd)
                     continue
                 for i in range(0,len(data),size):
                     chunk=data[i:i+size]
@@ -199,11 +223,11 @@ while True:
                                 else:
                                     print(f"[daemon] Ctrl+Alt+Delete -> tty2 from {cur} on {path} (pressed {pressed})", flush=True)
                                 try:
-                                    subprocess.Popen(["/usr/local/bin/chvt-fast", tgt], start_new_session=True)
+                                    spawn(["/usr/local/bin/chvt-fast", tgt])
                                 except Exception as e:
                                     print(f"[daemon] chvt-fast {tgt} failed {e}", flush=True)
                                     try:
-                                        subprocess.Popen(["/usr/bin/chvt", tgt], start_new_session=True)
+                                        spawn(["/usr/bin/chvt", tgt])
                                     except:
                                         pass
                                 time.sleep(0.8)
@@ -214,7 +238,7 @@ while True:
                             if 56 in pressed or 100 in pressed:
                                 print(f"[daemon] Alt+F15 off code={code} triggered on {path} (pressed {pressed})", flush=True)
                                 try:
-                                    subprocess.Popen(["/usr/local/bin/desktop-toggle", "--stop"], start_new_session=True)
+                                    spawn(["/usr/local/bin/desktop-toggle", "--stop"])
                                 except Exception as e:
                                     print(f"[daemon] Alt+F15 off failed {e}", flush=True)
                                 time.sleep(0.8)
@@ -238,11 +262,31 @@ while True:
                                 time.sleep(0.8)
                                 pressed.clear()
             except OSError as e:
-                print(f"[daemon] read OSError {path} fd {fd}: {e}", flush=True)
+                if e.errno in (errno.ENODEV, errno.ENOENT, errno.EBADF):
+                    # Device node disappeared or was revoked (USB
+                    # re-enumeration/VT handoff). Drop it; otherwise select()
+                    # keeps returning it readable and the ENODEV read spins
+                    # forever, blocking F15 and flooding the journal.
+                    print(f"[daemon] device {path} fd {fd} went away ({e}); dropping", flush=True)
+                    stale_fds.add(fd)
+                else:
+                    print(f"[daemon] read OSError {path} fd {fd}: {e}", flush=True)
                 continue
             except Exception as e:
                 print(f"[daemon] read loop {path} {e}", flush=True)
                 continue
+        if stale_fds:
+            keep=[]
+            for dev_path, dev_fd in devices:
+                if dev_fd in stale_fds:
+                    try: os.close(dev_fd)
+                    except OSError: pass
+                    fd_to_path.pop(dev_fd, None)
+                else:
+                    keep.append((dev_path, dev_fd))
+            devices[:]=keep
+            pressed.clear()
+            last_refresh=0.0  # force refresh/reopen on the next iteration
     except Exception as e:
         print(f"[daemon] select {e}", flush=True)
         time.sleep(1)

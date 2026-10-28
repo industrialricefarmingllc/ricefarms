@@ -331,6 +331,11 @@ PanelWindow {
         if (dockWindow.menuOpen)
             dockWindow.launcherBuilt = true;
 
+        // put the launch overlay on the launcher's display before an icon is
+        // picked, so the seed does not wait on a layer-surface move
+        if (dockWindow.menuOpen && dockWindow.externalFace && dockWindow.externalFace.hostScreen)
+            launchGhost.prepare(dockWindow.externalFace.hostScreen);
+
         dockWindow.pulseMorph();
         dockWindow.contentFadeDelay = dockWindow.menuOpen ? 109 : 0;
         powerDisarm.stop();
@@ -952,7 +957,9 @@ PanelWindow {
             "running": opts.running === true,
             "disabled": opts.disabled === true,
             "selectable": opts.selectable !== false,
-            "payload": opts.payload || ""
+            "payload": opts.payload || "",
+            "wmClass": opts.wmClass || "",
+            "base": opts.base || ""
         };
     }
 
@@ -1068,6 +1075,8 @@ PanelWindow {
         return dockWindow.makeRow("app", "app-" + app.name, app.name, Prefs.launcherAppDescriptions ? (app.desc || "") : "", {
             "iconName": app.iconName,
             "payload": app.command,
+            "wmClass": app.wmClass,
+            "base": app.base,
             "running": dockWindow.runningAppNames[app.name] === true
         });
     }
@@ -1222,6 +1231,8 @@ PanelWindow {
         return dockWindow.makeRow("action", "act-" + app.name + "-" + action.name, action.name, nested ? "" : app.name, {
             "iconName": nested ? "" : app.iconName,
             "glyph": nested ? "chevron_right" : "",
+            "wmClass": app.wmClass,
+            "base": app.base,
             "payload": JSON.stringify({
                 "app": app.name,
                 "command": action.command
@@ -1689,7 +1700,8 @@ PanelWindow {
             return;
 
         if (row.kind === "app") {
-            Quickshell.execDetached(["sh", "-c", row.payload]);
+            if (!dockWindow.ghostLaunch(row.payload, row.title, row.iconName, dockWindow.rowIconRect(index), row.wmClass, row.base))
+                Quickshell.execDetached(["sh", "-c", row.payload]);
             dockWindow.recordLaunch(row.title);
             dockWindow.menuOpen = false;
         } else if (row.kind === "setting") {
@@ -1724,7 +1736,8 @@ PanelWindow {
             windowFocus.restart();
         } else if (row.kind === "action") {
             var act = JSON.parse(row.payload);
-            Quickshell.execDetached(["sh", "-c", act.command]);
+            if (!dockWindow.ghostLaunch(act.command, act.app, row.iconName, dockWindow.rowIconRect(index), row.wmClass, row.base))
+                Quickshell.execDetached(["sh", "-c", act.command]);
             dockWindow.recordLaunch(act.app);
             dockWindow.menuOpen = false;
         } else if (row.kind === "power") {
@@ -1739,9 +1752,47 @@ PanelWindow {
         if (!row || !row.selectable || row.disabled)
             return ;
 
-        Quickshell.execDetached(["sh", "-c", row.payload]);
+        if (!dockWindow.ghostLaunch(row.payload, row.title, row.iconName, dockWindow.rowIconRect(index), row.wmClass, row.base))
+            Quickshell.execDetached(["sh", "-c", row.payload]);
         dockWindow.recordLaunch(row.title);
         dockWindow.menuOpen = false;
+    }
+
+    // where the activated row's icon is, in screen coordinates
+    function rowIconRect(index) {
+        var face = dockWindow.launcherItem;
+        if (!face)
+            return null;
+
+        var r = face.iconRectFor ? face.iconRectFor(index) : null;
+        if (r)
+            return r;
+
+        return face.fallbackIconRect ? face.fallbackIconRect() : null;
+    }
+
+    // hand an app launch to the placeholder. false means the tile could not be
+    // held (still starting up, or a launch is already in flight), and the
+    // caller should fall back to the plain detached exec
+    function ghostLaunch(command, title, iconName, iconRect, wmClass, base) {
+        if (!command || !iconRect || !launchGhost.available)
+            return false;
+
+        var source = iconName !== "" ? IconTheme.pathFor(iconName) : "";
+        if (source === "" && iconName !== "")
+            source = Quickshell.iconPath(iconName, true);
+        if (source === "")
+            source = Quickshell.iconPath("application-x-executable", true);
+
+        return launchGhost.launch({
+            "command": command,
+            "title": title,
+            "iconSource": source,
+            "iconRect": iconRect,
+            "wmClass": wmClass || "",
+            "base": base || "",
+            "screen": dockWindow.launcherItem ? dockWindow.launcherItem.hostScreen : null
+        });
     }
 
     function clipGlyph(ent) {
@@ -2712,6 +2763,15 @@ PanelWindow {
 
         function close(): void {
             dockWindow.menuOpen = false;
+        }
+
+        // keyboard-free control for tests: Return on the current selection
+        function accept(): string {
+            if (!dockWindow.menuOpen || !dockWindow.launcherItem)
+                return "closed";
+
+            dockWindow.launcherItem.submit();
+            return "accepted";
         }
 
         // the hidden-applications list, by desktop file id, for scripting the
@@ -4241,6 +4301,12 @@ PanelWindow {
             bottomRightRadius: islandR.bottomRightRadius
         }
 
+    }
+
+    // the tile a launcher app will fill, held invisibly from the moment the
+    // icon is picked until the app's first window maps
+    LaunchGhost {
+        id: launchGhost
     }
 
 }

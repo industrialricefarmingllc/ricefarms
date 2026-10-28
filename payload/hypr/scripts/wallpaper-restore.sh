@@ -3,6 +3,12 @@
 # Called via exec-once in hyprland.conf/hyprland.lua
 set -eu
 
+# skwd-walld restores its own wallpaper (images, videos, Wallpaper Engine
+# scenes) from ~/.cache/skwd-wall-v2, and awww is never started beside it.
+if systemctl --user is-active --quiet skwd-walld 2>/dev/null; then
+  exit 0
+fi
+
 # Wait for awww-daemon to be ready (started via exec-once before this)
 for i in 1 2 3 4 5; do
   pgrep -x awww-daemon >/dev/null 2>&1 && break

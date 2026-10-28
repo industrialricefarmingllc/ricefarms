@@ -7,7 +7,8 @@
 // SquircleRect.qml).
 //
 // Uniforms come from SquircleRect.qml QML properties matched by name:
-//   fillColor / borderColor (vec4), borderWidth px, itemSize = w/h,
+//   fillColor / borderColor (vec4), borderWidth px, borderTop 0/1,
+//   borderGap (left/right px dropped from the top), itemSize = w/h,
 //   radii = [tl, tr, br, bl] px, exponent n.
 //
 // At n = 2 the corner SDF is exactly circular, matching Rectangle.
@@ -24,6 +25,8 @@ layout(std140, binding = 0) uniform buf {
     vec2 itemSize;
     vec4 radii;
     float exponent;
+    float borderTop;
+    vec2 borderGap;
 };
 
 float sdSquircleBox4(vec2 p, vec2 b, vec4 r, float n) {
@@ -48,11 +51,25 @@ float sdSquircleBox4(vec2 p, vec2 b, vec4 r, float n) {
 void main() {
     vec2 p = (qt_TexCoord0 - vec2(0.5)) * itemSize;
     float sd = sdSquircleBox4(p, itemSize * 0.5, radii, exponent);
-    float aa = 1.0;
-    float bodyA = 1.0 - smoothstep(-aa, aa, sd);
+    // Pixel-accurate edge, as squircle_corners.frag does. A fixed band in
+    // distance space left the first row ~16% transparent, which read as a
+    // 1px rim along a tab flush with the screen edge. fwidth(sd) is the
+    // distance covered by one pixel, so the ramp stays one pixel wide at any
+    // scale and the first row is fully opaque.
+    float fw = max(fwidth(sd), 1e-6);
+    float bodyA = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, sd);
     if (bodyA <= 0.001)
         discard;
-    float fillA = 1.0 - smoothstep(-aa, aa, sd + borderWidth);
+    // Edge masks, all in px: a notch tab grows out of the screen edge, so the
+    // top border is off there; and a side border stops where a concave
+    // shoulder flare (which draws its own arc) takes over, so the notch does
+    // not read as a separate shape stuck onto the tab.
+    vec2 halfSize = itemSize * 0.5;
+    float topBand = (1.0 - borderTop) * step(p.y, -halfSize.y + borderWidth);
+    float leftBand = step(0.5, borderGap.x) * step(p.x, -halfSize.x + borderWidth) * step(p.y, -halfSize.y + borderGap.x);
+    float rightBand = step(0.5, borderGap.y) * step(halfSize.x - borderWidth, p.x) * step(p.y, -halfSize.y + borderGap.y);
+    float bw = borderWidth * max(0.0, 1.0 - min(1.0, topBand + leftBand + rightBand));
+    float fillA = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, sd + bw);
     vec3 rgb = mix(borderColor.rgb, fillColor.rgb, fillA);
     float a = bodyA * mix(borderColor.a, fillColor.a, fillA);
     fragColor = vec4(rgb * a, a) * qt_Opacity;

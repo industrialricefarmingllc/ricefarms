@@ -15,6 +15,7 @@ LIVE="${2:-}"
 # twice the strip's hero card, covered rather than fitted
 SIZE=680x422
 THUMBS="$HOME/.cache/lucid/wallpaper-thumbs/$SIZE"
+PREVIEWS="$HOME/.cache/lucid/wallpaper-previews/$SIZE"
 
 [[ -d "$DIR" ]] || exit 0
 
@@ -27,26 +28,33 @@ is_video() {
 }
 
 MISSING=()
+PREVIEW_MISSING=()
 while IFS=$'\t' read -r path key; do
     [[ -n "$path" ]] || continue
     thumb="$THUMBS/$key.jpg"
     kind=""
-    is_video "$path" && kind=$'\tvideo'
+    preview=""
+    if is_video "$path"; then
+        kind="video"
+        preview="$PREVIEWS/$key.webp"
+        [[ -s "$preview" ]] || PREVIEW_MISSING+=("$path" "$preview")
+    fi
     if [[ -f "$thumb" ]]; then
-        printf '%s\t%s%s\n' "$path" "$thumb" "$kind"
+        printf '%s\t%s\t%s\t%s\n' "$path" "$thumb" "$kind" "$preview"
     else
-        printf '%s\t%s\n' "$path" "$kind"
+        printf '%s\t%s\t%s\t%s\n' "$path" "" "$kind" "$preview"
         MISSING+=("$path" "$thumb")
     fi
 done < <(find "$DIR" -maxdepth 1 -type f \( "${NAMES[@]}" \) \
     -printf '%p\t%i-%s-%T@\n' | sort -t $'\t' -k1,1)
 
-(( ${#MISSING[@]} )) && command -v magick &>/dev/null || exit 0
+(( ${#MISSING[@]} )) && command -v magick &>/dev/null || true
 
-mkdir -p "$THUMBS"
+mkdir -p "$THUMBS" "$PREVIEWS"
 LOW=(nice -n 19)
 command -v ionice &>/dev/null && LOW+=(ionice -c 3)
 # detached from the listing's stdout, or the strip would wait for every copy
+if (( ${#MISSING[@]} > 0 || ${#PREVIEW_MISSING[@]} > 0 )); then
 (
     exec 9>"$THUMBS/.lock"
     # a run already making copies; whatever it misses, the next listing hands on
@@ -76,6 +84,25 @@ command -v ionice &>/dev/null && LOW+=(ionice -c 3)
             rm -f "$tmp"
         fi
     done
+    # a short animated WebP for the live card preview; the picker only plays
+    # one at a time, so this can be slow and niced
+    set -- "${PREVIEW_MISSING[@]}"
+    while (( $# >= 2 )); do
+        src="$1" preview="$2"
+        shift 2
+        [[ -s "$preview" ]] && continue
+        command -v ffmpeg &>/dev/null || break
+        tmp="$preview.$$.tmp.webp"
+        if "${LOW[@]}" ffmpeg -v error -y -threads 1 -t 3 -i "$src" -an -sn -dn \
+                -vf "fps=12,scale=480:300:force_original_aspect_ratio=increase,crop=480:300" \
+                -c:v libwebp_anim -loop 0 -q:v 45 -threads 1 "$tmp" </dev/null; then
+            mv -f "$tmp" "$preview"
+        else
+            rm -f "$tmp"
+        fi
+    done
     find "$THUMBS" -type f -name '*.jpg' -mtime +120 -delete 2>/dev/null
+    find "$PREVIEWS" -type f -name '*.webp' -mtime +120 -delete 2>/dev/null
 ) </dev/null &>/dev/null &
+fi
 exit 0

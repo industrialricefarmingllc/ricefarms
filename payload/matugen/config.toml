@@ -9,22 +9,18 @@ command = "awww img --transition-type wipe --transition-duration 1.2 {{image}}"
 [templates.hyprland]
 input_path = '~/.config/matugen/templates/hyprland-colors.conf'
 output_path = '~/.config/hypr/colors.conf'
-post_hook = 'hyprctl reload 2>/dev/null || true &'
 
 [templates.hyprland_lua]
 input_path = '~/.config/matugen/templates/hyprland-colors.lua'
 output_path = '~/.config/hypr/colors.lua'
-post_hook = 'hyprctl reload 2>/dev/null || true &'
 
 [templates.foot]
 input_path = '~/.config/matugen/templates/foot.ini'
 output_path = '~/.config/foot/foot.ini.matugen'
-post_hook = 'pkill -USR1 foot 2>/dev/null || true'
 
 [templates.dunst]
 input_path = '~/.config/matugen/templates/dunstrc'
 output_path = '~/.config/dunst/dunstrc'
-# post_hook removed to prevent hang - dunst will be restarted via hypr reload or manually
 [templates.quickshell_note]
 input_path = '~/.config/matugen/templates/quickshell-note.txt'
 output_path = '~/.cache/quickshell/matugen-colors.txt'
@@ -32,28 +28,23 @@ output_path = '~/.cache/quickshell/matugen-colors.txt'
 [templates.helium_theme]
 input_path = '~/.config/matugen/templates/helium-theme.json'
 output_path = '~/.local/share/helium-matugen-theme/manifest.json'
-post_hook = 'echo 1 <> "$XDG_RUNTIME_DIR/chromugen.fifo" 2>/dev/null || true'
 
 [templates.quickshell]
 input_path = "~/.config/matugen/templates/quickshell-colors.json"
 output_path = "~/.cache/quickshell/matugen.json"
 # give kitty/GTK the exact surface Lucid draws widgets on (app-surface-sync.sh)
-post_hook = '$HOME/.config/lucid/app-surface-sync.sh 2>/dev/null || true'
 
 [templates.kitty]
 input_path = '~/.config/matugen/templates/kitty-colors.conf'
 output_path = '~/.config/kitty/matugen-colors.conf'
-post_hook = 'pkill -SIGUSR1 kitty 2>/dev/null || true &'
 
-[templates.hypr_shader_agx]
-input_path = '~/.config/matugen/templates/hypr-shader-agx.glsl'
-output_path = '~/.config/hypr/shaders/matugen-agx.glsl'
-post_hook = '~/.config/hypr/scripts/agx-smooth-transition.sh 2>&1 | tail -n 5 &'
+[templates.kitty_font]
+input_path = '~/.config/matugen/templates/kitty-font.conf'
+output_path = '~/.config/kitty/font-mode.conf'
 
 [templates.opencode]
 input_path = '~/.config/matugen/templates/opencode.json'
 output_path = '~/.config/opencode/themes/matugen.json'
-post_hook = 'pkill -SIGUSR2 opencode 2>/dev/null || true; $HOME/.config/lucid/app-surface-sync.sh 2>/dev/null || true'
 
 [templates.btop]
 input_path = '~/.config/matugen/templates/btop.theme'

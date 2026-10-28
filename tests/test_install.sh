@@ -173,9 +173,9 @@ assert_true "build_lucid_capture exists" declare -F build_lucid_capture
 assert_true "verify_hypr_binds exists" declare -F verify_hypr_binds
 mkdir -p "$FAKE_PAYLOAD/hypr/shaders" "$FAKE_PAYLOAD/hypr/scripts" "$FAKE_PAYLOAD/quickshell" \
   "$FAKE_PAYLOAD/lucid" "$FAKE_PAYLOAD/pibble" "$FAKE_PAYLOAD/lucid-capture"
-printf 'bind=,F15,exec,/usr/local/bin/desktop-toggle\nbind=$mod,R,exec,pibble toggle\n' > "$FAKE_PAYLOAD/hypr/hyprland.lua"
+printf 'bind=,F15,exec,/usr/local/bin/desktop-toggle\nbind=SUPER,T,exec,quickshell:launcher\nbind=,X,exec,hypr-touch-gestures\n' > "$FAKE_PAYLOAD/hypr/hyprland.lua"
 echo "conf" > "$FAKE_PAYLOAD/hypr/hyprland.conf"
-echo "x" > "$FAKE_PAYLOAD/hypr/shaders/main.glsl"; echo "x" > "$FAKE_PAYLOAD/hypr/shaders/reading_mode.glsl"; echo "x" > "$FAKE_PAYLOAD/hypr/shaders/matugen-agx.glsl"
+echo "x" > "$FAKE_PAYLOAD/hypr/shaders/main.glsl"; echo "x" > "$FAKE_PAYLOAD/hypr/shaders/reading_mode.glsl"
 echo "qml" > "$FAKE_PAYLOAD/quickshell/shell.qml"; echo "t" > "$FAKE_PAYLOAD/lucid/apply-theme.sh"
 echo ok > "$FAKE_PAYLOAD/systemd-user/quickshell.service"
 printf '#!/usr/bin/env bash\necho pibble\n' > "$FAKE_PAYLOAD/pibble/pibble"; chmod +x "$FAKE_PAYLOAD/pibble/pibble"
@@ -184,29 +184,37 @@ DRY_RUN=1; assert_true "phase_hypr dry-run" phase_hypr_stack; DRY_RUN=0
 assert_true "verify_hypr_binds passes on good fixture" verify_hypr_binds
 # real payload checks (1:1 fidelity)
 assert_file_has "hyprland.lua has F15" "$REPO_DIR/payload/hypr/hyprland.lua" "F15"
-assert_file_has "hyprland.lua launches pibble" "$REPO_DIR/payload/hypr/hyprland.lua" "pibble start"
+assert_file_has "hyprland.lua has lucid launcher" "$REPO_DIR/payload/hypr/hyprland.lua" "quickshell:launcher"
 assert_file_has "hyprland.lua has lucid/qs" "$REPO_DIR/payload/hypr/hyprland.lua" "quickshell"
+assert_file_has "custom.lua loads edge-swipe plugin" "$REPO_DIR/payload/hypr/custom.lua" "hypr-touch-gestures"
 assert_true "reading_mode.glsl exists" test -f "$REPO_DIR/payload/hypr/shaders/reading_mode.glsl"
 assert_true "main.glsl exists" test -f "$REPO_DIR/payload/hypr/shaders/main.glsl"
-assert_true "matugen-agx.glsl exists" test -f "$REPO_DIR/payload/hypr/shaders/matugen-agx.glsl"
+for _m in lucid-glass.lua lucid-monitors.lua lucid-settings.lua lucid-specials.lua lucid-startup.lua; do
+  assert_true "lucid hypr module: $_m" test -f "$REPO_DIR/payload/hypr/$_m"
+done
 assert_true "quickshell shell.qml exists" test -f "$REPO_DIR/payload/quickshell/shell.qml"
+assert_true "quickshell translate pane exists" test -f "$REPO_DIR/payload/quickshell/luciddocks/TranslatePane.qml"
 assert_true "lucid apply-theme exists" test -f "$REPO_DIR/payload/lucid/apply-theme.sh"
-assert_true "pibble executable exists" test -x "$REPO_DIR/payload/pibble/pibble"
+assert_true "pibble source retained (disabled)" test -f "$REPO_DIR/payload/pibble/pibble"
 assert_file_has "shader.lua manages Reading Mode" "$REPO_DIR/payload/hypr/shader.lua" "Reading Mode"
 assert_file_has "shader.lua binds K key" "$REPO_DIR/payload/hypr/shader.lua" "+ K"
 
 echo "== 9b. hypr plugins + helpers =="
 assert_true "phase_hypr_plugins exists" declare -F phase_hypr_plugins
 assert_true "build_liquid_glass exists" declare -F build_liquid_glass
+assert_true "build_hypr_edge_swipe exists" declare -F build_hypr_edge_swipe
 assert_true "verify_hypr_plugins exists" declare -F verify_hypr_plugins
 # fixtures (helper with baked-in source username exercises the rewrite)
-mkdir -p "$FAKE_PAYLOAD/usr-local-bin" "$FAKE_PAYLOAD/liquid-glass-hypr" "$FAKE_PAYLOAD/hypr-goo-workspaces"
+mkdir -p "$FAKE_PAYLOAD/usr-local-bin" "$FAKE_PAYLOAD/liquid-glass-hypr" "$FAKE_PAYLOAD/hypr-goo-workspaces" \
+  "$FAKE_PAYLOAD/hypr-edge-swipe/src"
 for _b in hypr-inputs-ready minimize-all restore-all liquid-glass-toggle pin-all unpin-all gpu-tty-foot; do
   printf '#!/bin/sh\nexec foot --config /home/nicerice/.config/foot/foot-kiosk.ini\n' > "$FAKE_PAYLOAD/usr-local-bin/$_b"
 done
 printf 'all:\n\techo build\n' > "$FAKE_PAYLOAD/liquid-glass-hypr/Makefile"
 echo "fixture-pin" > "$FAKE_PAYLOAD/liquid-glass-hypr/pin.txt"
 printf 'all:\n\techo goo\n' > "$FAKE_PAYLOAD/hypr-goo-workspaces/Makefile"
+printf 'all:\n\techo swipe\n' > "$FAKE_PAYLOAD/hypr-edge-swipe/Makefile"
+echo "// main" > "$FAKE_PAYLOAD/hypr-edge-swipe/src/main.cpp"
 export USRLOCAL_BIN="$TMP/usr-local-bin"
 DRY_RUN=1; reset_calls
 assert_true "phase_hypr_plugins dry-run" phase_hypr_plugins
@@ -232,7 +240,12 @@ assert_file_has "gpu-tty-foot kiosk" "$REPO_DIR/payload/usr-local-bin/gpu-tty-fo
 assert_file_has "liquid-glass pin is live HEAD" "$REPO_DIR/payload/liquid-glass-hypr/pin.txt" "17978c2f13d091018178f9b519cd09acc255ec34"
 assert_file_has "liquid-glass Makefile target" "$REPO_DIR/payload/liquid-glass-hypr/Makefile" "TARGET = liquidglass.so"
 assert_true "goo sources vendored" test -f "$REPO_DIR/payload/hypr-goo-workspaces/src/main.cpp"
-_hit="$(find "$REPO_DIR/payload/liquid-glass-hypr" "$REPO_DIR/payload/hypr-goo-workspaces" \( -name "*.o" -o -name "*.so*" \) | head -n 1 || true)"
+assert_true "edge-swipe sources vendored" test -f "$REPO_DIR/payload/hypr-edge-swipe/src/main.cpp"
+assert_file_has "edge-swipe builds touch plugin" "$REPO_DIR/payload/hypr-edge-swipe/Makefile" "TARGET = hypr-touch-gestures.so"
+assert_true "quick-translate source vendored" test -f "$REPO_DIR/payload/quick-translate/TranslateWindow.qml"
+assert_file_has "quick-translate pin recorded" "$REPO_DIR/payload/quick-translate/pin.txt" "939e4e8"
+assert_true "lucid-shell pin recorded" test -f "$REPO_DIR/payload/lucid-shell-pin.txt"
+_hit="$(find "$REPO_DIR/payload/liquid-glass-hypr" "$REPO_DIR/payload/hypr-goo-workspaces" "$REPO_DIR/payload/hypr-edge-swipe" "$REPO_DIR/payload/quick-translate" \( -name "*.o" -o -name "*.so*" -o -name "*.bak*" -o -name "__pycache__" \) | head -n 1 || true)"
 if [[ -z "$_hit" ]]; then PASS=$((PASS+1)); echo "ok - no build artifacts vendored";
 else FAIL=$((FAIL+1)); echo "NOT OK - build artifacts vendored: $_hit"; fi
 
@@ -268,12 +281,42 @@ assert_true "home script activated" test -x "$FAKE_HOME/t.sh"
 # real payload checks
 assert_true "kitty.conf exists" test -f "$REPO_DIR/payload/kitty/kitty.conf"
 assert_file_has "kitty includes matugen" "$REPO_DIR/payload/kitty/kitty.conf" "matugen"
+assert_file_has "kitty includes liquid-glass state" "$REPO_DIR/payload/kitty/kitty.conf" "liquid-glass-state.conf"
+assert_file_has "kitty lg state has opacity" "$REPO_DIR/payload/kitty/liquid-glass-state.conf" "background_opacity"
+assert_file_has "lg toggle writes kitty state" "$REPO_DIR/payload/usr-local-bin/liquid-glass-toggle" "KITTY_STATE"
+# lg --off => opaque matugen bg, lg --on => glass takeover (payload script, fake HOME)
+mkdir -p "$FAKE_HOME/.config/kitty" "$FAKE_HOME/.config/quickshell/lucidprefs"
+cp "$REPO_DIR/payload/kitty/liquid-glass-state.conf" "$FAKE_HOME/.config/kitty/"
+HOME="$FAKE_HOME" bash "$REPO_DIR/payload/usr-local-bin/liquid-glass-toggle" --off >/dev/null 2>&1 || true
+assert_file_has "lg --off makes kitty opaque" "$FAKE_HOME/.config/kitty/liquid-glass-state.conf" "background_opacity 1"
+HOME="$FAKE_HOME" bash "$REPO_DIR/payload/usr-local-bin/liquid-glass-toggle" --on >/dev/null 2>&1 || true
+assert_file_has "lg --on restores transparent kitty" "$FAKE_HOME/.config/kitty/liquid-glass-state.conf" "background_opacity 0"
+assert_true "kitty font-mode exists" test -f "$REPO_DIR/payload/kitty/font-mode.conf"
+assert_true "kitty lucid-glass include exists" test -f "$REPO_DIR/payload/kitty/lucid-glass.conf"
+assert_true "kitty lucid-surface include exists" test -f "$REPO_DIR/payload/kitty/lucid-surface.conf"
 assert_true "nvim init exists" test -f "$REPO_DIR/payload/nvim/init.lua"
 assert_file_has "nvim uses lazy" "$REPO_DIR/payload/nvim/init.lua" "lazy"
+assert_true "nvim split keymaps exist" test -f "$REPO_DIR/payload/nvim/lua/config/keymaps.lua"
+assert_true "nvim split plugins exist" test -f "$REPO_DIR/payload/nvim/lua/plugins/lsp.lua"
+assert_true "local-bin auto-brightness exists" test -f "$REPO_DIR/payload/local-bin/lucid-auto-brightness"
+assert_true "local-bin steam-hidpi exists" test -f "$REPO_DIR/payload/local-bin/steam-hidpi"
+assert_true "local-bin zed-x11 exists" test -f "$REPO_DIR/payload/local-bin/zed-x11"
+assert_true "local-bin zed-soft exists" test -f "$REPO_DIR/payload/local-bin/zed-soft"
+assert_true "local-bin neoread exists" test -f "$REPO_DIR/payload/local-bin/neoread"
+assert_true "bulk helper exists" test -f "$REPO_DIR/payload/usr-local-bin/bulk"
+assert_file_has "bulk helper uses bulk.slice" "$REPO_DIR/payload/usr-local-bin/bulk" "bulk.slice"
+assert_true "auto-brightness unit exists" test -f "$REPO_DIR/payload/systemd-user/auto-brightness.service"
+assert_true "bulk slice exists" test -f "$REPO_DIR/payload/systemd-user/bulk.slice"
+assert_true "bucklespring audio-follow drop-in exists" test -f "$REPO_DIR/payload/systemd-user/bucklespring.service.d/50-audio-follow-default.conf"
+assert_true "session slice weight exists" test -f "$REPO_DIR/payload/systemd-user/session.slice.d/50-weight.conf"
+assert_true "skwd wallpaper config exists" test -f "$REPO_DIR/payload/skwd-wall-v2/config.json"
+assert_file_has "AUR manifest has skwd-deck" "$REPO_DIR/payload/manifests-packages-aur.txt" "skwd-deck"
 assert_true "zed settings exist" test -f "$REPO_DIR/payload/zed-config/settings.json"
 assert_true "zed pin recorded" test -f "$REPO_DIR/payload/zed-pin.txt"
 assert_true "buckle service exists" test -f "$REPO_DIR/payload/systemd-user/bucklespring.service"
 assert_file_has "buckle uses kalih-box-white" "$REPO_DIR/payload/systemd-user/bucklespring.service" "kalih-box-white"
+assert_true "buckle pin recorded" test -f "$REPO_DIR/payload/bucklespring-pin.txt"
+assert_file_has "build_buckle uses libinput backend" "$REPO_DIR/install.sh" "make libinput=1"
 assert_true "audio-stack exported" test -d "$REPO_DIR/payload/audio-stack"
 assert_true "home-scripts non-empty" test -n "$(ls -A "$REPO_DIR/payload/home-scripts")"
 assert_true "60ish home scripts" test "$(ls "$REPO_DIR/payload/home-scripts" | wc -l)" -ge 50
@@ -282,9 +325,15 @@ echo "== 11. phase D: dotfiles =="
 assert_true "phase_dotfiles exists" declare -F phase_dotfiles
 mkdir -p "$FAKE_PAYLOAD/zsh" "$FAKE_PAYLOAD/bash" "$FAKE_PAYLOAD/x11" "$FAKE_PAYLOAD/pam" "$FAKE_PAYLOAD/git" "$FAKE_PAYLOAD/tmux" "$FAKE_PAYLOAD/matugen"
 for f in zsh/dot.zshrc zsh/dot.zshenv zsh/dot.zprofile bash/dot.bashrc bash/dot.bash_profile bash/dot.profile x11/dot.Xresources pam/dot.pam_environment git/dot.gitignore tmux/dot.tmux.conf matugen/dot.mutagen-sync-dev.sh matugen/dot.matugen-watch-dev.sh; do echo "x" > "$FAKE_PAYLOAD/$f"; done
+assert_true "fix_user_unit_symlinks exists" declare -F fix_user_unit_symlinks
+mkdir -p "$FAKE_PAYLOAD/systemd-user/default.target.wants"
+ln -sfn /home/nicerice/.config/systemd/user/foo.service "$FAKE_PAYLOAD/systemd-user/default.target.wants/foo.service"
 DRY_RUN=1; assert_true "phase_dotfiles dry-run" phase_dotfiles; DRY_RUN=0
 DRY_RUN=0; phase_dotfiles
 assert_true "zshrc installed" test -f "$FAKE_HOME/.zshrc"
+assert_eq "systemd .wants symlink repointed" \
+  "$FAKE_HOME/.config/systemd/user/foo.service" \
+  "$(readlink "$FAKE_HOME/.config/systemd/user/default.target.wants/foo.service" 2>/dev/null || true)"
 assert_true "tmux conf installed" test -f "$FAKE_HOME/.tmux.conf"
 assert_file_has "real zshrc has tmux" "$REPO_DIR/payload/zsh/dot.zshrc" "tmux"
 assert_file_has "real tmux has continuum" "$REPO_DIR/payload/tmux/dot.tmux.conf" "continuum"
@@ -334,9 +383,14 @@ else FAIL=$((FAIL+1)); echo "NOT OK - install_opencode restores node deps via bu
 assert_file_has "opencode build model" "$REPO_DIR/payload/config-opencode/opencode.json" "opencode/muse-spark-1.3-contributor-free"
 assert_file_has "opencode chrome-devtools mcp" "$REPO_DIR/payload/config-opencode/opencode.json" "chrome-devtools"
 assert_file_has "opencode tui matugen" "$REPO_DIR/payload/config-opencode/tui.json" '"theme": "matugen"'
-assert_true "opencode terminal-bell plugin" test -f "$REPO_DIR/payload/config-opencode/plugin/terminal-bell.ts"
+assert_true "opencode cli config" test -f "$REPO_DIR/payload/config-opencode/cli.json"
+# service.json is a per-install local API password, not config — must never ship
+if [[ ! -f "$REPO_DIR/payload/config-opencode/service.json" ]]; then
+  PASS=$((PASS+1)); echo "ok - opencode service password not vendored"
+else FAIL=$((FAIL+1)); echo "NOT OK - opencode service.json (local password) vendored"; fi
 assert_true "opencode openhooks plugin" test -f "$REPO_DIR/payload/config-opencode/plugins/openhooks/plugin.mjs"
 assert_true "opencode-home commands" test -d "$REPO_DIR/payload/opencode-home/commands"
+assert_true "opencode-home perf command" test -f "$REPO_DIR/payload/opencode-home/commands/perf.md"
 assert_file_has "opencode key placeholder" "$REPO_DIR/payload/config-opencode/opencode.json" '${CONTEXT7_API_KEY}'
 # STANDING RULE guards: no live keys, no ssh secrets — in payload...
 # (self-safe: pattern requires an alnum after the prefix; this file only
@@ -371,6 +425,11 @@ assert_true "wallpaper installed" test -f "$FAKE_HOME/Pictures/wallpapers/matuge
 assert_true "real matugen config exists" test -f "$REPO_DIR/payload/matugen/config.toml"
 assert_file_has "matugen has kitty template" "$REPO_DIR/payload/matugen/config.toml" "kitty"
 assert_true "matugen templates non-empty" test -n "$(ls -A "$REPO_DIR/payload/matugen/templates")"
+assert_true "matugen kitty-font template exists" test -f "$REPO_DIR/payload/matugen/templates/kitty-font.conf"
+assert_true "lucid auto-brightness config exists" test -f "$REPO_DIR/payload/lucid/auto-brightness.json"
+assert_true "lucid kitty-tune helper exists" test -f "$REPO_DIR/payload/lucid/kitty-tune.py"
+assert_true "lucid surface-seed helper exists" test -f "$REPO_DIR/payload/lucid/surface-seed.py"
+assert_true "lucid theme-fanout helper exists" test -f "$REPO_DIR/payload/lucid/theme-fanout.sh"
 
 echo "== 13. phase F: tmux =="
 assert_true "phase_tmux exists" declare -F phase_tmux
@@ -401,6 +460,14 @@ assert_file_has "install.sh has group f" "$REPO_DIR/install.sh" "phase_tmux"
 assert_file_has "install.sh supports --only" "$REPO_DIR/install.sh" "--only"
 assert_file_has "install.sh supports --dry-run" "$REPO_DIR/install.sh" "--dry-run"
 assert_file_has "install.sh supports --export" "$REPO_DIR/install.sh" "--export"
+assert_true "export prunes backup/cache dreck" declare -F prune_export_junk
+assert_file_has "export captures lucid hypr modules" "$REPO_DIR/install.sh" "hypr/*.lua"
+assert_file_has "export captures edge-swipe source" "$REPO_DIR/install.sh" "hypr-edge-swipe"
+assert_file_has "export captures skwd config" "$REPO_DIR/install.sh" "skwd-wall-v2"
+assert_file_has "export excludes opencode service.json" "$REPO_DIR/install.sh" "exclude=service.json"
+assert_file_has "install enables auto-brightness" "$REPO_DIR/install.sh" "auto-brightness.service"
+assert_file_has "install enables skwd-walld" "$REPO_DIR/install.sh" "skwd-walld.service"
+assert_file_has "packages include skwd" "$REPO_DIR/install.sh" "skwd-deck"
 assert_true "payload-large README exists" test -f "$REPO_DIR/payload-large/README.md"
 assert_file_has "gitattributes LFS-tracks tarballs" "$REPO_DIR/.gitattributes" "payload-large/*.tar.zst filter=lfs"
 for _tb in wallpapers-matugen.tar.zst bucklespring-kalih-box-white.tar.zst zed-custom.tar.zst; do

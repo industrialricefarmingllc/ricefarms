@@ -12,8 +12,13 @@ Rectangle {
     required property string name
     // the small copy wallpaper-thumbs.sh cut, "" until it exists
     required property string thumb
+    // skwd's animated WebP for a video or Wallpaper Engine scene
+    property string preview: ""
+    property string kind: ""
     property bool live: false
     property bool selected: false
+
+    readonly property bool liveItem: tile.live || tile.kind === "video" || tile.kind === "we"
 
     signal picked()
 
@@ -32,13 +37,26 @@ Rectangle {
             id: image
 
             anchors.fill: parent
-            source: tile.thumb !== "" ? "file://" + tile.thumb : (tile.live ? "" : "file://" + tile.path)
+            source: tile.thumb !== "" ? "file://" + tile.thumb : (tile.liveItem ? "" : "file://" + tile.path)
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
             sourceSize.width: Theme.dp(300)
             sourceSize.height: Theme.dp(176)
             visible: image.status === Image.Ready
+        }
+
+        // the same short preview the picker plays, while the pointer rests here
+        AnimatedImage {
+            anchors.fill: parent
+            source: tile.preview !== "" ? "file://" + tile.preview : ""
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            playing: visible
+            visible: tile.preview !== "" && tileArea.containsMouse
+            sourceSize.width: Theme.dp(300)
+            sourceSize.height: Theme.dp(176)
         }
 
     }
@@ -51,7 +69,7 @@ Rectangle {
         anchors.bottom: parent.bottom
         anchors.margins: Theme.dp(6)
         color: Theme.alpha(Theme.cShadow, 0.65)
-        visible: tile.live
+        visible: tile.liveItem
 
         Icon {
             anchors.centerIn: parent
@@ -99,7 +117,7 @@ Rectangle {
         anchors.top: parent.top
         anchors.margins: Theme.dp(6)
         color: delArea.containsMouse ? Theme.error : Theme.alpha(Theme.cShadow, 0.65)
-        opacity: delBtn.active ? 1 : 0
+        opacity: delBtn.active && !SkwdWall.isVirtual(tile.path) ? 1 : 0
         visible: opacity > 0.01
         scale: delBtn.active ? 1 : 0.7
 
@@ -140,7 +158,12 @@ Rectangle {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: Prefs.askConfirm(tile.live ? "Delete this live wallpaper?" : "Delete this wallpaper?", "\"" + tile.name + "\" is moved to the trash, so it can be restored from there if you change your mind.", "Delete", "wallpaper:" + tile.path)
+            onClicked: {
+                if (SkwdWall.isVirtual(tile.path))
+                    return ;
+
+                Prefs.askConfirm(tile.live ? "Delete this live wallpaper?" : "Delete this wallpaper?", "\"" + tile.name + "\" is moved to the trash, so it can be restored from there if you change your mind.", "Delete", "wallpaper:" + tile.path);
+            }
         }
 
     }

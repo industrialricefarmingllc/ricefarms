@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs
 import qs.lucidui
+import "../squircle"
 
 // a card's own sheet: what it is, its faces drawn live, its colour, its size and
 // whatever else it can do. it hangs off the right-click point and frosts with Glass
@@ -120,14 +121,14 @@ Item {
 
     }
 
-    Rectangle {
+    SquircleRect {
         id: panel
 
         anchors.fill: parent
         radius: menu.cornerRadius
-        color: Theme.withBlur(Theme.surfaceContainer)
+        fillColor: Theme.withBlur(Theme.surfaceContainer)
+        smoothing: Prefs.squircleF
         opacity: Math.min(1, menu.reveal * 1.6)
-        clip: true
 
         // swallows clicks and the wheel so nothing reaches the catcher behind
         MouseArea {
@@ -258,15 +259,16 @@ Item {
                                 width: face.tileW
                                 height: face.tileW * 0.78 + Theme.dp(24)
 
-                                Rectangle {
+                                SquircleRect {
                                     id: thumb
 
                                     width: parent.width
                                     height: face.tileW * 0.78
                                     radius: face.on ? Theme.rad(14) : Theme.rad(18)
-                                    color: face.on ? Theme.alpha(Theme.primary, 0.14) : Theme.withBlur(Theme.surfaceHigh)
-                                    border.width: face.on ? 2 : 0
-                                    border.color: Theme.primary
+                                    fillColor: face.on ? Theme.alpha(Theme.primary, 0.14) : Theme.withBlur(Theme.surfaceHigh)
+                                    borderWidth: face.on ? 2 : 0
+                                    borderColor: Theme.primary
+                                    smoothing: Prefs.squircleF
 
                                     Behavior on radius {
                                         NumberAnimation {
@@ -524,7 +526,7 @@ Item {
                         Repeater {
                             model: menu.boolOptions
 
-                            Rectangle {
+                            SquircleRect {
                                 id: brow
 
                                 required property var modelData
@@ -537,7 +539,8 @@ Item {
                                 topRightRadius: brow.index === 0 ? Theme.rad(18) : Theme.dp(4)
                                 bottomLeftRadius: brow.index === menu.boolOptions.length - 1 ? Theme.rad(18) : Theme.dp(4)
                                 bottomRightRadius: brow.index === menu.boolOptions.length - 1 ? Theme.rad(18) : Theme.dp(4)
-                                color: Theme.withBlur(Theme.surfaceHigh)
+                                fillColor: Theme.withBlur(Theme.surfaceHigh)
+                                smoothing: Prefs.squircleF
 
                                 LText {
                                     anchors.left: parent.left

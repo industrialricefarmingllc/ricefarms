@@ -1,0 +1,28 @@
+#!/bin/sh
+# bulk - run heavy work in a starved cgroup so it cannot degrade the desktop.
+#
+# The equivalent of Windows' EcoQoS / macOS App Nap, but explicit: the command
+# lands in bulk.slice (CPUWeight=10) while the session core sits at 500 and
+# normal apps at 100. Under contention the desktop wins; when nothing else
+# wants CPU the command still gets the whole machine.
+#
+# Usage: bulk make -j32
+#        bulk cargo build --release
+#        bulk rsync -a src/ dst/
+#
+# Note: cgroup v2 io.weight is not wired up here because nvme0n1 runs the
+# 'none' scheduler, which has no cgroup I/O controller.
+
+set -eu
+
+if [ "$#" -eq 0 ]; then
+	printf 'usage: bulk <command> [args...]\n' >&2
+	exit 64
+fi
+
+# Don't nest scopes; if already inside bulk.slice, just exec.
+if grep -qs '/bulk.slice' /proc/self/cgroup; then
+	exec "$@"
+fi
+
+exec systemd-run --user --scope --quiet --slice=bulk.slice -- "$@"

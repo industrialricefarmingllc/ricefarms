@@ -24,6 +24,9 @@ ShaderEffect {
     property bool flipped: false
     property int size: 14
     property color fillColor: "white"
+    // outline along the concave arc only (the box sides are internal)
+    property color borderColor: "transparent"
+    property real borderWidth: 0
     property real smoothing: 0.5
     // Disc center in unit box coords (see squircle.js header).
     property vector2d discCenter: Qt.vector2d(0, 1)

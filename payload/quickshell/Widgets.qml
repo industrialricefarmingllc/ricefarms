@@ -43,6 +43,17 @@ Singleton {
     property real laidScale: 1
     // cards a preset took off while they still held something you wrote
     property var stash: []
+    // every wallpaper keeps its own board: what is used and where it sits
+    property var boards: ({})
+    // the wallpaper whose board `instances` holds right now
+    property string boardKey: ""
+    // what set-wallpaper.sh last wrote: the picture awww shows, and the video if
+    // one is playing. the video is the wallpaper; its frame is only the still
+    property string wallpaperPicture: ""
+    property string wallpaperVideo: ""
+    property bool wallpaperPictureRead: false
+    property bool wallpaperVideoRead: false
+    readonly property bool wallpaperLoaded: root.wallpaperPictureRead && root.wallpaperVideoRead
     // the primary screen's cards as plain entries, for drawing it small
     property var desktopLayout: []
     // the screen the widget panel is open on, "" while it is shut
@@ -64,6 +75,21 @@ Singleton {
     // a dynamic dock has no zone but is up whenever the desktop is
     readonly property real spawnBottom: (Prefs.dockEnabled && (!Prefs.dockAutoHide || Prefs.dockDynamicHide)) ? Theme.dp(Prefs.dockIconSize + 20) + Prefs.effectiveDockBottomMargin + Prefs.shellGap : 0
 
+    // Cards share one width grid. With the 20px inner margin either side folded
+    // in, every card is a whole number of 120px columns wide:
+    //   1 column  =  80  (the vertical media capsule)
+    //   2 columns = 200  (square faces and the small indicator styles)
+    //   3 columns = 320  (every ordinary card — the common width)
+    //   4–6       = 440 / 560 / 680  (the wide strips: search, glance, games,
+    //                                  visualiser)
+    // Width plus its inner margin is therefore always a multiple of the base
+    // column, and only a genuinely smaller face is allowed to break the common
+    // width. The catalogue's w/h are authored at interface scale 1.
+    readonly property real widthColumn: 120
+    readonly property real cardInset: 20
+    readonly property real cardWidth: 3 * widthColumn - cardInset * 2
+    readonly property real smallWidth: 2 * widthColumn - cardInset * 2
+
     // one entry per category; a variant is another face on the same data, not another widget
     readonly property var catalogue: [{
         "id": "clock",
@@ -73,50 +99,50 @@ Singleton {
             "id": "digital",
             "name": "Digital",
             "blurb": "Time over the date, weighted like a headline.",
-            "w": 280,
+            "w": 320,
             "h": 148
         }, {
             "id": "stack",
             "name": "Stacked",
             "blurb": "Hour above minute, the way the bar draws it.",
-            "w": 220,
+            "w": 320,
             "h": 236
         }, {
             "id": "analog",
             "name": "Analog",
             "blurb": "Hands and ticks. Turn on seconds for a sweep.",
-            "w": 212,
-            "h": 212
+            "w": 200,
+            "h": 200
         }, {
             "id": "shape",
             "name": "Shape",
             "blurb": "The time set inside one big expressive shape.",
-            "w": 220,
-            "h": 220
+            "w": 200,
+            "h": 200
         }, {
             "id": "minimal",
             "name": "Minimal",
             "blurb": "One line of time, no container behind it.",
-            "w": 260,
+            "w": 320,
             "h": 96
         }, {
             "id": "world",
             "name": "World",
             "blurb": "Three cities at once, with their offsets.",
-            "w": 264,
+            "w": 320,
             "h": 200
         }, {
             "id": "oval",
             "name": "Oval",
             "blurb": "The time on a band across a round face, the day over it.",
-            "w": 220,
-            "h": 220
+            "w": 200,
+            "h": 200
         }, {
             "id": "dial",
             "name": "Dial",
             "blurb": "Bold hands on a scalloped face, the seconds as a dot.",
-            "w": 220,
-            "h": 220
+            "w": 200,
+            "h": 200
         }],
         "options": [{
             "key": "hourMode",
@@ -200,13 +226,13 @@ Singleton {
             "id": "month",
             "name": "Month",
             "blurb": "The full grid, today marked.",
-            "w": 300,
+            "w": 320,
             "h": 306
         }, {
             "id": "week",
             "name": "Week",
             "blurb": "Seven days on a strip.",
-            "w": 300,
+            "w": 320,
             "h": 132
         }, {
             "id": "today",
@@ -235,19 +261,19 @@ Singleton {
             "id": "ring",
             "name": "Ring",
             "blurb": "One wavy ring for the stretch you pick.",
-            "w": 204,
-            "h": 204
+            "w": 200,
+            "h": 200
         }, {
             "id": "bars",
             "name": "Bars",
             "blurb": "Day, week, month and year, a bar each.",
-            "w": 300,
+            "w": 320,
             "h": 204
         }, {
             "id": "dots",
             "name": "Year",
             "blurb": "Every day of the year as a dot, the ones gone filled in.",
-            "w": 300,
+            "w": 320,
             "h": 212
         }],
         "options": [{
@@ -284,7 +310,7 @@ Singleton {
             "id": "bars",
             "name": "Meters",
             "blurb": "Labelled bars stacked in a column.",
-            "w": 300,
+            "w": 320,
             "h": 170
         }, {
             "id": "graph",
@@ -296,7 +322,7 @@ Singleton {
             "id": "tiles",
             "name": "Tiles",
             "blurb": "Each reading in its own tile, filling as it climbs.",
-            "w": 280,
+            "w": 320,
             "h": 220
         }, {
             "id": "network",
@@ -308,7 +334,7 @@ Singleton {
             "id": "compact",
             "name": "Compact",
             "blurb": "Just the numbers, in a row.",
-            "w": 300,
+            "w": 200,
             "h": 80
         }],
         "options": [{
@@ -365,19 +391,19 @@ Singleton {
             "id": "detail",
             "name": "Detail",
             "blurb": "The graphics card in full, each fan, and the power profile.",
-            "w": 308,
+            "w": 320,
             "h": 236
         }, {
             "id": "rings",
             "name": "Rings",
             "blurb": "GPU heat and load, CPU heat and the fans as arc gauges.",
-            "w": 316,
+            "w": 320,
             "h": 158
         }, {
             "id": "compact",
             "name": "Compact",
             "blurb": "Two temperatures and a fan speed, in a row.",
-            "w": 236,
+            "w": 200,
             "h": 90
         }],
         "options": [{
@@ -415,19 +441,19 @@ Singleton {
             "id": "graph",
             "name": "Graph",
             "blurb": "A minute of download and upload, drawn.",
-            "w": 308,
+            "w": 320,
             "h": 186
         }, {
             "id": "detail",
             "name": "Detail",
             "blurb": "Address, signal, VPN and whether the internet answers.",
-            "w": 292,
+            "w": 320,
             "h": 204
         }, {
             "id": "compact",
             "name": "Compact",
             "blurb": "Down and up, as two numbers.",
-            "w": 236,
+            "w": 200,
             "h": 90
         }],
         "options": [{
@@ -472,25 +498,25 @@ Singleton {
             "id": "ring",
             "name": "Ring",
             "blurb": "A thick ring, turning a shape while it charges.",
-            "w": 180,
-            "h": 180
+            "w": 200,
+            "h": 200
         }, {
             "id": "bar",
             "name": "Bar",
             "blurb": "The cell itself, filling side on.",
-            "w": 260,
+            "w": 320,
             "h": 112
         }, {
             "id": "detail",
             "name": "Detail",
             "blurb": "Charge, state, time left and draw.",
-            "w": 280,
+            "w": 320,
             "h": 170
         }, {
             "id": "devices",
             "name": "Devices",
             "blurb": "This computer and every wireless battery beside it.",
-            "w": 280,
+            "w": 320,
             "h": 176
         }],
         "options": [{
@@ -512,19 +538,19 @@ Singleton {
             "id": "shapes",
             "name": "Shapes",
             "blurb": "Round switches that turn into shapes as they come on.",
-            "w": 228,
-            "h": 228
+            "w": 200,
+            "h": 200
         }, {
             "id": "row",
             "name": "Row",
             "blurb": "A pill of buttons that square up when on.",
-            "w": 300,
+            "w": 320,
             "h": 88
         }, {
             "id": "tiles",
             "name": "Tiles",
             "blurb": "Quick Settings tiles, with each one's state spelled out.",
-            "w": 392,
+            "w": 320,
             "h": 168
         }],
         "options": [{
@@ -551,49 +577,49 @@ Singleton {
             "id": "card",
             "name": "Card",
             "blurb": "Artwork above the title and controls.",
-            "w": 288,
+            "w": 320,
             "h": 435
         }, {
             "id": "row",
             "name": "Row",
             "blurb": "Artwork beside the title and controls.",
-            "w": 330,
+            "w": 320,
             "h": 118
         }, {
             "id": "art",
             "name": "Artwork",
             "blurb": "The cover edge to edge, the track over it.",
-            "w": 244,
-            "h": 244
+            "w": 200,
+            "h": 200
         }, {
             "id": "disc",
             "name": "Disc",
             "blurb": "The cover as a record that turns while it plays.",
-            "w": 220,
-            "h": 220
+            "w": 200,
+            "h": 200
         }, {
             "id": "pill",
             "name": "Pill",
             "blurb": "A capsule, the cover round at one end with the track's progress circling it.",
-            "w": 360,
+            "w": 320,
             "h": 92
         }, {
             "id": "orbit",
             "name": "Orbit",
             "blurb": "A round face: the cover at its heart, a wavy ring of progress, the controls along its foot.",
-            "w": 240,
-            "h": 240
+            "w": 200,
+            "h": 200
         }, {
             "id": "shape",
             "name": "Shape",
             "blurb": "The cover cut to a shape of its own, a new one easing in with every track.",
-            "w": 236,
+            "w": 200,
             "h": 300
         }, {
             "id": "capsule",
             "name": "Capsule",
             "blurb": "A tall pill: the cover on top, the track turned on its side.",
-            "w": 116,
+            "w": 80,
             "h": 380
         }],
         "options": [{
@@ -621,7 +647,7 @@ Singleton {
             "id": "bars",
             "name": "Bars",
             "blurb": "Columns off the baseline. Stretch it the width of the screen.",
-            "w": 720,
+            "w": 680,
             "h": 140,
             "resizable": true,
             "minW": 120,
@@ -632,7 +658,7 @@ Singleton {
             "id": "mirror",
             "name": "Mirror",
             "blurb": "The same bands, opened out from a centre line.",
-            "w": 640,
+            "w": 680,
             "h": 160,
             "resizable": true,
             "minW": 120,
@@ -712,7 +738,7 @@ Singleton {
             "id": "shelf",
             "name": "Shelf",
             "blurb": "Covers in a row, last played first. Drag an edge to fit more.",
-            "w": 452,
+            "w": 440,
             "h": 236,
             "resizable": true,
             "minW": 160,
@@ -723,13 +749,13 @@ Singleton {
             "id": "hero",
             "name": "Last played",
             "blurb": "The game you played last, over its artwork.",
-            "w": 364,
+            "w": 320,
             "h": 172
         }, {
             "id": "list",
             "name": "List",
             "blurb": "One row per game.",
-            "w": 300,
+            "w": 320,
             "h": 280
         }],
         "options": [{
@@ -759,19 +785,19 @@ Singleton {
             "id": "shapes",
             "name": "Shapes",
             "blurb": "Four apps on four shapes, straight on the wallpaper.",
-            "w": 228,
-            "h": 228
+            "w": 200,
+            "h": 200
         }, {
             "id": "row",
             "name": "Row",
             "blurb": "A pill of apps that bloom under the pointer.",
-            "w": 300,
+            "w": 320,
             "h": 88
         }, {
             "id": "folder",
             "name": "Folder",
             "blurb": "Four apps with their names, like a folder on a phone.",
-            "w": 252,
+            "w": 200,
             "h": 236
         }],
         "options": [{
@@ -816,7 +842,7 @@ Singleton {
             "id": "year",
             "name": "Year",
             "blurb": "The contribution graph. Drag an edge to fit more weeks.",
-            "w": 452,
+            "w": 440,
             "h": 176,
             "resizable": true,
             "minW": 200,
@@ -827,7 +853,7 @@ Singleton {
             "id": "streak",
             "name": "Streak",
             "blurb": "Days in a row, today and the year, over the last few days.",
-            "w": 300,
+            "w": 320,
             "h": 168
         }],
         "options": [{
@@ -850,7 +876,7 @@ Singleton {
             "id": "current",
             "name": "Current",
             "blurb": "Temperature, condition and the feel of it.",
-            "w": 264,
+            "w": 320,
             "h": 168
         }, {
             "id": "forecast",
@@ -862,19 +888,19 @@ Singleton {
             "id": "compact",
             "name": "Compact",
             "blurb": "An icon and a number.",
-            "w": 196,
+            "w": 200,
             "h": 96
         }, {
             "id": "hourly",
             "name": "Hourly",
             "blurb": "The next twelve hours as a temperature curve.",
-            "w": 360,
+            "w": 320,
             "h": 188
         }, {
             "id": "detail",
             "name": "Details",
             "blurb": "Feels like, high and low, rain, humidity and wind beside the reading.",
-            "w": 340,
+            "w": 320,
             "h": 204
         }],
         "options": []
@@ -886,19 +912,19 @@ Singleton {
             "id": "arc",
             "name": "Arc",
             "blurb": "The sun on its road across the sky, both ends of the day under it.",
-            "w": 300,
+            "w": 320,
             "h": 184
         }, {
             "id": "times",
             "name": "Times",
             "blurb": "Sunrise over sunset, a wave between them.",
-            "w": 264,
+            "w": 320,
             "h": 176
         }, {
             "id": "compact",
             "name": "Compact",
             "blurb": "Whichever comes next, and when.",
-            "w": 248,
+            "w": 200,
             "h": 88
         }],
         "options": []
@@ -910,13 +936,13 @@ Singleton {
             "id": "sticky",
             "name": "Sticky",
             "blurb": "A tinted square in soft, round type.",
-            "w": 244,
-            "h": 244
+            "w": 200,
+            "h": 200
         }, {
             "id": "lined",
             "name": "Lined",
             "blurb": "A ruled sheet that counts your words.",
-            "w": 308,
+            "w": 320,
             "h": 240
         }, {
             "id": "headline",
@@ -949,13 +975,13 @@ Singleton {
             "id": "list",
             "name": "List",
             "blurb": "Everything, with a checkbox each.",
-            "w": 290,
+            "w": 320,
             "h": 300
         }, {
             "id": "focus",
             "name": "Focus",
             "blurb": "The next thing, big, with done and later.",
-            "w": 280,
+            "w": 320,
             "h": 220
         }],
         "options": [{
@@ -977,19 +1003,19 @@ Singleton {
             "id": "swatches",
             "name": "Roles",
             "blurb": "Six roles, each in its own shape. Click to copy.",
-            "w": 300,
+            "w": 320,
             "h": 232
         }, {
             "id": "ramp",
             "name": "Ramp",
             "blurb": "The accent walked down its tonal scale.",
-            "w": 300,
+            "w": 320,
             "h": 140
         }, {
             "id": "scheme",
             "name": "Scheme",
             "blurb": "Four key colours, each a column of tones.",
-            "w": 300,
+            "w": 320,
             "h": 220
         }],
         "options": [{
@@ -1006,19 +1032,19 @@ Singleton {
             "id": "card",
             "name": "Card",
             "blurb": "Battery, signal and a row of quick actions.",
-            "w": 290,
+            "w": 320,
             "h": 150
         }, {
             "id": "compact",
             "name": "Compact",
             "blurb": "One row: the phone, its charge, a ring button.",
-            "w": 260,
+            "w": 200,
             "h": 80
         }, {
             "id": "remote",
             "name": "Remote",
             "blurb": "What the phone is playing, and the quick actions.",
-            "w": 300,
+            "w": 320,
             "h": 214
         }],
         "options": [{
@@ -1056,19 +1082,19 @@ Singleton {
             "id": "ring",
             "name": "Countdown",
             "blurb": "The nearest timer in a ring, or one-tap lengths to start one.",
-            "w": 220,
+            "w": 200,
             "h": 250
         }, {
             "id": "pomodoro",
             "name": "Pomodoro",
             "blurb": "Focus and break phases, a dot for every round.",
-            "w": 230,
+            "w": 200,
             "h": 280
         }, {
             "id": "stopwatch",
             "name": "Stopwatch",
             "blurb": "Hundredths in the accent, lap and reset beside it.",
-            "w": 280,
+            "w": 320,
             "h": 170
         }],
         "options": [{
@@ -1096,7 +1122,7 @@ Singleton {
             "id": "line",
             "name": "On the wallpaper",
             "blurb": "White type straight on the wallpaper, no card.",
-            "w": 460,
+            "w": 440,
             "h": 96
         }, {
             "id": "card",
@@ -1114,19 +1140,19 @@ Singleton {
             "id": "frame",
             "name": "Frame",
             "blurb": "The photo filling the card, its date on a chip.",
-            "w": 300,
+            "w": 320,
             "h": 220
         }, {
             "id": "shape",
             "name": "Shape",
             "blurb": "Cut to an expressive shape, straight on the wallpaper.",
-            "w": 220,
-            "h": 220
+            "w": 200,
+            "h": 200
         }, {
             "id": "polaroid",
             "name": "Print",
             "blurb": "A print with the day it was taken written under it.",
-            "w": 230,
+            "w": 200,
             "h": 270
         }],
         "options": [{
@@ -1196,13 +1222,13 @@ Singleton {
             "id": "card",
             "name": "Card",
             "blurb": "The Lucida mark, who you are, and a labelled list.",
-            "w": 330,
+            "w": 320,
             "h": 344
         }, {
             "id": "terminal",
             "name": "Terminal",
             "blurb": "A prompt and the fetch printed under it in mono.",
-            "w": 380,
+            "w": 320,
             "h": 318
         }],
         "options": []
@@ -2042,6 +2068,115 @@ Singleton {
         return out;
     }
 
+    // one card from the file onto the live board
+    function appendEntry(e) {
+        var v = root.variantAt(e.type, e.variant);
+        if (!v)
+            return ;
+
+        var opts = root.defaultOptions(e.type);
+        for (var k in (e.opts || {})) opts[k] = e.opts[k]
+        root.topZ = Math.max(root.topZ, e.zOrder || 1);
+        instances.append({
+            "uid": e.uid,
+            "wtype": e.type,
+            "wvariant": v.id,
+            "wx": typeof e.wx === "number" ? e.wx : 40,
+            "wy": typeof e.wy === "number" ? e.wy : 40,
+            "bw": (v.resizable === true && e.bw) ? e.bw : v.w,
+            "bh": (v.resizable === true && e.bh) ? e.bh : v.h,
+            "pinned": e.pinned === true,
+            "zoom": e.zoom || 1,
+            "zOrder": e.zOrder || 1,
+            "screenName": e.screenName || "",
+            "optsJson": JSON.stringify(opts),
+            "closing": false,
+            "born": false
+        });
+    }
+
+    // the board on screen in the shape the file keeps it
+    function currentBoard() {
+        return ({
+            "instances": root.snapshot(false),
+            "stash": root.stash,
+            "last": root.lastLayout,
+            "preset": root.presetId
+        });
+    }
+
+    // put the current board back under its own wallpaper
+    function rememberBoard() {
+        if (root.boardKey === "")
+            return ;
+
+        var next = Object.assign({}, root.boards);
+        next[root.boardKey] = root.currentBoard();
+        root.boards = next;
+    }
+
+    // swap the desktop over to another wallpaper's board; a wallpaper never used
+    // before starts with nothing on it
+    function showBoard(key) {
+        root.boardKey = key;
+        root.menuUid = "";
+        root.editUid = "";
+        root.dragUid = "";
+        root.liveUid = "";
+        root.landingUid = "";
+        root.spotUid = "";
+        root.clearSelection();
+        instances.clear();
+        root.topZ = 1;
+        var b = root.boards[key];
+        if (!b) {
+            root.stash = [];
+            root.lastLayout = [];
+            root.presetId = "";
+            root.refreshDesktop();
+            return ;
+        }
+        var list = Array.isArray(b.instances) ? b.instances : [];
+        for (var i = 0; i < list.length; i++) root.appendEntry(list[i])
+        root.stash = Array.isArray(b.stash) ? b.stash : [];
+        root.lastLayout = Array.isArray(b.last) ? b.last : [];
+        root.presetId = (typeof b.preset === "string" && root.presetAt(b.preset) !== null) ? b.preset : "";
+        root.refreshDesktop();
+    }
+
+    function wallpaperKey() {
+        return root.wallpaperVideo !== "" ? root.wallpaperVideo : root.wallpaperPicture;
+    }
+
+    // the caches have spoken: show the board that belongs to this wallpaper
+    function adoptWallpaper() {
+        if (!root.loaded || !root.wallpaperLoaded)
+            return ;
+
+        var key = root.wallpaperKey();
+        if (key === "")
+            return ;
+
+        // a file from before boards existed has one layout and no owner: it
+        // belongs to whatever is on screen at the moment
+        if (root.boardKey === "") {
+            root.boardKey = key;
+            if (root.boards[key] !== undefined)
+                root.showBoard(key);
+            else
+                root.rememberBoard();
+
+            root.save();
+            return ;
+        }
+        if (key === root.boardKey)
+            return ;
+
+        root.rememberBoard();
+        root.showBoard(key);
+        root.save();
+    }
+
     // built-ins first, so a built-in tile never re-reads when a saved preset changes
     function presetAt(id) {
         for (var i = 0; i < root.presets.length; i++) {
@@ -2237,6 +2372,50 @@ Singleton {
         return null;
     }
 
+    // plain entries from the file, moved the way fitToScale moves the live ones
+    function rescaleEntries(list, from, to) {
+        var out = [];
+        var groups = {};
+        for (var i = 0; i < list.length; i++) {
+            var e = list[i];
+            var scr = root.screenNamed(e.screenName || "");
+            var key = scr ? scr.name : "";
+            if (!groups[key])
+                groups[key] = {
+                "scr": scr,
+                "at": [],
+                "cards": []
+            };
+
+            groups[key].at.push(i);
+            groups[key].cards.push({
+                "type": e.type !== undefined ? e.type : e.wtype,
+                "variant": e.variant !== undefined ? e.variant : e.wvariant,
+                "wx": e.wx,
+                "wy": e.wy,
+                "bw": e.bw,
+                "bh": e.bh,
+                "zoom": e.zoom
+            });
+        }
+        for (var j = 0; j < list.length; j++) out.push(list[j])
+        for (var name in groups) {
+            var g = groups[name];
+            if (g.scr === null)
+                continue;
+
+            var pos = root.rescaled(g.cards, g.scr.width, g.scr.height, from, to);
+            for (var n = 0; n < g.at.length; n++) {
+                var at = g.at[n];
+                out[at] = Object.assign({}, out[at], {
+                    "wx": pos[n].x,
+                    "wy": pos[n].y
+                });
+            }
+        }
+        return out;
+    }
+
     // stored positions belong to the interface size they were laid out at. when that
     // changes, every screen's clusters are regrouped once and the new size written
     // down. waits for Prefs, whose defaults would otherwise pass for the user's size
@@ -2284,6 +2463,21 @@ Singleton {
                 instances.setProperty(g.at[n], "wy", pos[n].y);
             }
         }
+        // every other wallpaper's board was laid out at the old size too
+        var boards = {};
+        for (var kb in root.boards) {
+            if (kb === root.boardKey)
+                continue;
+
+            var b = root.boards[kb];
+            boards[kb] = {
+                "instances": root.rescaleEntries(Array.isArray(b.instances) ? b.instances : [], from, to),
+                "stash": Array.isArray(b.stash) ? b.stash : [],
+                "last": Array.isArray(b.last) ? root.rescaleEntries(b.last, from, to) : [],
+                "preset": typeof b.preset === "string" ? b.preset : ""
+            };
+        }
+        root.boards = boards;
         // the layout a preset replaced comes back at the size everything else is
         var main = root.primaryScreen();
         if (main && root.lastLayout.length > 0) {
@@ -2621,9 +2815,12 @@ Singleton {
 
     function serialise() {
         return JSON.stringify({
+            "version": 2,
             "nextId": root.nextId,
             "boardFull": true,
             "laidScale": root.laidScale,
+            "current": root.boardKey,
+            "boards": root.boards,
             "preset": root.presetId,
             "saved": root.userPresets,
             "last": root.lastLayout,
@@ -2640,37 +2837,18 @@ Singleton {
             data = null;
         }
         instances.clear();
+        root.topZ = 1;
         root.laidScale = (data && typeof data.laidScale === "number") ? data.laidScale : 1;
+        root.boards = (data && data.boards && typeof data.boards === "object") ? data.boards : {};
+        root.boardKey = (data && typeof data.current === "string") ? data.current : "";
         if (!data || !data.instances) {
             root.loaded = true;
+            if (root.boardKey !== "" && root.boards[root.boardKey] !== undefined)
+                root.showBoard(root.boardKey);
+            root.adoptWallpaper();
             return ;
         }
-        for (var i = 0; i < data.instances.length; i++) {
-            var e = data.instances[i];
-            var v = root.variantAt(e.type, e.variant);
-            if (!v)
-                continue;
-
-            var opts = root.defaultOptions(e.type);
-            for (var k in (e.opts || {})) opts[k] = e.opts[k]
-            root.topZ = Math.max(root.topZ, e.zOrder || 1);
-            instances.append({
-                "uid": e.uid,
-                "wtype": e.type,
-                "wvariant": v.id,
-                "wx": typeof e.wx === "number" ? e.wx : 40,
-                "wy": typeof e.wy === "number" ? e.wy : 40,
-                "bw": (v.resizable === true && e.bw) ? e.bw : v.w,
-                "bh": (v.resizable === true && e.bh) ? e.bh : v.h,
-                "pinned": e.pinned === true,
-                "zoom": e.zoom || 1,
-                "zOrder": e.zOrder || 1,
-                "screenName": e.screenName || "",
-                "optsJson": JSON.stringify(opts),
-                "closing": false,
-                "born": false
-            });
-        }
+        for (var i = 0; i < data.instances.length; i++) root.appendEntry(data.instances[i])
         root.nextId = Math.max(data.nextId || 1, instances.count + 1);
         root.userPresets = Array.isArray(data.saved) ? data.saved.filter((p) => {
             return p && typeof p.id === "string" && typeof p.name === "string" && Array.isArray(p.cards);
@@ -2681,6 +2859,7 @@ Singleton {
         root.needsLift = data.boardFull !== true;
         root.loaded = true;
         root.refreshDesktop();
+        root.adoptWallpaper();
         root.liftOntoFullBoard();
         root.fitToScale();
     }
@@ -2716,10 +2895,61 @@ Singleton {
 
         interval: 220
         onTriggered: {
-            if (root.loaded)
+            if (root.loaded) {
+                root.rememberBoard();
                 stateFile.setText(root.serialise());
-
+            }
         }
+    }
+
+    // set-wallpaper.sh writes the picture here; a video, if one is playing, lands
+    // alongside it. both are read before a board is picked, so a video is never
+    // mistaken for its still frame at start-up
+    FileView {
+        id: wallpaperFile
+
+        path: root.home + "/.cache/current_wallpaper"
+        blockLoading: true
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            root.wallpaperPicture = text().trim();
+            root.wallpaperPictureRead = true;
+            wallpaperSettle.restart();
+        }
+        onLoadFailed: {
+            root.wallpaperPictureRead = true;
+            wallpaperSettle.restart();
+        }
+    }
+
+    FileView {
+        id: liveWallpaperFile
+
+        path: root.home + "/.cache/current_live_wallpaper"
+        blockLoading: true
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            root.wallpaperVideo = (text().split("\n")[0] || "").trim();
+            root.wallpaperVideoRead = true;
+            wallpaperSettle.restart();
+        }
+        onLoadFailed: {
+            root.wallpaperVideoRead = true;
+            wallpaperSettle.restart();
+        }
+    }
+
+    // one change writes the video first and the picture after it: wait for both
+    // before moving the board, or the video would flash its frame's board
+    Timer {
+        id: wallpaperSettle
+
+        interval: 80
+        onTriggered: root.adoptWallpaper()
     }
 
     FileView {
@@ -2733,7 +2963,10 @@ Singleton {
                 root.restore(text());
 
         }
-        onLoadFailed: root.loaded = true
+        onLoadFailed: {
+            root.loaded = true;
+            root.adoptWallpaper();
+        }
     }
 
 }

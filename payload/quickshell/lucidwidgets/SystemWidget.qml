@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -343,7 +344,7 @@ WidgetBody {
                     return m.key !== "cpu";
                 })
 
-                Rectangle {
+                SquircleRect {
                     id: chip
 
                     required property var modelData
@@ -351,7 +352,8 @@ WidgetBody {
                     width: chipRow.implicitWidth + Theme.dp(20)
                     height: Theme.dp(28)
                     radius: Theme.dp(14)
-                    color: Theme.alpha(w.ink, 0.08)
+                    fillColor: Theme.alpha(w.ink, 0.08)
+                    smoothing: Prefs.squircleF
 
                     Row {
                         id: chipRow
@@ -401,7 +403,7 @@ WidgetBody {
         Repeater {
             model: w.metrics
 
-            Rectangle {
+            SquircleRect {
                 id: tile
 
                 required property var modelData
@@ -414,16 +416,18 @@ WidgetBody {
                 width: tile.spans ? tiles.width : (tiles.width - tiles.spacing * (tiles.cols - 1)) / Math.max(1, tiles.cols)
                 height: (tiles.height - tiles.spacing * (tiles.rows - 1)) / Math.max(1, tiles.rows)
                 radius: Theme.rad(18)
-                color: Theme.alpha(tile.hue, 0.14)
+                fillColor: Theme.alpha(tile.hue, 0.14)
+                smoothing: Prefs.squircleF
 
                 // the fill rises with the reading
-                Rectangle {
+                SquircleRect {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     height: parent.height * tile.modelData.value
                     radius: parent.radius
-                    color: Theme.alpha(tile.hue, 0.22)
+                    fillColor: Theme.alpha(tile.hue, 0.22)
+                    smoothing: Prefs.squircleF
 
                     Behavior on height {
                         NumberAnimation {

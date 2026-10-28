@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
 import qs
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -334,7 +335,7 @@ WidgetBody {
 
     }
 
-    ClippingRectangle {
+    SquircleClip {
         id: hero
 
         readonly property var game: w.latest
@@ -344,6 +345,7 @@ WidgetBody {
         anchors.fill: parent
         radius: w.corner
         color: hero.game ? Theme.alpha(w.tint(hero.game.name), 0.22) : "transparent"
+        smoothing: Prefs.squircleF
 
         Image {
             anchors.fill: parent
@@ -569,12 +571,13 @@ WidgetBody {
                         width: listColumn.width
                         height: Theme.dp(52)
 
-                        Rectangle {
+                        SquircleRect {
                             anchors.fill: parent
                             anchors.leftMargin: Theme.dp(8)
                             anchors.rightMargin: Theme.dp(8)
                             radius: Theme.radiusXs
-                            color: rowArea.containsMouse ? Theme.alpha(Theme.text, 0.06) : "transparent"
+                            fillColor: rowArea.containsMouse ? Theme.alpha(Theme.text, 0.06) : "transparent"
+                            smoothing: Prefs.squircleF
                         }
 
                         Cover {
@@ -650,7 +653,7 @@ WidgetBody {
 
     }
 
-    component Cover: ClippingRectangle {
+    component Cover: SquircleClip {
         id: cover
 
         property var game: null
@@ -660,6 +663,7 @@ WidgetBody {
 
         radius: Theme.rad(10)
         color: cover.game ? Theme.alpha(w.tint(cover.game.name), 0.24) : Theme.alpha(Theme.text, 0.07)
+        smoothing: Prefs.squircleF
 
         Text {
             anchors.fill: parent

@@ -226,24 +226,27 @@ Singleton {
     readonly property color fgWarning: root.fgOnFill
     readonly property color shadow: root.cShadow
     // Hyprland-matched window shadow — mirrors hyprland.lua decoration:shadow
-    // { range=22 render_power=2 offset=0 10 scale=1.0 }, i.e. this recipe.
+    // { range=22 render_power=2 offset=0 4 scale=1.0 }, i.e. this recipe.
     // Matugen darkest-tone tint applies in light mode only; neutral gray in dark mode
     readonly property bool isLightMode: root.themeMode === "light"
     // Unified shadow: matches the volume OSD card recipe at 33% of its
     // halved level, so every QS item and every compositor-drawn shadow
     // reads as one material.
     // (The OSD card itself keeps the full-strength cardShadow as reference.)
-    // 2026-10-26: halved to match hyprland.lua's palette-driven window shadow
-    // (0x1c / 0x0e) -- 11% focused, 5.5% inactive.
-    readonly property color hyprShadow: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.11) : Qt.rgba(0, 0, 0, 0.11)
-    readonly property color hyprShadowInactive: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.055) : Qt.rgba(0, 0, 0, 0.055)
+    // 2026-10-26: halved and untinted to match hyprland.lua's window shadow
+    // (0x1c / 0x0e) -- neutral black, 11% focused, 5.5% inactive.
+    readonly property color hyprShadow: Qt.rgba(0, 0, 0, 0.11)
+    readonly property color hyprShadowInactive: Qt.rgba(0, 0, 0, 0.055)
     // Full-strength reference shadow (volume OSD card). Halved on 2026-10-26
     // with the rest of the QS shadows; still the strongest surface.
-    readonly property color cardShadow: root.isLightMode ? root.alpha(root.atTone(root.cPrimary, 10), 0.20) : Qt.rgba(0, 0, 0, 0.20)
+    readonly property color cardShadow: Qt.rgba(0, 0, 0, 0.20)
     readonly property real hyprShadowBlur: 0.85 // strength; effective radius = strength × hyprShadowBlurMax
-    readonly property int hyprShadowBlurMax: 26 // mirrors Hyprland range 22 (+10px offset slack)
+    // QS surfaces are intentionally softer than the 22px compositor window
+    // shadow: a wide, low-alpha falloff (0.85 × 64 ≈ 54px) so widgets read as
+    // lifted rather than outlined.
+    readonly property int hyprShadowBlurMax: 64
     readonly property int hyprShadowOffsetX: 0
-    readonly property int hyprShadowOffsetY: 10
+    readonly property int hyprShadowOffsetY: 4
     readonly property real hyprShadowScale: 1.0
     readonly property color scrim: root.alpha(root.cScrim, 0.5)
     readonly property color inverseSurface: root.cInverseSurface

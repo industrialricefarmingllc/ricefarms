@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 Item {
     id: frame
@@ -549,70 +550,80 @@ Item {
         onCanceled: frame.endDrag()
     }
 
-    Rectangle {
+    SquircleRect {
         id: card
 
         anchors.fill: parent
         radius: frame.radius
-        clip: true
-        color: frame.bare ? "transparent" : (body.item && body.item.fill !== undefined ? body.item.fill : Theme.bg)
+        fillColor: frame.bare ? "transparent" : (body.item && body.item.fill !== undefined ? body.item.fill : Theme.bg)
+        smoothing: Prefs.squircleF
 
-        Behavior on color {
+        Behavior on fillColor {
             ColorAnimation {
                 duration: Theme.durSlowEffects
             }
 
         }
 
-        // the body lays out at its natural size and the whole thing is scaled, so a
-        // variant never has to know what zoom it is being drawn at
+        // the card still clips its contents to the bounding rectangle (the
+        // rounded edge itself is drawn by the squircle, as a Rectangle's
+        // radius never cut children either)
         Item {
-            width: frame.bodyW
-            height: frame.bodyH
-            scale: frame.zoom
-            transformOrigin: Item.TopLeft
+            anchors.fill: parent
+            clip: true
 
-            // a preset can resize a card as it moves it, so the content follows the card
-            Behavior on scale {
-                enabled: frame.appeared && !frame.resizing
+            // the body lays out at its natural size and the whole thing is scaled, so a
+            // variant never has to know what zoom it is being drawn at
+            Item {
+                width: frame.bodyW
+                height: frame.bodyH
+                scale: frame.zoom
+                transformOrigin: Item.TopLeft
 
-                NumberAnimation {
-                    duration: Theme.durMedium
-                    easing.type: Theme.easeStandard
+                // a preset can resize a card as it moves it, so the content follows the card
+                Behavior on scale {
+                    enabled: frame.appeared && !frame.resizing
+
+                    NumberAnimation {
+                        duration: Theme.durMedium
+                        easing.type: Theme.easeStandard
+                    }
+
+                }
+
+                Loader {
+                    id: body
+
+                    anchors.fill: parent
+                    asynchronous: false
+                    // clock -> ClockWidget.qml, and so on for every category
+                    source: frame.wtype === "" ? "" : frame.wtype.charAt(0).toUpperCase() + frame.wtype.slice(1) + "Widget.qml"
+
                 }
 
             }
 
-            Loader {
-                id: body
-
-                anchors.fill: parent
-                asynchronous: false
-                // clock -> ClockWidget.qml, and so on for every category
-                source: frame.wtype === "" ? "" : frame.wtype.charAt(0).toUpperCase() + frame.wtype.slice(1) + "Widget.qml"
-
+            Binding {
+                target: body.item
+                property: "host"
+                value: frame
+                when: body.status === Loader.Ready
             }
 
-        }
+            SquircleRect {
+                anchors.fill: parent
+                radius: frame.radius
+                fillColor: Theme.text
+                smoothing: Prefs.squircleF
+                // a pinned card cannot be moved or resized, so it gets no hover chrome
+                // at all - on a bare full-width one this tint was a stray rectangle
+                opacity: frame.locked ? 0 : (frame.dragging ? 0.07 : (frame.active ? 0.035 : 0))
 
-        Binding {
-            target: body.item
-            property: "host"
-            value: frame
-            when: body.status === Loader.Ready
-        }
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: Theme.durShort
+                    }
 
-        Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            color: Theme.text
-            // a pinned card cannot be moved or resized, so it gets no hover chrome
-            // at all - on a bare full-width one this tint was a stray rectangle
-            opacity: frame.locked ? 0 : (frame.dragging ? 0.07 : (frame.active ? 0.035 : 0))
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: Theme.durShort
                 }
 
             }
@@ -672,13 +683,14 @@ Item {
 
     // what the desktop's box caught, shown live while the box is still out, and the
     // card the widget panel's list is pointing at
-    Rectangle {
+    SquircleRect {
         anchors.fill: parent
         z: 7
         radius: frame.radius
-        color: Theme.alpha(Theme.accent, 0.1)
-        border.width: 2
-        border.color: Theme.accent
+        fillColor: Theme.alpha(Theme.accent, 0.1)
+        borderWidth: 2
+        borderColor: Theme.accent
+        smoothing: Prefs.squircleF
         opacity: (frame.selected || frame.spotted) ? 1 : 0
         visible: opacity > 0.01
 
@@ -698,14 +710,15 @@ Item {
         z: 7
         visible: frame.resizable && !frame.locked && outline.opacity > 0.01
 
-        Rectangle {
+        SquircleRect {
             id: outline
 
             anchors.fill: parent
             radius: frame.radius
-            color: "transparent"
-            border.width: 1
-            border.color: Theme.alpha(Theme.accent, 0.55)
+            fillColor: "transparent"
+            borderWidth: 1
+            borderColor: Theme.alpha(Theme.accent, 0.55)
+            smoothing: Prefs.squircleF
             opacity: (frame.active || frame.resizing) ? 1 : 0
 
             Behavior on opacity {

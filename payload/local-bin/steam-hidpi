@@ -1,0 +1,14 @@
+#!/bin/sh
+# Launch Steam with correct HiDPI scaling on Hyprland.
+#
+# The display runs at 200% (eDP-1 2736x1824), and Hyprland uses
+# xwayland.force_zero_scaling = true, so X11 clients must scale themselves.
+# Steam's "Scale text and icons to match monitor settings" (enable_dpi_scaling)
+# derives its factor from the X11 DPI, which is unset by default -> 96 DPI -> 1x.
+# Applying ~/.Xresources (Xft.dpi: 192) gives Steam a crisp 2x UI.
+#
+# Re-applied here because X resources live on the XWayland server and are lost
+# if XWayland restarts.
+xrdb -merge "$HOME/.Xresources" 2>/dev/null || true
+
+exec /usr/bin/steam "$@"

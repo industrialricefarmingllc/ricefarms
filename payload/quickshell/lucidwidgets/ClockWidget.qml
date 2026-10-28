@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -12,6 +13,7 @@ WidgetBody {
         return m === "24" || (m === "auto" && Prefs.clock24h);
     }
     readonly property bool seconds: w.opt("seconds") === true
+    readonly property int tickMs: w.preview && !w.seconds ? 60000 : 1000
     readonly property bool showDate: w.opt("showDate") !== false
     readonly property var zoneSets: ({
         "eu": ["Europe/London", "Europe/Paris", "Europe/Moscow"],
@@ -40,11 +42,20 @@ WidgetBody {
     Component.onCompleted: Zones.watch(w.zones)
 
     Timer {
-        interval: 1000
+        // A preview clock is a thumbnail: with seconds off, nothing on it changes
+        // more than once a minute, and eight of them ticking every second was the
+        // entire resting cost of the widget panel (each tick relays out the time
+        // and date). Previews land the tick on the boundary of what they show;
+        // the card on the desktop and any seconds display still tick every second.
+        interval: w.tickMs - (Date.now() % w.tickMs)
         repeat: true
         running: true
         triggeredOnStart: true
-        onTriggered: w.now = Loc.now()
+        onTriggered: {
+            w.now = Loc.now();
+            if (interval !== w.tickMs)
+                interval = w.tickMs;
+        }
     }
 
     // digital: the time set like a headline, the date under it
@@ -223,14 +234,15 @@ WidgetBody {
         }
 
         // a watch's date window, where the three would be
-        Rectangle {
+        SquircleRect {
             visible: w.showDate
             x: analog.width / 2 + analog.r - Theme.dp(22) - width
             anchors.verticalCenter: parent.verticalCenter
             width: dateWin.implicitWidth + Theme.dp(12)
             height: Theme.dp(22)
             radius: Theme.rad(8)
-            color: Theme.alpha(w.inkAccent, 0.18)
+            fillColor: Theme.alpha(w.inkAccent, 0.18)
+            smoothing: Prefs.squircleF
 
             LText {
                 id: dateWin
@@ -360,14 +372,15 @@ WidgetBody {
             color: Theme.alpha(w.fill, 1)
         }
 
-        Rectangle {
+        SquircleRect {
             id: band
 
             anchors.centerIn: parent
             width: Math.round(oval.d * 0.84)
             height: Math.round(oval.d * 0.38)
             radius: height / 2
-            color: w.inkAccent
+            fillColor: w.inkAccent
+            smoothing: Prefs.squircleF
 
             LText {
                 anchors.centerIn: parent
@@ -582,7 +595,7 @@ WidgetBody {
         Repeater {
             model: w.zones
 
-            Rectangle {
+            SquircleRect {
                 id: city
 
                 required property var modelData
@@ -598,7 +611,8 @@ WidgetBody {
                 topRightRadius: city.index === 0 ? Theme.rad(18) : Theme.dp(6)
                 bottomLeftRadius: city.index === w.zones.length - 1 ? Theme.rad(18) : Theme.dp(6)
                 bottomRightRadius: city.index === w.zones.length - 1 ? Theme.rad(18) : Theme.dp(6)
-                color: Theme.alpha(w.ink, 0.07)
+                fillColor: Theme.alpha(w.ink, 0.07)
+                smoothing: Prefs.squircleF
 
                 Column {
                     x: Theme.dp(14)

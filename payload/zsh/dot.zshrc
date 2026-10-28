@@ -193,10 +193,9 @@ alias lsr="~/lsr.sh"
 alias lsw="~/lsw.sh"
 alias migrate="~/migrate.sh"
 alias rmb="~/rmb.sh"
-alias f="rg"
 alias n="nvim"
 alias cp='f(){ mkdir -p "$(dirname "$@: -1")" && command cp "$@"; }; f'
-alias comfy="systemctl --user restart comfyui-cu126"
+alias ff="fastfetch"
 
 # t: attach to main via per-TTY grouped session (avoids 7-row overflow from tty3 213x60 vs pts/0 213x53)
 # Original was: tmux new-session -A -s main (shares windows, latest client wins -> overflow)
@@ -218,7 +217,6 @@ t() {
     tmux new-session -A -s main
   fi
 }
-alias dt="ctop"
 alias lint="~/lint.sh"
 alias buildable="~/buildable.sh"
 alias own="~/own.sh"
@@ -243,6 +241,8 @@ alias sw="/home/nicerice/sw.sh"
 alias windows="~/windows.sh"
 alias fw="~/fw.sh"
 alias sesh="~/se.sh"
+alias lg="liquid-glass-toggle"
+alias dt="desktop-toggle"
 
 w() {
   local output dir
@@ -403,5 +403,21 @@ d() {
   "$HOME/d.sh" "$@"
 }
 
-export PATH="$HOME/.pyenv/bin:$PATH"
-eval "$(pyenv init -)"
+# pyenv is optional here: only touch PATH if the install dir exists, and only
+# eval its init output if the binary is actually on PATH (otherwise zsh prints
+# "command not found: pyenv" on every shell start).
+if [ -d "$HOME/.pyenv/bin" ]; then
+  export PATH="$HOME/.pyenv/bin:$PATH"
+fi
+if command -v pyenv >/dev/null 2>&1; then
+  eval "$(pyenv init -)"
+fi
+
+# Java 17 for Android Gradle Plugin builds
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# Android SDK / adb
+export ANDROID_HOME="$HOME/Android/Sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"

@@ -16,8 +16,8 @@ M.active_mode    = nil
 -- keep defaults for reference, but Reading Mode no longer forces them
 M.defaults = {
     rounding        = 20,
-    gaps_in         = 10,
-    gaps_out        = { top = 38, right = 50, bottom = 38, left = 50 },
+    gaps_in         = 7,
+    gaps_out        = { top = 16, right = 25, bottom = 38, left = 25 },
     border_size     = 1,
     active_border   = "rgba(89b4faaa)",
     inactive_border = "rgba(313244aa)",
@@ -45,8 +45,6 @@ end
 
 M.simple_shaders = {
     ["Main"] = "main.glsl",
-    ["AgX"] = "matugen-agx.glsl",
-    ["AgX Map"] = "matugen-agx.glsl",
 }
 M.complex_modes = {
     ["Reading Mode"] = {
@@ -129,16 +127,6 @@ function M.toggle(name)
         M.turn_off_all()
         return
     end
-    -- AgX aliases: AgX / AgX Map are same shader — toggle off returns to Main (not off)
-    local isAgX = (name == "AgX" or name == "AgX Map")
-    local curIsAgX = (M.current_shader == "AgX" or M.current_shader == "AgX Map")
-    if isAgX and curIsAgX then
-        M.current_shader = "Main"
-        -- single call: tracking already 2, re-setting it only caused an extra reload
-        hl.config({ decoration = { screen_shader = shader_dir .. "main.glsl" } })
-        persist_state()
-        return
-    end
     if M.current_shader == name then
         if M.complex_modes[name] then
             M.complex_modes[name].deactivate()
@@ -176,9 +164,7 @@ end
 local mod = "SUPER"
 hl.bind(mod .. " + K", function() M.toggle("Reading Mode") end, { description = "Toggle Reading Mode" })
 hl.bind(mod .. " + ALT + S", function() M.turn_off_all() end, { description = "Turn off all shaders" })
-hl.bind(mod .. " + G", function() M.toggle("AgX") end, { description = "Toggle AgX Map (matugen AgX tint)" })
-hl.bind(mod .. " + ALT + G", function() M.toggle("AgX") end, { description = "Toggle AgX Map (alt)" })
-hl.bind(mod .. " + SHIFT + G", function() M.toggle("AgX Map") end, { description = "Toggle AgX Map" })
+
 
 -- restore after reload (matugen triggers reload)
 hl.on("config.reloaded", function()

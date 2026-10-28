@@ -1,0 +1,7 @@
+[Unit]
+Description=Bulk work slice (compiles, encodes, syncs) - lowest CPU share
+
+[Slice]
+# 10 vs the session slice's 500 and the default 100: under contention this
+# gets roughly 1/10th of a normal app and 1/50th of the session core.
+CPUWeight=10

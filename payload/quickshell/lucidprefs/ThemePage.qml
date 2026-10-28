@@ -34,7 +34,42 @@ Column {
         if (path === "")
             return;
 
-        Quickshell.execDetached([page.home + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", path]);
+        var env = [];
+        if (SkwdWall.isVirtual(path)) {
+            var scene = SkwdWall.entryForPath(path);
+            if (scene && scene.thumb !== "")
+                env.push("SKWD_SAMPLE=" + scene.thumb);
+        }
+        var cmd = [page.home + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", path];
+        if (env.length > 0)
+            cmd = ["env"].concat(env).concat(cmd);
+
+        Quickshell.execDetached(cmd);
+    }
+
+    // skwd's library, split the way the two grids beside it are: stills, and
+    // videos or Wallpaper Engine scenes with an animated preview.
+    function fillSkwd() {
+        var pictures = [];
+        var videos = [];
+        var items = SkwdWall.items || [];
+        for (var i = 0; i < items.length; i++) {
+            var e = items[i];
+            var row = {
+                "path": e.path,
+                "name": e.name,
+                "thumb": e.thumb,
+                "preview": e.preview || "",
+                "key": e.key || "",
+                "kind": e.kind || ""
+            };
+            if (e.kind === "video" || e.kind === "we")
+                videos.push(row);
+            else
+                pictures.push(row);
+        }
+        wallpaperScan.fill(wallpapers, pictures);
+        wallpaperScan.fill(liveWalls, videos);
     }
 
     spacing: Theme.dp(26)
@@ -69,6 +104,18 @@ Column {
         property bool again: false
 
         function restart() {
+            if (SkwdWall.enabled) {
+                if (!SkwdWall.loaded) {
+                    if (!SkwdWall.listing)
+                        SkwdWall.refresh();
+
+                    return;
+                }
+                if (SkwdWall.items.length > 0) {
+                    page.fillSkwd();
+                    return;
+                }
+            }
             if (wallpaperScan.running) {
                 wallpaperScan.again = true;
                 return;
@@ -86,6 +133,8 @@ Column {
                 for (var m = 0; m < rows.length; m++) {
                     if (model.get(m).thumb !== rows[m].thumb)
                         model.setProperty(m, "thumb", rows[m].thumb);
+                    if ((model.get(m).preview || "") !== (rows[m].preview || ""))
+                        model.setProperty(m, "preview", rows[m].preview || "");
 
                 }
                 return;
@@ -96,8 +145,11 @@ Column {
                 var dot = base.lastIndexOf(".");
                 model.append({
                     "path": rows[r].path,
-                    "name": dot > 0 ? base.substring(0, dot) : base,
-                    "thumb": rows[r].thumb
+                    "name": rows[r].name !== undefined && rows[r].name !== "" ? rows[r].name : (dot > 0 ? base.substring(0, dot) : base),
+                    "thumb": rows[r].thumb,
+                    "preview": rows[r].preview || "",
+                    "key": rows[r].key || "",
+                    "kind": rows[r].kind || ""
                 });
             }
         }
@@ -122,7 +174,9 @@ Column {
                     if (p !== "")
                         (cols.length > 2 && cols[2].trim() === "video" ? videos : pictures).push({
                         "path": p,
-                        "thumb": cols.length > 1 ? cols[1].trim() : ""
+                        "thumb": cols.length > 1 ? cols[1].trim() : "",
+                        "preview": cols.length > 3 ? cols[3].trim() : "",
+                        "kind": cols.length > 2 && cols[2].trim() === "video" ? "video" : "static"
                     });
 
                 }
@@ -214,6 +268,10 @@ Column {
             wallpaperScan.restart();
         }
 
+        function onSkwdWallChanged() {
+            wallpaperScan.restart();
+        }
+
         target: Prefs
     }
 
@@ -229,6 +287,26 @@ Column {
     // the grid reorders this in place, so it cannot just bind to the catalogue
     ListModel {
         id: themeTiles
+    }
+
+    Connections {
+        function onItemsChanged() {
+            if (!SkwdWall.enabled)
+                return ;
+
+            if (SkwdWall.loaded && SkwdWall.items.length === 0)
+                wallpaperScan.restart();
+            else
+                page.fillSkwd();
+        }
+
+        function onListingFailed() {
+            if (SkwdWall.enabled)
+                wallpaperScan.restart();
+
+        }
+
+        target: SkwdWall
     }
 
     function syncThemeTiles() {
@@ -580,6 +658,36 @@ Column {
         title: "WALLPAPER"
 
         SettingRow {
+            title: "skwd-wall engine"
+            description: SkwdWall.available ? "Images, videos and Wallpaper Engine scenes come from skwd-wall, with its animated previews. Turn this off to go back to awww and lucid's own player." : "skwd-wall is not installed; lucid uses awww and its own live wallpaper player."
+            visible: SkwdWall.probed
+
+            Row {
+                spacing: Theme.dp(10)
+
+                M3Switch {
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: Prefs.skwdWall
+                    enabled: SkwdWall.available
+                    onToggled: (v) => {
+                        Prefs.skwdWall = v;
+                        return true;
+                    }
+                }
+
+                M3Button {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Open skwd-wall"
+                    variant: "tonal"
+                    visible: SkwdWall.available
+                    onClicked: SkwdWall.openPicker()
+                }
+
+            }
+
+        }
+
+        SettingRow {
             title: "Wallpaper strip"
             description: wallpapers.count + " in " + page.wallpaperDir.replace(page.home, "~")
             stacked: true
@@ -647,7 +755,7 @@ Column {
 
         SettingRow {
             title: "Live wallpapers"
-            description: liveWalls.count + (liveWalls.count === 1 ? " video" : " videos") + " in the same folder, played behind the desktop"
+            description: liveWalls.count + (liveWalls.count === 1 ? " moving wallpaper" : " moving wallpapers") + " in the same folder, played behind the desktop"
             visible: Prefs.liveWallpapers
             stacked: true
 
@@ -665,8 +773,8 @@ Column {
                         WallpaperTile {
                             id: liveTile
 
-                            live: true
-                            selected: LiveWall.video === liveTile.path
+                            live: liveTile.kind === "video" || liveTile.kind === "we"
+                            selected: SkwdWall.enabled ? SkwdWall.currentPath === liveTile.path : LiveWall.video === liveTile.path
                             onPicked: page.applyWallpaper(liveTile.path)
                         }
 

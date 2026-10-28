@@ -3,6 +3,7 @@ import Quickshell
 import qs
 import qs.lucidui
 import qs.lucidprefs as LP
+import "../squircle"
 
 // the launcher's search on the desktop, with its modes a tap away
 WidgetBody {
@@ -59,10 +60,11 @@ WidgetBody {
             onTapped: w.open("")
         }
 
-        Rectangle {
+        SquircleRect {
             anchors.fill: parent
             radius: height / 2
-            color: w.ink
+            fillColor: w.ink
+            smoothing: Prefs.squircleF
             opacity: pillTap.pressed ? 0.1 : (pillTap.containsMouse ? 0.05 : 0)
 
             Behavior on opacity {
@@ -185,7 +187,7 @@ WidgetBody {
         visible: w.variant === "bar"
         anchors.fill: parent
 
-        Rectangle {
+        SquircleRect {
             id: field
 
             x: Theme.dp(14)
@@ -193,9 +195,10 @@ WidgetBody {
             width: parent.width - Theme.dp(28)
             height: Theme.dp(56)
             radius: height / 2
-            color: Theme.alpha(w.ink, fieldTap.pressed ? 0.14 : (fieldTap.containsMouse ? 0.11 : 0.08))
+            fillColor: Theme.alpha(w.ink, fieldTap.pressed ? 0.14 : (fieldTap.containsMouse ? 0.11 : 0.08))
+            smoothing: Prefs.squircleF
 
-            Behavior on color {
+            Behavior on fillColor {
                 ColorAnimation {
                     duration: Theme.durShort
                 }

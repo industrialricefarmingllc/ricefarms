@@ -234,6 +234,11 @@ while IFS=$'\037' read -r i name input output; do
     printf '%s\t%s\t%s\t%s\n' "$name" "$out" "$state" "$error" >> "$WORK/results"
 done < "$WORK/list"
 
+# OpenCode reads this theme on SIGUSR2. Pin its surface first, then notify; the
+# helper is a content-hash no-op when nothing changed.
+"$HOME/.config/lucid/app-surface-sync.sh" &>/dev/null || true
+"$HOME/.config/lucid/opencode-theme-notify.sh" &>/dev/null || true
+
 # a quick render of one file: the full one after it keeps the books
 if [[ -n "$ONLY_OUTPUT" ]]; then
     (( ${#FAILED[@]} )) && exit 2
@@ -264,15 +269,19 @@ else
         > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
 fi
 
-(( HYPR )) && { hyprctl reload &>/dev/null || true; }
+# callers that deliver through theme-fanout.sh set this, so hyprland and
+# running GTK apps are woken exactly once for the whole change
+if [[ "${LUCID_DEFER_SIDE_EFFECTS:-0}" != "1" ]]; then
+    (( HYPR )) && { hyprctl reload &>/dev/null || true; }
 
-# gtk4 and libadwaita reread ~/.config/gtk-4.0/gtk.css when the colour scheme
-# changes, so flip it and back (apply-theme.sh does the same for its own write)
-if (( GTK )) && scheme=$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null); then
-    scheme=${scheme//\'/}
-    [[ "$scheme" == prefer-light ]] && other=prefer-dark || other=prefer-light
-    gsettings set org.gnome.desktop.interface color-scheme "$other" 2>/dev/null || true
-    gsettings set org.gnome.desktop.interface color-scheme "$scheme" 2>/dev/null || true
+    # gtk4 and libadwaita reread ~/.config/gtk-4.0/gtk.css when the colour scheme
+    # changes, so flip it and back (apply-theme.sh does the same for its own write)
+    if (( GTK )) && scheme=$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null); then
+        scheme=${scheme//\'/}
+        [[ "$scheme" == prefer-light ]] && other=prefer-dark || other=prefer-light
+        gsettings set org.gnome.desktop.interface color-scheme "$other" 2>/dev/null || true
+        gsettings set org.gnome.desktop.interface color-scheme "$scheme" 2>/dev/null || true
+    fi
 fi
 
 if (( ${#FAILED[@]} )); then

@@ -5,6 +5,7 @@ import Quickshell.Services.Mpris
 import Quickshell.Widgets
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -232,13 +233,14 @@ WidgetBody {
     }
 
     // the cover, rounded, or a note on the ink when there is none
-    component Cover: ClippingRectangle {
+    component Cover: SquircleClip {
         id: cov
 
         property real corner: Theme.dp(20)
 
         radius: cov.corner
         color: Theme.alpha(w.ink, 0.08)
+        smoothing: Prefs.squircleF
 
         Image {
             id: covImg
@@ -281,12 +283,13 @@ WidgetBody {
             onClicked: w.skip(-1)
         }
 
-        Rectangle {
+        SquircleRect {
             anchors.verticalCenter: parent.verticalCenter
             width: tr.big * 1.3
             height: tr.big
             radius: playTap.pressed ? tr.big * 0.28 : tr.big / 2
-            color: w.inkAccent
+            fillColor: w.inkAccent
+            smoothing: Prefs.squircleF
             opacity: w.has ? 1 : 0.4
             // the state layer alone barely shows on a saturated fill, so the pill
             // swells under the pointer as well
@@ -485,14 +488,15 @@ WidgetBody {
             corner: Math.round(w.corner * 0.85)
         }
 
-        Rectangle {
+        SquircleRect {
             visible: w.source !== ""
             x: Theme.dp(10)
             y: Theme.dp(10)
             width: srcLabel.implicitWidth + Theme.dp(18)
             height: Theme.dp(24)
             radius: Theme.dp(12)
-            color: Theme.alpha(w.fill, 0.85)
+            fillColor: Theme.alpha(w.fill, 0.85)
+            smoothing: Prefs.squircleF
 
             LText {
                 id: srcLabel
@@ -689,7 +693,7 @@ WidgetBody {
 
         }
 
-        Rectangle {
+        SquircleRect {
             id: artPlay
 
             anchors.right: parent.right
@@ -699,7 +703,8 @@ WidgetBody {
             width: Theme.dp(48)
             height: Theme.dp(48)
             radius: artTap.pressed ? Theme.dp(14) : Theme.dp(24)
-            color: w.inkAccent
+            fillColor: w.inkAccent
+            smoothing: Prefs.squircleF
             scale: artTap.pressed ? 0.96 : (artTap.containsMouse ? 1.05 : 1)
 
             Behavior on scale {
@@ -791,12 +796,13 @@ WidgetBody {
             color: w.inkFaint
         }
 
-        Rectangle {
+        SquircleRect {
             anchors.centerIn: parent
             width: Theme.dp(56)
             height: Theme.dp(56)
             radius: discTap.pressed ? Theme.dp(16) : Theme.dp(28)
-            color: w.inkAccent
+            fillColor: w.inkAccent
+            smoothing: Prefs.squircleF
             opacity: w.hovered || !w.playing ? 1 : 0
             scale: w.hovered || !w.playing ? 1 : 0.7
 
@@ -960,7 +966,7 @@ WidgetBody {
             trackColor: Theme.alpha(w.ink, 0.14)
         }
 
-        Rectangle {
+        SquircleRect {
             readonly property real maxW: Math.round(orbit.d * 0.46)
 
             anchors.horizontalCenter: parent.horizontalCenter
@@ -968,7 +974,8 @@ WidgetBody {
             width: Math.min(Math.ceil(orbitMetrics.advanceWidth) + Theme.dp(20), maxW)
             height: Theme.dp(24)
             radius: height / 2
-            color: Theme.alpha(w.inkAccent, 0.16)
+            fillColor: Theme.alpha(w.inkAccent, 0.16)
+            smoothing: Prefs.squircleF
 
             TextMetrics {
                 id: orbitMetrics

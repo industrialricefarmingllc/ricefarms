@@ -29,6 +29,10 @@ Item {
     // transparent and the plugin draws glass + shadow behind. Content and
     // clip layers are untouched.
     property bool externalGlass: false
+    // Notch mode, liquid glass off, left/right zone: a single group background
+    // is drawn behind the members (see shell.qml's NotchGroupBg), so this
+    // pill's own body and shadow step aside.
+    property bool groupBackground: false
     // Notch solo (set by shell.qml): collapse to zero width so the group's
     // open member can stretch across the full previous group span. Separate
     // from shown (which also fades/scales) so the morph is a pure slide and
@@ -169,7 +173,7 @@ Item {
     // The QML silhouette is only used when no external glass owns the body.
     // With glass on, the compositor plugin draws the same union shape (see
     // shell.qml's glassPillFor).
-    readonly property bool liquidDrawBody: pill.liquidActive && !pill.externalGlass
+    readonly property bool liquidDrawBody: pill.liquidActive && !pill.externalGlass && !pill.groupBackground
     readonly property bool liquidCentre: pill.popupAlign === "center"
     // Centre and right pills read as an extrusion when their body travels
     // down from the click. Keep their top edge on the bar and let width lead;
@@ -431,6 +435,16 @@ Item {
     readonly property bool joinLeft: !!pill.hostWindow && !!pill.hostWindow.joinedLeftOf && pill.modId !== "" && pill.hostWindow.joinedLeftOf(pill.modId)
     readonly property bool joinRight: !!pill.hostWindow && !!pill.hostWindow.joinedRightOf && pill.modId !== "" && pill.hostWindow.joinedRightOf(pill.modId)
     readonly property bool joined: pill.joinLeft || pill.joinRight
+
+    // Notch shoulders: a concave flare (drawn by shell.qml) covers the top of
+    // this tab's sides, so the side border stops there and the flare's arc
+    // carries the outline instead. Only tabs that paint their own body need
+    // the gap; members of a notch group take the group background's border.
+    readonly property real notchGapLeft: (!pill.groupBackground && Prefs.barNotch && pill.hostWindow && pill.hostWindow.notchFlare) ? pill.hostWindow.notchFlare(pill, true) : 0
+    readonly property real notchGapRight: (!pill.groupBackground && Prefs.barNotch && pill.hostWindow && pill.hostWindow.notchFlare) ? pill.hostWindow.notchFlare(pill, false) : 0
+    // Full bar under liquid glass draws one strip and traces its outline once
+    // (shell.qml), so the items must not outline themselves.
+    readonly property real windowBorderWidth: (Prefs.barFull && pill.externalGlass) ? 0 : WindowBorder.size
 
     // how each corner meets a panel hanging below the bar, from shell.qml's hangPlan
     readonly property bool notchedPopup: pill.popupMode && Prefs.barPopupNotched
@@ -834,7 +848,7 @@ Item {
         bottomRightRadius: pill.capped(pill.hangCorners, "br", pill.joinRight ? 0 : Prefs.barPillRadius)
         // No QML shadow under external glass: the plugin draws it, and a
         // shadow of the transparent bg would blob around glyphs instead.
-        layer.enabled: !pill.externalGlass && !pill.liquidDrawBody
+        layer.enabled: !pill.externalGlass && !pill.liquidDrawBody && !pill.groupBackground
         layer.samples: 4
         layer.effect: MultiEffect {
             shadowEnabled: true
@@ -873,7 +887,7 @@ Item {
 
         LiquidGlassBg {
             anchors.fill: parent
-            visible: !pill.liquidDrawBody
+            visible: !pill.liquidDrawBody && !pill.groupBackground
             externalGlass: pill.externalGlass
             hostWindow: pill.hostWindow
             targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
@@ -881,6 +895,12 @@ Item {
             bgRadius: pill.closedRadius
             bgTopLeftRadius: pill.pillTopRadius
             bgTopRightRadius: pill.pillTopRadius
+            borderColor: WindowBorder.colour
+            borderWidth: pill.windowBorderWidth
+            // a notch tab is flush with the screen edge: no top outline, and
+            // the side outline yields to the shoulder flares
+            borderTop: pill.pillTopRadius > 0 ? 1 : 0
+            borderGap: Qt.vector2d(pill.notchGapLeft, pill.notchGapRight)
             usePill: true
         }
 
@@ -908,7 +928,7 @@ Item {
         // layer, so force the same shadow here (skipped during the liquid
         // morph, whose LiquidShape already carries a shadow, and under
         // external glass, where the plugin draws it).
-        layer.enabled: pill.surfaceLayered || (pill.anyOpen && !pill.liquidDrawBody && !pill.externalGlass)
+        layer.enabled: !(pill.groupBackground && !pill.popupMode) && (pill.surfaceLayered || (pill.anyOpen && !pill.liquidDrawBody && !pill.externalGlass))
         layer.samples: 4
         layer.effect: MultiEffect {
             shadowEnabled: true
@@ -923,7 +943,7 @@ Item {
 
         LiquidGlassBg {
             anchors.fill: parent
-            visible: !pill.liquidDrawBody
+            visible: !pill.liquidDrawBody && !(pill.groupBackground && !pill.popupMode)
             externalGlass: pill.externalGlass
             hostWindow: pill.hostWindow
             targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
@@ -931,6 +951,12 @@ Item {
             bgRadius: pill.cornerRadius
             bgTopLeftRadius: pill.topRadius
             bgTopRightRadius: pill.topRadius
+            borderColor: WindowBorder.colour
+            borderWidth: pill.windowBorderWidth
+            // a notch tab is flush with the screen edge: no top outline, and
+            // the side outline yields to the shoulder flares
+            borderTop: pill.topRadius > 0 ? 1 : 0
+            borderGap: Qt.vector2d(pill.notchGapLeft, pill.notchGapRight)
             usePill: true
         }
         // inner clip for content overflow — separate from outer layer

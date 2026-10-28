@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import "Stagger.js" as Stagger
+import "../squircle"
 
 Item {
     id: pv
@@ -17,6 +18,10 @@ Item {
     // one card at a time rather than freezing while it builds them all at once
     property bool staggered: false
     property bool _woke: !pv.staggered
+    // the gallery holds a new preview back while the sheet is still sliding or
+    // the list is moving: building a widget costs more than a frame, and a build
+    // in the middle of an animation is a dropped frame
+    property bool hold: false
 
     readonly property var info: Widgets.variantAt(pv.wtype, pv.wvariant)
     // drawn at the interface size, like the card it stands for
@@ -34,6 +39,11 @@ Item {
         interval: 1
         running: !pv._woke
         onTriggered: {
+            if (pv.hold) {
+                wake.interval = 60;
+                wake.restart();
+                return;
+            }
             const w = Stagger.wait();
             if (w > 0) {
                 wake.interval = w;
@@ -54,29 +64,35 @@ Item {
         opts: pv.opts
     }
 
-    Rectangle {
+    SquircleRect {
         anchors.centerIn: parent
         width: pv.natW
         height: pv.natH
         scale: pv.fit
         radius: card.item !== null && card.item.pill === true ? Math.min(pv.natW, pv.natH) / 2 : Theme.radiusXl
-        color: pv.bare ? "transparent" : (card.item && card.item.fill !== undefined ? Theme.alpha(card.item.fill, 1) : Theme.bgOpaque)
-        clip: true
+        fillColor: pv.bare ? "transparent" : (card.item && card.item.fill !== undefined ? Theme.alpha(card.item.fill, 1) : Theme.bgOpaque)
+        smoothing: Prefs.squircleF
         enabled: false
 
-        Loader {
-            id: card
-
+        Item {
             anchors.fill: parent
-            active: pv.live && pv._woke && pv.wtype !== ""
-            source: pv.wtype === "" ? "" : pv.wtype.charAt(0).toUpperCase() + pv.wtype.slice(1) + "Widget.qml"
-        }
+            clip: true
 
-        Binding {
-            target: card.item
-            property: "host"
-            value: host
-            when: card.status === Loader.Ready
+            Loader {
+                id: card
+
+                anchors.fill: parent
+                active: pv.live && pv._woke && pv.wtype !== ""
+                source: pv.wtype === "" ? "" : pv.wtype.charAt(0).toUpperCase() + pv.wtype.slice(1) + "Widget.qml"
+            }
+
+            Binding {
+                target: card.item
+                property: "host"
+                value: host
+                when: card.status === Loader.Ready
+            }
+
         }
 
     }

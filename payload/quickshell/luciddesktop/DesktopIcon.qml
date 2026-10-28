@@ -414,8 +414,9 @@ Item {
             layer.enabled: photo.visible
             layer.effect: MultiEffect {
                 shadowEnabled: true
-                shadowBlur: 0.45
-                shadowColor: Qt.rgba(0, 0, 0, 0.45)
+                shadowBlur: 0.225
+                blurMax: Theme.hyprShadowBlurMax
+                shadowColor: Theme.hyprShadow
                 shadowVerticalOffset: Theme.dp(1)
             }
 

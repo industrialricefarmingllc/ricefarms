@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs
 import qs.lucidprefs as LP
 import qs.lucidui
+import "../squircle"
 
 // the widget panel: every widget to drag out or click in, the cards already out
 // there, and the layouts. drawn on the widget layer, so a drop lands on its board
@@ -381,7 +382,7 @@ Item {
         onTriggered: wp.clearArmed = false
     }
 
-    Rectangle {
+    SquircleRect {
         id: sheet
 
         x: wp.edge - (1 - wp.reveal) * (wp.sheetW + wp.edge + Theme.dp(24))
@@ -389,9 +390,9 @@ Item {
         width: wp.sheetW
         height: wp.sheetH
         radius: Theme.radiusXl
-        color: Theme.withBlur(Theme.surfaceContainer)
+        fillColor: Theme.withBlur(Theme.surfaceContainer)
+        smoothing: Prefs.squircleF
         visible: wp.shown
-        clip: true
 
         // the sheet takes its own presses and wheel, so nothing reaches the dim behind
         MouseArea {
@@ -402,18 +403,24 @@ Item {
             }
         }
 
-        Loader {
-            id: body
-
+        Item {
             anchors.fill: parent
-            active: wp.shown
-            sourceComponent: bodyComponent
+            clip: true
+
+            Loader {
+                id: body
+
+                anchors.fill: parent
+                active: wp.shown
+                sourceComponent: bodyComponent
+            }
+
         }
 
     }
 
     // a card carried over the sheet is taken off the desktop when it is let go
-    Rectangle {
+    SquircleRect {
         id: bin
 
         readonly property Item carried: (wp.board && wp.board.dragFrame && wp.board.dragFrame !== ghost) ? wp.board.dragFrame : null
@@ -426,9 +433,10 @@ Item {
         width: sheet.width
         height: sheet.height
         radius: sheet.radius
-        color: bin.hot ? Theme.alpha(Theme.errorContainer, 0.94) : Theme.alpha(Theme.surfaceHighest, 0.9)
-        border.width: 2
-        border.color: bin.hot ? Theme.error : Theme.alpha(Theme.text, 0.14)
+        fillColor: bin.hot ? Theme.alpha(Theme.errorContainer, 0.94) : Theme.alpha(Theme.surfaceHighest, 0.9)
+        borderWidth: 2
+        borderColor: bin.hot ? Theme.error : Theme.alpha(Theme.text, 0.14)
+        smoothing: Prefs.squircleF
         opacity: wp.open && (bin.hot || bin.near) ? 1 : 0
         visible: opacity > 0.01
 
@@ -439,7 +447,7 @@ Item {
 
         }
 
-        Behavior on color {
+        Behavior on fillColor {
             ColorAnimation {
                 duration: Theme.durFastEffects
             }
@@ -868,7 +876,7 @@ Item {
                             spacing: Theme.dp(22)
                             topMargin: Theme.dp(8)
                             bottomMargin: Theme.dp(20)
-                            cacheBuffer: 360
+                            cacheBuffer: 0
                             boundsBehavior: Flickable.StopAtBounds
                             flickDeceleration: 6000
                             maximumFlickVelocity: 9000
@@ -947,6 +955,7 @@ Item {
                                                 panel: wp
                                                 wtype: group.modelData.id
                                                 variant: modelData
+                                                hold: wp.reveal < 0.995 || gallery.moving || gallery.flicking
                                             }
 
                                         }
@@ -1172,7 +1181,7 @@ Item {
                                             "blurb": "Step aside while something runs fullscreen"
                                         }]
 
-                                        Rectangle {
+                                        SquircleRect {
                                             id: brow
 
                                             required property var modelData
@@ -1184,7 +1193,8 @@ Item {
                                             topRightRadius: brow.index === 0 ? Theme.rad(20) : Theme.dp(4)
                                             bottomLeftRadius: brow.index === 3 ? Theme.rad(20) : Theme.dp(4)
                                             bottomRightRadius: brow.index === 3 ? Theme.rad(20) : Theme.dp(4)
-                                            color: Theme.withBlur(Theme.surfaceHigh)
+                                            fillColor: Theme.withBlur(Theme.surfaceHigh)
+                                            smoothing: Prefs.squircleF
 
                                             Column {
                                                 anchors.left: parent.left
@@ -1399,12 +1409,13 @@ Item {
                 }
 
                 // asks before a saved layout goes
-                Rectangle {
+                SquircleRect {
                     width: parent.width
                     height: Theme.dp(56)
                     radius: Theme.rad(20)
                     visible: layouts.doomed !== null
-                    color: Theme.errorContainer
+                    fillColor: Theme.errorContainer
+                    smoothing: Prefs.squircleF
 
                     LText {
                         anchors.left: parent.left

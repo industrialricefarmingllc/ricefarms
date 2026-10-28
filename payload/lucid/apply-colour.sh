@@ -32,11 +32,12 @@ matugen color hex "$THEME_COLOUR" -m "$MODE" -t "$MATUGEN_SCHEME" --contrast "$M
 jq --arg image "$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null || true)" '.image = $image' \
     "$WORK/scheme.json" > "$WORK/colours.json"
 
-"$LUCID_DIR/render-templates.sh" "$WORK/colours.json" "$MODE" colour || true
+LUCID_DEFER_SIDE_EFFECTS=1 "$LUCID_DIR/render-templates.sh" "$WORK/colours.json" "$MODE" colour || true
 # the login screen cannot read a per-user palette, so paint the theme
 "$LUCID_DIR/sync-sddm.sh" 2>/dev/null || true
 
 # match kitty/GTK to the widget surface the shell just wrote
 "$HOME/.config/lucid/app-surface-sync.sh" 2>/dev/null || true
+( setsid "$HOME/.config/lucid/theme-fanout.sh" --request >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
 
 echo "applied colour $THEME_COLOUR ($MATUGEN_SCHEME, contrast $MATUGEN_CONTRAST, $MODE)"

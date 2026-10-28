@@ -1,8 +1,12 @@
 #include "WindowGlass.hpp"
 #include "Config.hpp"
+#include "GooMorph.hpp"
 #include "Shaders.hpp"
 
 #include <GLES3/gl32.h>
+#include <hyprland/src/desktop/Workspace.hpp>
+#include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprutils/math/Misc.hpp>
@@ -17,7 +21,11 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 // Focused-window tracking for the active glow boost. The window.active bus
 // event publishes the raw address lock-free; snapshots compare against it.
@@ -33,11 +41,16 @@ void onWindowActive(PHLWINDOW win, Desktop::eFocusReason) {
 } // namespace
 
 namespace lg {
+void initWindowBackdrop();
+void exitWindowBackdrop();
+
 void initWindowFocus() {
     s_focusListen = Event::bus()->m_events.window.active.listen(onWindowActive);
+    initWindowBackdrop();
 }
 void exitWindowFocus() {
     s_focusListen.reset();
+    exitWindowBackdrop();
 }
 } // namespace lg
 
@@ -51,6 +64,172 @@ static constexpr std::array<float, 9> FULLSCREEN_PROJECTION = {
     0.0f, 2.0f, 0.0f,
     -1.0f, -1.0f, 1.0f,
 };
+
+static GLuint fbId(const SP<Render::IFramebuffer>& fb);
+
+namespace {
+
+// One pre-window backdrop per monitor. Captured once at RENDER_PRE_WINDOWS
+// (after wallpaper + bottom layers, before any window) and shared by every
+// window whose padded rect does not overlap an earlier window. This removes
+// the per-window blit's read-after-write sync from the common tiled case.
+struct SWindowBackdrop {
+    SP<IFramebuffer> capture;
+    int capDiv = 0;
+    int capW = 0, capH = 0;
+    bool valid = false;
+
+    void begin(int div) {
+        valid = false;
+        capDiv = div;
+    }
+
+    void captureFrom(const SP<IFramebuffer>& src, int div) {
+        if (!src || !src->getTexture())
+            return;
+        const int sw = (int)src->m_size.x, sh = (int)src->m_size.y;
+        if (sw <= 0 || sh <= 0)
+            return;
+        const int dw = std::max(1, sw / std::max(2, div));
+        const int dh = std::max(1, sh / std::max(2, div));
+        if (!capture)
+            capture = g_pHyprRenderer->createFB("liquidglass-win-backdrop");
+        if (!capture)
+            return;
+        if (capture->m_size.x != dw || capture->m_size.y != dh || capture->m_drmFormat != src->m_drmFormat ||
+            capDiv != div) {
+            if (!capture->alloc(dw, dh, src->m_drmFormat))
+                return;
+        }
+        capDiv = div;
+        capW = dw;
+        capH = dh;
+        g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(src));
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(capture));
+        glBlitFramebuffer(0, 0, sw, sh, 0, 0, dw, dh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbId(src));
+        g_pHyprOpenGL->setViewport(0, 0, sw, sh);
+        valid = true;
+    }
+};
+
+auto* WINDOW_BACKDROPS = new std::unordered_map<MONITORID, std::shared_ptr<SWindowBackdrop>>();
+// This frame's already-recorded main-pass window boxes, in draw order.
+auto* WINDOW_BOXES = new std::unordered_map<MONITORID, std::vector<CBox>>();
+
+std::shared_ptr<SWindowBackdrop> backdropFor(MONITORID mon) {
+    auto& slot = (*WINDOW_BACKDROPS)[mon];
+    if (!slot)
+        slot = std::make_shared<SWindowBackdrop>();
+    return slot;
+}
+
+CBox monitorLogicalBox(PHLMONITOR mon) {
+    if (!mon)
+        return {};
+    const float scale = mon->m_scale > 0.0f ? mon->m_scale : 1.0f;
+    return CBox{0.0, 0.0, (double)((int)(mon->m_transformedSize.x / scale)),
+                (double)((int)(mon->m_transformedSize.y / scale))};
+}
+
+class CWindowBackdropPassElement : public IPassElement {
+  public:
+    explicit CWindowBackdropPassElement(std::shared_ptr<SWindowBackdrop> backdrop) : m_backdrop(std::move(backdrop)) {}
+
+    std::vector<UP<IPassElement>> draw() override {
+        if (!m_backdrop)
+            return {};
+        if (g_pHyprRenderer->m_bRenderingSnapshot)
+            return {};
+        const auto caller = g_pHyprRenderer->m_renderData.currentFB;
+        if (!caller)
+            return {};
+        m_backdrop->captureFrom(caller, m_backdrop->capDiv);
+        return {};
+    }
+
+    [[nodiscard]] bool needsLiveBlur() override { return false; }
+    [[nodiscard]] bool needsPrecomputeBlur() override { return false; }
+    [[nodiscard]] std::optional<CBox> boundingBox() override {
+        return monitorLogicalBox(g_pHyprRenderer->m_renderData.pMonitor.lock());
+    }
+    [[nodiscard]] bool disableSimplification() override { return false; }
+    [[nodiscard]] bool undiscardable() override { return false; }
+    [[nodiscard]] const char* passName() override { return "CWindowBackdropPassElement"; }
+    [[nodiscard]] ePassElementType type() override { return EK_CUSTOM; }
+
+  private:
+    std::shared_ptr<SWindowBackdrop> m_backdrop;
+};
+
+CHyprSignalListener g_stageListen;
+
+bool workspaceAnimating(PHLMONITOR mon) {
+    if (!mon)
+        return false;
+    const auto ws = mon->m_activeWorkspace;
+    if (!ws)
+        return false;
+    const auto off = ws->m_renderOffset->value();
+    if (ws->m_renderOffset->isBeingAnimated() || ws->m_alpha->isBeingAnimated())
+        return true;
+    if (std::abs(off.x) > 0.5 || std::abs(off.y) > 0.5 || ws->m_alpha->value() < 0.999f)
+        return true;
+    return false;
+}
+
+void onWindowStage(eRenderStage stage) {
+    if (stage == RENDER_POST) {
+        for (auto& [id, bd] : *WINDOW_BACKDROPS) {
+            if (bd)
+                bd->valid = false;
+        }
+        WINDOW_BOXES->clear();
+        return;
+    }
+    if (stage != RENDER_PRE_WINDOWS)
+        return;
+    if (g_pHyprRenderer->m_bRenderingSnapshot)
+        return;
+    const auto mon = g_pHyprRenderer->m_renderData.pMonitor.lock();
+    if (!mon || mon->isMirror())
+        return;
+    (*WINDOW_BOXES)[mon->m_id].clear();
+    if (lg::getInt("plugin:liquidglass:enabled", 1) == 0)
+        return;
+    const CBox dmg = g_pHyprRenderer->m_renderData.damage.getExtents();
+    if (dmg.w <= 0 || dmg.h <= 0)
+        return;
+    // A slide/morph moves windows, not the wallpaper/bottom layers: the
+    // pre-window capture is still the static backdrop. Keep it and let the
+    // per-window overlap check below decide when a live read is required.
+    // One full-monitor capture amortizes across every non-overlapping glass
+    // pane instead of paying N read-after-write blits per frame.
+    // One consumer does not amortize a full-monitor capture; use the
+    // per-window path (and its content cache) instead.
+    if (lg::windowGlassCount(mon) < 2)
+        return;
+    // If the damage only touches something else (cursor, another window),
+    // every glass pass element will be culled; don't capture a backdrop.
+    if (!lg::windowGlassNeedsFrame(mon, dmg))
+        return;
+    const int capDiv = std::clamp((int)std::round(lg::getFloat("plugin:liquidglass:capture_scale", 4.0f)), 2, 4);
+    auto bd = backdropFor(mon->m_id);
+    bd->begin(capDiv);
+    g_pHyprRenderer->m_renderPass.add(makeUnique<CWindowBackdropPassElement>(bd));
+}
+
+} // namespace
+
+namespace lg {
+void initWindowBackdrop() {
+    g_stageListen = Event::bus()->m_events.render.stage.listen(onWindowStage);
+}
+void exitWindowBackdrop() {
+    g_stageListen.reset();
+}
+} // namespace lg
 
 CWindowGlass::CWindowGlass(PHLWINDOW window) : m_window(window) {}
 
@@ -178,6 +357,21 @@ static GLint loc(GLuint program, const char* name) {
     return glGetUniformLocation(program, name);
 }
 
+// Window shader variant: the layer shader keeps squircle/flare/over-rim
+// support; windows are always under-glass circular rounded boxes. Defining
+// LG_WINDOW after #version lets the compiler strip the dead paths.
+static std::string windowGlassFrag() {
+    std::string src = SHADERS.at("glass.frag");
+    // The embedded strings start with a newline, so inserting after the first
+    // newline would put the define before #version and fail to compile. Anchor
+    // on the version directive itself.
+    const auto version = src.find("#version");
+    const auto nl = version == std::string::npos ? src.find('\n') : src.find('\n', version);
+    if (nl != std::string::npos)
+        src.insert(nl + 1, "#define LG_WINDOW 1\n");
+    return src;
+}
+
 void CWindowGlass::ensureShaders() {
     if (m_shadersOk)
         return;
@@ -190,8 +384,8 @@ void CWindowGlass::ensureShaders() {
     if (!m_bokeh)
         m_bokeh = makeShared<CShader>();
 
-    if (!m_glass->createProgram(SHADERS.at("glass.vert"), SHADERS.at("glass.frag"), true)) {
-        lg::notify("liquidglass: glass.frag failed to compile — window glass disabled");
+    if (!m_glass->createProgram(SHADERS.at("glass.vert"), windowGlassFrag(), true)) {
+        lg::notify("liquidglass: window glass shader failed to compile — window glass disabled");
         return;
     }
     if (!m_kawDown->createProgram(SHADERS.at("glass.vert"), SHADERS.at("kawase_down.frag"), true)) {
@@ -296,12 +490,19 @@ void CWindowGlass::ensureKawase(int hw, int hh, unsigned int format) {
     // null when bokeh off. A (capture) always; B/C (chain) via ensureChain
     // below (over-rim runs a fixed chain even when passes==0). Per-instance
     // (not shared) to avoid realloc thrash alternating window sizes.
-    if (!m_halfA)
+    bool changed = false;
+    if (!m_halfA) {
         m_halfA = g_pHyprRenderer->createFB("liquidglass-win-a");
+        changed = true;
+    }
     if (!m_halfA)
         return;
-    if (m_halfA->m_size.x != hw || m_halfA->m_size.y != hh)
+    if (m_halfA->m_size.x != hw || m_halfA->m_size.y != hh) {
         m_halfA->alloc(hw, hh, format);
+        changed = true;
+    }
+    if (changed)
+        m_captureValid = false;
 }
 
 void CWindowGlass::ensureChain(int hw, int hh, unsigned int format) {
@@ -309,25 +510,43 @@ void CWindowGlass::ensureChain(int hw, int hh, unsigned int format) {
     // passes==0 and no over-rim never run the chain (sharp capture).
     const int qw = std::max(1, hw / 2), qh = std::max(1, hh / 2);
     const int ew = std::max(1, qw / 2), eh = std::max(1, qh / 2);
-    if (!m_halfB)
+    bool changed = false;
+    if (!m_halfB) {
         m_halfB = g_pHyprRenderer->createFB("liquidglass-win-b");
-    if (!m_halfC)
+        changed = true;
+    }
+    if (!m_halfC) {
         m_halfC = g_pHyprRenderer->createFB("liquidglass-win-c");
+        changed = true;
+    }
     if (!m_halfB || !m_halfC)
         return;
-    if (m_halfB->m_size.x != qw || m_halfB->m_size.y != qh)
+    if (m_halfB->m_size.x != qw || m_halfB->m_size.y != qh) {
         m_halfB->alloc(qw, qh, format);
-    if (m_halfC->m_size.x != ew || m_halfC->m_size.y != eh)
+        changed = true;
+    }
+    if (m_halfC->m_size.x != ew || m_halfC->m_size.y != eh) {
         m_halfC->alloc(ew, eh, format);
+        changed = true;
+    }
+    if (changed)
+        m_captureValid = false;
 }
 
 void CWindowGlass::ensureBokeh(int hw, int hh, unsigned int format) {
-    if (!m_halfT)
+    bool changed = false;
+    if (!m_halfT) {
         m_halfT = g_pHyprRenderer->createFB("liquidglass-win-t");
+        changed = true;
+    }
     if (!m_halfT)
         return;
-    if (m_halfT->m_size.x != hw || m_halfT->m_size.y != hh)
+    if (m_halfT->m_size.x != hw || m_halfT->m_size.y != hh) {
         m_halfT->alloc(hw, hh, format);
+        changed = true;
+    }
+    if (changed)
+        m_captureValid = false;
 }
 
 void CWindowGlass::kawaseDown(const SP<Render::IFramebuffer>& src, const SP<Render::IFramebuffer>& dst, float radius) {
@@ -450,7 +669,33 @@ static void diagToastOnce(const std::string& key, const std::string& text) {
     lg::notify(text);
 }
 
+static bool boxEqual(const CBox& a, const CBox& b) {
+    return std::fabs(a.x - b.x) < 1e-3 && std::fabs(a.y - b.y) < 1e-3 && std::fabs(a.w - b.w) < 1e-3 &&
+        std::fabs(a.h - b.h) < 1e-3;
+}
+
+void lg::noteWindowBox(PHLWINDOW win, PHLMONITOR mon) {
+    if (!win || !mon || !win->m_isMapped || win->isHidden())
+        return;
+    Vector2D realPos = win->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    if (PHLWORKSPACE ws = win->m_workspace; ws && !win->m_pinned)
+        realPos = realPos + ws->m_renderOffset->value();
+    realPos = realPos + win->m_floatingOffset;
+    const Vector2D realSize = win->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    CBox box{realPos.x - mon->m_position.x, realPos.y - mon->m_position.y, realSize.x, realSize.y};
+    if (!std::isfinite(box.x) || !std::isfinite(box.y) || box.w <= 0 || box.h <= 0)
+        return;
+    box.scale(mon->m_scale).round().noNegativeSize();
+    if (box.w <= 0 || box.h <= 0)
+        return;
+    g_pHyprRenderer->m_renderData.renderModif.applyToBox(box);
+    if (box.w <= 0 || box.h <= 0)
+        return;
+    (*WINDOW_BOXES)[mon->m_id].push_back(box);
+}
+
 void CWindowGlass::damageLast() {
+    m_captureValid = false;
     if (!m_boundsOk || m_boundsLog.w <= 0 || m_boundsLog.h <= 0)
         return;
     m_boundsOk = false;
@@ -476,6 +721,38 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
         return std::nullopt;
     }
 
+    // A fully opaque window covers the entire glass pane. Drawing it would
+    // only produce pixels the content immediately overwrites, so skip the
+    // whole capture/shader path. opaque() also returns false during alpha
+    // fades, which is exactly where we still want the glass to follow.
+    if (win->opaque()) {
+        diagSkip("opaque", cls);
+        bail();
+        return std::nullopt;
+    }
+
+    // Window open/close fades still skip: at <1 alpha the content is already
+    // fading and drawing a fresh backdrop would flash. Workspace slides are
+    // deliberately NOT skipped any more: glass rides the same crop/offset and
+    // alpha as the window content.
+    const auto& fade = win->alpha(Desktop::View::WINDOW_ALPHA_FADE);
+    if (fade && (fade->isBeingAnimated() || fade->value() < 0.999f)) {
+        diagSkip("window-fade", cls);
+        bail();
+        return std::nullopt;
+    }
+
+    // A transition means the backdrop under every glass pane is changing.
+    // Keep drawing, but disable the shared backdrop and the content-only
+    // cache: both assume a static lower scene.
+    bool wsTransition = workspaceAnimating(monitor);
+    if (PHLWORKSPACE ws = win->m_workspace; ws && !win->m_pinned) {
+        const Vector2D off = ws->m_renderOffset->value();
+        wsTransition = wsTransition || ws->m_renderOffset->isBeingAnimated() || ws->m_alpha->isBeingAnimated() ||
+            std::abs(off.x) > 0.5 || std::abs(off.y) > 0.5 || ws->m_alpha->value() < 0.999f;
+    }
+    const bool transitioning = wsTransition || goo::transitioning(monitor->m_id);
+
     // Window box, global logical px — EXACT upstream REALPOS replication
     // (IHyprRenderer::renderWindow): geometric position + workspace slide
     // offset + floating offset. renderModif is deliberately NOT used here:
@@ -488,6 +765,11 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
         realPos = realPos + ws->m_renderOffset->value();
         wsAlpha = std::clamp(ws->m_alpha->value(), 0.f, 1.f);
     }
+    // Goo fades outgoing windows on WINDOW_ALPHA_MOVE_FROM_WORKSPACE; the
+    // content uses that channel, so the glass must multiply it too or the
+    // pane stays solid under a fading terminal.
+    if (const auto& moveFrom = win->alpha(Desktop::View::WINDOW_ALPHA_MOVE_FROM_WORKSPACE); moveFrom)
+        wsAlpha *= std::clamp(moveFrom->value(), 0.f, 1.f);
     realPos = realPos + win->m_floatingOffset;
     const Vector2D realSize = win->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox logBox{realPos.x, realPos.y, realSize.x, realSize.y};
@@ -524,6 +806,86 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
         bail();
         return std::nullopt;
     }
+
+    // Liquid window motion: a short spring-driven bulge along the axis the
+    // window is moving/growing on. Drag, resize and workspace-move all feed
+    // the same velocity; content and input are untouched, only the glass
+    // silhouette stretches and settles. Directional and capped, so it never
+    // becomes a smear.
+    if (lg::getInt("plugin:liquidglass:window_motion", 1) != 0) {
+        const CBox target = winBox;
+        const auto now = std::chrono::steady_clock::now();
+        if (!m_motionInit) {
+            m_motionInit = true;
+            m_motionT = now;
+            m_motionLast = target;
+            m_motionStretch = 0;
+        } else {
+            float dt = std::chrono::duration<float>(now - m_motionT).count();
+            m_motionT = now;
+            dt = std::clamp(dt, 0.001f, 0.05f);
+            const float cx = (float)(target.x + target.w * 0.5);
+            const float cy = (float)(target.y + target.h * 0.5);
+            const float lx = (float)(m_motionLast.x + m_motionLast.w * 0.5);
+            const float ly = (float)(m_motionLast.y + m_motionLast.h * 0.5);
+            const float vx = (cx - lx) / dt;
+            const float vy = (cy - ly) / dt;
+            const float sxs = (float)(target.w - m_motionLast.w) / dt;
+            const float sys = (float)(target.h - m_motionLast.h) / dt;
+            const float gain = lg::getFloat("plugin:liquidglass:window_motion_gain", 0.00002f);
+            const float maxStretch = std::clamp(lg::getFloat("plugin:liquidglass:window_motion_max", 0.05f), 0.0f, 0.12f);
+            const float speed = std::max(std::sqrt(vx * vx + vy * vy), std::sqrt(sxs * sxs + sys * sys));
+            const float targetStretch = std::clamp(speed * gain, 0.0f, maxStretch);
+            const float blend = 1.0f - std::exp(-dt * 20.0f);
+            m_motionStretch += (targetStretch - m_motionStretch) * blend;
+            if (m_motionStretch > 0.001f) {
+                const float ex = (float)winBox.w * m_motionStretch * 0.5f;
+                const float ey = (float)winBox.h * m_motionStretch * 0.5f;
+                if (std::fabs(vx) + std::fabs(sxs) >= std::fabs(vy) + std::fabs(sys)) {
+                    winBox.x -= ex;
+                    winBox.w += 2.0 * ex;
+                } else {
+                    winBox.y -= ey;
+                    winBox.h += 2.0 * ey;
+                }
+            }
+            m_motionLast = target;
+        }
+    }
+
+    // Shared backdrop eligibility. WINDOW_BOXES holds every main-pass window
+    // drawn earlier this frame, including non-glass ones. If any of them
+    // intersects this window's padded capture area, the shared pre-window
+    // capture no longer represents the backdrop; fall back to the per-window
+    // read of the live framebuffer.
+    // The pre-window capture is the static backdrop even while windows slide
+    // or morph. It remains valid unless an earlier window (possibly also
+    // moving) overlaps this pane's padded capture region; only that case
+    // needs the live read-after-write fallback.
+    bool useShared = true;
+    if (auto it = WINDOW_BOXES->find(monitor->m_id); it != WINDOW_BOXES->end()) {
+        const CBox padded{winBox.x - PAD_PX, winBox.y - PAD_PX, winBox.w + 2 * PAD_PX, winBox.h + 2 * PAD_PX};
+        for (const auto& prev : it->second) {
+            if (!prev.intersection(padded).empty()) {
+                useShared = false;
+                break;
+            }
+        }
+    }
+    if (transitioning)
+        m_captureValid = false;
+
+    // Content-only damage: if every damaged pixel is inside this window and
+    // no earlier window overlaps it, the backdrop behind the glass has not
+    // changed. Reuse the previous blurred capture instead of blitting the
+    // whole pane again. This is the typing/video case; moves, workspace
+    // slides and anything outside the pane still recapture.
+    const CBox dmg = g_pHyprRenderer->m_renderData.damage.getExtents();
+    const bool contentOnly = dmg.w > 0 && dmg.h > 0 && dmg.x >= winBox.x - 1 && dmg.y >= winBox.y - 1 &&
+        dmg.x + dmg.w <= winBox.x + winBox.w + 1 && dmg.y + dmg.h <= winBox.y + winBox.h + 1;
+    const bool reuse = useShared && contentOnly && m_captureValid && m_cacheMon == monitor->m_id &&
+        std::fabs(m_cacheMonScale - monitor->m_scale) < 1e-4 && m_cacheMonSize.x == monitor->m_transformedSize.x &&
+        m_cacheMonSize.y == monitor->m_transformedSize.y && boxEqual(m_cacheBox, winBox);
 
     // Window's own rounding (windowrule + decoration), framebuffer px,
     // clamped to the box. Uniform corners: the window shape is one roundBox.
@@ -610,7 +972,10 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     // (same convention as the matugen tint path).
     const int themeTint = lg::getInt("plugin:liquidglass:tint", 0xeef5f2ff);
     const int winTint = haveTint ? (((tintRgb << 8) & 0xFFFFFF00) | (themeTint & 0xFF)) : themeTint;
-    return SWinDraw{winBox, rad, winTint, wsAlpha, m_glowAdd};
+    SWinDraw out{winBox, rad, winTint, wsAlpha, m_glowAdd};
+    out.useShared = useShared;
+    out.reuseCapture = reuse;
+    return out;
 }
 
 void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
@@ -766,50 +1131,110 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
                     diagToastOnce("null-scratch", "liquidglass: window glass scratch alloc failed");
                 } else {
                     g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
+                    // Over-rim captures the composed framebuffer, not the
+                    // backdrop; it must never leave a reusable under-glass
+                    // cache behind.
+                    if (overRim)
+                        m_captureValid = false;
 
-                    // 1. Downsample blit straight into halfA.
-                    // PERF: no glClear (blit overwrites; was fullscreen fill).
-                    glBindFramebuffer(GL_FRAMEBUFFER, fbId(m_halfA));
-                    g_pHyprOpenGL->setViewport(0, 0, hw, hh);
-                    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(caller));
-                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_halfA));
-                    glBlitFramebuffer(rx0, ry0, rx1, ry1, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                    // Content-only damage hit: the blurred backdrop in
+                    // m_halfA (and m_halfT when bokeh is on) is still exact.
+                    // Skip the blit/sync and the Kawase chain entirely; the
+                    // glass shader below still redraws its damaged region.
+                    const bool cacheOk = !overRim && d.reuseCapture && d.useShared && m_captureValid &&
+                        m_cacheMon == monitor->m_id && std::fabs(m_cacheMonScale - monitor->m_scale) < 1e-4 &&
+                        m_cacheMonSize.x == monitor->m_transformedSize.x &&
+                        m_cacheMonSize.y == monitor->m_transformedSize.y && boxEqual(m_cacheBox, d.box) &&
+                        m_cacheCapDiv == T.capDiv && m_cachePasses == passes && m_cacheHw == hw && m_cacheHh == hh &&
+                        m_cacheBokehOn == bokehOn && (!bokehOn || std::fabs(m_cacheBokeh - bokeh) < 1e-4) &&
+                        m_cacheTuneGen == lg::tuneGeneration();
 
-                    // 1b. Sharp copy for the over-rim progressive mix (same
-                    // region and UVs as L0, no Kawase passes run on it).
-                    if (overRim) {
-                        glBindFramebuffer(GL_FRAMEBUFFER, fbId(m_sharp));
-                        g_pHyprOpenGL->setViewport(0, 0, hw, hh);
-                        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(caller));
-                        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_sharp));
-                        glBlitFramebuffer(rx0, ry0, rx1, ry1, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-                    }
-
-                    // 2. Dual-Kawase chain in halfA -> halfB -> halfC and back.
-                    // iters>=3 runs the depth-2 cycle twice. Skipped when
-                    // passes==0 (sharp capture). Over-rim instead runs the
-                    // fixed r=3 / 2-iteration chain: the shader ramps sharp
-                    // (edge) to this (band end) across its own band width.
-                    if (overRim) {
-                        const float rimEffR = 3.0f * std::sqrt(2.0f) * 0.5f * (float)monitor->m_scale;
-                        kawaseDown(m_halfA, m_halfB, rimEffR);
-                        kawaseDown(m_halfB, m_halfC, rimEffR);
-                        kawaseUp(m_halfC, m_halfB, rimEffR);
-                        kawaseUp(m_halfB, m_halfA, rimEffR);
-                    } else if (passes > 0) {
-                        const int rounds = T.userPasses >= 3 ? 2 : 1;
-                        for (int k = 0; k < rounds; k++) {
-                            kawaseDown(m_halfA, m_halfB, effR);
-                            if (T.userPasses >= 2) {
-                                kawaseDown(m_halfB, m_halfC, effR);
-                                kawaseUp(m_halfC, m_halfB, effR);
+                    if (!cacheOk) {
+                        bool fromShared = false;
+                        // 1. Copy the window's sub-rect from this frame's
+                        // pre-window backdrop when an earlier window does not
+                        // overlap it. This is a read from a stable texture,
+                        // not the current framebuffer, so it does not force
+                        // the per-window read-after-write pipeline drain.
+                        if (d.useShared) {
+                            auto bd = backdropFor(monitor->m_id);
+                            if (bd && bd->valid && bd->capDiv == T.capDiv && bd->capture && bd->capture->getTexture()) {
+                                const int sx0 = rx0 / T.capDiv, sy0 = ry0 / T.capDiv;
+                                const int sw = std::max(1, rw / T.capDiv), sh = std::max(1, rh / T.capDiv);
+                                if (sx0 >= 0 && sy0 >= 0 && sx0 + sw <= bd->capW && sy0 + sh <= bd->capH) {
+                                    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(bd->capture));
+                                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_halfA));
+                                    glBlitFramebuffer(sx0, sy0, sx0 + sw, sy0 + sh, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT,
+                                                      GL_LINEAR);
+                                    fromShared = true;
+                                }
                             }
-                            kawaseUp(m_halfB, m_halfA, effR);
+                        }
+                        // 1b. Fallback: overlapping/stacked windows need the
+                        // live composited framebuffer, including everything
+                        // drawn before this window.
+                        if (!fromShared) {
+                            // PERF: no glClear (blit overwrites; was fullscreen fill).
+                            glBindFramebuffer(GL_FRAMEBUFFER, fbId(m_halfA));
+                            g_pHyprOpenGL->setViewport(0, 0, hw, hh);
+                            glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(caller));
+                            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_halfA));
+                            glBlitFramebuffer(rx0, ry0, rx1, ry1, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                        }
+
+                        // 1c. Sharp copy for the over-rim progressive mix
+                        // (same region and UVs as L0, no Kawase passes run on it).
+                        if (overRim) {
+                            glBindFramebuffer(GL_FRAMEBUFFER, fbId(m_sharp));
+                            g_pHyprOpenGL->setViewport(0, 0, hw, hh);
+                            glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(caller));
+                            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_sharp));
+                            glBlitFramebuffer(rx0, ry0, rx1, ry1, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                        }
+
+                        // 2. Dual-Kawase chain in halfA -> halfB -> halfC and back.
+                        // iters>=3 runs the depth-2 cycle twice. Skipped when
+                        // passes==0 (sharp capture). Over-rim instead runs the
+                        // fixed r=3 / 2-iteration chain: the shader ramps sharp
+                        // (edge) to this (band end) across its own band width.
+                        if (overRim) {
+                            const float rimEffR = 3.0f * std::sqrt(2.0f) * 0.5f * (float)monitor->m_scale;
+                            kawaseDown(m_halfA, m_halfB, rimEffR);
+                            kawaseDown(m_halfB, m_halfC, rimEffR);
+                            kawaseUp(m_halfC, m_halfB, rimEffR);
+                            kawaseUp(m_halfB, m_halfA, rimEffR);
+                        } else if (passes > 0) {
+                            const int rounds = T.userPasses >= 3 ? 2 : 1;
+                            for (int k = 0; k < rounds; k++) {
+                                kawaseDown(m_halfA, m_halfB, effR);
+                                if (T.userPasses >= 2) {
+                                    kawaseDown(m_halfB, m_halfC, effR);
+                                    kawaseUp(m_halfC, m_halfB, effR);
+                                }
+                                kawaseUp(m_halfB, m_halfA, effR);
+                            }
+                        }
+                        // 2b. Bokeh scatter into the L0-size temp.
+                        if (bokehOn)
+                            bokehPass(effR, bokeh);
+
+                        // This capture is reusable next frame if only window
+                        // content changes.
+                        if (!overRim) {
+                            m_captureValid = true;
+                            m_cacheBox = d.box;
+                            m_cacheMon = monitor->m_id;
+                            m_cacheMonScale = monitor->m_scale;
+                            m_cacheMonSize = monitor->m_transformedSize;
+                            m_cacheCapDiv = T.capDiv;
+                            m_cachePasses = passes;
+                            m_cacheHw = hw;
+                            m_cacheHh = hh;
+                            m_cacheBokehOn = bokehOn;
+                            m_cacheBokeh = bokeh;
+                            m_cacheTuneGen = lg::tuneGeneration();
                         }
                     }
-                    // 2b. Bokeh scatter into the L0-size temp.
-                    if (bokehOn)
-                        bokehPass(effR, bokeh);
 
                     // 3. Glass quad over the window rect (+shadow margin E).
                     {
@@ -834,14 +1259,16 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
                         uBlurFb->getTexture()->bind();
                         uBlurFb->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                         uBlurFb->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                        // Sharp side of the over-rim mix on unit 1 (regular
-                        // pass parks the same texture there, mix disabled).
-                        glActiveTexture(GL_TEXTURE1);
-                        const auto sharpTex = overRim ? m_sharp->getTexture() : uBlurFb->getTexture();
-                        sharpTex->bind();
-                        sharpTex->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                        sharpTex->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                        glActiveTexture(GL_TEXTURE0);
+                        // Sharp side of the over-rim mix on unit 1. Under-glass
+                        // windows have no rim overdraw and the specialized
+                        // shader strips uSharp, so don't bind it there.
+                        if (overRim) {
+                            glActiveTexture(GL_TEXTURE1);
+                            m_sharp->getTexture()->bind();
+                            m_sharp->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                            m_sharp->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                            glActiveTexture(GL_TEXTURE0);
+                        }
 
                         auto shader = g_pHyprOpenGL->useShader(m_glass);
                         glUniformMatrix3fv(m_gu.proj, 1, GL_TRUE, proj.getMatrix().data());
@@ -868,16 +1295,16 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
                         glUniform1f(m_gu.glowE1, T.glowE1);
                         glUniform1f(m_gu.glowT, T.glowT);
                         glUniform1f(m_gu.usePill, 1.0f);
-                        // Windows always render circular glass, ignoring the
-                        // shared squircle_f: Hyprland core clips window
-                        // textures to plain circular rounds, so a squircle
-                        // rim leaves a lune between the clip arc and the
-                        // glass arc at every corner - the "patch" artifact.
-                        // The radius still applies (big round windows); only
-                        // the smoothing is forced off. Layer pills keep the
-                        // global value (nothing clips them). The pibble
-                        // reveal's explicit sq: 0 agrees with this anyway.
-                        glUniform1f(m_gu.squircleF, 0.0f);
+                        // Window glass follows the same squircle exponent as
+                        // the shell/window content (Hyprland's rounding_power
+                        // is derived from the same squircleF). A config value
+                        // >= 0 overrides it; 0 keeps the old circular glass.
+                        {
+                            float wsf = lg::getFloat("plugin:liquidglass:window_squircle_f", -1.0f);
+                            if (wsf < 0.0f)
+                                wsf = lg::getFloat("plugin:liquidglass:squircle_f", 0.5f);
+                            glUniform1f(m_gu.squircleF, std::clamp(wsf, 0.0f, 1.0f));
+                        }
                         glUniform4f(m_gu.radii, d.rad, d.rad, d.rad, d.rad);
                         glUniform2f(m_gu.box, (float)(px1 - px0), (float)(py1 - py0));
                         // Window-only strength (default: follow shared opacity).

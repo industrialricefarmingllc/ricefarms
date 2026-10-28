@@ -11,7 +11,7 @@
 #
 # Groups (--only):
 #   a = tty1/kmscon <-> tty7/hyprland + F15 switch + autologin (getty/kmscon/sddm, NOPASSWD, linger) + key repeat
-#   b = hyprland + lucid shell + e-ink shader + pibble + hotkeys + liquid-glass/goo plugins + hypr helpers
+#   b = hyprland + lucid shell + e-ink shader + lucid launcher/quick-translate + edge-swipe + hotkeys + liquid-glass/goo plugins + hypr helpers
 #   c = kitty + bucklespring/audio + neovim + zed + HOME scripts
 #   d = dotfiles (zsh/bash/X/tmux-conf/kcminputrc + oh-my-zsh + opencode redacted; tmux plugins are group f)
 #   e = matugen + wallpapers
@@ -41,9 +41,9 @@ die()  { log "ERROR: $*" >&2; return 1; }
 
 usage() {
   cat <<'EOF'
-ricefarms one-click installer — replicates tty/kmscon+hyprland, lucid, pibble,
-shaders, kitty, bucklespring, nvim, zed, HOME scripts, dotfiles, matugen,
-wallpapers, tmux.
+ricefarms one-click installer — replicates tty/kmscon+hyprland, lucid
+(launcher/quick-translate/edge-swipe), shaders, kitty, bucklespring, nvim,
+zed, HOME scripts, dotfiles, matugen/skwd wallpapers, tmux.
 
 Usage: ./install.sh [options]
   --yes               non-interactive (skip confirm)
@@ -143,11 +143,15 @@ RICE_PACKAGES=(
   hyprpolkitagent xdg-desktop-portal-hyprland hyprland-qt-support
   kitty kmscon matugen neovim quickshell sway tmux waybar zsh
   foot dunst awww pipewire wireplumber carla
+  iptsd
   noto-fonts ttf-jetbrains-mono
   git base-devel rustup python-pipx evtest inotify-tools
   ffmpeg mpv socat jq wl-clipboard hyprshot
 )
-AUR_PACKAGES=( helium-browser-bin input-remapper-bin linux-wallpaperengine )
+# skwd-* are AUR (wallpaper daemon + matugen template set); helium is the
+# browser; input-remapper/linux-wallpaperengine are optional rice extras.
+AUR_PACKAGES=( helium-browser-bin input-remapper-bin linux-wallpaperengine
+  skwd-deck skwd-wall-v2 skwd-paper )
 
 phase_packages() {
   info "phase: packages (pacman + aur)"
@@ -286,9 +290,9 @@ enable_tty_units() {
   fi
 }
 
-# --------------------------------- b) hyprland/lucid/shader/pibble/hotkeys ---
+# -------------------- b) hyprland/lucid/shader/launcher/hotkeys ---
 phase_hypr_stack() {
-  info "phase B: hyprland + lucid + e-ink shader + pibble + hotkeys"
+  info "phase B: hyprland + lucid + e-ink shader + launcher/translate + hotkeys"
   local P="$PAYLOAD_DIR"
   install_dir "$P/hypr" "$TARGET_HOME/.config/hypr"
   install_dir "$P/quickshell" "$TARGET_HOME/.config/quickshell"
@@ -296,12 +300,14 @@ phase_hypr_stack() {
   install_file "$P/local-bin/nautilus" "$TARGET_HOME/.local/bin/nautilus" "755"
   install_file "$P/dbus-1/services/org.gnome.Nautilus.service" "$TARGET_HOME/.local/share/dbus-1/services/org.gnome.Nautilus.service" "644"
   install_file "$P/systemd-user/quickshell.service" "$TARGET_HOME/.config/systemd/user/quickshell.service" "644"
+  # pibble is retained as source only: the Lucid launcher replaced it on
+  # 2026-10-27 and there is no ~/.local/bin/pibble symlink on the source host.
   install_dir "$P/pibble" "$TARGET_HOME/src/pibble"
-  # ~/.local/bin/pibble symlink
-  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: ln -sf \$HOME/src/pibble/pibble \$HOME/.local/bin/pibble";
-  else mkdir -p "$TARGET_HOME/.local/bin"; ln -sf "$TARGET_HOME/src/pibble/pibble" "$TARGET_HOME/.local/bin/pibble"; fi
   install_dir "$P/lucid-capture" "$TARGET_HOME/src/lucid-capture"
+  install_dir "$P/hypr-edge-swipe" "$TARGET_HOME/src/hypr-edge-swipe"
+  install_dir "$P/quick-translate" "$TARGET_HOME/src/quick-translate"
   build_lucid_capture
+  build_hypr_edge_swipe
   build_gtk_shim
   phase_hypr_plugins
   # user units: quickshell managed by hyprland.lua watchdog, service is fallback
@@ -316,6 +322,14 @@ build_lucid_capture() {
   if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; return 0; fi
   [[ -f "$d/Makefile" ]] || { warn "lucid-capture src missing — skipping build"; return 0; }
   (run_cmd make -C "$d" || warn "lucid-capture build failed — Hyprland runs fine without it (source has it DISABLED since 2026-09-03 SEGV)") || true
+}
+
+build_hypr_edge_swipe() {
+  info "build: hypr-touch-gestures.so (edge-swipe touch gestures)"
+  local d="$TARGET_HOME/src/hypr-edge-swipe"
+  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; return 0; fi
+  [[ -f "$d/Makefile" ]] || { warn "hypr-edge-swipe src missing — touch gestures will be unavailable"; return 0; }
+  (run_cmd make -C "$d") || warn "hypr-edge-swipe build failed — install hyprland headers matching your compositor, then make -C ~/src/hypr-edge-swipe"
 }
 
 build_gtk_shim() {
@@ -342,6 +356,8 @@ build_gtk_shim() {
 # gooWorkspacesEnabled preference (never unloads .so: live unload SEGVs).
 # gpu-tty-foot is the tty3 foot kiosk.
 HYPR_HELPERS=(hypr-inputs-ready minimize-all restore-all liquid-glass-toggle pin-all unpin-all gpu-tty-foot)
+# System-wide helpers that are not Hyprland-specific (installed by group c).
+SYSTEM_HELPERS=(bulk)
 
 phase_hypr_plugins() {
   info "hypr plugins: helpers + liquid-glass-hypr (+goo) build"
@@ -379,12 +395,14 @@ verify_hypr_plugins() {
   [[ -f "$P/liquid-glass-hypr/Makefile" ]] || { warn "liquid-glass-hypr Makefile missing"; ok=0; }
   [[ -f "$P/liquid-glass-hypr/pin.txt" ]] || { warn "liquid-glass-hypr pin missing"; ok=0; }
   [[ -f "$P/hypr-goo-workspaces/Makefile" ]] || { warn "hypr-goo-workspaces src missing"; ok=0; }
+  [[ -f "$P/hypr-edge-swipe/Makefile" ]] || { warn "hypr-edge-swipe src missing"; ok=0; }
+  [[ -f "$P/hypr-edge-swipe/src/main.cpp" ]] || { warn "hypr-edge-swipe main.cpp missing"; ok=0; }
   [[ $ok -eq 1 ]] && info "hypr plugins payload OK"
   return 0
 }
 
 verify_hypr_binds() {
-  # sanity: F15 + pibble + shader binds must exist in payload (fail fast on bad export)
+  # sanity: F15 + launcher + edge-swipe + shader binds must exist in payload (fail fast on bad export)
   # NOTE: grep-free (sandbox blocks *grep*; target uses bash builtins only)
   local P="$PAYLOAD_DIR"
   local ok=1
@@ -394,13 +412,14 @@ verify_hypr_binds() {
       [[ -f "$f" ]] && blob+="$(cat "$f")"$'\n'
     done
   fi
-  for needle in "F15" "pibble toggle" "desktop-toggle"; do
+  for needle in "F15" "desktop-toggle" "quickshell" "hypr-touch-gestures"; do
     if [[ -d "$P/hypr" && "$blob" != *"$needle"* ]]; then
       warn "hypr payload missing expected bind/needle: $needle"; ok=0
     fi
   done
-  # shader files
-  for s in main.glsl reading_mode.glsl matugen-agx.glsl; do
+  # shader files (matugen-agx.glsl was retired with the AgX path; the e-ink
+  # reading shader + main are the live pair)
+  for s in main.glsl reading_mode.glsl; do
     [[ -f "$P/hypr/shaders/$s" ]] || { warn "shader missing: $s"; ok=0; }
   done
   [[ $ok -eq 1 ]] && info "hypr binds+shaders OK" || warn "hypr verification warnings (see above)"
@@ -433,7 +452,12 @@ phase_apps() {
   install_dir "$P/home-scripts" "$TARGET_HOME/.home-scripts-staging"
   activate_home_scripts
   install_dir "$P/local-bin" "$TARGET_HOME/.local/bin"
-  # user units for audio
+  # system-wide helpers (bulk cgroup runner)
+  for b in "${SYSTEM_HELPERS[@]}"; do
+    install_file "$P/usr-local-bin/$b" "$USRLOCAL_BIN/$b" "755"
+  done
+  # user units for audio (auto-brightness/skwd are enabled in phase D, after
+  # the full systemd-user tree has been installed)
   if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: systemctl --user enable --now bucklespring vac vac-enforcer";
   else
     run_cmd systemctl --user daemon-reload || true
@@ -545,12 +569,49 @@ phase_dotfiles() {
   install_opencode
   # systemd user units (all of them, merged)
   install_dir "$P/systemd-user" "$TARGET_HOME/.config/systemd/user"
+  fix_user_unit_symlinks
+  # enable units whose files live in the systemd-user tree (not installed by
+  # phase C): ambient-light auto-brightness + skwd wallpaper daemon
+  if [[ $DRY_RUN -eq 1 ]]; then
+    log "DRY-RUN: systemctl --user daemon-reload; systemctl --user enable --now auto-brightness.service; systemctl --user enable skwd-walld.service"
+  else
+    run_cmd systemctl --user daemon-reload || true
+    run_cmd systemctl --user enable --now auto-brightness.service || true
+    run_cmd systemctl --user enable skwd-walld.service || true
+  fi
   # misc small configs vendored 1:1
   for sub in foot dunst btop opencode sway waybar; do
     [[ -d "$P/config-$sub" ]] && install_dir "$P/config-$sub" "$TARGET_HOME/.config/$sub"
   done
+  # skwd wallpaper daemon config (AUR skwd-deck/skwd-wall-v2) + translate state
+  install_dir "$P/skwd-wall-v2" "$TARGET_HOME/.config/skwd-wall-v2"
+  install_dir "$P/config-quick-translate" "$TARGET_HOME/.config/quick-translate"
+  # GTK surface + Helium flags (Lucid writes gtk.css itself; these are the
+  # static settings/rc files it does not own)
+  install_file "$P/gtk/dot.gtkrc-2.0" "$TARGET_HOME/.gtkrc-2.0" "644"
+  install_file "$P/gtk/gtk-3.0-settings.ini" "$TARGET_HOME/.config/gtk-3.0/settings.ini" "644"
+  install_file "$P/gtk/gtk-4.0-settings.ini" "$TARGET_HOME/.config/gtk-4.0/settings.ini" "644"
+  install_file "$P/config-helium-browser-flags.conf" "$TARGET_HOME/.config/helium-browser-flags.conf" "644"
   # fonts note
   info "fonts: GitLab Mono (kmscon) + Noto Sans Mono (kitty) — install via pacman/aur if missing (fc-list | check)"
+}
+
+# Exported .wants symlinks bake in /home/nicerice (source host). Repoint them
+# at the target home so a differently-named user still gets the same units.
+fix_user_unit_symlinks() {
+  local dir="$TARGET_HOME/.config/systemd/user"
+  [[ -d "$dir" ]] || return 0
+  if [[ $DRY_RUN -eq 1 ]]; then
+    log "DRY-RUN: rewrite /home/nicerice -> $TARGET_HOME in $dir symlinks"
+    return 0
+  fi
+  local link target
+  while IFS= read -r -d '' link; do
+    target="$(readlink "$link" 2>/dev/null || true)"
+    if [[ "$target" == /home/nicerice/* ]]; then
+      ln -sfn "${target/\/home\/nicerice/$TARGET_HOME}" "$link"
+    fi
+  done < <(find "$dir" -type l -print0 2>/dev/null)
 }
 
 # oh-my-zsh framework: stock upstream at pinned commit + vendored custom/.
@@ -587,7 +648,7 @@ install_opencode() {
   install_dir "$P/opencode-home" "$TARGET_HOME/.opencode"
   for cfg in "$TARGET_HOME/.config/opencode/opencode.json" "$TARGET_HOME/.config/opencode/opencode.jsonc"; do
     if [[ -f "$cfg" && "$(cat "$cfg")" == *'${CONTEXT7_API_KEY}'* ]]; then
-      warn "opencode: $cfg still has \$${CONTEXT7_API_KEY} placeholder — insert your key (never commit it)"
+      warn "opencode: $cfg still has \${CONTEXT7_API_KEY} placeholder — insert your key (never commit it)"
     fi
   done
   # plugin deps (tui-matugen-live needs node_modules): best-effort, offline-safe
@@ -686,6 +747,20 @@ export_dir() {
   log "export-dir: $src -> $dst"
 }
 
+# Strip editor/runtime dreck that must never land in the repo: timestamped
+# backups, live pre-change copies, Python caches and compiled objects. The
+# live tree is full of these (they are what makes a raw cp -a unreadable).
+prune_export_junk() {
+  local d="$1"
+  [[ -d "$d" ]] || return 0
+  find "$d" \
+    \( -name '*.bak' -o -name '*.bak.*' -o -name '*.bak-*' \
+       -o -name '*.backup-*' -o -name '*.pre-*' \
+       -o -name '__pycache__' -o -name '*.pyc' \
+       -o -name '*.o' -o -name '*.so.*' \) \
+    -prune -exec rm -rf {} + 2>/dev/null || true
+}
+
 export_payload() {
   info "exporting live system -> $PAYLOAD_DIR (+ large tarballs -> $LARGE_DIR)"
   local S="$SOURCE_HOME" P="$PAYLOAD_DIR"
@@ -706,19 +781,29 @@ export_payload() {
   export_file "$S/.config/desktop-toggle/config" "$P/desktop-toggle/config"
   export_file "$S/.zprofile" "$P/zsh/dot.zprofile"
   # b) hypr/lucid/pibble/shader
-  export_dir "$S/.config/hypr" "$P/hypr-tmp"
-  # prune hypr cache dreck from export (keep lua/conf/colors/shaders/scripts/wallpapers state)
+  # All top-level lua modules (hyprland/custom/shader + lucid-{glass,monitors,
+  # settings,specials,startup}.lua written by Lucid Settings) and conf files.
   mkdir -p "$P/hypr"
-  for f in hyprland.lua custom.lua shader.lua hyprland.conf custom.conf colors.conf colors.lua hyprpaper.conf current_wallpaper; do
-    [[ -e "$S/.config/hypr/$f" ]] && cp -a "$S/.config/hypr/$f" "$P/hypr/$f"
+  for f in "$S"/.config/hypr/*.lua "$S"/.config/hypr/*.conf "$S"/.config/hypr/current_wallpaper; do
+    [[ -e "$f" ]] && cp -a "$f" "$P/hypr/"
   done
   export_dir "$S/.config/hypr/shaders" "$P/hypr/shaders"
   export_dir "$S/.config/hypr/scripts" "$P/hypr/scripts"
-  rm -rf "$P/hypr-tmp"
+  prune_export_junk "$P/hypr"
   export_dir "$S/.config/quickshell" "$P/quickshell"
   export_dir "$S/.config/lucid" "$P/lucid"
+  prune_export_junk "$P/quickshell"
+  prune_export_junk "$P/lucid"
   export_file "$S/.config/systemd/user/quickshell.service" "$P/systemd-user/quickshell.service"
   export_file "$S/.local/share/dbus-1/services/org.gnome.Nautilus.service" "$P/dbus-1/services/org.gnome.Nautilus.service"
+  # skwd wallpaper daemon (skwd-deck/skwd-wall-v2 AUR packages) user config,
+  # including its matugen template set.
+  export_dir "$S/.config/skwd-wall-v2" "$P/skwd-wall-v2"
+  prune_export_junk "$P/skwd-wall-v2"
+  # quick-translate: installed widget lives inside ~/.config/quickshell, but
+  # keep the standalone source repo for reference/reinstall.
+  export_dir "$S/.config/quick-translate" "$P/config-quick-translate"
+  prune_export_junk "$P/config-quick-translate"
   # pibble: full dir except .git
   if [[ -d "$S/src/pibble" ]]; then
     mkdir -p "$P/pibble"; (cd "$S/src/pibble" && tar --exclude=.git -cf - .) | (cd "$P/pibble" && tar -xf -); log "export-dir: src/pibble -> payload/pibble"
@@ -730,12 +815,18 @@ export_payload() {
     mkdir -p "$P/lucid-capture/src"
     for f in "$S"/src/lucid-capture/src/*.{cpp,hpp,h}; do [[ -e "$f" ]] && cp -a "$f" "$P/lucid-capture/src/"; done
   fi
-  # hypr plugins: liquid-glass-hypr (goo merged in) + retired goo source.
-  # Pruned: .git, build artifacts (*.o/*.so*), generated Shaders.hpp.
-  for proj in liquid-glass-hypr hypr-goo-workspaces; do
+  # hypr plugins/app sources:
+  #   liquid-glass-hypr (goo merged in), retired goo source,
+  #   hypr-edge-swipe (touch gesture plugin, loaded by custom.lua),
+  #   quick-translate (standalone source for the Lucid translate widget).
+  # Pruned: .git, build artifacts (*.o/*.so*), generated Shaders.hpp,
+  # timestamped backups and Python caches.
+  for proj in liquid-glass-hypr hypr-goo-workspaces hypr-edge-swipe quick-translate; do
     if [[ -d "$S/src/$proj" ]]; then
       mkdir -p "$P/$proj"
-      (cd "$S/src/$proj" && tar --exclude=.git --exclude='*.o' --exclude='*.so*' --exclude='*.bak' --exclude='Shaders.hpp' -cf - .) | (cd "$P/$proj" && tar -xf -)
+      (cd "$S/src/$proj" && tar --exclude=.git --exclude='*.o' --exclude='*.so*' \
+        --exclude='*.bak*' --exclude='__pycache__' --exclude='*.pyc' \
+        --exclude='Shaders.hpp' -cf - .) | (cd "$P/$proj" && tar -xf -)
       log "export-dir: src/$proj -> payload/$proj (pruned)"
     fi
   done
@@ -744,14 +835,31 @@ export_payload() {
     (cd "$S/src/liquid-glass-hypr" && git status --short 2>/dev/null > "$P/liquid-glass-hypr/local-mods.txt") || true
     log "export: liquid-glass-hypr pin $(cat "$P/liquid-glass-hypr/pin.txt" 2>/dev/null)"
   fi
+  for proj in hypr-edge-swipe quick-translate; do
+    if [[ -d "$S/src/$proj/.git" ]]; then
+      (cd "$S/src/$proj" && git rev-parse HEAD 2>/dev/null > "$P/$proj/pin.txt") || echo unknown > "$P/$proj/pin.txt"
+      log "export: $proj pin $(cat "$P/$proj/pin.txt" 2>/dev/null)"
+    fi
+  done
+  # lucid-shell upstream provenance (the installed copy is payload/quickshell,
+  # which carries local mods; the pin tells you which upstream it started from)
+  if [[ -d "$S/src/lucid-shell/.git" ]]; then
+    (cd "$S/src/lucid-shell" && git rev-parse HEAD 2>/dev/null > "$P/lucid-shell-pin.txt") || echo unknown > "$P/lucid-shell-pin.txt"
+    (cd "$S/src/lucid-shell" && git status --short 2>/dev/null > "$P/lucid-shell-local-mods.txt") || true
+    log "export: lucid-shell pin $(cat "$P/lucid-shell-pin.txt" 2>/dev/null)"
+  fi
   # /usr/local/bin hypr helpers (small scripts, shipped verbatim; username
-  # rewrite happens at install time)
-  for b in "${HYPR_HELPERS[@]}"; do
+  # rewrite happens at install time) + system-wide helpers (bulk cgroup runner)
+  for b in "${HYPR_HELPERS[@]}" "${SYSTEM_HELPERS[@]}"; do
     export_file "/usr/local/bin/$b" "$P/usr-local-bin/$b"
   done
   # c) apps
   export_dir "$S/.config/kitty" "$P/kitty"
+  prune_export_junk "$P/kitty"
   export_file "$S/.config/systemd/user/bucklespring.service" "$P/systemd-user/bucklespring.service"
+  if [[ -d "$S/src/bucklespring/.git" ]]; then
+    (cd "$S/src/bucklespring" && git rev-parse HEAD 2>/dev/null > "$P/bucklespring-pin.txt") || echo unknown > "$P/bucklespring-pin.txt"
+  fi
   export_dir "$S/audio-stack" "$P/audio-stack"
   export_dir "$S/.config/pipewire" "$P/pipewire"
   export_dir "$S/.config/wireplumber" "$P/wireplumber"
@@ -759,6 +867,7 @@ export_payload() {
   export_file "$S/.config/systemd/user/vac.service" "$P/systemd-user/vac.service"
   export_file "$S/.config/systemd/user/vac-enforcer.service" "$P/systemd-user/vac-enforcer.service"
   export_dir "$S/.config/nvim" "$P/nvim"
+  prune_export_junk "$P/nvim"
   export_dir "$S/.config/zed" "$P/zed-config-tmp"
   mkdir -p "$P/zed-config"
   for f in settings.json keymap.json; do [[ -f "$S/.config/zed/$f" ]] && cp -a "$S/.config/zed/$f" "$P/zed-config/$f"; done
@@ -771,11 +880,12 @@ export_payload() {
   : > "$P/local-bin/ELFS_SKIPPED.txt" # idempotent export: no dupes across runs
   for f in "$S"/*.sh; do [[ -e "$f" ]] && cp -a "$f" "$P/home-scripts/"; done
   for f in "$S"/.local/bin/*; do
-    [[ -e "$f" ]] || continue
+    [[ -f "$f" || -L "$f" ]] || continue   # skip __pycache__/dirs
     # ELF check without grep (sandbox blocks *grep*): use `file` output + shell match
     if [[ "$(file "$f" 2>/dev/null)" == *ELF* ]]; then echo "$(basename "$f") ELF-skip" >> "$P/local-bin/ELFS_SKIPPED.txt";
     else cp -a "$f" "$P/local-bin/"; fi
   done
+  prune_export_junk "$P/local-bin"
   (cd "$S/src/zed" 2>/dev/null && git rev-parse HEAD 2>/dev/null || echo unknown) > "$P/zed-pin.txt"
   # d) dotfiles
   export_file "$S/.zshrc" "$P/zsh/dot.zshrc"
@@ -811,14 +921,21 @@ export_payload() {
   export_dir "$S/.config/systemd/user" "$P/systemd-user-full"
   # merge all user units into payload/systemd-user (canonical)
   mkdir -p "$P/systemd-user"; cp -a "$P/systemd-user-full/." "$P/systemd-user/" 2>/dev/null || true; rm -rf "$P/systemd-user-full"
+  prune_export_junk "$P/systemd-user"
   for sub in foot dunst btop opencode sway waybar; do
     if [[ -d "$S/.config/$sub" ]]; then
       mkdir -p "$P/config-$sub"
       # exclude caches/build dreck (node_modules, .o/.so, Cache, cache)
-      (cd "$S/.config/$sub" && tar --exclude=node_modules --exclude='*.o' --exclude='*.so' --exclude=Cache --exclude=cache -cf - .) | (cd "$P/config-$sub" && tar -xf -)
+      (cd "$S/.config/$sub" && tar --exclude=node_modules --exclude='*.o' --exclude='*.so' --exclude=Cache --exclude=cache --exclude=service.json -cf - .) | (cd "$P/config-$sub" && tar -xf -)
+      prune_export_junk "$P/config-$sub"
       log "export-dir: .config/$sub -> payload/config-$sub (pruned)"
     fi
   done
+  # GTK theme surface + browser flags (small rice-adjacent dotfiles)
+  export_file "$S/.gtkrc-2.0" "$P/gtk/dot.gtkrc-2.0"
+  export_file "$S/.config/gtk-3.0/settings.ini" "$P/gtk/gtk-3.0-settings.ini"
+  export_file "$S/.config/gtk-4.0/settings.ini" "$P/gtk/gtk-4.0-settings.ini"
+  export_file "$S/.config/helium-browser-flags.conf" "$P/config-helium-browser-flags.conf"
   # STANDING RULE: never commit API keys. Redact known secret patterns from
   # the just-exported opencode configs (runs on EVERY export so keys can
   # never slip back in). Payload keeps ${...} placeholders instead.
@@ -826,7 +943,10 @@ export_payload() {
     [[ -f "$f" ]] || continue
     sed -i 's/ctx7sk-[A-Za-z0-9-]*/${CONTEXT7_API_KEY}/g; s/sk-ant-[A-Za-z0-9-]*/${ANTHROPIC_API_KEY}/g' "$f" || true
   done
-  log "export: opencode secrets redacted"
+  # service.json is opencode's per-install local API password, never a config
+  # file: the target generates its own. Never vendor it.
+  rm -f "$P/config-opencode/service.json"
+  log "export: opencode secrets redacted (service.json excluded)"
   # second opencode home: ~/.opencode (commands + agent-identity config)
   if [[ -d "$S/.opencode" ]]; then
     mkdir -p "$P/opencode-home"
@@ -836,14 +956,17 @@ export_payload() {
   fi
   # e) matugen + wallpapers state
   export_dir "$S/.config/matugen" "$P/matugen"
+  prune_export_junk "$P/matugen"
   export_dir "$S/.config/hypr/wallpapers" "$P/hypr-wallpapers"
   # f) tmux resurrect snapshot (latest only, small)
   if [[ -d "$S/.local/share/tmux/resurrect" ]]; then
     mkdir -p "$P/tmux-resurrect"
     cp -a "$S/.local/share/tmux/resurrect/last" "$P/tmux-resurrect/last" 2>/dev/null || true
   fi
-  # manifests
+  # manifests (full installed set + foreign/AUR + explicit)
   pacman -Q 2>/dev/null | sort > "$P/manifests-packages-arch.txt" || true
+  pacman -Qm 2>/dev/null | sort > "$P/manifests-packages-aur.txt" || true
+  pacman -Qqe 2>/dev/null | sort > "$P/manifests-packages-explicit.txt" || true
   mkdir -p "$P"
   # ---- large tarballs (NOT for git; copy via usb/rsync) ----
   info "building large tarballs (may take a while)..."
@@ -859,10 +982,10 @@ export_payload() {
     warn "zed binaries not at /usr/lib/zed — skipping zed tarball (rebuild fallback will be used)"
   fi
   cat > "$LARGE_DIR/README.md" <<'EOF'
-# payload-large — NOT tracked by git (too big for GitHub)
-# Copy this directory alongside the repo to the target machine (usb/rsync),
-# keeping the same relative path: <repo>/payload-large/
-- wallpapers-matugen.tar.zst  (~/Pictures/wallpapers/matugen, ~700M)
+# payload-large — Git LFS-tracked (see ../.gitattributes)
+# `git clone` smudges these automatically; run `git lfs pull` if it skipped.
+# Keep the same relative path: <repo>/payload-large/
+- wallpapers-matugen.tar.zst  (~/Pictures/wallpapers/matugen, ~750M)
 - bucklespring-kalih-box-white.tar.zst (~/.local/share/bucklespring, ~17M)
 - zed-custom.tar.zst          (/usr/lib/zed + /usr/bin/zeditor, ~350M)
 EOF
@@ -875,15 +998,26 @@ verify_install() {
   local fails=0
   check() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then info "OK: $desc"; else warn "FAIL: $desc"; fails=$((fails+1)); fi; }
   check "hyprland.lua present" test -f "$TARGET_HOME/.config/hypr/hyprland.lua"
+  check "lucid hypr modules present" test -f "$TARGET_HOME/.config/hypr/lucid-glass.lua"
   check "e-ink shader present" test -f "$TARGET_HOME/.config/hypr/shaders/reading_mode.glsl"
-  check "pibble present" test -x "$TARGET_HOME/src/pibble/pibble"
+  check "pibble source retained" test -f "$TARGET_HOME/src/pibble/pibble"
   check "lucid shell.qml present" test -f "$TARGET_HOME/.config/quickshell/shell.qml"
+  check "quick-translate widget present" test -f "$TARGET_HOME/.config/quickshell/luciddocks/TranslatePane.qml"
+  check "hypr-edge-swipe source present" test -f "$TARGET_HOME/src/hypr-edge-swipe/Makefile"
+  check "hypr-edge-swipe built" test -f "$TARGET_HOME/src/hypr-edge-swipe/hypr-touch-gestures.so"
   check "kitty conf present" test -f "$TARGET_HOME/.config/kitty/kitty.conf"
+  check "kitty font-mode present" test -f "$TARGET_HOME/.config/kitty/font-mode.conf"
   check "nvim init present" test -f "$TARGET_HOME/.config/nvim/init.lua"
+  check "nvim split config present" test -f "$TARGET_HOME/.config/nvim/lua/config/keymaps.lua"
   check "tmux conf present" test -f "$TARGET_HOME/.tmux.conf"
   check "matugen config present" test -f "$TARGET_HOME/.config/matugen/config.toml"
+  check "skwd wallpaper config present" test -f "$TARGET_HOME/.config/skwd-wall-v2/config.json"
   check "zprofile tty7 gate present" test -f "$TARGET_HOME/.zprofile"
   check "desktop-toggle installed" test -x /usr/local/bin/desktop-toggle
+  check "bulk helper installed" test -x "$USRLOCAL_BIN/bulk"
+  check "lucid auto-brightness installed" test -x "$TARGET_HOME/.local/bin/lucid-auto-brightness"
+  check "auto-brightness unit present" test -f "$TARGET_HOME/.config/systemd/user/auto-brightness.service"
+  check "bulk slice present" test -f "$TARGET_HOME/.config/systemd/user/bulk.slice"
   check "kcminputrc repeat present" test -f "$TARGET_HOME/.config/kcminputrc"
   check "oh-my-zsh present" test -f "$TARGET_HOME/.oh-my-zsh/oh-my-zsh.sh"
   check "sddm autologin present" test -f /etc/sddm.conf.d/autologin.conf

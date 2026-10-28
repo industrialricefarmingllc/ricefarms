@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Widgets
 import qs
 import qs.lucidui
+import "../squircle"
 
 // a picture frame that turns over on its own. click for the next one
 WidgetBody {
@@ -72,11 +73,12 @@ WidgetBody {
     }
 
     // frame: the photo filling the card, its date on a chip
-    ClippingRectangle {
+    SquircleClip {
         visible: w.variant === "frame"
         anchors.fill: parent
         radius: w.corner
         color: Theme.alpha(w.ink, 0.06)
+        smoothing: Prefs.squircleF
 
         Image {
             id: frameImg
@@ -98,7 +100,7 @@ WidgetBody {
 
         }
 
-        Rectangle {
+        SquircleRect {
             visible: w.caption !== "" && w.opt("showDate") !== false
             anchors.left: parent.left
             anchors.bottom: parent.bottom
@@ -106,7 +108,8 @@ WidgetBody {
             width: capText.implicitWidth + Theme.dp(20)
             height: Theme.dp(26)
             radius: Theme.dp(13)
-            color: Theme.alpha(Theme.bgOpaque, 0.78)
+            fillColor: Theme.alpha(Theme.bgOpaque, 0.78)
+            smoothing: Prefs.squircleF
 
             LText {
                 id: capText
@@ -139,13 +142,14 @@ WidgetBody {
         anchors.fill: parent
         anchors.margins: Theme.dp(12)
 
-        ClippingRectangle {
+        SquircleClip {
             id: printCard
 
             width: parent.width
             height: parent.height - Theme.dp(34)
             radius: Theme.rad(10)
             color: Theme.alpha(w.ink, 0.06)
+            smoothing: Prefs.squircleF
 
             Image {
                 anchors.fill: parent
