@@ -53,6 +53,12 @@ uniform float uOpacity;
 uniform float uBevW;  // precomputed bevel band (CPU, saves per-fragment log)
 uniform float uEdgePx; // precomputed trio width (CPU, saves per-fragment log)
 uniform float uLogCME; // precomputed log(uC*M_E) for f_func exp (CPU)
+uniform float uUnionOn; // 1 = two-shape liquid union
+uniform vec4  uUnionA;  // x,y,w,h in union-local px
+uniform vec4  uUnionAR; // tl,tr,br,bl
+uniform vec4  uUnionB;
+uniform vec4  uUnionBR;
+uniform float uUnionK;  // neck width (px)
 uniform vec3  uShadowColor;
 uniform float uShadowA;
 uniform vec2  uShadowOff; // shadow cast offset, framebuffer px (e.g. 0,10)
@@ -60,12 +66,14 @@ uniform float uShadowBlur; // softness, framebuffer px
 
 const float M_E = 2.718281828459045;
 
+#ifndef LG_WINDOW
 float sdSuperellipse(vec2 p, float n, float r) {
     vec2 pa = abs(p);
     float num = pow(pa.x, n) + pow(pa.y, n) - pow(r, n);
     float den = n * sqrt(pow(pa.x, 2.0 * n - 2.0) + pow(pa.y, 2.0 * n - 2.0)) + 0.00001;
     return num / den;
 }
+#endif
 
 float sdRoundBox4(vec2 p, vec2 b, vec4 r) {
     // r = (topLeft, topRight, bottomRight, bottomLeft). Shader space is
@@ -110,6 +118,7 @@ float sdPillBox4(vec2 p, vec2 b, vec4 r) {
     return sdSquircleBox4(p, b, r, 2.0 + 4.0 * uSquircleF);
 }
 
+#ifndef LG_WINDOW
 float sdBox2(vec2 p, vec2 b) {
     vec2 q = abs(p) - b;
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
@@ -122,6 +131,19 @@ float sdBox2(vec2 p, vec2 b) {
 float sminN(float a, float b, float k) {
     float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
     return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+// Two-shape liquid union. The outer uBox is the union bbox; a/b are
+// sub-rects relative to its top-left, so the same shader still has one
+// capture, one quad, one shadow and one refraction field.
+float sdUnionPill(vec2 p, vec4 a, vec4 ar, vec4 b, vec4 br, float k) {
+    vec2 ac = a.xy + a.zw * 0.5 - uBox * 0.5;
+    vec2 bc = b.xy + b.zw * 0.5 - uBox * 0.5;
+    float da = sdPillBox4(p - ac, a.zw * 0.5, ar);
+    float db = sdPillBox4(p - bc, b.zw * 0.5, br);
+    if (k <= 0.001)
+        return min(da, db);
+    return sminN(da, db, k);
 }
 
 // Notch flare SDF at an arbitrary pill-space point (same fillet as main:
@@ -171,6 +193,7 @@ float sdFlareU(vec2 q, vec2 halfPx, vec2 fl) {
         return sdFlareOnly(q, halfPx, fl);
     return sdFlareSquOnly(q, halfPx, fl, 2.0 + 4.0 * uSquircleF);
 }
+#endif // LG_WINDOW
 
 float f_func(float x) {
     // Fast path: pow(c*M_E, y) = exp(y*log(c*M_E)); log part is uniform.
@@ -186,6 +209,15 @@ float rand(vec2 co) {
 
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// Sine-free hash for the window interior fast path. The expensive part of a
+// full-screen pane is per-pixel ALU, and three transcendental sin() taps for
+// grain are pure overhead there; this white-noise substitute reads the same.
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
 // Photoshop-style overlay: 0.5 blend = identity, <0.5 deepens, >0.5 lifts,
@@ -219,7 +251,62 @@ void main() {
     // fallback computes it here for old CPUs that leave the uniform at 0.
     float bevW = (uBevW > 0.001) ? uBevW
         : max((7.0 + 3.5 * log(1.0 + min(uBox.x, uBox.y) / 30.0)) * 1.5, 4.0);
-    if (uUsePill > 0.5) {
+    float edgePx = (uEdgePx > 0.001) ? uEdgePx
+        : (7.0 + 3.5 * log(1.0 + min(uBox.x, uBox.y) / 30.0)) * 9.0;
+#ifdef LG_WINDOW
+    // Window specialization: circular rounded box, no squircle/flare/over-rim.
+    // The interior fast path is the important part: a large window is mostly
+    // flat pane, so one SDF + one texture tap replaces the full refraction,
+    // CA, glow and shadow shader there. Only the bevel/shadow margin reaches
+    // the expensive path below.
+    sdPx = sdPillBox4(pillPx, halfPx, uRadii);
+    if (uOverRim < 0.5 && sdPx < -edgePx) {
+        vec4 bg = texture(uBlur, clamp(uCapOrigin + uv * uCapScale, vec2(0.001), vec2(0.999)));
+        if (bg.a < 0.01) {
+            bg = vec4(uBaseColor, 1.0);
+        } else {
+            float tint = clamp(uOpacity, 0.0, 1.0);
+            bg.rgb = mix(bg.rgb, uBaseColor, tint * 0.28);
+            bg.a = 1.0;
+        }
+        if (uNoise > 0.0005) {
+            vec3 n = vec3(hash12(gl_FragCoord.xy * 0.009) - 0.5,
+                          hash12(gl_FragCoord.xy * 0.013 + vec2(17.0, 31.0)) - 0.5,
+                          hash12(gl_FragCoord.xy * 0.011 + vec2(43.0, 7.0)) - 0.5);
+            bg.rgb += n * uNoise * 3.5;
+        }
+        if (abs(uGlowB) > 0.001)
+            bg.rgb *= 1.0 + uGlowB;
+        // Same top-down sheen as the full path. At this depth the refraction
+        // function is ~1 and rim/edge are 0, so this is the entire overlay.
+        float top = 1.0 - smoothstep(0.0, 0.60, uv.y);
+        bg.rgb = overlay(bg.rgb, clamp(vec3(0.5) + vec3(top * 0.20) * 0.5, 0.0, 1.0));
+        bg.rgb = clamp(bg.rgb, 0.0, 1.0);
+        float fullness = smoothstep(0.82, 1.0, clamp(uOpacity, 0.0, 1.0));
+        bg.rgb = mix(bg.rgb, uBaseColor, fullness);
+        fragColor = vec4(bg.rgb, 1.0);
+        return;
+    }
+    vec2 p_px = pillPx * vec2(3.5) / vec2(max(uShape.x, 0.1), max(uShape.y, 0.1));
+    float rMax = max(min(uBox.x, uBox.y) * 0.5, 1.0);
+    dist = clamp(-sdPillBox4(p_px, halfPx, uRadii) / rMax, 0.0, 1.0);
+    glowIn = clamp(-sdPx / bevW, 0.0, 1.0);
+    // Glow normals are finite-differenced only when glow can actually run
+    // (handled below); the interior never reaches this point.
+#else
+    if (uUnionOn > 0.5) {
+        sdPx = sdUnionPill(pillPx, uUnionA, uUnionAR, uUnionB, uUnionBR, uUnionK);
+        float rMax = max(min(uBox.x, uBox.y) * 0.5, 1.0);
+        dist = clamp(-sdPx / rMax, 0.0, 1.0);
+        vec4 prA = max(uUnionAR, vec4(bevW));
+        vec4 prB = max(uUnionBR, vec4(bevW));
+        float tgx = sdUnionPill(pillPx + vec2(1.0, 0.0), uUnionA, prA, uUnionB, prB, uUnionK)
+                  - sdUnionPill(pillPx - vec2(1.0, 0.0), uUnionA, prA, uUnionB, prB, uUnionK);
+        float tgy = sdUnionPill(pillPx + vec2(0.0, 1.0), uUnionA, prA, uUnionB, prB, uUnionK)
+                  - sdUnionPill(pillPx - vec2(0.0, 1.0), uUnionA, prA, uUnionB, prB, uUnionK);
+        glowN = vec2(tgx, tgy) / max(length(vec2(tgx, tgy)), 1e-4);
+        glowIn = clamp(-sdPx / bevW, 0.0, 1.0);
+    } else if (uUsePill > 0.5) {
         sdPx = sdPillBox4(pillPx, halfPx, uRadii);
         vec2 p_px = pillPx * vec2(3.5) / vec2(max(uShape.x, 0.1), max(uShape.y, 0.1));
         float rMax = max(min(uBox.x, uBox.y) * 0.5, 1.0);
@@ -248,6 +335,8 @@ void main() {
         glowN = vec2(sgx, sgy) / max(length(vec2(sgx, sgy)), 1e-4);
         glowIn = clamp(-sdPx / bevW, 0.0, 1.0);
     }
+#endif
+#ifndef LG_WINDOW
     // Notch flare shoulders (bar tabs): concave fillets, NOT convex discs.
     // Proof from the BarFlare path (start (F,F) -> CCW arc -> (0,0) -> line
     // (F,0) -> close): the arc meets the top edge horizontally and the tab
@@ -292,7 +381,9 @@ void main() {
             glowIn = clamp(-sdPx / bevW, 0.0, 1.0);
         }
     }
+#endif // LG_WINDOW
     float pillA = 1.0 - smoothstep(-1.0, 1.0, sdPx);
+#ifndef LG_WINDOW
     // PERF (over-rim): interior pixels have rimA~0 (transparent) but would
     // still pay the full glass ALU below. Early-discard using sdPx alone:
     // rimT3>=8 => rimA==0 (see tail). Saves ~95% of over-rim fragments on
@@ -303,6 +394,7 @@ void main() {
         if (rimT3early >= 8.0)
             discard;
     }
+#endif
 
     float fx = clamp(f_func(dist), 0.0, 2.0);
     // PERF: pow(x,1)==x fast path (default fPower=1 saves a transcendental).
@@ -313,7 +405,11 @@ void main() {
     // (bevW) so the interior stays clean frosted glass. CA derives from
     // refractVec, so it follows automatically. Pills keep the full field.
     float lensMask = 1.0 - smoothstep(0.0, 1.0, clamp(-sdPx / bevW, 0.0, 1.0));
+#ifdef LG_WINDOW
+    refractVec *= lensMask;
+#else
     refractVec *= mix(1.0, lensMask, uLensBand);
+#endif
 
     // Pill-uv + refraction -> capture-uv. One mapping serves both textures
     // because the blur pyramid covers exactly the captured region.
@@ -326,6 +422,7 @@ void main() {
     vec2 dither = vec2(hash(gl_FragCoord.xy * 0.009) - 0.5, hash(gl_FragCoord.xy * 0.011 + vec2(7.0, 13.0)) - 0.5) * 0.6 / max(resEff, vec2(1.0));
     vec2 buv = clamp(sampleUV + dither, vec2(0.001), vec2(0.999));
     vec4 bg = texture(uBlur, buv);
+#ifndef LG_WINDOW
     // Over-rim progressive content blur (window edge overlay only, never the
     // regular pass): sharp at the true edge, ramping to the fixed r=3 /
     // 2-iteration chain at the band end. Normalized by bevW — the same width
@@ -344,6 +441,7 @@ void main() {
         // depth like before. Glow below is untouched by design.
         bg.rgb = mix(sharpC, overlay(sharpC, bg.rgb), smoothstep(0.0, 0.3, rimT));
     }
+#endif
     // Chromatic aberration: R/B sampled slightly apart along the refraction
     // vector (prism look), each tap itself box-blurred 2px (±1 and ±2 texel
     // ring) so the fringes stay soft. The separation scales with the
@@ -431,6 +529,14 @@ void main() {
     // PERF: atan+sin per fragment — skip entirely when weight~0 and bias~0
     // (was still shading + additive highlight even with weight 0).
     if (abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001) {
+#ifdef LG_WINDOW
+    // Edge-only glow normals: the interior returned above, so this only ever
+    // runs in the bevel band and only when glow is enabled.
+    vec4 pr = max(uRadii, vec4(bevW));
+    float tgx = sdPillBox4(pillPx + vec2(1.0, 0.0), halfPx, pr) - sdPillBox4(pillPx - vec2(1.0, 0.0), halfPx, pr);
+    float tgy = sdPillBox4(pillPx + vec2(0.0, 1.0), halfPx, pr) - sdPillBox4(pillPx - vec2(0.0, 1.0), halfPx, pr);
+    glowN = vec2(tgx, tgy) / max(length(vec2(tgx, tgy)), 1e-4);
+#endif
     float graw = abs(sin(atan(glowN.y, glowN.x) - 0.5 - 0.4363323129));
     // Narrow the bright caps so the non-glowing remainder dominates (~3-4x
     // area): soft threshold with peak-preserving rescale, eased so no hard
@@ -454,9 +560,7 @@ void main() {
     float rMaxPx = max(min(uBox.x, uBox.y) * 0.5, 1.0);
     // x9.0 softness (was x3.0, then x4.5): the top/rim/edge trio below all
     // derive from this one width, so the whole bevel relaxes together.
-    // PERF: precomputed on CPU (uEdgePx) to save a per-fragment log().
-    float edgePx = (uEdgePx > 0.001) ? uEdgePx
-        : (7.0 + 3.5 * log(1.0 + min(uBox.x, uBox.y) / 30.0)) * 9.0;
+    // (edgePx is precomputed near the top, before the interior fast path.)
     float distPx = dist * rMaxPx;
     // The three static glass components — top-down sheen, outer bevel, inner
     // shade — composited as ONE overlay layer (0.5 = neutral). Same masks and
@@ -492,13 +596,21 @@ void main() {
     float shA = 0.0;
     float sdS = 1e9;
     if (uShadowA > 0.003) {
-    sdS = sdRoundBox4(pillPx - uShadowOff, halfPx, uRadii);
+#ifdef LG_WINDOW
+    sdS = sdPillBox4(pillPx - uShadowOff, halfPx, uRadii);
+#else
+    sdS = uUnionOn > 0.5
+        ? sdUnionPill(pillPx - uShadowOff, uUnionA, uUnionAR, uUnionB, uUnionBR, uUnionK)
+        : sdRoundBox4(pillPx - uShadowOff, halfPx, uRadii);
+#endif
+#ifndef LG_WINDOW
     // Notch fillets cast with the tab (same union, shifted with the offset).
     {
         vec2 sp = pillPx - uShadowOff;
         float sdFlSh = sdFlareOnly(sp, halfPx, uFlare);
         sdS = min(sdS, sdFlSh);
     }
+#endif
     // (superellipse widgets reuse the pill SDF for shadows — close enough that
     //  no widget uses it today; see README non-goals.)
     shA = exp(-max(sdS, 0.0) / max(uShadowBlur, 1.0)) * uShadowA;
@@ -514,6 +626,11 @@ void main() {
     // it — so the frosted edge shows, and the interior stays clean content.
     // (An inward-decaying alpha hides the blurred pixels, leaving sharp +
     // CA fringe; a flat pillA leaks blur over the whole window.)
+#ifdef LG_WINDOW
+    // Under-glass windows are a full pane: interior alpha is opaque, the
+    // shadow margin uses the SDF mask. No over-rim alpha plateau here.
+    float a = clamp(shA * (1.0 - pillA) + pillA, 0.0, 1.0);
+#else
     float rimT2 = clamp(-sdPx / bevW, 0.0, 3.0);
     float rimA = (1.0 - smoothstep(0.0, 1.0, rimT2)) * pillA;
     // Long soft tail back to clean content (no hard inner edge), measured
@@ -524,6 +641,7 @@ void main() {
     // Regular-window border effect runs at 25% overall opacity (over-rim
     // only — pills and under-glass take the unscaled branch).
     float a = mix(clamp(shA * (1.0 - pillA) + pillA, 0.0, 1.0), rimA * 0.25, uOverRim);
+#endif
     // PERF: discard fully transparent fragments (shadow margin + over-rim
     // interior) to save blending + downstream compositing. No visual change
     // (alpha~0 was invisible anyway).

@@ -57,6 +57,12 @@ struct SWinDraw {
     // Active-window glow boost, already ramped (see m_glowAdd): added to
     // the edge glow weight uniform at draw time.
     float glowAdd = 0;
+    // True when no earlier window overlaps this window's padded capture
+    // region: the shared pre-window backdrop is valid for this one.
+    bool useShared = true;
+    // True when this frame's damage is content-only and the cached blurred
+    // backdrop can be reused (no capture/blit/blur chain this frame).
+    bool reuseCapture = false;
 };
 
 // Focus tracking for the active glow (init/exit called from main.cpp,
@@ -64,6 +70,17 @@ struct SWinDraw {
 namespace lg {
 void initWindowFocus();
 void exitWindowFocus();
+// Record a window's monitor-local framebuffer box in this frame's draw
+// order. Used to decide whether a later glass window may use the shared
+// pre-window backdrop (no earlier window may overlap its capture region).
+void noteWindowBox(PHLWINDOW window, PHLMONITOR monitor);
+// Number of mapped, translucent, allowed windows on this monitor. The
+// shared pre-window capture only pays off with more than one consumer.
+int windowGlassCount(PHLMONITOR monitor);
+// True if the frame damage (monitor-local framebuffer px) intersects any
+// glass window's last painted bounds. Avoids a full-monitor capture when a
+// cursor or another window is the only thing repainting.
+bool windowGlassNeedsFrame(PHLMONITOR monitor, const CBox& damage);
 } // namespace lg
 
 class CWindowGlass {
@@ -138,11 +155,30 @@ class CWindowGlass {
     Vector2D m_lastMonPos{0, 0};
     std::string m_lastCls;
     uint64_t m_tuneGen = 0;
+    // Cached blurred backdrop. Valid only while the window box, monitor,
+    // capture scale and tune are unchanged; content-only damage inside a
+    // non-overlapping window can reuse it without another blit.
+    bool m_captureValid = false;
+    CBox m_cacheBox{0, 0, 0, 0};
+    MONITORID m_cacheMon = MONITOR_INVALID;
+    float m_cacheMonScale = 0;
+    Vector2D m_cacheMonSize{0, 0};
+    int m_cacheCapDiv = 0;
+    int m_cachePasses = -1;
+    int m_cacheHw = 0, m_cacheHh = 0;
+    bool m_cacheBokehOn = false;
+    float m_cacheBokeh = 0;
+    uint64_t m_cacheTuneGen = 0;
     // Active-glow ramp state: current boost, init flag (first snapshot snaps
     // so mid-session loads don't sweep), last step time.
     float m_glowAdd = 0;
     bool m_glowInit = false;
     std::chrono::steady_clock::time_point m_glowT{};
+    // Window motion liquid: last target box/time and the smoothed stretch.
+    CBox m_motionLast{0, 0, 0, 0};
+    bool m_motionInit = false;
+    std::chrono::steady_clock::time_point m_motionT{};
+    float m_motionStretch = 0;
     // Tint-file stamp at last damage: kitty.conf edits repaint via
     // damage-on-change, same as the prefs/matugen tune generation.
     std::filesystem::file_time_type m_tintStamp = std::filesystem::file_time_type::min();

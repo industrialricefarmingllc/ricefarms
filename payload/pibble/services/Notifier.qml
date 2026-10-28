@@ -146,10 +146,8 @@ Singleton {
             return Icons.alertTriangle;
         if (lower.includes("copied"))
             return Icons.copy;
-        // wallpaper-changed rides a real thumbnail in image-path (see
-        // LauncherWindow.commitWallpaper), which clobbers -i's icon name the
-        // same way an image clip's "Copied to clipboard" does above - same
-        // keyword fallback instead of the exact-name switch case
+        // Any other "wallpaper" sender (pibble's own picker no longer raises
+        // one on apply) still gets the wallpaper glyph
         if (lower.includes("wallpaper"))
             return Icons.wallpaperSlideshow;
         return Icons.bell;

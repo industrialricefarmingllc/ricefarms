@@ -77,9 +77,10 @@ PanelWindow {
         layer.enabled: true
         layer.effect: MultiEffect {
             shadowEnabled: true
-            shadowBlur: 0.7
-            shadowColor: Qt.rgba(0, 0, 0, 0.35)
-            shadowVerticalOffset: Theme.dp(3)
+            shadowBlur: 0.35
+            blurMax: Theme.hyprShadowBlurMax
+            shadowColor: Theme.hyprShadow
+            shadowVerticalOffset: Theme.dp(2)
         }
 
         HoverHandler {

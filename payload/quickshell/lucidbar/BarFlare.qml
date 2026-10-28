@@ -10,6 +10,16 @@ Item {
     property bool flipped: false
     property int size: Theme.dp(14)
     property color fillColor: Theme.bg
+    // the shoulder's arc wears the same hairline as the tab it grows out of
+    property color borderColor: "transparent"
+    property real borderWidth: 0
+    // Convex corners read as squircles at any smoothing, but the same
+    // superellipse turned inside out (a notch shoulder) collapses toward a
+    // straight line: at f = 0.8 the arc is within a pixel of the tab side for
+    // most of its height, so the shoulder looks like a seam instead of a
+    // fillet. 0 keeps it the classic quarter-arc, where the curve is spread
+    // over the whole size and always reads as a fluid transition.
+    property real smoothing: Prefs.squircleF
     property bool hovered: false
 
     property real tint: flare.hovered ? 0.08 : 0
@@ -35,7 +45,9 @@ Item {
         mirrored: flare.mirrored
         flipped: flare.flipped
         fillColor: Qt.tint(flare.fillColor, Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, flare.tint))
-        smoothing: Prefs.squircleF
+        borderColor: flare.borderColor
+        borderWidth: flare.borderWidth
+        smoothing: flare.smoothing
     }
 
 }

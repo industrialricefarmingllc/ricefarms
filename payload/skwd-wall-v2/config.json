@@ -1,0 +1,36 @@
+{
+  "paths": {
+    "wallpaper": "/home/nicerice/Pictures/wallpapers",
+    "videoWallpaper": "/home/nicerice/Pictures/wallpapers"
+  },
+  "paper": {
+    "engine": "skwd-paper"
+  },
+  "theme": {
+    "policy": "off",
+    "engine": "matugen",
+    "authority": "skwd",
+    "mode": "dark"
+  },
+  "features": {
+    "matugen": false,
+    "steam": false,
+    "wallhaven": false
+  },
+  "system": {
+    "restoreOnStartup": true
+  },
+  "general": {
+    "notifyOnWallpaperChange": false
+  },
+  "videoPreview": {
+    "enabled": true,
+    "delayMs": 150,
+    "mode": "auto"
+  },
+  "transition": {
+    "enabled": true,
+    "shader": "fade",
+    "durationMs": 400
+  }
+}

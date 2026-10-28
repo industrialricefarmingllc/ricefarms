@@ -107,10 +107,11 @@ hl.on("hyprland.start", function()
     if is_on(home.."/.cache/quickshell/reading_mode") then return end
     if is_on(home.."/.cache/quickshell/night_light") then return end
     if is_on(home.."/.cache/quickshell/crt_mode") then return end
-    -- homogenizer disabled by default for now: boot to Main (SUPER+G to enable AgX)
+    -- boot to Main (no shader by default)
     shader.enable("Main")
   end)
-  hl.exec_cmd("awww-daemon")
+  hl.exec_cmd("systemctl --user start skwd-walld")
+  hl.exec_cmd("sh -c 'systemctl --user is-active --quiet skwd-walld || exec awww-daemon'")
   -- guard on the process, not on the unit: a shell started outside systemd
   -- (manual `qs`, crash restart) makes `is-active` false while a full shell is
   -- already running, and the next reload then starts a second one (~11% CPU,
@@ -238,7 +239,7 @@ hl.config({
     -- (invisible result, wasted GPU on the UHD 620). Translucent kitty/zen
     -- still blur normally.
     blur = { enabled = true, size = 3, passes = 2, ignore_opacity = false },
-    -- homogenizer disabled by default for now (shader.lua manages toggles, SUPER+G to enable)
+    -- shader.lua manages Reading Mode toggles
     screen_shader = "/home/nicerice/.config/hypr/shaders/main.glsl",
   },
   animations = { enabled = true },
@@ -299,9 +300,10 @@ hl.config({
 
 hl.curve("easeOut", { type = "bezier", points = { {0.05, 0.9}, {0.1, 1.05} } })
 hl.curve("lucidResize", { type = "spring", mass = 1, stiffness = 120, dampening = 12 })
-hl.curve("lucidSettle", { type = "bezier", points = { {0.08, 1.12}, {0.75, 1.0} } })
+hl.curve("lucidSettle", { type = "bezier", points = { {0.20, 1.50}, {0.70, 1.10} } })
+hl.curve("lucidWorkspace", { type = "bezier", points = { {0.0, 0.0}, {0.15, 1.0} } })
 hl.animation({ leaf = "windows", enabled = true, speed = 5.29, bezier = "easeOut" })
-hl.animation({ leaf = "windowsMove", enabled = true, speed = 1.51, spring = "lucidResize" })
+hl.animation({ leaf = "windowsMove", enabled = true, speed = 4.0, bezier = "lucidSettle" })
 hl.animation({ leaf = "windowsOut", enabled = true, speed = 5.29, bezier = "easeOut", style = "popin 78%" })
 hl.animation({ leaf = "border", enabled = true, speed = 10.58, bezier = "default" })
 hl.animation({ leaf = "borderangle", enabled = true, speed = 10.58, bezier = "default" })
@@ -313,7 +315,7 @@ hl.animation({ leaf = "fade", enabled = true, speed = 5.29, bezier = "default" }
 -- collapse/genie are all zeroed below) or the two motions stack into chaos.
 -- Native style stays `slide` (alpha pinned at 1, no native fade) so the
 -- plugin's outgoing 1.0 -> 0.33 dim applies exactly once.
-hl.animation({ leaf = "workspaces", enabled = true, speed = 2.33, bezier = "default", style = "slide" })
+hl.animation({ leaf = "workspaces", enabled = true, speed = 4.43, bezier = "default", style = "slide" })
 -- Outgoing: fade 1.0 -> 0.0 (fade_out_min) on the upstream
 -- move-from-workspace alpha channel, geometry untouched (collapse 1.0).
 -- Linear out_curve = steady visible fade through the whole flight (reload-
@@ -328,11 +330,11 @@ hl.animation({ leaf = "workspaces", enabled = true, speed = 2.33, bezier = "defa
 -- preference after every reload. Goo is independent of liquid glass.
 hl.config({ plugin = { gooworkspaces = {
   enabled = 1,
-  duration_ms = 175.9,
+  duration_ms = 367.0,
   -- Keep the per-window spread short: the stock slide finishes around 400ms,
   -- and a long spread leaves late windows scaling after the workspace has
   -- already settled, which reads as a glitch/ghost.
-  duration_spread_ms = 17.6,
+  duration_spread_ms = 23.4,
   slide_ratio = 0.0,
   -- Real window geometry: stretch along the workspace motion axis and
   -- squash across it, both directions, settling to 1.0.
@@ -352,6 +354,8 @@ hl.config({ plugin = { gooworkspaces = {
   spring_damping = 16.0,
   spring_velocity = 2.0,
   genie_pull = 0.0,
+  -- 0 = do not warp native resize geometry (it stalls Hyprland's animvar)
+  resize_stretch = 0.0,
   -- True window-body liquid shape is NOT implemented. Droplet rounding only
   -- clips corners; the tip/smear shader only paints fragments. Keep all
   -- pseudo-shape layers off until a real window-content warp pass exists.

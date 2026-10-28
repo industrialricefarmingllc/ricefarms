@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs
+import "../squircle"
 
 Item {
     id: root
@@ -25,6 +26,9 @@ Item {
     property bool showTransition: false
     // External glass (liquid-glass-hypr plugin): see BarPill.externalGlass.
     property bool externalGlass: false
+    // Notch mode, liquid glass off: the side group's single background is
+    // drawn by shell.qml, so this module contributes content only.
+    property bool groupBackground: false
     // Notch solo (set by shell.qml): collapse to zero width so the group's
     // open member can stretch across the full previous group span - same
     // convention as BarPill.soloCollapse (width only, height stays so the
@@ -44,6 +48,15 @@ Item {
     readonly property bool joined: false
     readonly property bool joinLeft: false
     readonly property bool joinRight: false
+    // Notch shoulders: see BarPill.notchGapLeft. Members of a notch group use
+    // the group background's border instead, and in every other bar style
+    // there are no flares, so these stay 0.
+    readonly property real notchGapLeft: (!root.groupBackground && Prefs.barNotch && root.hostWindow && root.hostWindow.notchFlare) ? root.hostWindow.notchFlare(root, true) : 0
+    readonly property real notchGapRight: (!root.groupBackground && Prefs.barNotch && root.hostWindow && root.hostWindow.notchFlare) ? root.hostWindow.notchFlare(root, false) : 0
+    // Full bar under liquid glass is one strip and traces its outline once
+    // (shell.qml); the item must not outline itself there.
+    readonly property real windowBorderWidth: (Prefs.barFull && root.externalGlass) ? 0 : WindowBorder.size
+
     implicitWidth: 200
     implicitHeight: Theme.dp(Prefs.barHeight)
     // Collapse the footprint when hidden so the remaining left modules
@@ -72,7 +85,7 @@ Item {
         topLeftRadius: root.topRadius
         topRightRadius: root.topRadius
         clip: false
-        layer.enabled: !root.externalGlass
+        layer.enabled: !root.externalGlass && !root.groupBackground
         layer.samples: 4
         layer.effect: MultiEffect {
             shadowEnabled: true
@@ -84,14 +97,24 @@ Item {
             shadowScale: Theme.hyprShadowScale
             autoPaddingEnabled: true
         }
-        Rectangle {
+        // squircle body, so the window hairline follows the same curve as the
+        // rest of the bar (Rectangle's border cannot drop its top edge)
+        SquircleRect {
             anchors.fill: parent
-            color: Theme.bg
+            // glass off: this is the body. Under the compositor plugin the
+            // body is glass, so this keeps only the window hairline over it.
+            visible: !root.groupBackground && (!Prefs.liquidGlassEnabled || (root.externalGlass && root.windowBorderWidth > 0))
+            fillColor: root.externalGlass ? "transparent" : Theme.bg
             radius: root.cornerRadius
             topLeftRadius: root.topRadius
             topRightRadius: root.topRadius
-            visible: !Prefs.liquidGlassEnabled && !root.externalGlass
+            smoothing: Prefs.squircleF
+            borderColor: WindowBorder.colour
+            borderWidth: root.windowBorderWidth
+            borderTop: root.topRadius > 0 ? 1 : 0
+            borderGap: Qt.vector2d(root.notchGapLeft, root.notchGapRight)
         }
+
         LiquidGlassBg {
             anchors.fill: parent
             visible: Prefs.liquidGlassEnabled && !root.externalGlass

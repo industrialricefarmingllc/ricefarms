@@ -104,6 +104,20 @@ Item {
         return r.subtitle !== "" ? Prefs.launcherRowTwo : Prefs.launcherRowOne;
     }
 
+    // the leading slot of a result, for the launch animation's origin
+    function iconItemFor(index) {
+        var item = view.itemAtIndex(index);
+        if (item && item.iconItem)
+            return item.iconItem;
+
+        var kids = view.contentItem ? view.contentItem.children : [];
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i] && kids[i].index === index && kids[i].iconItem)
+                return kids[i].iconItem;
+        }
+        return null;
+    }
+
     // the m3 trailing supporting text: what Return will do with this row
     function actionFor(kind) {
         switch (kind) {
@@ -437,6 +451,8 @@ Item {
             // an application the pointer is on can be sent out of the launcher
             readonly property bool showsHide: rowItem.kind === "app" && rowItem.hovering
             readonly property bool showsHint: Prefs.launcherActionHints && rowItem.lit > 0 && !rowItem.isHeader && !rowItem.isCalc && rowItem.trailing === ""
+            // the leading slot, for the launch animation's origin
+            property Item iconItem: lead
 
             function askThumb() {
                 if (rowItem.thumb !== "")

@@ -62,7 +62,7 @@ publisher surface (dock, bar, ...) writes one file:
 `~/.cache/liquid-glass-hypr/liquidglass-<name>-<MON>.json` (persistent
 cache dir — never `/tmp`, which wipes on reboot)
 ```json
-{"monitor": "DP-1", "surface": {"w": 2560, "h": 780},
+{"monitor": "DP-1", "ns": "quickshell", "surface": {"w": 2560, "h": 780},
  "pills": [{"x": 610, "y": 12, "w": 380, "h": 66, "r": [33, 33, 0, 0]}]}
 ```
 
@@ -71,8 +71,13 @@ routes files to surfaces by measuring the conversion ratio live
 (`surfaceBox / declaredSize`) and converts rects with it — self
 calibrating, so monitor scale, Qt DPR and nesting quirks (all observed
 to disagree) never enter the picture. A file applies when the ratio is
-uniform across axes and sane (0.5–4); anything else is another
-surface's file (or garbage) and contributes nothing. Written on every
+uniform across axes and sane (0.5–4) **and**, when the file declares an
+`ns`, that namespace equals the layer surface's namespace. Size alone is
+not always unique: the island bar (1368x896) and an always-mapped
+launcher (1368x900) are 0.4% apart, inside the ratio tolerance, and the
+bar's pills then drew on the launcher at *its* origin — the screen edge
+instead of the bar's top margin. Files without `ns` keep the legacy
+size-only routing. Written on every
 layout change (bindings re-evaluate per morph frame — exact tracking, no
 debounce by design). Absent/unparseable/non-matching file: that surface
 is skipped silently. mtimes are stat'ed per frame, parsed only on change.

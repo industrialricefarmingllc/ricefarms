@@ -203,10 +203,10 @@ Rectangle {
                 layer.enabled: preview.shadowOn
                 layer.effect: MultiEffect {
                     shadowEnabled: true
-                    shadowColor: "#000000"
-                    shadowOpacity: 0.6
-                    blurMax: 48
-                    shadowBlur: Math.min(1, preview.shadowRange * preview.zoom / 48)
+                    shadowColor: Theme.hyprShadow
+                    shadowOpacity: 1
+                    blurMax: 24
+                    shadowBlur: Math.min(1, preview.shadowRange * preview.zoom / 24)
                 }
 
                 // the border, drawn under the window so its corners follow the rounding

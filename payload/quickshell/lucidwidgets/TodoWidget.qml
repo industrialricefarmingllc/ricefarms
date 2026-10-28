@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -119,17 +120,18 @@ WidgetBody {
         width: Theme.dp(40)
         height: Theme.dp(40)
 
-        Rectangle {
+        SquircleRect {
             anchors.centerIn: parent
             width: Theme.dp(20)
             height: Theme.dp(20)
             radius: Theme.dp(6)
-            color: ck.on ? w.inkAccent : "transparent"
-            border.width: ck.on ? 0 : 2
-            border.color: w.inkDim
+            fillColor: ck.on ? w.inkAccent : "transparent"
+            borderWidth: ck.on ? 0 : 2
+            borderColor: w.inkDim
+            smoothing: Prefs.squircleF
             scale: ckTap.pressed ? 0.86 : 1
 
-            Behavior on color {
+            Behavior on fillColor {
                 ColorAnimation {
                     duration: Theme.durDefaultEffects
                 }
@@ -283,7 +285,7 @@ WidgetBody {
             Repeater {
                 model: w.shown
 
-                Rectangle {
+                SquircleRect {
                     id: row
 
                     required property var modelData
@@ -296,7 +298,8 @@ WidgetBody {
                     topRightRadius: row.index === 0 ? Theme.rad(16) : Theme.dp(4)
                     bottomLeftRadius: row.index === w.shown.length - 1 ? Theme.rad(16) : Theme.dp(4)
                     bottomRightRadius: row.index === w.shown.length - 1 ? Theme.rad(16) : Theme.dp(4)
-                    color: Theme.alpha(w.ink, row.hot ? 0.1 : 0.06)
+                    fillColor: Theme.alpha(w.ink, row.hot ? 0.1 : 0.06)
+                    smoothing: Prefs.squircleF
 
                     HoverHandler {
                         id: rowHover
@@ -431,7 +434,7 @@ WidgetBody {
     }
 
     // the adder: a pill field that takes keys only once clicked
-    Rectangle {
+    SquircleRect {
         id: addBox
 
         anchors.left: parent.left
@@ -440,11 +443,12 @@ WidgetBody {
         anchors.margins: Theme.dp(10)
         height: Theme.dp(44)
         radius: Theme.dp(22)
-        color: w.editing ? Theme.alpha(w.inkAccent, 0.14) : Theme.alpha(w.ink, 0.06)
-        border.width: w.editing ? 2 : 0
-        border.color: w.inkAccent
+        fillColor: w.editing ? Theme.alpha(w.inkAccent, 0.14) : Theme.alpha(w.ink, 0.06)
+        borderWidth: w.editing ? 2 : 0
+        borderColor: w.inkAccent
+        smoothing: Prefs.squircleF
 
-        Behavior on color {
+        Behavior on fillColor {
             ColorAnimation {
                 duration: Theme.durDefaultEffects
             }

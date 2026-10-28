@@ -1,0 +1,9 @@
+[repository]
+name = "hypr-touch-gestures"
+authors = ["Lucid"]
+description = "Touch gestures: live edge-swipe workspaces, pinch resize, drag windows"
+
+[hypr-touch-gestures]
+description = "Touch gestures: live edge-swipe workspaces, pinch resize, drag windows"
+output = "hypr-touch-gestures.so"
+build = ["make"]

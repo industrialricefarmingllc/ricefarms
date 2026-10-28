@@ -1,0 +1,4 @@
+*.qslog
+*.log
+.qmlls.ini
+state.json

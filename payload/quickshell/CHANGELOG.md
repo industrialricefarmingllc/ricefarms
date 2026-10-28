@@ -6,6 +6,11 @@ All notable changes to Lucid are recorded here, newest first.
 
 ### New
 
+- **Widgets are kept per wallpaper.** Each wallpaper has its own board: the
+  widgets you put out, and where they sit, come back when that wallpaper does,
+  and a wallpaper you have not used yet starts empty. Presets you saved are
+  still there on every wallpaper; the unsaved "last layout" belongs to the
+  wallpaper it came from.
 - **Update from inside Lucid.** When a new release is out, *Settings → About*
   (and the notification that announces it) has an **Update** button. It warns
   you what is about to happen, asks for your password once, and then installs
@@ -19,6 +24,12 @@ All notable changes to Lucid are recorded here, newest first.
 - **Beta updates.** A switch under *Settings → About*, with a warning that
   things may break, offers the newest commit on `main` before it becomes a
   release. It installs the same way and needs the password too.
+
+### Fixed
+
+- **The notch bar keeps one shape per side with liquid glass off.** The left
+  and right groups draw as a single continuous tab, as they already did when
+  the glass compositor plugin was on, instead of a separate notch per module.
 
 ## v1.20.1 — 2026-10-15
 

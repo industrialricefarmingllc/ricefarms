@@ -70,6 +70,7 @@ fi
 if [[ "$STAGE" == shell ]]; then
     # match kitty/GTK to the widget surface the shell just wrote
     "$HOME/.config/lucid/app-surface-sync.sh" 2>/dev/null || true
+( setsid "$HOME/.config/lucid/theme-fanout.sh" --request >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
 
 echo "applied theme '$THEME' to the shell"
     exit 0
@@ -360,7 +361,7 @@ render_templates() {
                 | .value = {dark: {color: .value}, light: {color: .value}, default: {color: .value}}))
             | .mode = $mode | .is_dark_mode = ($mode == "dark") | .image = $image' \
             "$work/scheme.json" > "$work/colours.json" 2>/dev/null; then
-        "$renderer" "$work/colours.json" "$MODE" "$THEME" \
+        LUCID_DEFER_SIDE_EFFECTS=1 "$renderer" "$work/colours.json" "$MODE" "$THEME" \
             --skip "$HOME/.cache/quickshell/matugen.json" \
             --skip "$HOME/.config/kitty/matugen-colors.conf" \
             --skip "$HOME/.cache/matugen/vscode-colors" \

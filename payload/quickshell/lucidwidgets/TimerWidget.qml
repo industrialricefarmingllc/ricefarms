@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -43,7 +44,7 @@ WidgetBody {
     }
 
     // the big round action: pill at rest, squarer under the finger
-    component Fab: Rectangle {
+    component Fab: SquircleRect {
         id: fab
 
         property string icon: "play_arrow"
@@ -55,7 +56,8 @@ WidgetBody {
         width: fab.d * 1.25
         height: fab.d
         radius: fabTap.pressed ? fab.d * 0.28 : fab.d / 2
-        color: fab.quiet ? Theme.alpha(w.ink, 0.1) : w.inkAccent
+        fillColor: fab.quiet ? Theme.alpha(w.ink, 0.1) : w.inkAccent
+        smoothing: Prefs.squircleF
 
         Behavior on radius {
             NumberAnimation {
@@ -232,7 +234,7 @@ WidgetBody {
                 Repeater {
                     model: w.presets
 
-                    Rectangle {
+                    SquircleRect {
                         id: pre
 
                         required property int modelData
@@ -240,7 +242,8 @@ WidgetBody {
                         width: Theme.dp(64)
                         height: Theme.dp(40)
                         radius: preTap.pressed ? Theme.dp(12) : Theme.dp(20)
-                        color: Theme.alpha(w.inkAccent, 0.16)
+                        fillColor: Theme.alpha(w.inkAccent, 0.16)
+                        smoothing: Prefs.squircleF
 
                         LText {
                             anchors.centerIn: parent

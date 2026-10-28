@@ -1168,12 +1168,9 @@ PanelWindow {
             Quickshell.execDetached([Quickshell.env("HOME") + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", wall.path]);
         else if (wall.thumb && wall.thumb !== "")
             Quickshell.execDetached(["env", "THEME_ONLY=1", Quickshell.env("HOME") + "/.config/hypr/scripts/wallpaper/set-wallpaper.sh", wall.thumb]);
-        // rich-media alert: image-path hint carries the already-generated
-        // thumbnail (see Wallpapers' scan) so the flyout can show the wallpaper
-        // itself, not just its name
-        if (Settings.alertEnabled("actions"))
-            Quickshell.execDetached(["notify-send", "-a", "pibble", "-i", "preferences-desktop-wallpaper",
-                "-h", "string:image-path:" + wall.thumb, "Wallpaper changed", (wall.we && wall.title) ? wall.title : wall.path.split("/").pop()]);
+        // No "Wallpaper changed" alert: applying a wallpaper is visible on
+        // screen already, so a notification for it is noise. The picker's
+        // other action alerts (copy, trash, page discovery) are unaffected.
     }
     function applyWallpaper(wall) {
         if (!wall)
@@ -1393,6 +1390,9 @@ PanelWindow {
     // same-size surface does match — which drew it OVER the text.
     GlassLayout {
         name: "pibble"
+        // Must match WlrLayershell.namespace above; size alone can't tell
+        // this 900px surface from Lucid's 896px island bar (0.4% apart).
+        surfaceNamespace: "quickshell-pibble"
         targetScreen: root.screen
         surfaceW: root.width
         surfaceH: root.height

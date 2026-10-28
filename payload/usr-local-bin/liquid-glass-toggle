@@ -1,13 +1,22 @@
 #!/bin/bash
 # liquid-glass-toggle — master switch for the liquid-glass-hypr plugin.
 #
-# What it toggles (entirely):
+# Glass and the goo workspace morph are independent preferences:
+#   liquidGlassEnabled    — layer/window glass, borders, shadows, kitty bg
+#   gooWorkspacesEnabled  — workspace morph (same .so)
+#
+# Glass and goo are fully independent: either can be on while the other is
+# off. Both preferences survive config.reloaded (custom.lua applies both).
+#
+# What glass controls:
 #   - layer glass (bar/dock/osd/pibble circle, namespaces=quickshell)
 #   - window glass (windows="*", kitty/zen takeover + rim overdraw)
 #   - glass borders / frames / window-shadow suppression
-#   - goo workspace morph (same .so, plugin:gooworkspaces:enabled)
 #   - QML fallback: bar/dock revert to solid Theme.bg + QML shadows
 #     (externalGlass follows Prefs.liquidGlassEnabled — see shell.qml/Dock.qml)
+#   - kitty background: glass off restores an opaque matugen background
+#     (background_opacity 1 via liquid-glass-state.conf) instead of leaving the
+#     transparent glass takeover; SIGUSR1 reloads running terminals
 #
 # How (crash-safe):
 #   - NEVER `hyprctl plugin unload` — unloading this .so live SEGVs the
@@ -15,112 +24,211 @@
 #     and hyprland.lua). We only flip the in-render-pass early-outs:
 #       prefs.json liquidGlassEnabled (plugin tuner, mtime-gated per frame)
 #       + hl.config plugin.liquidglass.enabled (belt-and-braces)
-#       + hl.config plugin.gooworkspaces.enabled (no prefs twin)
+#       + prefs.json gooWorkspacesEnabled + hl.config plugin.gooworkspaces.enabled
 #     Hooks stay loaded, they just return early = ~zero GPU.
 #   - Screen shader (main.glsl color-grade) is untouched — not liquid glass.
+#   - prefs.json is the source of truth for both preferences; custom.lua
+#     re-applies the effective state after every config reload.
 #
-# State: prefs.json is the source of truth (persists across reload/reboot).
-# Goo follows glass (off->off, on->on); a config.reloaded handler in
-# custom.lua re-applies goo=0 after matugen reloads while glass is off.
-#
-# Usage: liquid-glass-toggle [--toggle|--on|--off|--status|--help]
+# Usage: liquid-glass-toggle <action>
+#   actions: --toggle --on --off --goo-on --goo-off --goo-toggle
+#            --status --goo-status --help
 
 set -u
 PREFS="${HOME:-/home/nicerice}/.config/quickshell/lucidprefs/prefs.json"
+KITTY_STATE="${HOME:-/home/nicerice}/.config/kitty/liquid-glass-state.conf"
 DEFAULT_ON=true
+DEFAULT_GOO=true
 
 usage() {
-  echo "Usage: $(basename "$0") [--toggle|--on|--off|--status|--help]"
-  echo "  (no args) / --toggle : flip liquid glass entirely (GPU saver, no unload)"
-  echo "  --on                 : enable liquid glass + goo morph"
-  echo "  --off                : disable liquid glass + goo morph"
-  echo "  --status             : print on/off (+ goo state)"
+  echo "Usage: $(basename "$0") <--toggle|--on|--off|--goo-on|--goo-off|--goo-toggle|--status|--goo-status|--help>"
+  echo "  (no args) / --toggle : flip liquid glass (GPU saver, no unload)"
+  echo "  --on                 : enable glass; effective goo follows its own preference"
+  echo "  --off                : disable glass and effective goo (goo preference kept)"
+  echo "  --goo-on             : enable goo when glass is on; preference persists"
+  echo "  --goo-off            : disable goo independently of glass; persists"
+  echo "  --goo-toggle         : flip the goo preference"
+  echo "  --status             : print glass + goo preference/effective state"
+  echo "  --goo-status         : print goo preference/effective state"
   echo "  --help               : this help"
 }
 
-# --- read current state (prefs.json wins; default on) ---
-current_state() {
-  if [ -f "$PREFS" ]; then
-    # jq preferred; python fallback; grep last resort. Missing key = on.
-    # NOTE: `.x // true` is WRONG here — jq's // treats false as missing
-    # and would report `false` as on. Use explicit null check instead.
-    if command -v jq >/dev/null 2>&1; then
-      v=$(jq -r 'if .liquidGlassEnabled == false then "false" else "true" end' "$PREFS" 2>/dev/null) || v="true"
-      [ "$v" = "false" ] && echo "off" || echo "on"
-      return
-    fi
-    if command -v python3 >/dev/null 2>&1; then
-      v=$(python3 -c "import json,sys;print(json.load(open('$PREFS')).get('liquidGlassEnabled',True))" 2>/dev/null) || v="True"
-      [ "$v" = "False" ] && echo "off" || echo "on"
-      return
-    fi
-    if grep -q '"liquidGlassEnabled"[[:space:]]*:[[:space:]]*false' "$PREFS" 2>/dev/null; then
-      echo "off"; return
-    fi
+# --- read state (prefs.json wins; missing key = on) ---
+pref_bool() { # $1 = key, $2 = default true|false
+  local key="$1" def="$2" v
+  if [ ! -f "$PREFS" ]; then
+    echo "$def"
+    return
   fi
-  echo "on"
+  if command -v jq >/dev/null 2>&1; then
+    v=$(jq -r --arg k "$key" 'if .[$k] == false then "false" else "true" end' "$PREFS" 2>/dev/null) || v="$def"
+    echo "$v"
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    v=$(python3 - "$PREFS" "$key" "$def" <<'EOF'
+import json, sys
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+print("false" if data.get(key, default == "true") is False else "true")
+EOF
+    ) || v="$def"
+    echo "$v"
+    return
+  fi
+  # No JSON parser: only the exact false token is meaningful.
+  if rg -q "\"$key\"[[:space:]]*:[[:space:]]*false" "$PREFS" 2>/dev/null; then
+    echo "false"
+  else
+    echo "$def"
+  fi
 }
 
-# --- write prefs.json atomically, preserving all other keys ---
-write_prefs() { # $1 = true|false (json bool)
-  local val="$1" tmp
-  mkdir -p "$(dirname "$PREFS")"
+current_state() {
+  [ "$(pref_bool liquidGlassEnabled "$DEFAULT_ON")" = "false" ] && echo off || echo on
+}
+
+current_goo() {
+  [ "$(pref_bool gooWorkspacesEnabled "$DEFAULT_GOO")" = "false" ] && echo off || echo on
+}
+
+effective_goo() {
+  current_goo
+}
+
+# --- write one boolean key atomically, preserving all other keys ---
+write_pref_bool() { # $1 = key, $2 = true|false
+  local key="$1" val="$2" tmp
+  mkdir -p "$(dirname "$PREFS")" || return 1
   if [ ! -f "$PREFS" ]; then
-    printf '{"liquidGlassEnabled": %s}\n' "$val" > "$PREFS"
+    printf '{"%s": %s}\n' "$key" "$val" > "$PREFS"
     return $?
   fi
   if command -v jq >/dev/null 2>&1; then
     tmp=$(mktemp "$(dirname "$PREFS")/.prefs.XXXXXX") || return 1
-    if jq --argjson v "$val" '.liquidGlassEnabled = $v' "$PREFS" > "$tmp" 2>/dev/null; then
+    if jq --arg k "$key" --argjson v "$val" '.[$k] = $v' "$PREFS" > "$tmp" 2>/dev/null; then
       mv -f "$tmp" "$PREFS"
       return 0
     fi
-    rm -f "$tmp"; return 1
+    rm -f "$tmp"
+    return 1
   fi
-  # python fallback (preserves formatting loosely, keeps all keys)
-  python3 - "$PREFS" "$val" <<'EOF'
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$PREFS" "$key" "$val" <<'EOF'
 import json, sys
-path, val = sys.argv[1], sys.argv[2] == 'true'
-with open(path) as f:
-    try: data = json.load(f)
-    except Exception: data = {}
-data['liquidGlassEnabled'] = val
-with open(path, 'w') as f:
+path, key, val = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+data[key] = val
+with open(path, "w") as f:
     json.dump(data, f, indent=4)
-    f.write('\n')
+    f.write("\n")
 EOF
+    return $?
+  fi
+  return 1
 }
 
 # --- live-apply to the running compositor (best-effort, never fatal) ---
-apply_live() { # $1 = 0|1 (0=off, 1=on)
-  local en="$1" ok=0
+apply_glass_live() { # $1 = 0|1
+  local glass="$1" goo=0 ok=0
+  if [ "$(current_goo)" = "on" ]; then
+    goo=1
+  fi
   if ! command -v hyprctl >/dev/null 2>&1; then return 1; fi
-  # liquidglass master switch (belt-and-braces: prefs tuner already covers it)
-  hyprctl eval "hl.config({plugin={liquidglass={enabled=$en}}})" >/dev/null 2>&1 || ok=1
-  # goo morph (no prefs twin — this is the only path)
-  hyprctl eval "hl.config({plugin={gooworkspaces={enabled=$en}}})" >/dev/null 2>&1 || ok=1
+  hyprctl eval "hl.config({plugin={liquidglass={enabled=$glass}}})" >/dev/null 2>&1 || ok=1
+  hyprctl eval "hl.config({plugin={gooworkspaces={enabled=$goo}}})" >/dev/null 2>&1 || ok=1
   return $ok
+}
+
+apply_goo_live() {
+  local goo=0
+  if [ "$(current_goo)" = "on" ]; then
+    goo=1
+  fi
+  if ! command -v hyprctl >/dev/null 2>&1; then return 1; fi
+  hyprctl eval "hl.config({plugin={gooworkspaces={enabled=$goo}}})" >/dev/null 2>&1
+}
+
+# --- kitty: opaque matugen background while glass is off ---
+write_kitty_state() { # $1 = 0|1
+  local op="$1" tmp
+  mkdir -p "$(dirname "$KITTY_STATE")" || return 1
+  tmp=$(mktemp "$(dirname "$KITTY_STATE")/.lg-state.XXXXXX") || return 1
+  { printf '# Generated by liquid-glass-toggle (lg) — do not edit by hand.\n'
+    printf '# 0 = liquid glass ON (plugin paints the terminal background)\n'
+    printf '# 1 = liquid glass OFF (opaque matugen background, no transparency)\n'
+    printf 'background_opacity %s\n' "$op"; } > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$KITTY_STATE"
+}
+
+apply_kitty() { # $1 = 0|1
+  write_kitty_state "$1" || return 1
+  command -v pkill >/dev/null 2>&1 && pkill -USR1 -x kitty 2>/dev/null || true
+  return 0
 }
 
 notify() { # $1 = message
   command -v hyprctl >/dev/null 2>&1 && hyprctl notify 5 2500 0 "$1" >/dev/null 2>&1 || true
 }
 
-set_state() { # $1 = on|off
-  local want="$1" en json_bool label
-  if [ "$want" = "on" ]; then en=1; json_bool=true; label="ON"; else en=0; json_bool=false; label="OFF"; fi
-  if ! write_prefs "$json_bool"; then
+# --- state changes ---
+set_glass_state() { # $1 = on|off
+  local want="$1" en json_bool label kitty_op goo
+  if [ "$want" = "on" ]; then
+    en=1; json_bool=true; label="ON"; kitty_op=0
+  else
+    en=0; json_bool=false; label="OFF"; kitty_op=1
+  fi
+  if ! write_pref_bool liquidGlassEnabled "$json_bool"; then
     echo "liquid-glass-toggle: ERROR: failed to write $PREFS" >&2
     return 1
   fi
-  if ! apply_live "$en"; then
+  # kitty fallback is independent of hyprctl: apply even if compositor IPC is down
+  apply_kitty "$kitty_op" || true
+  goo="$(effective_goo)"
+  if ! apply_glass_live "$en"; then
     echo "liquid-glass-toggle: glass $label (prefs written; compositor IPC unavailable — applies on next Hyprland start/reload)" >&2
   elif [ "$want" = "on" ]; then
-    echo "liquid glass: $label (no reload/unload — hooks active, glass restored)"
+    echo "liquid glass: $label (goo effective: $goo; preference: $(current_goo))"
   else
-    echo "liquid glass: $label (no unload — hooks idle, QML fallback active)"
+    echo "liquid glass: $label (goo effective: $goo; preference: $(current_goo))"
   fi
-  notify "liquid glass $label"
+  notify "liquid glass $label (goo $goo)"
+}
+
+set_goo_state() { # $1 = on|off
+  local want="$1" json_bool label effective
+  if [ "$want" = "on" ]; then
+    json_bool=true; label="ON"
+  else
+    json_bool=false; label="OFF"
+  fi
+  if ! write_pref_bool gooWorkspacesEnabled "$json_bool"; then
+    echo "liquid-glass-toggle: ERROR: failed to write $PREFS" >&2
+    return 1
+  fi
+  apply_goo_live || true
+  effective="$(effective_goo)"
+  echo "workspace goo: $label (effective: $effective; glass: $(current_state))"
+  notify "workspace goo $label"
+}
+
+show_status() {
+  local actual=""
+  echo "liquid glass: $(current_state)"
+  echo "workspace goo: preference $(current_goo), effective $(effective_goo)"
+  if command -v hyprctl >/dev/null 2>&1; then
+    actual=$(hyprctl getoption plugin:gooworkspaces:enabled 2>/dev/null | rg -o 'int: [01]' | head -n1 || true)
+    [ -n "$actual" ] && echo "goo runtime: $actual"
+  fi
 }
 
 CMD="${1:-}"
@@ -129,23 +237,26 @@ case "$CMD" in
   --help|-h|help)
     usage; exit 0 ;;
   --status|status)
-    st=$(current_state)
-    goo=""
-    if command -v hyprctl >/dev/null 2>&1; then
-      goo=$(hyprctl getoption plugin:gooworkspaces:enabled 2>/dev/null | rg -o 'int: [01]' || true)
-    fi
-    echo "liquid glass: $st"
-    [ -n "$goo" ] && echo "goo: $goo"
-    exit 0
-    ;;
+    show_status; exit 0 ;;
+  --goo-status|goo-status)
+    echo "workspace goo: preference $(current_goo), effective $(effective_goo)"
+    exit 0 ;;
   --on|on|enable|start)
-    set_state on ;;
+    set_glass_state on ;;
   --off|off|disable|stop)
-    set_state off ;;
+    set_glass_state off ;;
   --toggle|toggle|"")
-    if [ "$(current_state)" = "on" ]; then set_state off; else set_state on; fi
+    if [ "$(current_state)" = "on" ]; then set_glass_state off; else set_glass_state on; fi
+    ;;
+  --goo-on|goo-on)
+    set_goo_state on ;;
+  --goo-off|goo-off)
+    set_goo_state off ;;
+  --goo-toggle|goo-toggle|--goo|goo)
+    if [ "$(current_goo)" = "on" ]; then set_goo_state off; else set_goo_state on; fi
     ;;
   *)
     echo "liquid-glass-toggle: unknown arg '$CMD'" >&2
-    usage >&2; exit 2 ;;
+    usage >&2
+    exit 2 ;;
 esac

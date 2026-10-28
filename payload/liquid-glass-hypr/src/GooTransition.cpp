@@ -126,7 +126,13 @@ std::optional<double> TransitionManager::progress(MONITORID mon, double duration
     const double ms = std::chrono::duration<double, std::milli>(now - it->second.t0).count();
     double t        = ms / durationMs;
     if (t >= 1.0) {
-        it->second.finished = true;
+        // Do NOT mark finished here. Keep returning 1.0 so the next render
+        // warps every participant at the exact endpoint; sustainTick releases
+        // the transition after that frame has had a chance to draw.
+        if (!it->second.atEnd) {
+            it->second.atEnd = true;
+            it->second.endAt = now;
+        }
         return 1.0;
     }
     return t < 0.0 ? 0.0 : t;
@@ -267,14 +273,21 @@ Transform TransitionManager::transformFor(Role role, double t, double monitorLen
         double grow       = blob + (1.0 - blob) * e;
         const double wobAmp  = (double)getFloat(Key::WOBBLE_AMP, 0.02f);
         const double wobFreq = (double)getFloat(Key::WOBBLE_FREQ, 1.5f);
-        if (wobAmp > 0.0 && t < 1.0) {
-            // Uniform breathing (same sign both axes): overall scale only,
-            // never width-vs-height shear. Material-style scale is uniform.
-            const double wob = wobAmp * std::sin(2.0 * PI * wobFreq * t) * (1.0 - t);
-            tr.scaleX        = grow * (1.0 + wob);
-            tr.scaleY        = grow * (1.0 + wob);
+        const double wob = (wobAmp > 0.0 && t < 1.0) ? wobAmp * std::sin(2.0 * PI * wobFreq * t) * (1.0 - t) : 0.0;
+        // Directional liquid stretch on the way in too: elongated along the
+        // motion axis at mid-flight, squashed across it, settling to 1.0 at
+        // both endpoints. This is real geometry, not a screen-space overlay.
+        const double belly   = std::sin(PI * t);
+        const double stretch = (double)getFloat(Key::STRETCH, 0.10f);
+        const double squash  = (double)getFloat(Key::SQUASH, 0.06f);
+        const double along   = grow * (1.0 + wob + stretch * 0.5 * belly);
+        const double across  = grow * (1.0 + wob - squash * 0.5 * belly);
+        if (vertical) {
+            tr.scaleY = along;
+            tr.scaleX = across;
         } else {
-            tr.scaleX = tr.scaleY = grow;
+            tr.scaleX = along;
+            tr.scaleY = across;
         }
     }
     return tr;

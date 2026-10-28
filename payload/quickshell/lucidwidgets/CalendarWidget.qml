@@ -1,6 +1,7 @@
 import QtQuick
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -225,7 +226,7 @@ WidgetBody {
             Repeater {
                 model: agList.shown
 
-                Rectangle {
+                SquircleRect {
                     id: ev
 
                     required property var modelData
@@ -238,7 +239,8 @@ WidgetBody {
                     bottomLeftRadius: ev.index === agList.shown.length - 1 ? Theme.rad(16) : Theme.dp(5)
                     bottomRightRadius: ev.index === agList.shown.length - 1 ? Theme.rad(16) : Theme.dp(5)
                     readonly property bool soon: ev.modelData.at - w.now < 6 * 86400000
-                    color: Theme.alpha(w.ink, 0.07)
+                    fillColor: Theme.alpha(w.ink, 0.07)
+                    smoothing: Prefs.squircleF
 
                     Column {
                         x: Theme.dp(12)

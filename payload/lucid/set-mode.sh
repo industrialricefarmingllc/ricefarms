@@ -43,7 +43,12 @@ WALLPAPER="$(cat "$CACHE_DIR/current_wallpaper" 2>/dev/null || true)"
 # with a live wallpaper current_wallpaper is only its first frame. handing that
 # back would set the frame as a still and stop the video, so the video goes back
 LIVE="$(head -n1 "$CACHE_DIR/current_live_wallpaper" 2>/dev/null || true)"
-[[ -n "$LIVE" && -f "$LIVE" ]] && WALLPAPER="$LIVE"
+if [[ "$LIVE" == skwd:* ]]; then
+    # a Wallpaper Engine scene has no file of its own; hand the key back
+    WALLPAPER="$LIVE"
+elif [[ -n "$LIVE" && -f "$LIVE" ]]; then
+    WALLPAPER="$LIVE"
+fi
 
 case "$THEME" in
 matugen | pywal)

@@ -119,8 +119,9 @@ PanelWindow {
         layer.enabled: true
         layer.effect: MultiEffect {
             shadowEnabled: true
-            shadowBlur: 0.5
-            shadowColor: Qt.rgba(0, 0, 0, 0.4)
+            shadowBlur: 0.25
+            blurMax: Theme.hyprShadowBlurMax
+            shadowColor: Theme.hyprShadow
             shadowVerticalOffset: Theme.dp(1)
         }
 

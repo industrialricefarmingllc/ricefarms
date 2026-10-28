@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cmd="${1:-toggle}"
+
+case "$cmd" in
+    start)
+        exec qs -p "$DIR" -n -d
+        ;;
+    stop)
+        pkill -f -- "qs -p $DIR" 2>/dev/null || true
+        ;;
+    restart)
+        pkill -f -- "qs -p $DIR" 2>/dev/null || true
+        sleep 1
+        exec qs -p "$DIR" -n -d
+        ;;
+    toggle|open|close|status|debug|language|ask)
+        shift || true
+        if ! qs -p "$DIR" ipc show >/dev/null 2>&1; then
+            qs -p "$DIR" -n -d >/dev/null 2>&1 || true
+            sleep 0.2
+        fi
+        exec qs -p "$DIR" ipc call quick-translate "$cmd" "$@"
+        ;;
+    *)
+        cat <<EOF
+usage: quick-translate [start|stop|restart|toggle|open|close|status|debug|language|ask]
+
+  toggle              open or close the widget
+  language fr|lb|ru   choose and remember the target language
+  ask "sentence"      open and translate one sentence (scripting)
+  debug               JSON with geometry and state
+
+The widget itself: SUPER+T toggles, Escape closes.
+EOF
+        exit 2
+        ;;
+esac

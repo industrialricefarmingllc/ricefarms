@@ -7,10 +7,11 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
-  "agent_ui_font_size": 13.0,
+  "agent_ui_font_size": 14.0,
   "cursor_animation": {
     "enabled": false,
   },
+  "cursor_blink": false,
   "diff_view_style": "unified",
   "format_on_save": "on",
   "agent_servers": {
@@ -71,8 +72,8 @@
   },
   "cli_default_open_behavior": "existing_window",
   "vim_mode": false,
-  "text_rendering_mode": "platform_default",
-  "agent_buffer_font_size": 12.0,
+  "text_rendering_mode": "grayscale",
+  "agent_buffer_font_size": 13.0,
   "project_panel": {
     "button": false,
     "dock": "left",
@@ -133,6 +134,11 @@
         },
         {
           "paths": [
+            "/home/dev/dev/rice/rn"
+          ]
+        },
+        {
+          "paths": [
             "/home/dev/dev/rice/svelte-reactive-params"
           ]
         },
@@ -187,6 +193,7 @@
   },
   "terminal": {
     "font_family": "Gitlab Mono",
+    "blinking": "off",
   },
   "git": {
     "git_gutter": "tracked_files",
@@ -231,8 +238,8 @@
   "show_whitespaces": "none",
   "remove_trailing_whitespace_on_save": true,
   "tab_size": 2,
-  "ui_font_size": 13.0,
-  "buffer_font_size": 12.5,
+  "ui_font_size": 14.0,
+  "buffer_font_size": 13.5,
   "theme": {
     "mode": "system",
     "light": "One Light",
@@ -244,11 +251,8 @@
     },
   },
   "active_pane_modifiers": {
-    "magnification": 5,
-    "inactive_opacity": 0.66,
-    "spring_stiffness": 0.55,
-    "spring_damping": 0.8,
-    "animation_duration_ms": 75,
+    "inactive_opacity": 1.0,
+    "border_size": 0.0,
   },
   "edit_predictions": {
     "provider": "open_ai_compatible_api",
@@ -262,4 +266,7 @@
     },
   },
   "file_scan_exclusions": ["**/node_modules"],
+  "session": {
+    "trust_all_worktrees": true,
+  },
 }

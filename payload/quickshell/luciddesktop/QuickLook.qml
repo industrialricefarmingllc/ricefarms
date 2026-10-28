@@ -144,9 +144,10 @@ Item {
         layer.enabled: true
         layer.effect: MultiEffect {
             shadowEnabled: true
-            shadowBlur: 1
-            shadowColor: Qt.rgba(0, 0, 0, 0.5)
-            shadowVerticalOffset: Theme.dp(8)
+            shadowBlur: 0.5
+            blurMax: Theme.hyprShadowBlurMax
+            shadowColor: Theme.hyprShadow
+            shadowVerticalOffset: Theme.dp(4)
         }
 
         // clicks on the card stay on the card

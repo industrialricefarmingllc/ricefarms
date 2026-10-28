@@ -1,5 +1,6 @@
 -- custom.lua - persistent lua hotkeys, sourced by hyprland.lua
--- SUPER+left/right = focus, SUPER+CTRL+left/right + SUPER+ALT+left/right = workspace on current monitor only (m+1/m-1) via perMonitorWorkspace
+CUSTOM_LUA_EDP_GRID = true
+-- SUPER+left/right = focus, SUPER+CTRL+left/right + SUPER+ALT+left/right = workspace grid (10/20/30 fall back to numeric neighbours)
 hl.bind("SUPER + left", hl.dsp.focus({ direction = "left" }))
 hl.bind("SUPER + right", hl.dsp.focus({ direction = "right" }))
 hl.bind("SUPER + H", hl.dsp.focus({ direction = "left" }))
@@ -8,11 +9,9 @@ hl.bind("SUPER + CTRL + left", function() gridHorizontal(-1) end)
 hl.bind("SUPER + CTRL + right", function() gridHorizontal(1) end)
 hl.bind("SUPER + CTRL + H", function() gridHorizontal(-1) end)
 hl.bind("SUPER + CTRL + L", function() gridHorizontal(1) end)
--- SUPER+ALT+left/right = row-local horizontal (5 wide, wraps). Falls back to
--- monitor-local m+1/m-1 when on scratch/special (10/20) outside the grid.
--- SUPER+ALT+left/right = monitor-local workspace cycle (stay on current monitor)
--- Uses monitor-at-cursor so selection via cursor OR active window both work.
--- Delegates to Hyprland's native monitor-local m+1/m-1 after ensuring the selected monitor is focused.
+-- SUPER+ALT+left/right = row-local horizontal (5 wide, wraps). Workspaces
+-- outside the grid (10/20/30) fall back to numeric neighbours so the internal
+-- eDP-1 panel stays navigable when the DP-1/2/3 monitors are disconnected.
 -- Workspace slide direction: horizontal moves slide, vertical moves slidevert.
 -- Matches Hyprgrid (parseKeyword animation workspaces ... slide/slidevert).
 -- Same speed/bezier as hyprland.lua so only the style flips, no full reload.
@@ -25,7 +24,7 @@ hl.bind("SUPER + CTRL + L", function() gridHorizontal(1) end)
 -- per jump is safe again and never double-applies.)
 local function setWsStyle(style)
   pcall(function()
-    hl.animation({ leaf = "workspaces", enabled = true, speed = 4, bezier = "default", style = style })
+    hl.animation({ leaf = "workspaces", enabled = true, speed = 4.43, bezier = "default", style = style })
   end)
 end
 -- Workspace -> monitor, mirroring the workspace_rule list in hyprland.lua.
@@ -118,6 +117,28 @@ for ri, row in ipairs(GRID_ROWS) do
     WS_POS[id] = { r = ri, c = ci, n = #row }
   end
 end
+-- Solo internal-panel grid. With no DP monitors connected, Hyprland has no
+-- rule for eDP-1 and creates only the free workspace 10. Use a dedicated 5x3
+-- block starting at 10 so the first jump (10 -> 11) can be reversed.
+local EDP_ROWS = {
+  {10,11,12,13,14},
+  {20,21,22,23,24},
+  {30,31,32,33,34},
+}
+local EDP_POS, EDP_DOWN, EDP_UP = {}, {}, {}
+for ri, row in ipairs(EDP_ROWS) do
+  for ci, id in ipairs(row) do
+    EDP_POS[id] = { r = ri, c = ci, n = #row }
+    EDP_DOWN[id] = EDP_ROWS[(ri % #EDP_ROWS) + 1][ci]
+    EDP_UP[id] = EDP_ROWS[((ri - 2) % #EDP_ROWS) + 1][ci]
+  end
+end
+function soloEDP()
+  local mon, mons = nil, nil
+  pcall(function() mon = hl.get_active_monitor() end)
+  pcall(function() mons = hl.get_monitors() end)
+  return mon ~= nil and mon.name == "eDP-1" and mons ~= nil and #mons == 1
+end
 -- One steering function for every path: keybinds pre-steer with it before
 -- dispatch AND the workspace.active handler below re-steers from the actual
 -- from->to pair, so both always agree and can never fight. Global (no
@@ -126,10 +147,13 @@ end
 -- needs WS_POS too, so it sits down here past the grid tables.)
 function steerWsJump(fromId, toId)
   if not fromId or not toId or fromId == toId then return end
-  local pa, pb = WS_POS[fromId], WS_POS[toId]
+  local solo = soloEDP()
+  local posMap = solo and EDP_POS or WS_POS
+  local pa, pb = posMap[fromId], posMap[toId]
   if not pa or not pb then return end
   local style = nil
-  local ma, mb = WS_MON[fromId], WS_MON[toId]
+  local ma = not solo and WS_MON[fromId] or nil
+  local mb = not solo and WS_MON[toId] or nil
   if ma and mb and ma ~= mb then
     style = (MON_X[mb] or 0) > (MON_X[ma] or 0) and "slide right" or "slide left"
   elseif pa.r == pb.r then
@@ -228,13 +252,36 @@ local GRID_UP = { [11]=1, [12]=2, [13]=3, [14]=4, [15]=5, [16]=6, [17]=7, [18]=8
   [33]=31, [35]=33, [31]=35, [34]=32, [36]=34, [32]=36,
   [39]=37, [41]=39, [37]=41, [40]=38, [42]=40, [38]=42,
   [45]=43, [47]=45, [43]=47, [46]=44, [48]=46, [44]=48 }
+-- Free row anchors 10/20/30 (outside the 45-cell grid): wrap vertically as a
+-- 3-row column so the internal panel still has a working up/down pair.
+local FALLBACK_DOWN = { [10]=20, [20]=30, [30]=10 }
+local FALLBACK_UP   = { [10]=30, [20]=10, [30]=20 }
+-- Pick the grid for the current setup: solo eDP-1 gets its own block; any
+-- docked/multi-monitor layout keeps the original 45-cell DP grid.
+function activeGrid()
+  if soloEDP() then return EDP_ROWS, EDP_POS, EDP_DOWN, EDP_UP end
+  return GRID_ROWS, WS_POS, GRID_DOWN, GRID_UP
+end
 function gridHorizontal(dir)
   local ws = nil
   pcall(function() ws = hl.get_active_workspace() end)
   if not ws or not ws.id then return end
-  local pos = WS_POS[ws.id]
-  if not pos then perMonitorWorkspace(dir) return end
-  local row = GRID_ROWS[pos.r]
+  local rows, posMap = activeGrid()
+  local pos = posMap[ws.id]
+  if not pos then
+    -- 10/20/30 are outside the grid. When only the internal panel is
+    -- connected (eDP-1), the DP-1/2/3 workspace rules leave workspace 10 as
+    -- the only workspace, and perMonitorWorkspace's m+1/m-1 only cycles
+    -- EXISTING workspaces (it never creates one), so navigation was a
+    -- no-op. Absolute dispatch creates the numeric neighbour even if its
+    -- rule names a disconnected DP monitor.
+    local target = ws.id + dir
+    if target > 0 then
+      hl.dispatch(hl.dsp.focus({ workspace = tostring(target) }))
+    end
+    return
+  end
+  local row = rows[pos.r]
   local nc = ((pos.c - 1 + dir) % pos.n) + 1
   steerWsJump(ws.id, row[nc])
   hl.dispatch(hl.dsp.focus({ workspace = tostring(row[nc]) }))
@@ -243,9 +290,10 @@ function gridMoveHorizontal(dir)
   local ws = nil
   pcall(function() ws = hl.get_active_workspace() end)
   if not ws or not ws.id then return end
-  local pos = WS_POS[ws.id]
+  local rows, posMap = activeGrid()
+  local pos = posMap[ws.id]
   if not pos then return end
-  local row = GRID_ROWS[pos.r]
+  local row = rows[pos.r]
   local nc = ((pos.c - 1 + dir) % pos.n) + 1
   steerWsJump(ws.id, row[nc])
   hl.dispatch(hl.dsp.window.move({ workspace = tostring(row[nc]), follow = true }))
@@ -254,8 +302,18 @@ function gridVertical(dir)
   local ws = nil
   pcall(function() ws = hl.get_active_workspace() end)
   if not ws or not ws.id then return end
-  local target = dir > 0 and GRID_DOWN[ws.id] or GRID_UP[ws.id]
-  if not target then return end
+  local _, _, down, up = activeGrid()
+  local target = dir > 0 and down[ws.id] or up[ws.id]
+  if not target then
+    -- Same laptop-only fallback as gridHorizontal: move a row numerically
+    -- (10 <-> 20 <-> 30 wraps) instead of doing nothing outside the grid.
+    local nid = (dir > 0 and FALLBACK_DOWN or FALLBACK_UP)[ws.id]
+      or (ws.id + dir * 10)
+    if nid > 0 then
+      hl.dispatch(hl.dsp.focus({ workspace = tostring(nid) }))
+    end
+    return
+  end
   steerWsJump(ws.id, target)
   hl.dispatch(hl.dsp.focus({ workspace = tostring(target) }))
 end
@@ -263,7 +321,8 @@ function gridMoveVertical(dir)
   local ws = nil
   pcall(function() ws = hl.get_active_workspace() end)
   if not ws or not ws.id then return end
-  local target = dir > 0 and GRID_DOWN[ws.id] or GRID_UP[ws.id]
+  local _, _, down, up = activeGrid()
+  local target = dir > 0 and down[ws.id] or up[ws.id]
   if not target then return end
   steerWsJump(ws.id, target)
   hl.dispatch(hl.dsp.window.move({ workspace = tostring(target), follow = true }))
@@ -292,13 +351,17 @@ hl.bind("SUPER + XF86AudioLowerVolume", hl.dsp.exec_cmd("pactl set-sink-volume @
 hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --freeze --clipboard-only --silent"))
 
 -- F16 = open kitty (single press, no modifier — mirrors F15 desktop-toggle pattern)
--- code:194 is the Hyprland/XKB keycode for F16 (evdev 186 + 8; use wev to confirm)
+-- kb_variant ",phonetic_winkeys" (via the inet evdev symbols) remaps FK13-FK20:
+--   key <FK16> { [ XF86Launch7 ] };
+-- so the physical F16 key never emits the F16 keysym. Bind the keysym the
+-- keymap actually emits. Do NOT use "code:NN": Hyprland 0.56.2's Lua bind
+-- parser turns any "code:" spec into an empty-key bind (key="", keycode=0),
+-- which matches KEY_UNKNOWN events (e.g. Xbox Elite paddles).
+hl.bind("XF86Launch7", hl.dsp.exec_cmd("kitty"))
 hl.bind("F16", hl.dsp.exec_cmd("kitty"))
-hl.bind("code:194", hl.dsp.exec_cmd("kitty"))
--- F17 = open nautilus
--- code:195 is the Hyprland/XKB keycode for F17 (evdev 187 + 8; use wev to confirm)
+-- F17 = open nautilus (same keymap remap: FK17 = XF86Launch8)
+hl.bind("XF86Launch8", hl.dsp.exec_cmd("nautilus --new-window"))
 hl.bind("F17", hl.dsp.exec_cmd("nautilus --new-window"))
-hl.bind("code:195", hl.dsp.exec_cmd("nautilus --new-window"))
 
 -- Urgency focus guard: no activation focus-steal within 5s of input.
 -- misc:focus_on_activate=false means activation requests (urgent hints,
@@ -461,28 +524,75 @@ pcall(function()
 end)
 
 -- liquid-glass-toggle persistence (see /usr/local/bin/liquid-glass-toggle).
--- Goo (plugin:gooworkspaces:enabled) has no prefs.json twin, while the
--- static hl.config block in hyprland.lua resets it to 1 on every (re)load —
--- including matugen wallpaper switches. So while glass is off (prefs.json
--- liquidGlassEnabled=false, the plugin's own tuner + QML fallback), re-apply
--- goo=0 after every reload. Liquidglass itself needs no re-apply (prefs tuner
--- is mtime-gated per frame), but set it too for the prefs-missing case.
+-- prefs.json is the source of truth for both independent switches:
+--   liquidGlassEnabled   -> plugin:liquidglass:enabled (bar/dock/OSD/windows)
+--   gooWorkspacesEnabled -> plugin:gooworkspaces:enabled (workspace morph)
+-- They are independent: goo works with glass off, and glass works with goo off.
 -- NEVER `hyprctl plugin unload` here: unload SEGVs (see hyprland.lua).
 local function applyGlassGooState()
-  local off = false
+  local glassOff, gooOff = false, false
   pcall(function()
     local home = os.getenv("HOME") or "/home/nicerice"
     local f = io.open(home .. "/.config/quickshell/lucidprefs/prefs.json", "r")
     if f then
       local text = f:read("*a") or ""
       f:close()
-      if text:match('"liquidGlassEnabled"%s*:%s*false') then off = true end
+      if text:match('"liquidGlassEnabled"%s*:%s*false') then glassOff = true end
+      if text:match('"gooWorkspacesEnabled"%s*:%s*false') then gooOff = true end
     end
   end)
-  if off then
-    pcall(function() hl.config({ plugin = { liquidglass = { enabled = 0 } } }) end)
-    pcall(function() hl.config({ plugin = { gooworkspaces = { enabled = 0 } } }) end)
-  end
+  local glassEn = glassOff and 0 or 1
+  local gooEn = (not gooOff) and 1 or 0
+  pcall(function() hl.config({ plugin = { liquidglass = { enabled = glassEn } } }) end)
+  pcall(function() hl.config({ plugin = { gooworkspaces = { enabled = gooEn } } }) end)
 end
 pcall(applyGlassGooState)
 pcall(function() hl.on("config.reloaded", applyGlassGooState) end)
+
+-- Touch gestures (src/hypr-edge-swipe/hypr-touch-gestures.so):
+--   * swipe inward or outward from any edge -> workspace in that direction
+--     on the 5x3 grid; a swipe from the interior toward an edge goes the
+--     opposite way; the workspace follows the finger and slides back if
+--     released early
+--   * corner launcher gestures are disabled (Pibble off 2026-10-27;
+--     source kept in ~/src/pibble)
+--   * pinch out on a window -> live resize, then maximize; again -> fullscreen
+--   * pinch in -> fullscreen -> maximized -> normal, or a smaller float
+--   * drag on a window -> double-tap, then drag with the second touch; a
+--     single-finger drag stays with the app, and vertical scrolls briefly
+--     pause drag arming; normal windows snap back into the tiling spot under
+--     the drop point
+-- This replaces the built-in `gestures:workspace_swipe_touch`. The native
+-- path is motion-based (a right-bezel inward swipe targets m-1), cannot do
+-- the workspace grid's up/down or wrapping, and needs >50% of the screen to
+-- commit. Keep it off; the plugin handles the same hardware with edge-based
+-- directions, vertical grid navigation and a 900 px full-travel distance.
+pcall(function()
+  hl.config({ gestures = { workspace_swipe_touch = false } })
+end)
+-- Pibble corner-open gesture off. This is belt-and-braces: the plugin keeps
+-- its compiled default unless rebuilt, so the launcher entrypoint is also
+-- non-executable on this machine.
+pcall(function()
+  hl.config({ plugin = { touch = { corner_enabled = 0 } } })
+end)
+hl.on("hyprland.start", function()
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q hypr-touch-gestures || hyprctl plugin load /home/nicerice/src/hypr-edge-swipe/hypr-touch-gestures.so")
+end)
+
+-- Ignore maximize requests from all apps (stock Hyprland 0.56 rule).
+-- Without this, apps that restore a maximized state (kitty, Zed, btop, ...)
+-- open covering the whole workspace instead of just their dwindle tile.
+-- Lives here (not hyprland.lua) so it survives config regeneration.
+pcall(function()
+  hl.window_rule({
+    name = "suppress-maximize-events",
+    match = { class = ".*" },
+    suppress_event = "maximize",
+  })
+end)
+
+-- >>> quick-translate >>>
+-- SUPER+T opens Lucid's launcher on the Translate tab.
+hl.bind("SUPER + T", hl.dsp.exec_cmd("qs ipc call launcher translate"), { description = "Translate (SUPER+T)" })
+-- <<< quick-translate <<<

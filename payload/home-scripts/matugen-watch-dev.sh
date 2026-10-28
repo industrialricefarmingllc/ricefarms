@@ -71,6 +71,9 @@ case "$cmd" in
       DIRS="$(printf '%s\n' "${WATCH_FILES[@]}" | xargs -n1 dirname | sort -u)"
       # shellcheck disable=SC2086
       inotifywait -m -q -e close_write,moved_to,create --format '%w%f' $DIRS 2>/dev/null | while read -r _ev; do
+        # one palette render writes every watched file; drain the burst so a
+        # single wallpaper change is one upload attempt, not eleven
+        while read -r -t 0.15 _ev2; do :; done
         if [ -x "$SYNC" ]; then
           "$SYNC" --background >>"$LOG" 2>&1 || log "sync failed (will retry on next event)"
         fi

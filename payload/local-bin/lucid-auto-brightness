@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+"""Ambient-light adaptive brightness for Lucid/Hyprland on Surface devices.
+
+Reads the IIO ambient-light sensor, smooths the readings, maps lux to a
+backlight percentage, and eases the backlight to each new target in small
+steps. Manual brightness changes pause automatic adjustments for a while.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import logging
+import math
+import os
+import statistics
+import sys
+import time
+from collections import deque
+from pathlib import Path
+
+HOME = Path.home()
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "lucid"
+FLAG_FILE = CACHE_DIR / "auto-brightness-last-write"
+CONFIG_FILE = HOME / ".config/lucid/auto-brightness.json"
+BACKLIGHT_DIR = Path("/sys/class/backlight/intel_backlight")
+
+# Safety rail: the panel must never go completely dark, even if the config
+# or an external tool asks for it.
+HARD_MIN_PERCENT = 5.0
+HARD_MAX_PERCENT = 100.0
+
+DEFAULTS = {
+    "min_percent": 5,
+    "max_percent": 100,
+    "offset_percent": 0,
+    "sample_seconds": 1.0,
+    "samples": 5,
+    "min_delta_percent": 0.5,
+    "min_interval_seconds": 1.0,
+    "manual_override_seconds": 90.0,
+    "trim_percent": 0.0,
+    "transition_min_seconds": 0.25,
+    "transition_max_seconds": 1.2,
+    "transition_seconds_per_percent": 0.06,
+    "transition_fps": 60,
+    # Piecewise-linear in log10(lux): [lux, brightness percent]
+    "curve": [
+        [0, 5],
+        [2, 5],
+        [10, 13],
+        [50, 25],
+        [100, 35],
+        [300, 50],
+        [1000, 73],
+        [3000, 87],
+        [10000, 100],
+    ],
+}
+
+log = logging.getLogger("lucid-auto-brightness")
+
+
+def find_als() -> Path | None:
+    for name_file in glob.glob("/sys/bus/iio/devices/iio:device*/name"):
+        try:
+            if Path(name_file).read_text().strip() == "als":
+                return Path(name_file).parent
+        except OSError:
+            continue
+    return None
+
+
+def read_lux(device: Path) -> float:
+    raw = int((device / "in_illuminance_raw").read_text().strip())
+    scale = float((device / "in_illuminance_scale").read_text().strip())
+    return max(0.0, raw * scale)
+
+
+def read_max_raw() -> int:
+    return int((BACKLIGHT_DIR / "max_brightness").read_text().strip())
+
+
+def read_raw() -> int:
+    return int((BACKLIGHT_DIR / "brightness").read_text().strip())
+
+
+def percent_to_raw(percent: float, max_raw: int | None = None) -> int:
+    maximum = max_raw if max_raw is not None else read_max_raw()
+    percent = max(HARD_MIN_PERCENT, min(HARD_MAX_PERCENT, float(percent)))
+    return round(percent * maximum / 100.0)
+
+
+def raw_to_percent(raw: int, max_raw: int | None = None) -> float:
+    maximum = max_raw if max_raw is not None else read_max_raw()
+    return raw * 100.0 / maximum
+
+
+def write_raw(value: int, max_raw: int) -> None:
+    # Never write 0: an accidental fully-black panel would be hard to recover.
+    floor_raw = percent_to_raw(HARD_MIN_PERCENT, max_raw)
+    value = max(floor_raw, min(max_raw, int(value)))
+    (BACKLIGHT_DIR / "brightness").write_text(str(value))
+
+
+def map_lux(lux: float, curve: list[list[float]]) -> float:
+    if lux <= curve[0][0]:
+        return float(curve[0][1])
+    for (x0, y0), (x1, y1) in zip(curve, curve[1:]):
+        if lux <= x1:
+            lx0, lx1 = math.log10(max(x0, 0.1)), math.log10(max(x1, 0.1))
+            t = (math.log10(max(lux, 0.1)) - lx0) / (lx1 - lx0)
+            return y0 + t * (y1 - y0)
+    return float(curve[-1][1])
+
+
+def target_for_lux(lux: float, cfg: dict, effective_min: float) -> float:
+    """Map lux to brightness, then apply a soft non-linear low-end trim.
+
+    The trim is strongest at the bottom of the curve and fades to zero at
+    100%, so the panel can still reach full brightness when needed.
+    """
+    target = map_lux(lux, cfg["curve"]) + float(cfg["offset_percent"])
+    target = max(
+        effective_min,
+        min(HARD_MAX_PERCENT, min(float(cfg["max_percent"]), target)),
+    )
+
+    trim = float(cfg.get("trim_percent", 0.0))
+    if trim > 0.0:
+        # The bottom of the shifted curve is the natural anchor.
+        anchor = min(
+            HARD_MAX_PERCENT,
+            float(cfg["curve"][0][1]) + float(cfg["offset_percent"]),
+        )
+        span = HARD_MAX_PERCENT - anchor
+        if span > 0.0:
+            t = max(0.0, min(1.0, (HARD_MAX_PERCENT - target) / span))
+            eased = t * t * (3.0 - 2.0 * t)  # smoothstep taper
+            target -= trim * eased
+
+    return max(effective_min, min(HARD_MAX_PERCENT, target))
+
+
+def load_config() -> dict:
+    cfg = json.loads(json.dumps(DEFAULTS))  # deep copy
+    if CONFIG_FILE.exists():
+        try:
+            user_cfg = json.loads(CONFIG_FILE.read_text())
+            if isinstance(user_cfg, dict):
+                cfg.update(user_cfg)
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("Ignoring invalid %s: %s", CONFIG_FILE, exc)
+    curve = cfg.get("curve") or DEFAULTS["curve"]
+    cfg["curve"] = sorted(
+        [[float(x), float(y)] for x, y in curve], key=lambda point: point[0]
+    )
+    if len(cfg["curve"]) < 2:
+        cfg["curve"] = DEFAULTS["curve"]
+    return cfg
+
+
+def transition_to_percent(target_percent: float, cfg: dict) -> int:
+    """Ease the backlight to target_percent and return the final raw value."""
+    max_raw = read_max_raw()
+    start_raw = read_raw()
+    target_raw = percent_to_raw(target_percent, max_raw)
+    if target_raw == start_raw:
+        return target_raw
+
+    delta_raw = target_raw - start_raw
+    start_percent = raw_to_percent(start_raw, max_raw)
+    delta_percent = abs(target_percent - start_percent)
+    duration = min(
+        float(cfg["transition_max_seconds"]),
+        max(
+            float(cfg["transition_min_seconds"]),
+            delta_percent * float(cfg["transition_seconds_per_percent"]),
+        ),
+    )
+    fps = max(10, int(cfg["transition_fps"]))
+    frames = max(6, round(duration * fps))
+    frame_seconds = duration / frames
+
+    # Give Quickshell's FileView a moment to observe the flag before the
+    # backlight starts changing, so the OSD skips automatic adjustments.
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    FLAG_FILE.write_text(str(int(time.time())), encoding="utf-8")
+    time.sleep(0.4)
+
+    log.debug(
+        "Easing %.1f%% -> %.1f%% over %.2fs (%d steps, %.1f fps)",
+        start_percent,
+        target_percent,
+        duration,
+        frames,
+        frames / duration,
+    )
+
+    deadline = time.monotonic()
+    for step in range(1, frames + 1):
+        t = step / frames
+        eased = t * t * (3.0 - 2.0 * t)  # smoothstep
+        write_raw(round(start_raw + delta_raw * eased), max_raw)
+        deadline += frame_seconds
+        delay = deadline - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+
+    # Land exactly on the requested value despite integer rounding.
+    write_raw(target_raw, max_raw)
+    return target_raw
+
+
+def run(dry_run: bool = False) -> int:
+    device = find_als()
+    if device is None:
+        log.error("No IIO ambient-light sensor found")
+        return 1
+
+    cfg = load_config()
+    interval = float(cfg["sample_seconds"])
+    history: deque[float] = deque(maxlen=int(cfg["samples"]))
+    max_raw = read_max_raw()
+    last_applied_raw: int | None = None
+    last_apply_time = 0.0
+    manual_until = 0.0
+
+    log.info(
+        "Using %s; curve=%s; sample=%ss x%s; deadband=%.2f%%; manual override=%ss",
+        device,
+        cfg["curve"],
+        interval,
+        cfg["samples"],
+        float(cfg["min_delta_percent"]),
+        cfg["manual_override_seconds"],
+    )
+
+    while True:
+        try:
+            lux = read_lux(device)
+        except (OSError, ValueError) as exc:
+            log.debug("ALS read failed: %s", exc)
+            time.sleep(interval)
+            continue
+
+        history.append(lux)
+        now = time.monotonic()
+        current_raw = read_raw()
+        current = raw_to_percent(current_raw, max_raw)
+        effective_min = max(HARD_MIN_PERCENT, float(cfg["min_percent"]))
+        floor_raw = percent_to_raw(effective_min, max_raw)
+
+        # If anything drives the panel below the safety floor (including a
+        # manual 0%), restore it immediately instead of honoring the usual
+        # manual-override grace period.
+        if current_raw < floor_raw:
+            restore = target_for_lux(statistics.median(history), cfg, effective_min)
+            log.warning(
+                "Brightness was %.1f%%; restoring to %.1f%%", current, restore
+            )
+            try:
+                last_applied_raw = transition_to_percent(restore, cfg)
+            except OSError as exc:
+                log.error("Failed to restore brightness: %s", exc)
+            else:
+                last_apply_time = time.monotonic()
+            time.sleep(interval)
+            continue
+
+        if len(history) < history.maxlen:
+            time.sleep(interval)
+            continue
+
+        # Someone else (slider, keybind, another daemon) changed the
+        # brightness: leave it alone for a while.
+        manual_tolerance = max(2, round(max_raw * 0.002))
+        if (
+            last_applied_raw is not None
+            and abs(current_raw - last_applied_raw) > manual_tolerance
+            and now - last_apply_time > 2.0
+        ):
+            manual_until = now + float(cfg["manual_override_seconds"])
+            log.info(
+                "Manual brightness change to %.1f%%; pausing auto adjustment for %ss",
+                current,
+                cfg["manual_override_seconds"],
+            )
+            last_applied_raw = current_raw
+
+        median_lux = statistics.median(history)
+        target = target_for_lux(median_lux, cfg, effective_min)
+
+        if now < manual_until:
+            log.debug(
+                "lux=%.0f target=%.1f%% current=%.1f%% (manual override active)",
+                median_lux,
+                target,
+                current,
+            )
+        elif now - last_apply_time < float(cfg["min_interval_seconds"]):
+            log.debug(
+                "lux=%.0f target=%.1f%% current=%.1f%% (rate limited)",
+                median_lux,
+                target,
+                current,
+            )
+        elif abs(target - current) >= float(cfg["min_delta_percent"]):
+            if dry_run:
+                log.info(
+                    "Would ease brightness: lux=%.0f target=%.1f%% current=%.1f%%",
+                    median_lux,
+                    target,
+                    current,
+                )
+                last_applied_raw = percent_to_raw(target, max_raw)
+                last_apply_time = now
+            else:
+                try:
+                    last_applied_raw = transition_to_percent(target, cfg)
+                except OSError as exc:
+                    log.error("Failed to set brightness to %.1f%%: %s", target, exc)
+                else:
+                    log.info(
+                        "Set brightness: lux=%.0f -> %.1f%% (was %.1f%%)",
+                        median_lux,
+                        target,
+                        current,
+                    )
+                    last_apply_time = time.monotonic()
+        else:
+            log.debug(
+                "lux=%.0f target=%.1f%% current=%.1f%% (within deadband)",
+                median_lux,
+                target,
+                current,
+            )
+
+        time.sleep(interval)
+
+
+def status() -> int:
+    device = find_als()
+    if device is None:
+        print("No IIO ambient-light sensor found")
+        return 1
+    cfg = load_config()
+    lux = read_lux(device)
+    max_raw = read_max_raw()
+    current = raw_to_percent(read_raw(), max_raw)
+    effective_min = max(HARD_MIN_PERCENT, float(cfg["min_percent"]))
+    target = target_for_lux(lux, cfg, effective_min)
+    print(f"sensor:  {device}")
+    print(f"lux:     {lux:.0f}")
+    print(f"current: {current:.1f}%")
+    print(f"target:  {target:.1f}%")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="log changes without applying them")
+    parser.add_argument("--status", action="store_true", help="print one reading and exit")
+    parser.add_argument("--verbose", action="store_true", help="log sensor samples and easing")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s %(message)s",
+    )
+    if args.status:
+        return status()
+    return run(dry_run=args.dry_run)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

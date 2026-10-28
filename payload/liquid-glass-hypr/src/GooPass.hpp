@@ -26,7 +26,7 @@ namespace goo {
 // envelope, so stale elements are harmless.
 class CGooPassElement : public IPassElement {
   public:
-    CGooPassElement(TransitionManager* mgr, MONITORID mon, int side, bool vertical);
+    CGooPassElement(TransitionManager* mgr, MONITORID mon, int side, bool vertical, std::vector<SMorphTip> tips);
     virtual ~CGooPassElement() = default;
 
     std::vector<UP<IPassElement>> draw() override;
@@ -42,6 +42,7 @@ class CGooPassElement : public IPassElement {
     MONITORID          m_mon = MONITOR_INVALID;
     int                m_side = 1;
     bool               m_vertical = false;
+    std::vector<SMorphTip> m_tips;
 };
 
 // Droplet tip: pulls each outgoing window's leading edge into a pointed,

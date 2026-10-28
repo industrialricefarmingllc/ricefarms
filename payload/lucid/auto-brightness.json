@@ -1,0 +1,26 @@
+{
+  "min_percent": 5,
+  "max_percent": 100,
+  "offset_percent": 15,
+  "sample_seconds": 1.0,
+  "samples": 5,
+  "min_delta_percent": 0.5,
+  "min_interval_seconds": 1.0,
+  "manual_override_seconds": 90.0,
+  "trim_percent": 5.0,
+  "transition_min_seconds": 0.25,
+  "transition_max_seconds": 1.2,
+  "transition_seconds_per_percent": 0.06,
+  "transition_fps": 60,
+  "curve": [
+    [0, 5],
+    [2, 5],
+    [10, 13],
+    [50, 25],
+    [100, 35],
+    [300, 50],
+    [1000, 73],
+    [3000, 87],
+    [10000, 100]
+  ]
+}

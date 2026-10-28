@@ -6,6 +6,7 @@ import Quickshell.Widgets
 import qs
 import qs.lucidui
 import qs.luciddocks
+import "../squircle"
 
 // the dock's pinned apps on shapes of their own; a tap opens one, or brings it forward
 WidgetBody {
@@ -296,10 +297,11 @@ WidgetBody {
                 width: Math.floor((folder.width - folder.spacing) / 2)
                 height: Math.floor((folder.height - folder.spacing) / 2)
 
-                Rectangle {
+                SquircleRect {
                     anchors.fill: parent
                     radius: Theme.rad(20)
-                    color: w.ink
+                    fillColor: w.ink
+                    smoothing: Prefs.squircleF
                     opacity: entryTap.pressed ? 0.12 : (entryTap.containsMouse ? 0.06 : 0)
 
                     Behavior on opacity {

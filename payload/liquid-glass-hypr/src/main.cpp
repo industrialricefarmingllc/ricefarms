@@ -15,6 +15,7 @@
 #include "WindowGlass.hpp"
 
 #include <hyprland/src/Compositor.hpp>
+#include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/view/LayerSurface.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
@@ -25,6 +26,7 @@
 
 #include <memory>
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <unordered_map>
 
@@ -33,7 +35,7 @@ namespace {
 #define LG_NAME "liquid-glass-hypr"
 #define LG_DESC "Real-time liquid glass for layers + windows (in-render-pass) + gooey workspace morph"
 #define LG_AUTHOR "Lucid"
-#define LG_VERSION "0.8.30"
+#define LG_VERSION "0.8.33"
 
 HANDLE PHANDLE = nullptr;
 CFunctionHook* G_HOOK = nullptr;
@@ -121,13 +123,20 @@ void hkRenderWindow(Render::IHyprRenderer* self, PHLWINDOW window, PHLMONITOR mo
     // Elements are added here (during window rendering), never in
     // beginRender — see hkRenderLayer.
     const bool mainPass = passMode == Render::RENDER_PASS_ALL || passMode == Render::RENDER_PASS_MAIN;
+    const bool popupPass = passMode == Render::RENDER_PASS_POPUP;
+    // Glass stays on during a goo workspace morph: beginWindowMorph() has
+    // already warped the window, so snapshot() samples the morphed geometry
+    // and the glass rides the same motion as the content. The shared backdrop
+    // is disabled for the transition (see onWindowStage/snapshot); each glass
+    // pane takes a live per-window capture instead.
     // Under-glass only, and only for translucent classes (default
     // plugin:liquidglass:windows = "kitty,zen"): the glass draws BEFORE the
     // window content, so fully opaque windows would cover it completely —
     // drawing there is pure waste and is never submitted. There is
     // deliberately NO on-top/rim overdraw pass anymore (removed): edge glass
     // over regular windows is gone entirely.
-    if (mainPass && window && lg::getInt("plugin:liquidglass:enabled", 1) && lg::windowAllowed(window->m_class)) {
+    const bool glassEnabled = lg::getInt("plugin:liquidglass:enabled", 1) != 0;
+    if (mainPass && glassEnabled && window && lg::windowAllowed(window->m_class)) {
         pruneDeadWindows();
         auto* raw = window.get();
         auto it = WINDOWS->find(raw);
@@ -141,11 +150,95 @@ void hkRenderWindow(Render::IHyprRenderer* self, PHLWINDOW window, PHLMONITOR mo
         }
     }
 
+    // Record the draw order for shared-backdrop eligibility. This must happen
+    // after snapshot() (so a glass window never overlaps itself) and for
+    // non-glass windows too (they also invalidate the pre-window backdrop).
+    // Popup passes record the parent box conservatively: a menu drawn before
+    // a later glass window must force that window back to a live capture
+    // rather than a pre-window backdrop that predates the popup.
+    if ((mainPass || popupPass) && glassEnabled && window)
+        lg::noteWindowBox(window, monitor);
+
+    // Tiling resize shrink: Hyprland's animated window path stretches the
+    // stale content buffer into the smaller box, so the area leaving view is
+    // visibly squeezed. m_animatingIn controls upstream's UV path: leave it
+    // off for shrinking frames so the old buffer is cropped 1:1 instead.
+    // Only for non-goo resizes; goo owns this flag during workspace morphs.
+    bool cropShrink = false;
+    bool prevAnimatingIn = false;
+    if (!goo::transitioning(monitor->m_id) && window) {
+        auto& sv = window->sizeAnimation();
+        if (sv && sv->isBeingAnimated()) {
+            const auto v = sv->value();
+            const auto g = sv->goal();
+            if (g.x < v.x - 0.5 || g.y < v.y - 0.5) {
+                prevAnimatingIn = window->m_animatingIn;
+                window->m_animatingIn = false;
+                cropShrink = true;
+            }
+        }
+    }
+
     g_originalRenderWindow(self, window, monitor, now, decorate, passMode, ignorePosition, standalone);
+    if (cropShrink)
+        window->m_animatingIn = prevAnimatingIn;
     goo::endWindowMorph(window, gooSave);
 }
 
 } // namespace
+
+namespace lg {
+// A window belongs to the frame if its workspace is the active/special one,
+// or if it is being force-rendered / slid / morphed. During a goo transition
+// the outgoing workspace has m_forceRendering set; those windows still draw
+// and must count as shared-backdrop consumers.
+static bool workspaceRenders(PHLWORKSPACE ws, PHLWORKSPACE active, PHLWORKSPACE special) {
+    if (!ws)
+        return false;
+    if (ws == active || ws == special || ws->m_forceRendering)
+        return true;
+    const auto off = ws->m_renderOffset->value();
+    return ws->m_renderOffset->isBeingAnimated() || ws->m_alpha->isBeingAnimated() ||
+        std::abs(off.x) > 0.5 || std::abs(off.y) > 0.5 || ws->m_alpha->value() < 0.999f;
+}
+
+int windowGlassCount(PHLMONITOR monitor) {
+    if (!monitor)
+        return 0;
+    int count = 0;
+    for (const auto& [key, glass] : *WINDOWS) {
+        const auto win = glass ? glass->get() : nullptr;
+        if (!win || !win->m_isMapped || win->isHidden() || win->monitorID() != monitor->m_id)
+            continue;
+        if (!win->m_pinned &&
+            !workspaceRenders(win->m_workspace, monitor->m_activeWorkspace, monitor->m_activeSpecialWorkspace))
+            continue;
+        if (lg::windowAllowed(win->m_class) && !win->opaque())
+            ++count;
+    }
+    return count;
+}
+
+bool windowGlassNeedsFrame(PHLMONITOR monitor, const CBox& damage) {
+    if (!monitor || damage.w <= 0 || damage.h <= 0)
+        return false;
+    const float scale = monitor->m_scale > 0.0f ? monitor->m_scale : 1.0f;
+    const CBox dmgLogical{damage.x / scale, damage.y / scale, damage.w / scale, damage.h / scale};
+    for (const auto& [key, glass] : *WINDOWS) {
+        const auto win = glass ? glass->get() : nullptr;
+        if (!win || !win->m_isMapped || win->isHidden() || win->monitorID() != monitor->m_id)
+            continue;
+        if (!win->m_pinned &&
+            !workspaceRenders(win->m_workspace, monitor->m_activeWorkspace, monitor->m_activeSpecialWorkspace))
+            continue;
+        if (!lg::windowAllowed(win->m_class) || win->opaque())
+            continue;
+        if (const auto bounds = glass->glassBounds(); bounds && !bounds->intersection(dmgLogical).empty())
+            return true;
+    }
+    return false;
+}
+} // namespace lg
 
 void* lg::pluginHandle() {
     return PHANDLE;
@@ -225,8 +318,14 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
                                      CHyprColor{1, 0.2, 0.2, 1}, 5000);
 
     // Window drop shadows: single non-overloaded decoration method.
+    // NOTE: the match must be "::draw(" -- a bare "DropShadowDecoration::draw"
+    // also matches drawShadowInternal (CBox, int, float, ...), which nm -D
+    // lists FIRST. Hooking that one installs our (deco, PHLMONITOR, float)
+    // hook on the wrong signature: monitorLive() then reads a CBox as a
+    // shared_ptr, bails, and every shadow draw is dropped -> no window
+    // shadows at all, ever.
     for (const auto& match : HyprlandAPI::findFunctionsByName(PHANDLE, "DropShadowDecoration")) {
-        if (!match.demangled.contains("DropShadowDecoration::draw"))
+        if (!match.demangled.contains("DropShadowDecoration::draw("))
             continue;
         G_HOOK_SH = HyprlandAPI::createFunctionHook(PHANDLE, match.address, (void*)lg::hkDropShadowDraw);
         if (G_HOOK_SH && G_HOOK_SH->hook())

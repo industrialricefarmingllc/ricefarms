@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Networking
 import qs
 import qs.lucidui
+import "../squircle"
 
 // quick settings on the desktop; each one changes shape as it comes on
 WidgetBody {
@@ -318,7 +319,7 @@ WidgetBody {
         Repeater {
             model: w.variant === "tiles" ? w.keys : []
 
-            Rectangle {
+            SquircleRect {
                 id: tile
 
                 required property string modelData
@@ -327,7 +328,8 @@ WidgetBody {
                 width: Math.floor((tileGrid.width - tileGrid.spacing) / 2)
                 height: Math.floor((tileGrid.height - tileGrid.spacing) / 2)
                 radius: tile.st.on ? Theme.rad(18) : tile.height / 2
-                color: tile.st.on ? w.inkAccent : Theme.alpha(w.ink, 0.08)
+                fillColor: tile.st.on ? w.inkAccent : Theme.alpha(w.ink, 0.08)
+                smoothing: Prefs.squircleF
 
                 Behavior on radius {
                     NumberAnimation {
@@ -338,17 +340,18 @@ WidgetBody {
 
                 }
 
-                Behavior on color {
+                Behavior on fillColor {
                     ColorAnimation {
                         duration: Theme.durDefaultEffects
                     }
 
                 }
 
-                Rectangle {
+                SquircleRect {
                     anchors.fill: parent
                     radius: parent.radius
-                    color: tile.st.on ? w.fgInkAccent : w.ink
+                    fillColor: tile.st.on ? w.fgInkAccent : w.ink
+                    smoothing: Prefs.squircleF
                     opacity: tileTap.pressed ? 0.12 : (tileTap.containsMouse ? 0.07 : 0)
 
                     Behavior on opacity {

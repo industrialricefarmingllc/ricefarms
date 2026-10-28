@@ -60,11 +60,23 @@ BEGIN {
     sub(/.*\//, "", b)
     sub(/\.(svg|png)$/, "", b)
     if (!(b in W)) next
-    # earlier theme wins; full-colour beats symbolic; svg beats png
-    s = $1 * 100
-    if (p ~ /\/symbolic\//) s += 20
-    if (p ~ /\/small\//) s += 10
-    if (p ~ /\.png$/) s += 1
+    # earlier theme wins; full-colour beats symbolic; svg beats png; among
+    # pngs the largest raster size wins (a 48px app icon blown up to 40px is
+    # what reads as pixelation in the launcher grid)
+    s = $1 * 100000
+    if (p ~ /\/symbolic\//) s += 20000
+    if (p ~ /\/small\//) s += 10000
+    if (p ~ /\.png$/) {
+        s += 2000
+        size = 0
+        if (match(p, /\/[0-9]+x[0-9]+\//)) {
+            d = substr(p, RSTART + 1, RLENGTH - 2)
+            split(d, z, "x")
+            size = z[1] + 0
+            if (size > 1024) size = 1024
+            s -= size
+        }
+    }
     if (!(b in BEST) || s < BEST[b]) { BEST[b] = s; P[b] = p }
 }
 END {

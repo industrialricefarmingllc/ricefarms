@@ -8,6 +8,10 @@ set -euo pipefail
 #   dev:443  -> localhost:443  (L: access dev's :443 locally)
 #   localhost:9222 -> dev:9222 (R: expose local Chrome DevTools to dev)
 #
+# The -L forwards and the -R forward run in separate SSH sessions. A busy
+# dev:9222 (headless Chrome, stale tunnel, another fw.sh) can only fail the
+# reverse session; the website forwards (80/443) keep running.
+#
 # Usage:
 #   ~/fw.sh                # foreground, auto-reconnects on drop
 #   ~/fw.sh --once         # single shot (no reconnect loop)
@@ -65,9 +69,14 @@ Notes on privileged ports (80/443):
 Chrome DevTools port 9222 from opencode.json --browser-url=http://127.0.0.1:9222
 Keepalive: ServerAliveInterval=15 ServerAliveCountMax=6 TCPKeepAlive=yes ExitOnForwardFailure=yes
 
+Forwarding behaviour:
+  HTTP forwards (80/443) have their own SSH session and always reconnect.
+  The Chrome reverse forward (-R 9222) is a separate best-effort session: if
+  dev:9222 is already busy it waits and retries without touching HTTP.
+
 Env:
-  FW_NO_AUTOSSH=1  force manual reconnect loop (re-cleans stale remote
-                   forwards after every failure; set this under systemd)
+  FW_NO_AUTOSSH=1      force manual reconnect loop (preferred under systemd)
+  FW_REVERSE_CHROME=0  do not expose local Chrome to dev at all
 HELP
       exit 0
       ;;
@@ -141,70 +150,56 @@ if [[ ${EUID:-$(id -u)} -ne 0 ]] && (( ! UNPRIV )); then
   fi
 fi
 
-# cleanup stale remote forward (dev:9222 held by dead ssh)
+# Clean up a *stale* SSH reverse forward on dev:9222. Only the process that
+# actually owns the 9222 listener is considered, so the separate HTTP session
+# (also a bare "sshd: dev", but not listening on 9222) is never touched.
 cleanup_stale_remote() {
-  # only if we have a remote forward for 9222
-  has_remote9222=0
-  for ((i=0; i<${#FORWARDS[@]}; i+=2)); do
-    if [[ "${FORWARDS[i]}" == "-R" && "${FORWARDS[i+1]}" == *"9222"* ]]; then
-      has_remote9222=1; break
-    fi
-  done
-  (( has_remote9222 )) || return 0
+  local listener pid
 
-  # check remote 9222 listening (independent connection, never a mux slave)
-  if ! ssh "${MUX_OFF[@]}" -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new "$HOST" "ss -tlnH 2>/dev/null | grep -q ':9222'" 2>/dev/null; then
+  listener="$(remote_9222_listener)"
+  [[ -n "$listener" ]] || return 0
+
+  if [[ "$listener" != *sshd* ]]; then
+    echo "info: dev:9222 is held by a non-SSH process; leaving it alone" >&2
     return 0
   fi
-  # check if remote forward is healthy (curl to dev:9222 should proxy to local Chrome)
-  is_healthy=0
-  if ssh "${MUX_OFF[@]}" -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new "$HOST" "curl -s --max-time 3 http://127.0.0.1:9222/json/version 2>/dev/null | grep -q 'Browser\|webSocketDebuggerUrl'" 2>/dev/null; then
-    is_healthy=1
-    echo "info: remote 127.0.0.1:9222 already listening and healthy (existing tunnel) — will fail to bind" >&2
-    # healthy tunnel means another fw.sh is already running - don't auto-kill, just warn
-    # but still return to let caller decide (retry will fail again)
+
+  # A healthy tunnel answers with Chrome's DevTools JSON. Don't kill it:
+  # another fw.sh (or a live reverse session) may own it.
+  if ssh "${MUX_OFF[@]}" -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new "$HOST" \
+       "curl -s --max-time 3 http://127.0.0.1:9222/json/version 2>/dev/null | grep -q 'Browser\|webSocketDebuggerUrl'" 2>/dev/null; then
+    echo "info: dev:9222 is a healthy SSH tunnel; leaving it alone" >&2
     return 0
-  else
-    echo "warn: remote 127.0.0.1:9222 is listening but not responding (stale tunnel), attempting cleanup..." >&2
   fi
-  # kill stale sshd: dev that holds the forward (dev-owned, not current session)
-  # only when unhealthy - kill all matching sshd: dev not in current session (regardless of age, stale is dead)
-  # NOTE: only bare "sshd: dev" (a -N forward holder like us). "sshd: dev@..."
-  # are live exec sessions (other users' shells, tools) — never touch those.
-  # This ssh itself must be independent (MUX_OFF) so the kill scan sees a
-  # distinct remote sshd for this session and can't match our own holder.
-  ssh "${MUX_OFF[@]}" -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$HOST" '
-    my_pid=$$
-    exclude=" $my_pid "
-    pid=$my_pid
-    # build exclude list of ancestors (so we dont kill our own sshd)
-    while [ "$pid" != "1" ] && [ -n "$pid" ]; do
-      ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d " ")
-      [ -z "$ppid" ] && break
-      exclude="$exclude $ppid "
-      pid=$ppid
-      # safety: avoid infinite loop
-      case "$exclude" in *" $pid "*) break;; esac
-    done
-    for pid in $(ps -o pid= -C sshd 2>/dev/null); do
-      pid=$(echo "$pid" | tr -d " ")
-      [ -z "$pid" ] && continue
-      case "$exclude" in *" $pid "*) continue;; esac
-      cmd=$(ps -o cmd= -p "$pid" 2>/dev/null)
-      # stale holder is exactly "sshd: dev" (no [priv], no @notty) - the unpriv child that holds forwards
-      if [ "$cmd" = "sshd: dev" ]; then
-        echo "  killing stale sshd pid $pid" >&2
-        kill "$pid" 2>/dev/null && echo "  killed $pid" >&2 || echo "  failed to kill $pid" >&2
-      fi
-    done
-    sleep 1
-    if ss -tlnH 2>/dev/null | grep -q ":9222"; then
-      echo "warn: remote 9222 still listening after cleanup (may need manual kill)" >&2
-    else
-      echo "info: remote 9222 cleared" >&2
-    fi
-  ' 2>&1 | sed "s/^/[cleanup] /" >&2 || true
+
+  pid="$(printf '%s\n' "$listener" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n1)"
+  if [[ -z "$pid" ]]; then
+    echo "warn: dev:9222 is a stale SSH tunnel but its listener pid could not be determined" >&2
+    return 0
+  fi
+
+  echo "warn: dev:9222 is an unresponsive SSH tunnel (pid $pid); cleaning it up..." >&2
+  ssh "${MUX_OFF[@]}" -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$HOST" "
+    cmd=\$(ps -o cmd= -p '$pid' 2>/dev/null)
+    case \"\$cmd\" in
+      sshd:*)
+        kill '$pid' 2>/dev/null && echo 'killed stale sshd pid $pid' || echo 'failed to kill pid $pid'
+        ;;
+      '')
+        echo 'pid $pid already gone'
+        ;;
+      *)
+        echo 'refusing to kill non-sshd pid $pid:' \"\$cmd\"
+        ;;
+    esac
+  " 2>&1 | sed "s/^/[cleanup] /" >&2 || true
+
   sleep 1
+  if [[ -n "$(remote_9222_listener)" ]]; then
+    echo "warn: dev:9222 still listening after cleanup (may need manual kill)" >&2
+  else
+    echo "info: dev:9222 cleared" >&2
+  fi
 }
 
 # warn if local chrome port not listening
@@ -213,24 +208,54 @@ if ! ss -tlnH 2>/dev/null | grep -qE "[: ]9222\b" && ! netstat -tln 2>/dev/null 
   echo "  Chrome forwards will still be established; dev:9222 will fail until Chrome starts." >&2
 fi
 
-CMD=(ssh -N "${SSH_OPTS[@]}" "${FORWARDS[@]}" "$HOST")
+# Always run the optional Chrome reverse-forward in its own SSH session.
+# A busy dev:9222 (headless Chrome, stale tunnel, another fw.sh, ...) can then
+# only fail that session — the -L 80/443 session, and the website, stay up.
+remote_9222_listener() {
+  ssh "${MUX_OFF[@]}" -o ConnectTimeout=3 -o BatchMode=yes \
+    -o StrictHostKeyChecking=accept-new "$HOST" \
+    "ss -ltnpH 'sport = :9222' 2>/dev/null" 2>/dev/null || true
+}
 
-if [[ "${DRY_RUN:-0}" == 1 ]]; then
-  echo "${CMD[@]}"
-  exit 0
-fi
-
-# pretty banner (dynamic from FORWARDS - handles paired -L/-R entries)
-echo "==> fw: $HOST"
+HTTP_FORWARDS=()
+REVERSE_FORWARDS=()
 for ((i=0; i<${#FORWARDS[@]}; i+=2)); do
   opt="${FORWARDS[i]}"
   spec="${FORWARDS[i+1]:-}"
   case "$opt" in
-    -L) echo "    L $spec  (dev -> local)" ;;
-    -R) echo "    R $spec  (local -> dev) Chrome DevTools" ;;
-    *) echo "    $opt $spec" ;;
+    -R) REVERSE_FORWARDS+=("$opt" "$spec") ;;
+    *)  HTTP_FORWARDS+=("$opt" "$spec") ;;
   esac
 done
+
+# FW_REVERSE_CHROME=0 disables exposing local Chrome to dev entirely.
+if [[ "${FW_REVERSE_CHROME:-1}" == 0 ]]; then
+  REVERSE_FORWARDS=()
+fi
+
+CMD=(ssh -N "${SSH_OPTS[@]}" "${HTTP_FORWARDS[@]}" "$HOST")
+REV_CMD=(ssh -N "${SSH_OPTS[@]}" "${REVERSE_FORWARDS[@]}" "$HOST")
+
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
+  echo "http:    ${CMD[*]}"
+  if (( ${#REVERSE_FORWARDS[@]} )); then
+    echo "reverse: ${REV_CMD[*]}"
+  fi
+  exit 0
+fi
+
+# pretty banner
+echo "==> fw: $HOST"
+for ((i=0; i<${#HTTP_FORWARDS[@]}; i+=2)); do
+  echo "    L ${HTTP_FORWARDS[i+1]}  (dev -> local)"
+done
+if (( ${#REVERSE_FORWARDS[@]} )); then
+  for ((i=0; i<${#REVERSE_FORWARDS[@]}; i+=2)); do
+    echo "    R ${REVERSE_FORWARDS[i+1]}  (local -> dev) Chrome DevTools [separate, best-effort]"
+  done
+else
+  echo "    R disabled (FW_REVERSE_CHROME=0)"
+fi
 echo "    keepalive: ServerAliveInterval=15 ServerAliveCountMax=6 TCPKeepAlive=yes"
 echo "    ExitOnForwardFailure=yes  (fail fast if port busy)"
 if [[ "$LOOP" == 1 ]]; then
@@ -240,23 +265,78 @@ else
 fi
 echo ""
 
+# Best-effort reverse Chrome forward. This is a separate SSH process: if
+# dev:9222 is busy or the reverse bind fails for any reason, only this loop
+# reacts. The -L 80/443 session is never affected.
+reverse_chrome_loop() {
+  local log=/tmp/fw-reverse-last.log rev_child="" state=""
+
+  trap 'kill "${rev_child:-}" 2>/dev/null; exit 0' INT TERM
+  note() {
+    [[ "$1" == "$state" ]] && return 0
+    state="$1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >&2
+  }
+
+  while true; do
+    if ! ss -tlnH 2>/dev/null | grep -qE "[: ]9222\b"; then
+      note "local Chrome 9222 is not listening — reverse forward paused"
+      sleep 10
+      continue
+    fi
+
+    listener="$(remote_9222_listener)"
+    if [[ -n "$listener" && "$listener" != *sshd* ]]; then
+      note "dev:9222 is held by a non-SSH process — reverse forward paused (${listener})"
+      sleep 30
+      continue
+    fi
+
+    if [[ -n "$listener" ]]; then
+      note "dev:9222 is held by sshd — checking whether the tunnel is stale"
+      cleanup_stale_remote || true
+      if [[ -n "$(remote_9222_listener)" ]]; then
+        note "dev:9222 is still in use by a healthy SSH tunnel — reverse forward paused"
+        sleep 15
+        continue
+      fi
+    fi
+
+    note "connecting reverse Chrome forward..."
+    set +e
+    "${REV_CMD[@]}" >"$log" 2>&1 &
+    rev_child=$!
+    wait "$rev_child"
+    rc=$?
+    set -e
+    cat "$log" >&2
+    state=""
+    note "reverse Chrome forward exited (code $rc), retrying in 5s..."
+    sleep 5
+  done
+}
+
+if [[ "$LOOP" == 1 ]]; then
+  trap 'jobs -p | xargs -r kill 2>/dev/null; pkill -P $$ 2>/dev/null; echo ""; echo "interrupted."; exit 130' INT TERM
+  if (( ${#REVERSE_FORWARDS[@]} )); then
+    reverse_chrome_loop &
+    echo "    reverse Chrome forward: independent session (pid $!)"
+  fi
+elif (( ${#REVERSE_FORWARDS[@]} )); then
+  echo "    note: reverse Chrome forward skipped in --once mode"
+fi
+
 # use autossh if available (more robust), else manual loop
-# (set FW_NO_AUTOSSH=1 to force the manual loop — it re-runs stale-remote
-# cleanup after every forward failure, while autossh hides ssh exit codes
-# and never re-cleans; preferred under systemd which supervises restarts)
+# (set FW_NO_AUTOSSH=1 to force the manual loop — simple, explicit reconnect
+# logging; preferred under systemd which supervises restarts)
 if command -v autossh >/dev/null 2>&1 && [[ "$LOOP" == 1 ]] && [[ "${FW_NO_AUTOSSH:-0}" != 1 ]]; then
   echo "using autossh for auto-reconnect..."
   # autossh monitors via ServerAlive; AUTOSSH_GATETIME=0 to retry immediately
   export AUTOSSH_GATETIME=0
   export AUTOSSH_POLL=15
-  # clean stale remote before starting (covers case where previous fw.sh died holding 9222)
-  cleanup_stale_remote || true
-  trap 'jobs -p | xargs -r kill 2>/dev/null; pkill -P $$ 2>/dev/null; echo ""; echo "interrupted."; exit 130' INT TERM
-  # autossh doesn't re-clean on retry, so wrap in loop that cleans on remote-forward failure
-  # we use a small wrapper: if autossh exits with 255, check and clean then retry
   while true; do
     set +e
-    autossh -M 0 -N "${SSH_OPTS[@]}" "${FORWARDS[@]}" "$HOST" &
+    autossh -M 0 -N "${SSH_OPTS[@]}" "${HTTP_FORWARDS[@]}" "$HOST" &
     autossh_pid=$!
     wait $autossh_pid
     rc=$?
@@ -264,13 +344,7 @@ if command -v autossh >/dev/null 2>&1 && [[ "$LOOP" == 1 ]] && [[ "${FW_NO_AUTOS
     if (( rc == 0 )); then
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] autossh exited cleanly, reconnecting in 2s..." >&2
     else
-      echo "[$(date '+%Y-%m-%d %H:%M:%S')] autossh exited with code $rc, checking for stale remote..." >&2
-      # peek remote 9222 - if still busy, try cleanup
-      if ssh "${MUX_OFF[@]}" -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new "$HOST" "ss -tlnH 2>/dev/null | grep -q ':9222'" 2>/dev/null; then
-        echo "remote 9222 still busy after autossh failure, running cleanup..." >&2
-        cleanup_stale_remote || true
-      fi
-      echo "[$(date '+%Y-%m-%d %H:%M:%S')] reconnecting in 2s..." >&2
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] autossh exited with code $rc, reconnecting in 2s..." >&2
     fi
     sleep 2
   done
@@ -279,9 +353,6 @@ fi
 
 if [[ "$LOOP" == 1 ]]; then
   # manual reconnect loop
-  trap 'jobs -p | xargs -r kill 2>/dev/null; pkill -P $$ 2>/dev/null; echo ""; echo "interrupted."; exit 130' INT TERM
-  # initial cleanup before first connect
-  cleanup_stale_remote || true
   while true; do
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] connecting to $HOST..."
     # run ssh in background so we can trap and kill it, capture output to file
@@ -296,17 +367,11 @@ if [[ "$LOOP" == 1 ]]; then
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] ssh exited cleanly (code $rc), reconnecting in 2s..."
     else
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] ssh exited with code $rc, reconnecting in 2s..."
-      if grep -qE "remote (port )?forward.*fail" /tmp/fw-last.log 2>/dev/null; then
-        echo "detected remote forward failure, running cleanup..." >&2
-        cleanup_stale_remote || true
-      fi
     fi
     sleep 2
   done
 else
-  # single shot: try once, if remote forward failure try cleanup and retry once
-  # also try initial cleanup if stale is obvious (avoids first failure)
-  cleanup_stale_remote || true
+  # single shot: run the HTTP forwards once (reverse Chrome is skipped)
   # ensure child ssh is killed when this shell is killed (for --once bg test)
   trap 'jobs -p | xargs -r kill 2>/dev/null; exit 130' INT TERM
   set +e
@@ -317,11 +382,5 @@ else
   cat /tmp/fw-last.log >&2
   set -e
   trap - INT TERM
-  if (( rc != 0 )) && grep -qE "remote (port )?forward.*fail" /tmp/fw-last.log 2>/dev/null; then
-    echo "remote forward failed, attempting cleanup and retry..." >&2
-    cleanup_stale_remote || true
-    echo "retrying once after cleanup..." >&2
-    exec "${CMD[@]}"
-  fi
   exit $rc
 fi

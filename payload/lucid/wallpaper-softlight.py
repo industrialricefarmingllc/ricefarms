@@ -5,25 +5,36 @@ blended against the surface colour, at 25%.
 Doing the blend here keeps every consumer (Quickshell, kitty, GTK) on a plain
 static image: no runtime shader, no backdrop capture. Regenerated only when the
 wallpaper or the surface colour changes.
+
+Performance notes (the overlay is deliberately generated *small*):
+  * the wash is a heavily blurred image; a half-resolution texture stretched
+    over the screen is visually identical to full resolution, but costs ~4x
+    less to decode, blend and write
+  * JPEGs are decoded with libjpeg's draft mode, so a 4K photo is never
+    materialised at full size just to be reduced to a thumbnail-sized wash
+  * the output is a plain PNG at compress_level=1; optimize=True spent most of
+    the old 5 s budget on zlib for no visible gain
+  * generation is serialised with flock, so a burst of wallpaper changes can
+    never run several full-screen blends at once
 """
 import argparse
-import colorsys
 import hashlib
 import json
 import os
 import subprocess
 import sys
 
-import numpy as np
-from PIL import Image, ImageFilter, ImageOps
-
 HOME = os.path.expanduser("~")
 CACHE = os.path.join(HOME, ".cache", "quickshell")
 KEY = os.path.join(CACHE, "wallpaper-softlight.key")
 PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
+LOCK = os.path.join(CACHE, "wallpaper-softlight.lock")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
 MIX = 1.0
-VERSION = 6
+VERSION = 7
+# 2 = half the screen's logical resolution. Set 1 for full resolution, 3 for
+# a third (still fine under a 14 px blur at typical viewing distance).
+SCALE = max(1, int(os.environ.get("LUCID_SOFTLIGHT_SCALE", "2")))
 
 
 def screen_size():
@@ -50,6 +61,7 @@ def base_rgb(value):
 
 
 def soft_light(base, blend):
+    import numpy as np
     d = np.where(base <= 0.25, ((16 * base - 16) * base + 4) * base, np.sqrt(base))
     return np.where(blend <= 0.5,
                     base - (1 - 2 * blend) * base * (1 - base),
@@ -68,31 +80,58 @@ def main():
     if not wallpaper or not os.path.isfile(wallpaper):
         return 1
 
-    width, height = screen_size()
+    logical_w, logical_h = screen_size()
+    width, height = max(1, logical_w // SCALE), max(1, logical_h // SCALE)
     try:
         stamp = os.stat(wallpaper).st_mtime_ns
     except OSError:
         stamp = 0
     base = base_rgb(args.base)
-    key = f"{wallpaper}\t{stamp}\t{width}x{height}\t{args.base}\t{MIX}\t{VERSION}"
+    key = f"{wallpaper}\t{stamp}\t{logical_w}x{logical_h}\t{args.base}\t{MIX}\t{VERSION}\t{SCALE}"
     digest = hashlib.sha256(key.encode()).hexdigest()[:12]
     out = os.path.join(CACHE, f"wallpaper-softlight-{digest}.png")
 
+    # A previous run may have already produced this exact texture; publishing
+    # the path is all that is left. This is the common case on a re-apply.
+    if os.path.isfile(out):
+        try:
+            if open(PATH_FILE).read().strip() != out:
+                with open(PATH_FILE + ".tmp", "w") as f:
+                    f.write(out)
+                os.replace(PATH_FILE + ".tmp", PATH_FILE)
+        except OSError:
+            pass
+        return 0
+
+    # One blend at a time. A burst of requests leaves the newest key in the
+    # cache; the older caller simply exits and lets the newest one publish.
     try:
-        if open(PATH_FILE).read().strip() == out and os.path.isfile(out):
+        import fcntl
+        lock_fd = open(LOCK, "w")
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
             return 0
-    except OSError:
-        pass
+    except Exception:
+        lock_fd = None
 
     try:
-        image = Image.open(wallpaper).convert("RGB")
+        from PIL import Image, ImageFilter, ImageOps
+        import numpy as np
+
+        image = Image.open(wallpaper)
+        # libjpeg draft: decode at ~2x the output size, never at full camera
+        # resolution. Other formats ignore it and go through the normal path.
+        try:
+            image.draft("RGB", (width * 2, height * 2))
+        except Exception:
+            pass
+        image = image.convert("RGB")
         image = ImageOps.fit(image, (width, height), method=Image.LANCZOS)
-        # heavy blur, cheap: crush to ~1/16 size, blur, scale back up
-        small = image.resize((max(64, width // 4), max(40, height // 4)), Image.LANCZOS)
-        small = small.filter(ImageFilter.GaussianBlur(radius=14))
+        # heavy blur, cheap: crush to ~1/4 size, blur, scale back up
+        small = image.resize((max(32, width // 4), max(24, height // 4)), Image.LANCZOS)
+        small = small.filter(ImageFilter.GaussianBlur(radius=max(3, 14 // SCALE)))
         blurred = np.asarray(small.resize((width, height), Image.BICUBIC), dtype=np.float32) / 255.0
-        # a heavily blurred photo against a surface derived from the same photo
-        # is nearly flat; stretch its local variation so the 25% layer reads
         mean = blurred.mean(axis=(0, 1), keepdims=True)
         blurred = np.clip((blurred - mean) * 1.8 + mean, 0.0, 1.0)
 
@@ -118,13 +157,13 @@ def main():
         # second full-screen shader pass.
         try:
             prefs = json.load(open(os.path.join(HOME, ".config", "quickshell", "lucidprefs", "prefs.json")))
-            corner = min(72, round(float(prefs.get("barHeight", 35)) / 2))
+            corner = min(72, round(float(prefs.get("barHeight", 35)) / 2)) / SCALE
             f = float(prefs.get("squircleF", 0.5))
         except (OSError, ValueError, TypeError):
-            corner, f = 19, 0.5
+            corner, f = 19 / SCALE, 0.5
         exponent = 2.0 + 4.0 * max(0.0, min(1.0, f))
         alpha = np.full((height, width), 0.25, dtype=np.float32)
-        corner = max(1, min(corner, height // 2, width // 2))
+        corner = max(1, min(int(round(corner)), height // 2, width // 2))
         yy, xx = np.mgrid[0:corner, 0:corner].astype(np.float32) + 0.5
         edge = exponent / corner
         quads = [
@@ -145,10 +184,12 @@ def main():
 
         os.makedirs(CACHE, exist_ok=True)
         tmp = out + ".tmp"
-        out_image.save(tmp, format="PNG", optimize=True)
+        out_image.save(tmp, format="PNG", compress_level=1)
         os.replace(tmp, out)
-        with open(PATH_FILE, "w") as f:
+        # Publish only after the file is complete; readers watch this path.
+        with open(PATH_FILE + ".tmp", "w") as f:
             f.write(out)
+        os.replace(PATH_FILE + ".tmp", PATH_FILE)
         with open(KEY, "w") as f:
             f.write(key)
         for old in os.listdir(CACHE):
@@ -160,6 +201,9 @@ def main():
     except Exception as exc:
         print(f"wallpaper-softlight: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if lock_fd is not None:
+            lock_fd.close()
     return 0
 
 

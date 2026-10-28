@@ -165,9 +165,9 @@ Scope {
                 // image); pinned themes use their accent everywhere. Own
                 // (pibble-sent) alerts never carry a real app icon - those
                 // render a synthetic glyph instead - so they only ever tint
-                // from a real image (wallpaper-changed thumbnail, an image
-                // clip's "Copied to clipboard"); glyph-only own alerts (e.g.
-                // trash, watcher notices) fall through to the theme accent
+                // from a real image (an image clip's "Copied to clipboard");
+                // glyph-only own alerts (e.g. trash, watcher notices) fall
+                // through to the theme accent
                 const src = !Theme.tintNotificationsFromIcon ? ""
                     : view.own ? view.image
                     : (view.icon || view.image);

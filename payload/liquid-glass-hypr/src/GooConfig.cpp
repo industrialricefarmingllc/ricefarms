@@ -94,6 +94,9 @@ void registerConfig(void* handle) {
     // the window converges into it (outgoing) / emerges from it (incoming).
     // 0 = plain slide+scale.
     add<Values::Float>(handle, Key::GENIE_PULL, FLOAT{1.0});
+    // Non-uniform liquid deformation applied while a window is manually or
+    // tiling-manager resized (the workspace morph's stretch, for resize).
+    add<Values::Float>(handle, Key::RESIZE_STRETCH, FLOAT{0.10});
 }
 
 float getFloat(const char* key, float fallback) {

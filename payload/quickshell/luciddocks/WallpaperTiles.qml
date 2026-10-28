@@ -25,8 +25,6 @@ Item {
     // the Live tab: the same picker over the videos
     property bool live: false
     property real stableHeight: height
-    property int previewInterval: 300
-    property string pendingPreviewPath: ""
     property bool syncing: false
     property real originX: -1
     property real originY: -1
@@ -38,7 +36,6 @@ Item {
     readonly property int cellW: strip.wide ? Math.round(strip.tile * 16 / 9) : strip.tile
 
     signal chosen(string path)
-    signal previewed(string path)
 
     function noteOrigin(card) {
         if (!card || strip.Window.width <= 0 || strip.Window.height <= 0) {
@@ -81,8 +78,6 @@ Item {
 
     function setIndexImmediate(i) {
         strip.syncing = true;
-        previewThrottle.stop();
-        strip.pendingPreviewPath = "";
         view.currentIndex = i;
         Qt.callLater(strip.centerCurrent);
         restoreAnim.restart();
@@ -93,28 +88,11 @@ Item {
             view.positionViewAtIndex(view.currentIndex, GridView.Center);
     }
 
-    function emitPreview() {
-        if (strip.pendingPreviewPath === "")
-            return;
-
-        // the transition can grow from the card being previewed
-        strip.noteOrigin(view.currentItem);
-        strip.previewed(strip.pendingPreviewPath);
-        strip.pendingPreviewPath = "";
-    }
-
     Timer {
         id: restoreAnim
 
         interval: 120
         onTriggered: strip.syncing = false
-    }
-
-    Timer {
-        id: previewThrottle
-
-        interval: strip.previewInterval
-        onTriggered: strip.emitPreview()
     }
 
     GridView {
@@ -143,15 +121,6 @@ Item {
             if (view.currentIndex >= 0)
                 view.positionViewAtIndex(view.currentIndex, GridView.Contain);
 
-            if (strip.syncing || view.currentIndex < 0 || !strip.model)
-                return;
-
-            var item = strip.model.get(view.currentIndex);
-            if (!item)
-                return;
-
-            strip.pendingPreviewPath = item.path;
-            previewThrottle.restart();
         }
 
         add: Transition {
@@ -186,6 +155,8 @@ Item {
             required property string path
             required property string thumb
             required property string name
+            required property string preview
+            required property string kind
             required property int index
 
             readonly property bool isCurrent: view.currentIndex === slot.index
@@ -242,14 +213,15 @@ Item {
 
                 }
 
-                Image {
+                WallpaperCardMedia {
                     anchors.fill: parent
-                    // a video shows the thumbnail cut from its first frame
-                    source: !/\.(mp4|webm|mkv|mov|m4v)$/i.test(slot.path) ? "file://" + slot.path : slot.thumb !== "" ? "file://" + slot.thumb : ""
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: true
-                    sourceSize.width: strip.cellW * 2
+                    path: slot.path
+                    thumb: slot.thumb
+                    preview: slot.preview
+                    kind: slot.kind
+                    active: slot.hovered || slot.isCurrent
+                    sourceSizeWidth: strip.cellW * 2
+                    sourceSizeHeight: strip.tile * 2
                 }
 
                 Rectangle {

@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs
 import qs.lucidui
+import "../squircle"
 
 // a card that is out on the desktop, as a row in the panel's list. hovering it
 // outlines the card, a click opens the card's own sheet
@@ -48,7 +49,7 @@ Item {
 
     }
 
-    Rectangle {
+    SquircleRect {
         id: plate
 
         anchors.fill: parent
@@ -56,15 +57,17 @@ Item {
         topRightRadius: row.first ? Theme.rad(20) : Theme.dp(4)
         bottomLeftRadius: row.last ? Theme.rad(20) : Theme.dp(4)
         bottomRightRadius: row.last ? Theme.rad(20) : Theme.dp(4)
-        color: Theme.withBlur(Theme.surfaceHigh)
+        fillColor: Theme.withBlur(Theme.surfaceHigh)
+        smoothing: Prefs.squircleF
 
-        Rectangle {
+        SquircleRect {
             anchors.fill: parent
             topLeftRadius: plate.topLeftRadius
             topRightRadius: plate.topRightRadius
             bottomLeftRadius: plate.bottomLeftRadius
             bottomRightRadius: plate.bottomRightRadius
-            color: Theme.text
+            fillColor: Theme.text
+            smoothing: Prefs.squircleF
             opacity: rowArea.pressed ? Theme.statePressed : (rowArea.containsMouse ? Theme.stateHover : 0)
 
             Behavior on opacity {

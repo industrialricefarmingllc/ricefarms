@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Services.UPower
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -144,7 +145,7 @@ WidgetBody {
         return steps[Math.max(0, Math.min(7, Math.floor(w.level * 8)))];
     }
 
-    component DeviceRow: Rectangle {
+    component DeviceRow: SquircleRect {
         id: dr
 
         property string glyph: ""
@@ -161,7 +162,8 @@ WidgetBody {
         topRightRadius: dr.first ? Theme.rad(18) : Theme.dp(6)
         bottomLeftRadius: dr.last ? Theme.rad(18) : Theme.dp(6)
         bottomRightRadius: dr.last ? Theme.rad(18) : Theme.dp(6)
-        color: Theme.alpha(w.ink, 0.07)
+        fillColor: Theme.alpha(w.ink, 0.07)
+        smoothing: Prefs.squircleF
 
         Item {
             id: drRing
@@ -325,17 +327,19 @@ WidgetBody {
             width: parent.width - Theme.dp(8)
             height: Theme.dp(46)
 
-            Rectangle {
+            SquircleRect {
                 anchors.fill: parent
                 radius: Theme.rad(16)
-                color: Theme.alpha(w.ink, 0.1)
+                fillColor: Theme.alpha(w.ink, 0.1)
+                smoothing: Prefs.squircleF
             }
 
-            Rectangle {
+            SquircleRect {
                 width: Math.max(Theme.dp(32), parent.width * w.level)
                 height: parent.height
                 radius: Theme.rad(16)
-                color: w.tint
+                fillColor: w.tint
+                smoothing: Prefs.squircleF
 
                 Behavior on width {
                     NumberAnimation {
@@ -416,12 +420,13 @@ WidgetBody {
 
             spacing: Theme.dp(12)
 
-            Rectangle {
+            SquircleRect {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Theme.dp(44)
                 height: Theme.dp(44)
                 radius: Theme.rad(14)
-                color: Theme.alpha(w.tint, 0.16)
+                fillColor: Theme.alpha(w.tint, 0.16)
+                smoothing: Prefs.squircleF
 
                 Icon {
                     anchors.centerIn: parent

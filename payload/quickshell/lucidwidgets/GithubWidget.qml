@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -172,14 +173,15 @@ WidgetBody {
             text: "Your GitHub username"
         }
 
-        Rectangle {
+        SquircleRect {
             width: Math.min(parent.width, Theme.dp(240))
             height: Theme.dp(40)
             anchors.horizontalCenter: parent.horizontalCenter
             radius: height / 2
-            color: w.editing ? Theme.alpha(w.inkAccent, 0.14) : Theme.alpha(w.ink, 0.06)
-            border.width: w.editing ? 2 : 0
-            border.color: w.inkAccent
+            fillColor: w.editing ? Theme.alpha(w.inkAccent, 0.14) : Theme.alpha(w.ink, 0.06)
+            borderWidth: w.editing ? 2 : 0
+            borderColor: w.inkAccent
+            smoothing: Prefs.squircleF
 
             MouseArea {
                 anchors.fill: parent

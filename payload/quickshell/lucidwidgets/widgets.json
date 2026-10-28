@@ -1,0 +1,486 @@
+{
+  "version": 2,
+  "nextId": 71,
+  "boardFull": true,
+  "laidScale": 1,
+  "current": "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-w5x2yq.png",
+  "boards": {
+    "/home/nicerice/Pictures/wallpapers/matugen/wallpaper721.png": {
+      "instances": [
+        {
+          "uid": "w1",
+          "type": "visualiser",
+          "variant": "bars",
+          "wx": 0,
+          "wy": 813,
+          "bw": 1927,
+          "bh": 140,
+          "pinned": true,
+          "zoom": 0.71,
+          "zOrder": 86,
+          "screenName": "",
+          "opts": {
+            "density": "fine",
+            "tint": "gradient",
+            "frost": true,
+            "rounded": true,
+            "flip": false,
+            "idleFade": true,
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w62",
+          "type": "clock",
+          "variant": "stack",
+          "wx": 33,
+          "wy": 204,
+          "bw": 320,
+          "bh": 236,
+          "pinned": false,
+          "zoom": 0.89,
+          "zOrder": 87,
+          "screenName": "",
+          "opts": {
+            "hourMode": "auto",
+            "seconds": false,
+            "dot": true,
+            "showDate": true,
+            "shape": "cookie9",
+            "zones": "eu",
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w63",
+          "type": "media",
+          "variant": "card",
+          "wx": 249,
+          "wy": 202,
+          "bw": 320,
+          "bh": 435,
+          "pinned": false,
+          "zoom": 0.71,
+          "zOrder": 88,
+          "screenName": "",
+          "opts": {
+            "artTint": true,
+            "showProgress": true,
+            "scroll": true,
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w64",
+          "type": "calendar",
+          "variant": "month",
+          "wx": 24,
+          "wy": 440,
+          "bw": 320,
+          "bh": 306,
+          "pinned": false,
+          "zoom": 0.71,
+          "zOrder": 89,
+          "screenName": "",
+          "opts": {
+            "showMonthName": true,
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w65",
+          "type": "weather",
+          "variant": "compact",
+          "wx": 249,
+          "wy": 523,
+          "bw": 200,
+          "bh": 96,
+          "pinned": false,
+          "zoom": 1.07,
+          "zOrder": 90,
+          "screenName": "",
+          "opts": {
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w66",
+          "type": "battery",
+          "variant": "bar",
+          "wx": 1141,
+          "wy": 90,
+          "bw": 320,
+          "bh": 112,
+          "pinned": false,
+          "zoom": 0.71,
+          "zOrder": 91,
+          "screenName": "",
+          "opts": {
+            "showTime": true,
+            "warnLow": true,
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w67",
+          "type": "system",
+          "variant": "rings",
+          "wx": 1125,
+          "wy": 185,
+          "bw": 320,
+          "bh": 150,
+          "pinned": false,
+          "zoom": 0.71,
+          "zOrder": 92,
+          "screenName": "",
+          "opts": {
+            "showCpu": true,
+            "showRam": true,
+            "showDisk": true,
+            "showTemp": false,
+            "showGpu": false,
+            "interval": "2",
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w68",
+          "type": "system",
+          "variant": "graph",
+          "wx": 1114,
+          "wy": 309,
+          "bw": 320,
+          "bh": 200,
+          "pinned": false,
+          "zoom": 0.71,
+          "zOrder": 93,
+          "screenName": "",
+          "opts": {
+            "showCpu": true,
+            "showRam": true,
+            "showDisk": true,
+            "showTemp": false,
+            "showGpu": false,
+            "interval": "2",
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w69",
+          "type": "todo",
+          "variant": "list",
+          "wx": 1131,
+          "wy": 453,
+          "bw": 320,
+          "bh": 300,
+          "pinned": false,
+          "zoom": 0.71,
+          "zOrder": 94,
+          "screenName": "",
+          "opts": {
+            "hideDone": false,
+            "items": "[]",
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [
+        {
+          "uid": "w16",
+          "type": "notes",
+          "variant": "sticky",
+          "wx": 29,
+          "wy": 257,
+          "bw": 244,
+          "bh": 244,
+          "pinned": false,
+          "zoom": 0.71,
+          "zOrder": 36,
+          "screenName": "",
+          "opts": {
+            "tint": "tertiary",
+            "edited": 0,
+            "text": "",
+            "tone": "auto"
+          }
+        }
+      ],
+      "last": [
+        {
+          "uid": "w1",
+          "type": "visualiser",
+          "variant": "bars",
+          "wx": 0,
+          "wy": 813,
+          "bw": 1927,
+          "bh": 140,
+          "pinned": true,
+          "zoom": 0.71,
+          "zOrder": 85,
+          "screenName": "",
+          "opts": {
+            "density": "fine",
+            "tint": "gradient",
+            "frost": true,
+            "rounded": true,
+            "flip": false,
+            "idleFade": true,
+            "tone": "auto"
+          }
+        }
+      ],
+      "preset": "dashboard"
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallpaper697.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallpaper2222.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-q2pgyr.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-p9mxwj.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-2188q9.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-21259x.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/b-302.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/b-260.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/b-180.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/rocket_launch.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-qz8pwl.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-yqgj3l.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-qz15r7.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-mlygyy.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/a_cartoon_of_a_girl_with_a_cat_on_her_head.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-vpej6m.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-6dm86q.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/comet.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/b5f97669ec9f887ba82a9e180061c1ab.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/anime_girl_plus_rockets.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/0anime9.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/111429024_p3.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/124110783_p0.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/ae6f28b43e120e39ddbd63e4d94c249f.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/anime_skull.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-og13vm.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/3000af66a4447299592f262cbee71273.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/27c936315de293b9b56d4003aa7bcba5 (Edited).jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-k83or7.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-jewvzy.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-jevyrw.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-ly8zdq.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/furina-midnight-meadow-genshin-impact-moewalls-com.mp4": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:static:matugen/wallhaven-jevyrw.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/.cache/skwd-wall-v2/video-thumbs/matugen--furina-midnight-meadow-genshin-impact-moewalls-com.webp": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/142306187_p0.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/78745730_p0.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-yq9q2g.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-vpq7m8.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/Venti.full.4051435.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-w5x2yq.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    }
+  },
+  "preset": "",
+  "saved": [],
+  "last": [],
+  "stash": [],
+  "instances": []
+}

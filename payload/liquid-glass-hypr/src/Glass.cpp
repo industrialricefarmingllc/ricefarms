@@ -114,6 +114,33 @@ static bool jsNumber(const char*& p, const char* end, double& out) {
     return true;
 }
 
+// JSON string value at p (p points just after the key's ':'). Handles the
+// escapes Qt can emit for namespaces; stops at the closing quote.
+static bool jsString(const char*& p, const char* end, std::string& out) {
+    p = jsSkip(p, end);
+    if (p >= end || *p != '"')
+        return false;
+    ++p;
+    out.clear();
+    while (p < end && *p != '"') {
+        if (*p == '\\' && p + 1 < end) {
+            ++p;
+            switch (*p) {
+                case 'n': out += '\n'; break;
+                case 'r': out += '\r'; break;
+                case 't': out += '\t'; break;
+                default: out += *p; break;
+            }
+        } else
+            out += *p;
+        ++p;
+    }
+    if (p >= end)
+        return false;
+    ++p; // closing quote
+    return true;
+}
+
 static bool findKey(const char*& p, const char* end, const char* key) {
     const std::string needle = std::string("\"") + key + "\"";
     const char* at = std::search(p, end, needle.begin(), needle.end());
@@ -174,7 +201,8 @@ static bool fileExcludedForBorders(const std::string& path) {
     return false;
 }
 
-bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vector<SPill>& pills, bool forBorders) {
+bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const std::string& ns, std::vector<SPill>& pills,
+                               bool forBorders) {
     if (!monitor)
         return false;
     const std::string mon = monitor->m_name;
@@ -228,7 +256,7 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vec
         }
         SGeoFile& cached = m_geoFiles[path]; // inserts empty on first sight
         if (cached.parsed && cached.stamp == stamp) {
-            if (!excluded)
+            if (!cached.foreign && !excluded)
                 pills.insert(pills.end(), cached.pills.begin(), cached.pills.end());
             continue;
         }
@@ -244,6 +272,7 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vec
         // surface's file (or garbage) and contributes nothing.
         std::vector<SPill> fresh;
         bool fileOk = false;
+        bool foreign = false;
         double ratioX = 0, ratioY = 0;
         do {
             std::ifstream f(path);
@@ -252,6 +281,22 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vec
             const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             const char* p = text.data();
             const char* end = p + text.size();
+
+            // Optional publisher identity: match this surface's layer
+            // namespace exactly when the file names one. Prevents a surface
+            // whose size is within the ratio tolerance (bar 896 vs an
+            // always-mapped 900px launcher) from receiving another
+            // publisher's pills — which drew the bar glass at the screen
+            // edge, at the launcher's origin, instead of at the bar's top
+            // margin. Old files omit "ns" and keep the size-only fallback.
+            {
+                const char* t = p;
+                std::string declaredNs;
+                if (findKey(t, end, "ns") && jsString(t, end, declaredNs) && !declaredNs.empty() && declaredNs != ns) {
+                    foreign = true;
+                    break;
+                }
+            }
 
             // Surface span first: every lookup below is bounded by it, so key
             // order never matters (Qt emits keys alphabetically: h before w).
@@ -334,6 +379,8 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vec
                 double radii[4] = {0, 0, 0, 0};
                 double flares[2] = {0, 0};
                 double sq = -1;
+                double uni[17] = {0};
+                bool hasUnion = false;
                 do {
                     const char* t = q;
                     if (!findKey(t, eEnd, "x") || !jsNumber(t, eEnd, x))
@@ -399,6 +446,37 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vec
                         if (jsNumber(t, eEnd, v))
                             sq = v;
                     }
+                    // Optional liquid union: [ax,ay,aw,ah, ar0..ar3,
+                    // bx,by,bw,bh, br0..br3, neck]. The outer x/y/w/h is the
+                    // union bbox. Absent = normal one-shape pill.
+                    t = q;
+                    if (findKey(t, eEnd, "u")) {
+                        t = jsSkip(t, eEnd);
+                        if (t >= eEnd || *t != '[') {
+                            ok = false;
+                            break;
+                        }
+                        const char* uEnd = jsMatch(t, eEnd, '[', ']');
+                        if (uEnd == eEnd) {
+                            ok = false;
+                            break;
+                        }
+                        ++t;
+                        for (int i = 0; i < 17 && ok; i++) {
+                            t = jsSkip(t, uEnd);
+                            ok = jsNumber(t, uEnd, uni[i]);
+                            t = jsSkip(t, uEnd);
+                            if (i < 16) {
+                                if (t >= uEnd || *t != ',') {
+                                    ok = false;
+                                    break;
+                                }
+                                ++t;
+                            }
+                        }
+                        if (ok)
+                            hasUnion = true;
+                    }
                 } while (false);
                 if (!ok || w <= 0 || h <= 0) {
                     fileOk = false;
@@ -415,6 +493,22 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vec
                 for (int i = 0; i < 2; i++)
                     pill.fl[i] = (float)(std::max(0.0, flares[i]) * (ratioX + ratioY) * 0.5);
                 pill.sq = (float)(sq < 0 ? -1 : std::max(0.0, std::min(1.0, sq)));
+                if (hasUnion) {
+                    const double avg = (ratioX + ratioY) * 0.5;
+                    pill.unionOn = true;
+                    const double* src[2] = {uni, uni + 8};
+                    float* dstRect[2] = {pill.ua, pill.ub};
+                    float* dstRad[2] = {pill.uar, pill.ubr};
+                    for (int s = 0; s < 2; s++) {
+                        dstRect[s][0] = (float)(src[s][0] * ratioX);
+                        dstRect[s][1] = (float)(src[s][1] * ratioY);
+                        dstRect[s][2] = (float)(src[s][2] * ratioX);
+                        dstRect[s][3] = (float)(src[s][3] * ratioY);
+                        for (int i = 0; i < 4; i++)
+                            dstRad[s][i] = (float)(src[s][4 + i] * avg);
+                    }
+                    pill.uk = (float)(std::max(0.0, uni[16]) * avg);
+                }
                 fresh.push_back(pill);
             }
         } while (false);
@@ -426,9 +520,18 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vec
         if (fileOk) {
             cached.stamp = stamp;
             cached.parsed = true;
+            cached.foreign = false;
             cached.pills = std::move(fresh);
+        } else if (foreign) {
+            // Definitive "not this surface" (namespace mismatch), unlike a
+            // torn read: advance the stamp so it isn't re-parsed every frame
+            // and clear any pills cached before the file carried "ns".
+            cached.stamp = stamp;
+            cached.parsed = true;
+            cached.foreign = true;
+            cached.pills.clear();
         }
-        if (!(forBorders && fileExcludedForBorders(path)))
+        if (!cached.foreign && !(forBorders && fileExcludedForBorders(path)))
             pills.insert(pills.end(), cached.pills.begin(), cached.pills.end());
     }
     return !pills.empty();
@@ -508,6 +611,12 @@ void CGlassLayer::ensureShaders() {
     m_gu.bevW = loc(gp, "uBevW");
     m_gu.edgePx = loc(gp, "uEdgePx");
     m_gu.logCME = loc(gp, "uLogCME");
+    m_gu.unionOn = loc(gp, "uUnionOn");
+    m_gu.unionA = loc(gp, "uUnionA");
+    m_gu.unionAR = loc(gp, "uUnionAR");
+    m_gu.unionB = loc(gp, "uUnionB");
+    m_gu.unionBR = loc(gp, "uUnionBR");
+    m_gu.unionK = loc(gp, "uUnionK");
 
     const GLuint kd = m_kawDown->program();
     m_kd.proj = loc(kd, "proj");
@@ -725,7 +834,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
         return;
 
     std::vector<SPill> pills;
-    if (!loadGeometry(monitor, surfBox, pills) || pills.empty()) {
+    if (!loadGeometry(monitor, surfBox, surf->m_namespace, pills) || pills.empty()) {
         // Geometry gone (file deleted): repaint the last bounds once so no
         // stale glass lingers, then go quiet. glassBounds() keeps returning
         // the last union so the pass still culls this element correctly.
@@ -895,7 +1004,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
     const float borderD = lg::getFloat("plugin:liquidglass:border_d", 30.0f);
     const float borderGlowB = lg::getFloat("plugin:liquidglass:border_glow_bias", 0.5f);
     if (layerBordersOn) {
-        (void)loadGeometry(monitor, surfBox, borderPills, true);
+        (void)loadGeometry(monitor, surfBox, surf->m_namespace, borderPills, true);
         if (!borderPills.empty())
             ensureRing();
     }
@@ -1100,6 +1209,12 @@ void CGlassLayer::render(PHLMONITOR monitor) {
                 glUniform1f(m_gu.bevW, std::max((7.0f + 3.5f * lg) * 1.5f, 4.0f));
                 glUniform1f(m_gu.edgePx, (7.0f + 3.5f * lg) * 9.0f);
                 glUniform1f(m_gu.logCME, T.c > 0.001f ? std::log(T.c * 2.718281828459045f) : 0.0f);
+                glUniform1f(m_gu.unionOn, lp.unionOn ? 1.0f : 0.0f);
+                glUniform4f(m_gu.unionA, lp.ua[0], lp.ua[1], lp.ua[2], lp.ua[3]);
+                glUniform4f(m_gu.unionAR, lp.uar[0], lp.uar[1], lp.uar[2], lp.uar[3]);
+                glUniform4f(m_gu.unionB, lp.ub[0], lp.ub[1], lp.ub[2], lp.ub[3]);
+                glUniform4f(m_gu.unionBR, lp.ubr[0], lp.ubr[1], lp.ubr[2], lp.ubr[3]);
+                glUniform1f(m_gu.unionK, lp.uk);
             }
             glBindVertexArray(m_vao);
             // Scissor to this frame's damage (same subdivision upstream uses
@@ -1125,7 +1240,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
         // 4. Layer border ring: same material as window borders, 1px,
         // inactive tint only, vertical fade shared with windows. Reuses the
         // same halfA/halfT capture above — no second blit.
-        if (layerBordersOn && m_ringOk && !borderPills.empty()) {
+        if (!lp.unionOn && layerBordersOn && m_ringOk && !borderPills.empty()) {
             bool want = false;
             for (const auto& bp : borderPills) {
                 if (std::fabs(bp.x - lp.x) < 1e-3 && std::fabs(bp.y - lp.y) < 1e-3 && std::fabs(bp.w - lp.w) < 1e-3

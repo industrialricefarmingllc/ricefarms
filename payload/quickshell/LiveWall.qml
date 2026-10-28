@@ -27,7 +27,7 @@ Singleton {
     property bool loaded: false
     property bool gameMode: false
     // "still" in game mode leaves the first frame on awww and stops the player
-    readonly property bool wanted: Prefs.liveWallpapers && root.video !== "" && !(root.gameMode && Prefs.liveGameMode === "still")
+    readonly property bool wanted: !SkwdWall.enabled && Prefs.liveWallpapers && root.video !== "" && !(root.gameMode && Prefs.liveGameMode === "still")
     // Qt's own order puts CUDA first, which wakes a hybrid laptop's dGPU for a
     // wallpaper: auto asks the integrated GPU first
     readonly property string decoders: ({
@@ -71,7 +71,7 @@ Singleton {
     property int failures: 0
     // the lock screen plays a small, silent copy behind its blur rather than
     // decode the full video in the shell: made once per video, in the background
-    readonly property string lockSource: Prefs.liveWallpapers ? root.video : ""
+    readonly property string lockSource: !SkwdWall.enabled && Prefs.liveWallpapers ? root.video : ""
     property string lockVideo: ""
     property string lockMaking: ""
 

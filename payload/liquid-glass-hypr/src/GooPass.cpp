@@ -43,27 +43,57 @@ layout(location = 0) out vec4 fragColor;
 uniform sampler2D uTex;
 uniform vec2 uTexel;   // 1 / framebuffer dims
 uniform vec2 uDir;     // motion axis, signed unit
-uniform float uSmear;  // tap spread in texels
+uniform float uSmear;  // liquid margin in framebuffer px
 uniform float uMix;    // 0 = sharp passthrough
-uniform float uWobble; // perpendicular wobble amplitude in texels
-uniform float uPhase;  // transition progress 0..1 (wobble phase)
+uniform float uWobble; // unused (kept for config compatibility)
+uniform float uPhase;  // unused
+uniform vec2 uFbSize;
+uniform int uRectCount;
+uniform vec4 uRects[8]; // x,y,w,h framebuffer px, union of live windows
+float sdBox2(vec2 p, vec2 b, float r) {
+    vec2 q = abs(p) - b + r;
+    return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+}
 void main() {
-    vec2 perp = vec2(-uDir.y, uDir.x);
-    float wob = sin((v_texcoord.x + v_texcoord.y) * 40.0 + uPhase * 6.28318) * uWobble * uMix;
-    vec2 base = v_texcoord + perp * wob;
-    vec2 off = uDir * uSmear;
-    vec3 acc = texture(uTex, base).rgb * 0.2270270270;
-    acc += texture(uTex, base + off * 0.3846153846).rgb * 0.1945945946;
-    acc += texture(uTex, base - off * 0.3846153846).rgb * 0.1945945946;
-    acc += texture(uTex, base + off * 0.7692307692).rgb * 0.1216216216;
-    acc += texture(uTex, base - off * 0.7692307692).rgb * 0.1216216216;
-    acc += texture(uTex, base + off).rgb * 0.0540540541;
-    acc += texture(uTex, base - off).rgb * 0.0540540541;
-    acc += texture(uTex, base + off * 1.5).rgb * 0.0162162162;
-    acc += texture(uTex, base - off * 1.5).rgb * 0.0162162162;
-    float alpha = texture(uTex, base).a;
-    vec3 sharp = texture(uTex, v_texcoord).rgb;
-    fragColor = vec4(mix(sharp, acc, uMix), alpha);
+    vec4 sharp = texture(uTex, v_texcoord);
+    float margin = uSmear * uMix;
+    if (uRectCount <= 0 || margin < 0.5) {
+        fragColor = sharp;
+        return;
+    }
+    vec2 p = v_texcoord * uFbSize;
+
+    float best = 1e9;
+    vec2 src = v_texcoord;
+    for (int i = 0; i < 8; i++) {
+        if (i >= uRectCount)
+            break;
+        vec4 r = uRects[i];
+        vec2 c = r.xy + r.zw * 0.5;
+        vec2 halfSize = r.zw * 0.5;
+        vec2 h = halfSize + vec2(margin);
+        // Directional tail: the trailing side grows more, so the window
+        // silhouette stretches behind the motion instead of just inflating.
+        if (uDir.x > 0.5)
+            h.x = halfSize.x + margin * 1.35;
+        else if (uDir.x < -0.5)
+            h.x = halfSize.x + margin * 1.35;
+        else if (uDir.y > 0.5 || uDir.y < -0.5)
+            h.y = halfSize.y + margin * 1.35;
+        float rad = min(h.x, h.y) * 0.55;
+        float d = sdBox2(p - c, h, rad);
+        if (d < best) {
+            best = d;
+            // Map the entire destination silhouette back onto the original
+            // window content: the content inflates into the liquid shape.
+            vec2 q = (p - c) / h;
+            src = (c + q * halfSize) / uFbSize;
+        }
+    }
+    if (best < 0.0)
+        fragColor = texture(uTex, clamp(src, vec2(0.001), vec2(0.999)));
+    else
+        fragColor = sharp;
 }
 )GLSL";
 
@@ -142,6 +172,7 @@ struct SGooGL {
     GLuint            vao = 0, vbo = 0;
     GLint             uProj = -1, uTex = -1, uTexel = -1, uDir = -1;
     GLint             uSmear = -1, uMix = -1, uWobble = -1, uPhase = -1;
+    GLint             uRectCount = -1, uRects = -1, uFbSize = -1;
     bool              ok = false, failed = false;
 };
 
@@ -183,6 +214,9 @@ bool ensureGooGL() {
     g.uMix = loc(p, "uMix");
     g.uWobble = loc(p, "uWobble");
     g.uPhase = loc(p, "uPhase");
+    g.uRectCount = loc(p, "uRectCount");
+    g.uRects = loc(p, "uRects");
+    g.uFbSize = loc(p, "uFbSize");
     if (g.vao == 0) {
         static constexpr float QUAD[16] = {
             0.0f, 0.0f, 0.0f, 0.0f,
@@ -208,8 +242,8 @@ bool ensureGooGL() {
 
 } // namespace
 
-CGooPassElement::CGooPassElement(TransitionManager* mgr, MONITORID mon, int side, bool vertical)
-    : m_mgr(mgr), m_mon(mon), m_side(side), m_vertical(vertical) {
+CGooPassElement::CGooPassElement(TransitionManager* mgr, MONITORID mon, int side, bool vertical, std::vector<SMorphTip> tips)
+    : m_mgr(mgr), m_mon(mon), m_side(side), m_vertical(vertical), m_tips(std::move(tips)) {
 }
 
 std::optional<CBox> CGooPassElement::boundingBox() {
@@ -236,8 +270,9 @@ std::vector<UP<IPassElement>> CGooPassElement::draw() {
     if (t <= 0.0)
         return {};
     if (t >= 1.0) {
-        // Expiry path (tick can't be relied on): release + clean repaint.
-        m_mgr->finish(m_mon);
+        // Endpoint frame: envelope is zero, so there is nothing to draw.
+        // sustainTick releases the transition after this frame has landed;
+        // finishing here restores the warp before the endpoint is painted.
         return {};
     }
 
@@ -315,10 +350,33 @@ std::vector<UP<IPassElement>> CGooPassElement::draw() {
         glUniform2f(g.uDir, 0.0f, s);
     else
         glUniform2f(g.uDir, s, 0.0f);
-    glUniform1f(g.uSmear, axisLen > 0.0f ? spreadFb / axisLen : 0.0f);
+    glUniform1f(g.uSmear, spreadFb); // liquid margin in fb px
     glUniform1f(g.uMix, mix);
-    glUniform1f(g.uWobble, perpLen > 0.0f ? wobbleFb / perpLen : 0.0f);
+    glUniform1f(g.uWobble, wobbleFb);
     glUniform1f(g.uPhase, (float)t);
+    glUniform2f(g.uFbSize, (float)W, (float)H);
+    int rectCount = 0;
+    float rects[32] = {0};
+    for (const auto& tip : m_tips) {
+        if (rectCount >= 8)
+            break;
+        if (tip.role != Role::INCOMING)
+            continue;
+        const float rx = (float)((tip.box.x - mon->m_position.x) * scale);
+        const float ry = (float)((tip.box.y - mon->m_position.y) * scale);
+        const float rw = (float)(tip.box.w * scale);
+        const float rh = (float)(tip.box.h * scale);
+        if (rw < 2.0f || rh < 2.0f)
+            continue;
+        rects[rectCount * 4 + 0] = rx;
+        rects[rectCount * 4 + 1] = ry;
+        rects[rectCount * 4 + 2] = rw;
+        rects[rectCount * 4 + 3] = rh;
+        rectCount++;
+    }
+    glUniform1i(g.uRectCount, rectCount);
+    if (rectCount > 0)
+        glUniform4fv(g.uRects, rectCount, rects);
     glBindVertexArray(g.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);

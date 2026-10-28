@@ -8,8 +8,10 @@
 # resulting surface_container (== Theme.bgOpaque) and writes it as the base
 # background for kitty and GTK 3/4 apps.
 #
-# Called from matugen's quickshell template post_hook and at the end of
-# apply-theme.sh / apply-colour.sh, so it follows wallpaper and mode changes.
+# Called once per settled theme change by theme-fanout.sh. The expensive part
+# (blurred soft-light wallpaper) is generated in the background and cached by
+# wallpaper + surface key; a repeated call with the same palette exits before
+# starting Python at all.
 
 set -euo pipefail
 
@@ -17,57 +19,58 @@ HOME="${HOME:?}"
 PALETTE="${1:-$HOME/.cache/quickshell/matugen.json}"
 PREFS="${2:-$HOME/.config/quickshell/lucidprefs/prefs.json}"
 LUCID="${LUCID_DIR:-$HOME/.config/lucid}"
+CACHE="$HOME/.cache/quickshell"
+STATE_DIR="$HOME/.cache/lucid"
+VERSION=3
 
 [ -s "$PALETTE" ] || exit 0
+mkdir -p "$CACHE" "$STATE_DIR" "$HOME/.config/kitty" "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"
+
+OUT_KITTY="$HOME/.config/kitty/lucid-surface.conf"
+OUT_GTK3="$HOME/.config/gtk-3.0/gtk.css"
+OUT_GTK4="$HOME/.config/gtk-4.0/gtk.css"
+OUT_OC="$HOME/.config/opencode/themes/matugen.json"
+OUT_SEED="$CACHE/surface-seed.json"
+[ -s "$OUT_SEED" ] || printf '{}\n' > "$OUT_SEED"
+
+stat_key() { stat -c '%y|%s' "$1" 2>/dev/null || printf missing; }
+
+WALLPAPER="$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null || true)"
+KEY="$VERSION|$PALETTE|$(stat_key "$PALETTE")|$PREFS|$(stat_key "$PREFS")|$WALLPAPER|$(stat_key "$WALLPAPER")"
+if [ "${FORCE:-0}" != "1" ] && [ -f "$STATE_DIR/app-surface.key" ] \
+        && [ "$(cat "$STATE_DIR/app-surface.key" 2>/dev/null)" = "$KEY" ] \
+        && [ -s "$OUT_KITTY" ] && [ -s "$OUT_GTK3" ] && [ -s "$OUT_GTK4" ] \
+        && [ -s "$OUT_SEED" ] \
+        && [ ! "$OUT_OC" -nt "$STATE_DIR/app-surface.key" ]; then
+    exit 0
+fi
 
 # The background hue comes from the wallpaper's dominant *chromatic* colour,
 # not from the accent: matugen picks the small yellow highlight as primary on a
 # blue-grey photo, and tinting the surfaces toward it turns the whole shell
 # yellow. Write the seed for Theme.qml and lucid_palette.app_surfaces().
-WALLPAPER="$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null || true)"
-SEED=""
-if [ -n "$WALLPAPER" ] && [ -f "$WALLPAPER" ]; then
-    SEED=$(python3 - "$WALLPAPER" "$PALETTE" <<'PY'
-import colorsys, json, sys
-from collections import Counter
-try:
-    from PIL import Image
-    pal = json.load(open(sys.argv[2]))
-    primary = str(pal.get("primary", "#808080")).lstrip("#")
-    ph = colorsys.rgb_to_hls(*(int(primary[i:i+2], 16) / 255.0 for i in (0, 2, 4)))[0] * 360.0
-    im = Image.open(sys.argv[1]).convert("RGB")
-    im.thumbnail((160, 160))
-    q = im.quantize(colors=16).convert("RGB")
-    data = q.get_flattened_data() if hasattr(q, "get_flattened_data") else q.getdata()
-    counts = Counter(data)
-    total = sum(counts.values()) or 1
-    candidates = []
-    for rgb, n in counts.most_common():
-        h, l, s = colorsys.rgb_to_hls(*(c / 255.0 for c in rgb))
-        if n / total < 0.04 or s < 0.08 or l < 0.10 or l > 0.92:
-            continue
-        hue = h * 360.0
-        d = abs(hue - ph) % 360.0
-        d = min(d, 360.0 - d)
-        candidates.append((n / total, hue, s, d))
-    if candidates:
-        # prefer a hue clearly apart from the accent, then the dominant one
-        far = [c for c in candidates if c[3] >= 35.0]
-        pick = max(far or candidates, key=lambda c: c[0])
-        print(json.dumps({"hue": round(pick[1], 1), "saturation": round(pick[2], 3)}))
-except Exception:
-    pass
-PY
-)
-fi
-mkdir -p "$HOME/.cache/quickshell"
-if [ -n "$SEED" ]; then
-    printf '%s\n' "$SEED" > "$HOME/.cache/quickshell/surface-seed.json"
-else
-    rm -f "$HOME/.cache/quickshell/surface-seed.json"
+SEED_KEY="$WALLPAPER|$(stat_key "$WALLPAPER")"
+if [ "${FORCE:-0}" != "1" ] && [ -f "$CACHE/surface-seed.key" ] \
+        && [ "$(cat "$CACHE/surface-seed.key" 2>/dev/null)" = "$SEED_KEY" ] \
+        && [ -s "$OUT_SEED" ]; then
+    :
+elif [ -n "$WALLPAPER" ] && [ -f "$WALLPAPER" ]; then
+    # The picker already bakes a 680x422 JPEG beside every picture it has
+    # listed. A seed is a 160 px thumbnail anyway, so use that copy when it
+    # exists: ~30 ms instead of decoding a 4K PNG for ~0.4 s. Fall back to the
+    # original for a picture the picker has not seen yet.
+    THUMB_DIR="$HOME/.cache/lucid/wallpaper-thumbs/680x422"
+    THUMB_KEY=$(stat -c '%i-%s-%T@' "$WALLPAPER" 2>/dev/null || true)
+    THUMB="$THUMB_DIR/$THUMB_KEY.jpg"
+    [ -f "$THUMB" ] || THUMB=""
+    # Compute it before app_surfaces(): the surface tint is derived from this
+    # seed, so using the previous wallpaper's seed is what left kitty/GTK on a
+    # stale colour after a dark -> light switch.
+    python3 "$LUCID/surface-seed.py" "$WALLPAPER" "$PALETTE" \
+        "$OUT_SEED" "$SEED_KEY" "$THUMB" >/dev/null 2>&1 || true
 fi
 
-IFS=$'\t' read -r BG FG MUTED OUTLINE PRIMARY ONPRIMARY LIGHT < <(python3 - "$PALETTE" "$PREFS" "$LUCID" <<'PY'
+IFS=$'\t' read -r BG FG MUTED OUTLINE PRIMARY ONPRIMARY LIGHT < <(python3 - "$PALETTE" "$PREFS" "$LUCID" "$OUT_OC" <<'PY'
 import json, os, re, sys
 sys.path.insert(0, sys.argv[3])
 from lucid_palette import app_surfaces, at_tone, tone, P, hx
@@ -92,6 +95,39 @@ except (OSError, ValueError):
 if isinstance(sd, (int, float)) and sd >= 0 and sd != 0:
     bg = hx(at_tone(P(bg), tone(bg) - sd * 3))
 
+# OpenCode's theme is generated by matugen from the raw surface role. Pin its
+# active variant to the same bgOpaque kitty/GTK use, in this same process, and
+# do it before opencode-theme-notify signals the TUI.
+oc_path = sys.argv[4] if len(sys.argv) > 4 else ""
+active = "light" if tone(pal.get("surface", bg)) > 50 else "dark"
+try:
+    with open(oc_path) as f:
+        data = json.load(f)
+    theme = data.get("theme") or {}
+    for value in theme.values():
+        if isinstance(value, dict) and "dark" in value and "light" in value:
+            chosen = value.get(active)
+            if chosen is not None:
+                value["dark"] = chosen
+                value["light"] = chosen
+    for key in ("background", "backgroundPanel", "backgroundElement"):
+        value = theme.get(key)
+        if isinstance(value, dict):
+            value["dark"] = bg
+            value["light"] = bg
+        elif value is not None:
+            theme[key] = bg
+    out = json.dumps(data, indent=2) + "\n"
+    try:
+        current = open(oc_path).read()
+    except OSError:
+        current = ""
+    if current != out:
+        with open(oc_path, "w") as f:
+            f.write(out)
+except (OSError, ValueError):
+    pass
+
 print("\t".join([
     bg,
     pick("on_surface", "on_background"),
@@ -107,24 +143,27 @@ PY
 [ -n "${BG:-}" ] || exit 0
 
 # one static, heavily blurred wallpaper soft-light blended against the surface
-# at 25%: every consumer gets a plain opaque texture, no runtime shader
-python3 "$LUCID/wallpaper-softlight.py" --base "$BG" 2>/dev/null || true
-BLUR="$(cat "$HOME/.cache/quickshell/wallpaper-softlight.path" 2>/dev/null || true)"
+# at 25%: every consumer gets a plain opaque texture, no runtime shader.
+# Generate it detached: the palette is already live, and this is the one step
+# that cost seconds at full screen resolution. The script itself is a no-op
+# (~0.1 s) when its key is already cached.
+( setsid python3 "$LUCID/wallpaper-softlight.py" --base "$BG" >/dev/null 2>&1 & ) 2>/dev/null || true
 
-# both matugen hooks (quickshell + opencode) call this; once everything already
-# carries this colour there is nothing to write and no reason to flash every
-# GTK app with another color-scheme round trip
-fresh=1
-grep -q "background $BG" "$HOME/.config/kitty/lucid-surface.conf" 2>/dev/null || fresh=0
-grep -q "window_bg_color $BG" "$HOME/.config/gtk-4.0/gtk.css" 2>/dev/null || fresh=0
-grep -q "$BG" "$HOME/.config/opencode/themes/matugen.json" 2>/dev/null || fresh=0
-[ -n "$BLUR" ] && [ -f "$BLUR" ] || fresh=0
-[ "$fresh" = "1" ] && [ "${FORCE:-0}" != "1" ] && exit 0
+write_file() { # $1 = destination; content on stdin
+    local dst="$1" tmp="${1}.tmp.$$"
+    mkdir -p "$(dirname "$dst")"
+    cat > "$tmp"
+    if [ -f "$dst" ] && cmp -s "$tmp" "$dst"; then
+        rm -f "$tmp"
+    else
+        mv -f "$tmp" "$dst"
+    fi
+}
 
 write_gtk() { # $1 = config dir, $2 = gtk version
     local dir="$HOME/.config/$1"
-    mkdir -p "$dir"
-    cat > "$dir/gtk.css" <<EOF
+    {
+        cat <<EOF
 /* Generated by lucid app-surface-sync.sh — do not edit by hand.
    Base is Theme.bgOpaque (the colour Lucid draws widgets on), not the raw
    matugen surface role. */
@@ -162,9 +201,8 @@ headerbar, .headerbar { background-color: @headerbar_bg_color; color: @headerbar
 .navigation-sidebar, .sidebar { background-color: @sidebar_bg_color; color: @sidebar_fg_color; }
 popover, popover > contents, .popover { background-color: @popover_bg_color; color: @popover_fg_color; }
 EOF
-
-    if [ "$2" = "gtk-4.0" ]; then
-        cat >> "$dir/gtk.css" <<EOF
+        if [ "$2" = "gtk-4.0" ]; then
+            cat <<EOF
 /* libadwaita 1.10 resolves its palette through CSS custom properties at
    stylesheet-parse time, so these must be overridden too, not just the
    @define-color names. They inherit from the window root. */
@@ -193,30 +231,32 @@ window, .background {
 }
 view, listview, columnview, textview > text { background-color: @view_bg_color; color: @view_fg_color; }
 EOF
-    else
-        cat >> "$dir/gtk.css" <<'EOF'
+        else
+            cat <<'EOF'
 GtkWindow, .background { background-color: @theme_bg_color; color: @theme_fg_color; }
 GtkViewport, GtkList, GtkTreeView, GtkTextView, textview text { background-color: @theme_base_color; color: @theme_text_color; }
 EOF
-    fi
+        fi
+    } | write_file "$dir/gtk.css"
 
     # make libadwaita/Adwaita pick the foreground style that matches the palette
     local ini="$dir/settings.ini"
-    mkdir -p "$dir"
     [ -f "$ini" ] || printf '[Settings]\n' > "$ini"
-    if grep -q '^gtk-application-prefer-dark-theme=' "$ini"; then
-        sed -i "s/^gtk-application-prefer-dark-theme=.*/gtk-application-prefer-dark-theme=$((1 - LIGHT))/" "$ini"
-    else
-        printf 'gtk-application-prefer-dark-theme=%s\n' "$((1 - LIGHT))" >> "$ini"
-    fi
+    local tmp="${ini}.tmp.$$"
+    awk -v dark="$((1 - LIGHT))" '
+        BEGIN { done_dark = 0 }
+        /^gtk-application-prefer-dark-theme=/ { print "gtk-application-prefer-dark-theme=" dark; done_dark = 1; next }
+        { print }
+        END { if (!done_dark) print "gtk-application-prefer-dark-theme=" dark }
+    ' "$ini" > "$tmp"
+    if cmp -s "$tmp" "$ini"; then rm -f "$tmp"; else mv -f "$tmp" "$ini"; fi
 }
 
 write_gtk gtk-3.0 gtk-3.0
 write_gtk gtk-4.0 gtk-4.0
 
 # kitty: a late include so it wins over matugen-colors.conf
-mkdir -p "$HOME/.config/kitty"
-cat > "$HOME/.config/kitty/lucid-surface.conf" <<EOF
+write_file "$OUT_KITTY" <<EOF
 # Generated by lucid app-surface-sync.sh — Theme.bgOpaque
 background $BG
 EOF
@@ -224,54 +264,24 @@ KITTY_CONF="$HOME/.config/kitty/kitty.conf"
 if [ -f "$KITTY_CONF" ] && ! grep -q 'include ./lucid-surface.conf' "$KITTY_CONF"; then
     printf '\n# Lucid widget background (generated)\ninclude ./lucid-surface.conf\n' >> "$KITTY_CONF"
 fi
-pkill -SIGUSR1 kitty 2>/dev/null || true
 
-# opencode: its matugen theme paints panels from surface; use the widget bg
-# there too so the TUI sits on the same base as the bar and terminals
-OC_THEME="$HOME/.config/opencode/themes/matugen.json"
-if [ -f "$OC_THEME" ]; then
-    # opencode may insist on the dark variant (COLORFGBG/terminal detection);
-    # force the active palette into both variants so the TUI always matches the
-    # shell, then paint the surface colour behind it
-    python3 - "$OC_THEME" "$BG" "$LIGHT" <<'PY'
-import json, sys
-path, bg, light = sys.argv[1], sys.argv[2], sys.argv[3]
-active = "light" if light == "1" else "dark"
-try:
-    with open(path) as f:
-        data = json.load(f)
-    theme = data.get("theme") or {}
-    for value in theme.values():
-        if isinstance(value, dict) and "dark" in value and "light" in value:
-            chosen = value.get(active)
-            if chosen is not None:
-                value["dark"] = chosen
-                value["light"] = chosen
-    for key in ("background", "backgroundPanel", "backgroundElement"):
-        value = theme.get(key)
-        if isinstance(value, dict):
-            value["dark"] = bg
-            value["light"] = bg
-        elif value is not None:
-            theme[key] = bg
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
-except (OSError, ValueError):
-    pass
-PY
-fi
 
-# Keep the toolkit's own light/dark choice in step with the palette. GTK4
-# loads ~/.config/gtk-4.0/gtk.css exactly once at startup (gtksettings.c
-# settings_init_style), so this cannot reload our user CSS; running GTK apps
-# pick the new colours up on their next launch.
+# Keep the toolkit's own light/dark choice in step with the palette. Only touch
+# D-Bus when the answer actually changed; set-wallpaper.sh already writes it.
 if command -v gsettings >/dev/null 2>&1; then
-    if [ "$LIGHT" = "1" ]; then
-        gsettings set org.gnome.desktop.interface color-scheme 'prefer-light' 2>/dev/null || true
-    else
-        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+    old_light="$(cat "$STATE_DIR/app-surface.light" 2>/dev/null || true)"
+    if [ "$old_light" != "$LIGHT" ]; then
+        if [ "$LIGHT" = "1" ]; then
+            gsettings set org.gnome.desktop.interface color-scheme 'prefer-light' 2>/dev/null || true
+        else
+            gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+        fi
+        printf '%s' "$LIGHT" > "$STATE_DIR/app-surface.light.tmp"
+        mv -f "$STATE_DIR/app-surface.light.tmp" "$STATE_DIR/app-surface.light"
     fi
 fi
+
+printf '%s' "$KEY" > "$STATE_DIR/app-surface.key.tmp"
+mv -f "$STATE_DIR/app-surface.key.tmp" "$STATE_DIR/app-surface.key"
 
 echo "app surfaces: bg $BG fg $FG ($([ "$LIGHT" = 1 ] && echo light || echo dark))"

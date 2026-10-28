@@ -62,7 +62,7 @@ PanelWindow {
         fillMode: Image.Stretch
         asynchronous: false
         cache: true
-        smooth: false
+        smooth: true  // half-res wash: bilinear is invisible here and avoids 2x2 blocks
         mipmap: false
     }
 }

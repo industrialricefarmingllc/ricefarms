@@ -34,6 +34,14 @@ struct SPill {
     // pibble launch reveal publishes its growing circle with sq: 0 so it
     // stays a true circle while everything else goes squircle.
     float sq = -1;
+    // Optional liquid union: x/y/w/h is the union bbox; ua/ub are two
+    // sub-shapes relative to that bbox (fb px), uk is the smooth-min neck.
+    bool unionOn = false;
+    float ua[4] = {0, 0, 0, 0};
+    float uar[4] = {0, 0, 0, 0};
+    float ub[4] = {0, 0, 0, 0};
+    float ubr[4] = {0, 0, 0, 0};
+    float uk = 0;
 };
 
 struct SGlassUniforms {
@@ -58,6 +66,7 @@ struct SGlassUniforms {
     GLint bevW = -1;    // precomputed bevel band (saves per-fragment log)
     GLint edgePx = -1;  // precomputed trio width (saves per-fragment log)
     GLint logCME = -1;  // precomputed log(uC*M_E) for f_func exp fast path
+    GLint unionOn = -1, unionA = -1, unionAR = -1, unionB = -1, unionBR = -1, unionK = -1;
 };
 
 struct SKawaseU {
@@ -108,12 +117,16 @@ class CGlassLayer {
     // Geometry contract (qml/GlassLayout.qml):
     //   ~/.cache/liquid-glass-hypr/liquidglass-<name>-<MON>.json, one file
     //   per publisher:
-    //   {"monitor":"DP-1","surface":{"w":2560,"h":780},"pills":[{x,y,w,h,
-    //     "r":[tl,tr,br,bl]}, ...]}
+    //   {"monitor":"DP-1","ns":"quickshell","surface":{"w":2560,"h":780},
+    //    "pills":[{x,y,w,h,"r":[tl,tr,br,bl]}, ...]}
     // Logical px, surface-relative. A file applies to this surface when its
-    // surface size matches (epsilon 1px) — sizes are exact and distinctive
-    // per widget surface, so no registry, lifecycle tracking, or dpr math.
-    [[nodiscard]] bool loadGeometry(PHLMONITOR monitor, const CBox& surfBox, std::vector<SPill>& pills,
+    // surface size matches (ratio tolerance below) AND, when the file names
+    // one, its "ns" equals the layer namespace. The namespace check keeps
+    // near-identical surfaces apart (e.g. a 1368x896 bar and a 1368x900
+    // launcher are within 1% of each other, so size alone draws the bar's
+    // pills on the launcher at ITS origin — the screen edge). Files without
+    // "ns" keep the legacy size-only routing.
+    [[nodiscard]] bool loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const std::string& ns, std::vector<SPill>& pills,
                                     bool forBorders = false);
     void ensureShaders();
     void ensureRing();
@@ -165,8 +178,12 @@ class CGlassLayer {
     // and which is distinctive per widget surface. Parsed only on change.
     struct SGeoFile {
         std::filesystem::file_time_type stamp = std::filesystem::file_time_type::min();
-        std::vector<SPill> pills; // surface-absolute logical px
+        std::vector<SPill> pills; // framebuffer px (surface origin + ratio)
         bool parsed = false;
+        // Valid file, but its "ns" names another layer surface. Cached so the
+        // decision isn't re-parsed every frame; also drops any pills cached
+        // from a pre-"ns" version of the same file.
+        bool foreign = false;
     };
     std::map<std::string, SGeoFile> m_geoFiles;
 };

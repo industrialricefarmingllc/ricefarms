@@ -155,7 +155,6 @@ Column {
                 Row {
                     width: parent.width
                     spacing: Theme.dp(10)
-                    visible: Prefs.liquidGlassEnabled
 
                     M3Switch {
                         checked: Prefs.gooWorkspacesEnabled
@@ -177,8 +176,7 @@ Column {
 
                 Text {
                     width: parent.width
-                    visible: Prefs.liquidGlassEnabled
-                    text: "Independent of glass; turn off if workspace switches stutter. Glass stays on."
+                    text: "Workspace goo is independent of glass; turn it off if workspace switches stutter."
                     color: Theme.subtextDim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabel

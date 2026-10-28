@@ -1,0 +1,4 @@
+#!/bin/sh
+# Zed under Xwayland: touchscreen taps/drags work, at the cost of X11 input latency.
+# Default launcher uses native Wayland; use this only when you need touch.
+exec env WAYLAND_DISPLAY= GPUI_X11_SCALE_FACTOR=2 /usr/lib/zed/zed-editor "$@"

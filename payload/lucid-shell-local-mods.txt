@@ -1,0 +1,64 @@
+ M CHANGELOG.md
+ M LiveWall.qml
+ M Prefs.qml
+ M Widgets.qml
+ M install.sh
+ M lucidbar/BarFlare.qml
+ M lucidbar/BarPill.qml
+ M lucidbar/LiquidGlassBg.qml
+ M lucidbar/WallpaperOverlay.qml
+ M lucidbar/Workspaces.qml
+ M luciddocks/TranslatePane.qml
+ M luciddocks/WallpaperSlots.qml
+ M luciddocks/WallpaperTiles.qml
+ M luciddocks/resolve-icons.sh
+ M luciddocks/translate/components/LanguageRail.qml
+ M luciddocks/translate/components/MessageBubble.qml
+ M luciddocks/translate/components/Theme.qml
+ M luciddocks/translate/translate_server.py
+ M luciddocks/wallpaper-thumbs.sh
+ M lucidprefs/ThemePage.qml
+ M lucidprefs/WallpaperTile.qml
+ M lucidwidgets/BatteryWidget.qml
+ M lucidwidgets/CalendarWidget.qml
+ M lucidwidgets/ClockWidget.qml
+ M lucidwidgets/GamesWidget.qml
+ M lucidwidgets/GithubWidget.qml
+ M lucidwidgets/KdeconnectWidget.qml
+ M lucidwidgets/MediaWidget.qml
+ M lucidwidgets/PaletteWidget.qml
+ M lucidwidgets/PanelRow.qml
+ M lucidwidgets/PanelTile.qml
+ M lucidwidgets/PhotoWidget.qml
+ M lucidwidgets/SearchWidget.qml
+ M lucidwidgets/ShortcutsWidget.qml
+ M lucidwidgets/SystemWidget.qml
+ M lucidwidgets/TimerWidget.qml
+ M lucidwidgets/TodoWidget.qml
+ M lucidwidgets/TogglesWidget.qml
+ M lucidwidgets/WidgetFrame.qml
+ M lucidwidgets/WidgetMenu.qml
+ M lucidwidgets/WidgetPanel.qml
+ M lucidwidgets/WidgetPreview.qml
+ M squircle/SquircleFlare.qml
+ M squircle/SquircleRect.qml
+ M squircle/squircle_flare.frag
+ M squircle/squircle_flare.frag.qsb
+ M squircle/squircle_rect.frag
+ M squircle/squircle_rect.frag.qsb
+ M support/lucid/app-surface-sync.sh
+ M support/lucid/apply-colour.sh
+ M support/lucid/apply-theme.sh
+ M support/lucid/render-templates.sh
+ M support/lucid/set-mode.sh
+ M support/lucid/wallpaper-softlight.py
+ M support/wallpaper/set-wallpaper.sh
+?? SkwdWall.qml
+?? WindowBorder.qml
+?? lucidbar/NotchGroupBg.qml
+?? luciddocks/skwd-previews.sh
+?? squircle/SquircleClip.qml
+?? support/lucid/kitty-tune.py
+?? support/lucid/opencode-theme-notify.sh
+?? support/lucid/surface-seed.py
+?? support/lucid/theme-fanout.sh

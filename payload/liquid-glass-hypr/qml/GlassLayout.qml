@@ -15,6 +15,7 @@ import Quickshell.Io
 //
 //   GlassLayout {
 //       name: "dock"
+//       surfaceNamespace: "quickshell"   // layer ns; disambiguates same-size surfaces
 //       targetScreen: dockWindow.screen
 //       surfaceW: dockWindow.width
 //       surfaceH: dockWindow.height
@@ -43,6 +44,12 @@ Item {
     id: root
 
     property string name: "unnamed"
+    // WlrLayershell.namespace of the window publishing this geometry. The
+    // plugin matches it exactly (when the file carries it) *in addition* to
+    // the surface size, so a near-identical surface (bar 896 vs an
+    // always-mapped 900px launcher, 0.4% apart) can't receive these pills.
+    // Empty keeps the legacy size-only routing.
+    property string surfaceNamespace: ""
     property var targetScreen: null
     property real surfaceW: 0
     property real surfaceH: 0
@@ -71,6 +78,7 @@ Item {
             id: json
 
             property string monitor: ""
+            property string ns: ""
             property var surface: ({})
             property var pills: []
         }
@@ -99,6 +107,7 @@ Item {
         root._lastSig = sig;
         root._lastWriteMs = Date.now();
         json.monitor = root.monitorName;
+        json.ns = root.surfaceNamespace;
         json.surface = {
             "w": root.surfaceW,
             "h": root.surfaceH
@@ -122,7 +131,7 @@ Item {
     }
 
     function sigOf() {
-        return root.monitorName + "|" + root.surfaceW + "x" + root.surfaceH + "|" + JSON.stringify(root.pills);
+        return root.monitorName + "|" + root.surfaceNamespace + "|" + root.surfaceW + "x" + root.surfaceH + "|" + JSON.stringify(root.pills);
     }
 
     property int _writes: 0
@@ -148,6 +157,7 @@ Item {
 
     onPillsChanged: root.sync()
     onMonitorNameChanged: root.sync()
+    onSurfaceNamespaceChanged: root.sync()
     onSurfaceWChanged: root.sync()
     onSurfaceHChanged: root.sync()
     Component.onCompleted: {

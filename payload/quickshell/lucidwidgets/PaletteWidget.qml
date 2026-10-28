@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs
 import qs.lucidui
+import "../squircle"
 
 WidgetBody {
     id: w
@@ -217,7 +218,7 @@ WidgetBody {
             Repeater {
                 model: w.tones
 
-                Rectangle {
+                SquircleRect {
                     id: stop
 
                     required property int modelData
@@ -231,7 +232,8 @@ WidgetBody {
                     bottomLeftRadius: stop.index === 0 ? Theme.rad(16) : Theme.dp(5)
                     topRightRadius: stop.index === w.tones.length - 1 ? Theme.rad(16) : Theme.dp(5)
                     bottomRightRadius: stop.index === w.tones.length - 1 ? Theme.rad(16) : Theme.dp(5)
-                    color: stop.c
+                    fillColor: stop.c
+                    smoothing: Prefs.squircleF
                     scale: stop.hot ? 1.06 : 1
                     z: stop.hot ? 1 : 0
 
@@ -310,7 +312,7 @@ WidgetBody {
                 Repeater {
                     model: fam.steps
 
-                    Rectangle {
+                    SquircleRect {
                         id: chip
 
                         required property int modelData
@@ -323,7 +325,8 @@ WidgetBody {
                         topRightRadius: chip.index === 0 ? Theme.rad(12) : Theme.dp(3)
                         bottomLeftRadius: chip.index === 4 ? Theme.rad(12) : Theme.dp(3)
                         bottomRightRadius: chip.index === 4 ? Theme.rad(12) : Theme.dp(3)
-                        color: chip.c
+                        fillColor: chip.c
+                        smoothing: Prefs.squircleF
 
                         LText {
                             visible: w.showHex && chipTap.containsMouse
