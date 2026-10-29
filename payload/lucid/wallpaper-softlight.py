@@ -31,7 +31,7 @@ PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
 LOCK = os.path.join(CACHE, "wallpaper-softlight.lock")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
 MIX = 1.0
-VERSION = 7
+VERSION = 8
 # 2 = half the screen's logical resolution. Set 1 for full resolution, 3 for
 # a third (still fine under a 14 px blur at typical viewing distance).
 SCALE = max(1, int(os.environ.get("LUCID_SOFTLIGHT_SCALE", "2")))
@@ -152,34 +152,11 @@ def main():
         ], dtype=np.float32) / 64.0 - 0.5
         tile = np.tile(bayer, (height // 8 + 1, width // 8 + 1))[:height, :width]
         result = np.clip(result + tile[..., None] / 255.0, 0.0, 1.0)
-        # bake the screen-bezel squircle corners into the overlay: black and
-        # opaque outside the superellipse, the 25% wash inside. This removes a
-        # second full-screen shader pass.
-        try:
-            prefs = json.load(open(os.path.join(HOME, ".config", "quickshell", "lucidprefs", "prefs.json")))
-            corner = min(72, round(float(prefs.get("barHeight", 35)) / 2)) / SCALE
-            f = float(prefs.get("squircleF", 0.5))
-        except (OSError, ValueError, TypeError):
-            corner, f = 19 / SCALE, 0.5
-        exponent = 2.0 + 4.0 * max(0.0, min(1.0, f))
+        # The wash is drawn only over windows (lucidbar/WallpaperOverlay.qml);
+        # the screen-bezel corners are a separate overlay (lucidcorners/
+        # ScreenCorners.qml), so the texture itself is pure 25% wash.
         alpha = np.full((height, width), 0.25, dtype=np.float32)
-        corner = max(1, min(int(round(corner)), height // 2, width // 2))
-        yy, xx = np.mgrid[0:corner, 0:corner].astype(np.float32) + 0.5
-        edge = exponent / corner
-        quads = [
-            ((corner - xx) / corner, (corner - yy) / corner),
-            (xx / corner, (corner - yy) / corner),
-            ((corner - xx) / corner, yy / corner),
-            (xx / corner, yy / corner),
-        ]
-        for i, (qx, qy) in enumerate(quads):
-            v = np.power(qx, exponent) + np.power(qy, exponent)
-            cover = np.clip((v - 1.0) / edge + 0.5, 0.0, 1.0)
-            ys = 0 if i < 2 else height - corner
-            xs = 0 if i in (0, 2) else width - corner
-            alpha[ys:ys + corner, xs:xs + corner] = 1.0 - (1.0 - alpha[ys:ys + corner, xs:xs + corner]) * (1.0 - cover)
-            result[ys:ys + corner, xs:xs + corner] *= (1.0 - cover[..., None])
-        out_rgba = np.dstack([np.clip(result, 0.0, 1.0), np.clip(alpha, 0.0, 1.0)])
+        out_rgba = np.dstack([np.clip(result, 0.0, 1.0), alpha])
         out_image = Image.fromarray((out_rgba * 255.0 + 0.5).astype(np.uint8), "RGBA")
 
         os.makedirs(CACHE, exist_ok=True)

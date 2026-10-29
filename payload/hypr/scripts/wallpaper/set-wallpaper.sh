@@ -153,13 +153,34 @@ is_current() {
 }
 REVEAL_FILE="$CACHE_DIR/quickshell/wallpaper-reveal.json"
 REVEAL_FLAG="$CACHE_DIR/quickshell/reveal-active"
+REVEAL_READY="$CACHE_DIR/quickshell/reveal-ready"
+REVEAL_COVERED="$CACHE_DIR/quickshell/reveal-covered"
 REVEALING=0
+wait_reveal_ready() {
+    local i
+    for i in {1..150}; do
+        [ -f "$REVEAL_READY" ] && return 0
+        sleep 0.02
+    done
+    return 0
+}
+wait_reveal_covered() {
+    local i
+    for i in {1..200}; do
+        [ -f "$REVEAL_COVERED" ] && return 0
+        sleep 0.02
+    done
+    return 0
+}
 reveal_write() { # $1 = in|out
-    if command -v jq >/dev/null 2>&1; then
-        jq -n --arg id "$TOKEN" --arg path "$WALLPAPER" --arg phase "$1" \
-            '{id:$id, path:$path, phase:$phase}' >"$REVEAL_FILE"
+    # qs ipc call waits for the handler to answer, and the handler's reply is
+    # held until the shell finishes the animation frame (300-600 ms). Send it
+    # detached so the wallpaper/palette writes happen while the circle is
+    # already growing, not after it has gone.
+    if [[ "$1" == "in" ]]; then
+        ( timeout 2 qs ipc call wallpaper-reveal reveal "$TOKEN" "$WALLPAPER" >/dev/null 2>&1 & ) 2>/dev/null || true
     else
-        printf '{"id":"%s","path":"%s","phase":"%s"}\n' "$TOKEN" "$WALLPAPER" "$1" >"$REVEAL_FILE"
+        ( timeout 2 qs ipc call wallpaper-reveal conceal "$TOKEN" >/dev/null 2>&1 & ) 2>/dev/null || true
     fi
 }
 write_restore_state() {
@@ -283,27 +304,43 @@ if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
     EARLY_CONTRAST=$(jq -r '.matugenContrast // 0' "$PREFS" 2>/dev/null || echo 0)
     EARLY_SCHEME_KEY=$(printf '%s|%s|%s|%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" \
         "$MODE" "$EARLY_SCHEME" "$EARLY_CONTRAST" "$(stat_key "$MATUGEN_CFG")" | sha1sum | cut -d' ' -f1)
-    if [[ -s "$SOURCE_DIR/$EARLY_SOURCE_KEY" || -s "$SCHEME_DIR/$EARLY_SCHEME_KEY.json" ]]; then
-        "$LUCID_DIR/opencode-theme-notify.sh" --early >/dev/null 2>&1 || true
-        EARLY_SENT=1
-        COMMIT_AT_NS=$(( $(date +%s%N) + 1000000000 ))
-        REVEALING=1
-        printf '1' >"$REVEAL_FLAG"
-        reveal_at=$(( COMMIT_AT_NS - 800000000 ))
-        now=$(date +%s%N)
-        if (( reveal_at > now )); then
-            sleep "$(awk -v ns="$((reveal_at - now))" 'BEGIN { printf "%.3f", ns / 1000000000 }')"
+    CACHED=0
+    [[ -s "$SOURCE_DIR/$EARLY_SOURCE_KEY" || -s "$SCHEME_DIR/$EARLY_SCHEME_KEY.json" ]] && CACHED=1
+
+    # A cached image can afford to precompute its seed before the OpenCode
+    # timer starts. A never-seen image cannot: the circle must start first, and
+    # the seed/app-surface work happens under it.
+    if [[ "$CACHED" == "1" ]]; then
+        SEED_KEY="$WALLPAPER|$(stat_key "$WALLPAPER")"
+        if [[ ! -f "$CACHE_DIR/quickshell/surface-seed.key" \
+                || "$(cat "$CACHE_DIR/quickshell/surface-seed.key" 2>/dev/null)" != "$SEED_KEY" ]]; then
+            SEED_THUMB_DIR="$CACHE_DIR/lucid/wallpaper-thumbs/680x422"
+            SEED_THUMB_KEY=$(stat -c '%i-%s-%T@' "$WALLPAPER" 2>/dev/null || true)
+            SEED_THUMB="$SEED_THUMB_DIR/$SEED_THUMB_KEY.jpg"
+            [ -f "$SEED_THUMB" ] || SEED_THUMB=""
+            python3 "$LUCID_DIR/surface-seed.py" "$WALLPAPER" \
+                "$CACHE_DIR/quickshell/matugen.json" "$CACHE_DIR/quickshell/surface-seed.json" \
+                "$SEED_KEY" "$SEED_THUMB" >/dev/null 2>&1 || true
         fi
-        is_current || exit 0
-        reveal_write in
-        target=$(( COMMIT_AT_NS - 450000000 ))
-        now=$(date +%s%N)
-        if (( target > now )); then
-            sleep "$(awk -v ns="$((target - now))" 'BEGIN { printf "%.3f", ns / 1000000000 }')"
-        fi
-        is_current || exit 0
     fi
+
+    REVEALING=1
+    EARLY_SENT=1
+    printf '1' >"$REVEAL_FLAG"
+    is_current || exit 0
+    # Clear markers before the trigger. A stale reveal-covered from the
+    # previous animation otherwise lets the palette write immediately.
+    rm -f "$REVEAL_READY" "$REVEAL_COVERED"
+    reveal_write in
+    wait_reveal_ready
+    is_current || exit 0
+    # Do not touch the live wallpaper or palette until the iris has finished
+    # growing. That is the whole point: the old desktop stays visible outside
+    # the growing circle, and every colour change happens under full cover.
+    wait_reveal_covered
+    is_current || exit 0
 fi
+
 
 # ── wallpaper ───────────────────────────────────────────────────────────────
 # Start the transition in parallel with the palette work. The two have no
@@ -312,12 +349,10 @@ fi
 # most one transition and then becomes the one left on screen.
 WP_PID=""
 wait_wallpaper() {
-    # skwd renders the handoff asynchronously and the palette does not depend
-    # on it; waiting here only delayed the app colours by the renderer's start.
-    if [[ "$SKWD" == 1 ]]; then
-        WP_PID=""
-        return 0
-    fi
+    # The iris must not open before the new wallpaper is actually on screen.
+    # skwd in particular renders the handoff asynchronously; the old code
+    # skipped this wait for skwd, which is why the wallpaper sometimes appeared
+    # only after the circle had gone.
     if [[ -n "${WP_PID:-}" ]]; then
         wait "$WP_PID" 2>/dev/null || true
         WP_PID=""
@@ -476,6 +511,12 @@ matugen)
                 matugen image "$WALLPAPER" -m "$MODE" -t "$MATUGEN_SCHEME" --contrast "$MATUGEN_CONTRAST"
                 "$LUCID_DIR/app-surface-sync.sh" >/dev/null 2>&1 || true
                 "$LUCID_DIR/opencode-theme-notify.sh" >/dev/null 2>&1 || true
+        if [[ "$REVEALING" == "1" && -z "${COMMIT_AT_NS:-}" ]]; then
+            # Uncached image: OpenCode's timer starts when the final theme is
+            # written. Keep the circle closed until that timer and the fanout
+            # have both landed.
+            COMMIT_AT_NS=$(( $(date +%s%N) + 1000000000 ))
+        fi
                 SCHEME_FILE=""
             fi
         fi
@@ -506,6 +547,12 @@ matugen)
         # call is a fast no-op.
         "$LUCID_DIR/app-surface-sync.sh" >/dev/null 2>&1 || true
         "$LUCID_DIR/opencode-theme-notify.sh" >/dev/null 2>&1 || true
+        if [[ "$REVEALING" == "1" && -z "${COMMIT_AT_NS:-}" ]]; then
+            # Uncached image: OpenCode's timer starts when the final theme is
+            # written. Keep the circle closed until that timer and the fanout
+            # have both landed.
+            COMMIT_AT_NS=$(( $(date +%s%N) + 1000000000 ))
+        fi
 
         # one pass over kitty's palette (soften + saturate), no signals here
         TUNE_KEY=$(sha1sum "$HOME/.config/kitty/matugen-colors.conf" \
@@ -520,8 +567,15 @@ matugen)
         printf '%s' "$SIG" >"$SIG_FILE.tmp" && mv -f "$SIG_FILE.tmp" "$SIG_FILE"
         flock -u 7
         wait_wallpaper
+        # Deliver every consumer while the iris is still closed, then wait for
+        # signalled apps to finish settling before opening it. This is what
+        # guarantees the palette/theme change is never revealed half-applied.
+        THEME_SETTLE_MS="${COMMIT_AT_NS:+0}" "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 || true
         if [[ "$REVEALING" == "1" && -n "${COMMIT_AT_NS:-}" ]]; then
-            target=$(( COMMIT_AT_NS + 50000000 ))
+            # Minimum 100 ms after full cover; if the app fanout took longer,
+            # hold until that has landed too. Never open onto a half-applied
+            # palette.
+            target=$(( COMMIT_AT_NS + 100000000 ))
             now=$(date +%s%N)
             if (( target > now )); then
                 sleep "$(awk -v ns="$((target - now))" 'BEGIN { printf "%.3f", ns / 1000000000 }')"
@@ -529,7 +583,6 @@ matugen)
             reveal_write out
             printf '0' >"$REVEAL_FLAG"
         fi
-        ( THEME_SETTLE_MS="${COMMIT_AT_NS:+0}" setsid "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
     else
         # The scheme-cache write path failed but matugen's direct fallback
         # succeeded; still deliver the side effects once.

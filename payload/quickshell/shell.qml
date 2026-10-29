@@ -1,6 +1,7 @@
 //@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING=gray
 // qt's default subpixel text splits into colour fringes on translucent surfaces
 import "./lucidbar"
+import "./lucidcorners"
 import "./luciddesktop"
 import "./luciddocks"
 import "./lucidkeys"
@@ -232,6 +233,18 @@ ShellRoot {
             if (b)
                 b.workspacesModule.expanded = false;
 
+        }
+
+    }
+
+    // Screen-aligned soft-light wallpaper, masked to the visible windows so
+    // the real wallpaper stays sharp in the gaps. Created before the bar (and
+    // so below it in the Top layer, above every window) so the wash never
+    // paints over the shell's own surfaces. See WallpaperOverlay.qml.
+    Variants {
+        model: Quickshell.screens
+
+        WallpaperOverlay {
         }
 
     }
@@ -1928,21 +1941,35 @@ ShellRoot {
         id: osdMod
     }
 
-    // Screen-aligned soft-light wallpaper, masked to the visible windows so
-    // the real wallpaper stays sharp in the gaps. See WallpaperUnderlay.qml.
-    Variants {
-        model: Quickshell.screens
-
-        WallpaperOverlay {
-        }
-
+    // Fake rounded screen corners on every monitor (black inverted corners,
+    // Overlay layer so they mask windows like a physical rounded bezel). Above
+    // the wash, which is clipped to the windows and would otherwise leave the
+    // wallpaper's own corners square.
+    ScreenCorners {
+        id: cornersMod
     }
 
     // The wallpaper-only iris used to hide a synchronized theme commit.
     Variants {
+        id: revealPanels
         model: Quickshell.screens
 
         WallpaperReveal {
+        }
+
+    }
+
+    IpcHandler {
+        target: "wallpaper-reveal"
+
+        function reveal(id: string, path: string): void {
+            for (let i = 0; i < revealPanels.instances.length; i++)
+                revealPanels.instances[i].beginReveal(id, path);
+        }
+
+        function conceal(id: string): void {
+            for (let i = 0; i < revealPanels.instances.length; i++)
+                revealPanels.instances[i].endReveal(id);
         }
 
     }

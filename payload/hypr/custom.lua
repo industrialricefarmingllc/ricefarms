@@ -329,6 +329,13 @@ function gridMoveVertical(dir)
 end
 hl.bind("SUPER + ALT + down", function() gridVertical(1) end)
 hl.bind("SUPER + ALT + up", function() gridVertical(-1) end)
+-- Mouse/trackpad equivalents of the touch edge swipes: wheel selects the
+-- next/previous row of the workspace grid, Shift+wheel the next/previous
+-- column. The same grid walk as SUPER+ALT+arrow, so all input methods agree.
+hl.bind("SUPER + mouse_down", function() gridVertical(1) end)
+hl.bind("SUPER + mouse_up", function() gridVertical(-1) end)
+hl.bind("SUPER + SHIFT + mouse_down", function() gridHorizontal(1) end)
+hl.bind("SUPER + SHIFT + mouse_up", function() gridHorizontal(-1) end)
 hl.bind("SUPER + ALT + J", function() gridVertical(1) end)
 hl.bind("SUPER + ALT + K", function() gridVertical(-1) end)
 hl.bind("SUPER + ALT + SHIFT + down", function() gridMoveVertical(1) end)
