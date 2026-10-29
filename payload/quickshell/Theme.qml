@@ -25,16 +25,10 @@ Singleton {
 
     }
 
-    FileView {
-        id: revealFlag
-
-        path: Quickshell.env("HOME") + "/.cache/quickshell/reveal-active"
-        watchChanges: true
-        blockLoading: true
-        onFileChanged: reload()
-    }
-
-    readonly property bool revealActive: (revealFlag.text() || "").trim() === "1"
+    // Set by WallpaperReveal while the wallpaper iris is up. This is a direct
+    // property, not a watched file: the palette must swap instantly under the
+    // circle, with no 1 s crossfade leaking out after it has gone.
+    property bool revealActive: false
 
     property string themeName: "matugen"
     property string themeMode: "dark"
