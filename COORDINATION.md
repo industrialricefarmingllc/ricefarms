@@ -30,7 +30,7 @@ f) tmux setup (added)
 - HOME scripts: ~60 *.sh top-level (see agent list) + ~/.local/bin/* (21 entries incl pibble symlink, hypr-set-wallpaper, carbonyl, tobii, steamie ELF 14M, loupe ELF 8M, dndprobe/stacktest + .c, kzones-shift-daemon.py, osc52, pnpm11, plasma shims).
 - Dotfiles: ~/.config/* 73 entries, no stow, no dotfiles repo, only Singleton symlinks. Key: .zshrc 14863B (tmux continuum per-TTY main_$tty), .zshenv 302B, .zprofile 2761B (tty7 -> start-hyprland), .bashrc/.bash_profile/.profile/.Xresources/.pam_environment/.gitignore/.ignore/.tmux.conf 15255B + bak.
 - Matugen: ~/.config/matugen/config.toml (prefer saturation, wallpaper set=false via awww wipe 1.2, 11 templates) + templates/* (11 files). Wallpapers ~/Pictures/wallpapers/{matugen ~50 files CURRENT, catppuccin-mocha ~150, gruvbox, nightfox, nord, pywal, tokyo-night} + ~/.config/hypr/wallpapers/default-{dark,light}.jpg + surface-dots/wallpapers.conf. State: current_wallpaper=wallhaven-dgrx2l.jpg, theme dark. Scripts ~/matugen-sync-dev.sh 221L + ~/matugen-watch-dev.sh 93L. No matugen unit (hypr + path + zsh triggers). Units: kitty-theme-sync.path/service, lg-rules.path/service/timer, quickshell.service, etc. Hypr wallpaper: awww-daemon (hyprpaper disabled, hyprpaper.conf compat only), scripts/wallpaper-{matugen,restore,engine,sync-theme-oneshot}.sh + theme-toggle.sh + apply-gtk-mode.sh + agx-smooth-transition.sh + watch-theme-mode.sh.
-- Packages: Arch+CachyOS repos. Rice pkgs: awww, dunst, foot, hyprland 0.56.2, hyprpaper, hypr* utils, kitty 0.48.2, kmscon 10.0.3, matugen 4.2.0, neovim 0.12.5, quickshell 0.3.1, sway, tmux 3.7c, waybar, zed 1.18.1, zsh 5.9.2, paru, helium-browser-bin, nvidia-580xx-dkms. bucklespring + opencode NOT pacman.
+- Packages: Arch+CachyOS repos. Rice pkgs: awww, dunst, foot, hyprland 0.57.0, hyprpaper, hypr* utils, kitty 0.48.2, kmscon 10.0.3, matugen 4.2.0, neovim 0.12.5, quickshell 0.3.1, sway, tmux 3.7c, waybar, zed 1.18.1, zsh 5.9.2, paru, helium-browser-bin, nvidia-580xx-dkms. bucklespring + opencode NOT pacman.
 - Tmux: ~/.tmux.conf 260L (tmux-256color, Tc/RGB kitty, extended-keys, OSC52, prefix C-z, mouse, continuum-restore, resurrect-capture-pane, tpm plugins), ~/.tmux/plugins/{tpm,sensible,continuum,resurrect,resurrect-opencode,auto-resize}, ~/.local/share/tmux/resurrect/*, ~/.config/tmux ABSENT.
 
 ## 2026-10-28 refresh (live system re-snapshot)
@@ -160,9 +160,10 @@ Tests: tests/test_install.sh sources install.sh with RICEFARMS_NOEXEC=1, mocks p
       liquid-glass-toggle, gpu-tty-foot → payload/usr-local-bin, username
       rewritten at install via USRLOCAL_BIN-overridable phase_hypr_plugins)
       + liquid-glass-hypr @17978c2 v0.4.1 (45M→908K pruned source, rebuilt
-      via make) + hypr-goo-workspaces retired source (84K, reference only —
-      the "goo animation thing", merged into liquidglass since 0.5.0),
-      171 tests green.
+      via make) and liquid-glass-hypr-057 (same pin, Hyprland 0.57 ABI; both
+      installed and built) + hypr-goo-workspaces retired source (84K,
+      reference only — the "goo animation thing", merged into liquidglass
+      since 0.5.0), 225 tests green.
 - [x] local opencode config (~/.config/opencode + ~/.opencode pruned of
       node_modules, install_opencode + bun reinstall) with STANDING RULE:
       NEVER push API keys — Context7 key found committed in 0c28760 (already

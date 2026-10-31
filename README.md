@@ -16,7 +16,9 @@ one click rice. Entirely slopped up because lazy. Most likely won't work flawles
   **quick-translate** (SUPER+T) + **hypr-edge-swipe** touch gestures
   (vendored source, rebuilt with `make`) + full hotkey map +
   **liquid-glass-hypr** plugin (rebuilt from vendored source at pinned
-  commit) + Lucid's `lucid-{glass,monitors,settings,specials,startup}.lua`
+  commit; **liquid-glass-hypr-057** is the Hyprland 0.57 ABI variant the live
+  config loads, also vendored and built) + Lucid's
+  `lucid-{glass,monitors,settings,specials,startup}.lua`
   state + `/usr/local/bin` helpers (`hypr-inputs-ready`,
   `minimize/restore-all`, `pin/unpin-all`, `liquid-glass-toggle` (alias
   `lg`; kitty falls back to an opaque matugen background when glass is off),
