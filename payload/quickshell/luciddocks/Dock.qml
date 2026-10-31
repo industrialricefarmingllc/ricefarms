@@ -221,6 +221,20 @@ PanelWindow {
         dockWindow.menuOpen = true;
     }
 
+    // Called once the external launcher has finished closing and its surface is
+    // hidden but still mapped. The tab owns the window width, so leaving it on
+    // the wallpaper picker means the next open changes width (and the layer
+    // surface's margins) while the reveal is already running, which reads as
+    // the panel sliding in from the left.
+    function resetLauncherState() {
+        if (dockWindow.menuOpen)
+            return;
+
+        dockWindow.selectMode("apps");
+        if (dockWindow.launcherItem)
+            dockWindow.launcherItem.resetAfterClose();
+    }
+
     function openTranslate(focusLanguage) {
         if (dockWindow.launcherItem)
             dockWindow.launcherItem.resetTranslate();

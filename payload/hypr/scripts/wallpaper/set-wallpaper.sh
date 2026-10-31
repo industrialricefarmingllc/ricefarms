@@ -229,13 +229,19 @@ EOF2
 CURRENT_THEME="$(cat "$CURRENT_THEME_FILE" 2>/dev/null || echo matugen)"
 
 # ── mode ────────────────────────────────────────────────────────────────────
+# A wallpaper is dark when more than this share of a 64×64 sample sits below
+# luma 100. The value is the measured dark share of the current wallpaper
+# (1738/4096 = 42.431640625%), so that picture lands just on the light side.
+DARK_THRESHOLD=0.42431640625
+
 # A wallpaper's brightness does not change while its mtime/size are unchanged,
 # so cache the answer. This removes an ffmpeg decode from every re-select and
-# from every mode toggle.
+# from every mode toggle. The threshold is part of the key, so retuning it
+# never resurrects answers measured against the old one.
 if [[ -n "$EXPLICIT_MODE" ]]; then
     MODE="$EXPLICIT_MODE"
 else
-    MODE_KEY=$(printf '%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" | sha1sum | cut -d' ' -f1)
+    MODE_KEY=$(printf '%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" "$DARK_THRESHOLD" | sha1sum | cut -d' ' -f1)
     MODE_CACHE="$CACHE_DIR/lucid/wallpaper-mode/$MODE_KEY"
     if [[ -f "$MODE_CACHE" ]]; then
         MODE="$(cat "$MODE_CACHE")"
@@ -243,7 +249,7 @@ else
         MODE="dark"
         if command -v ffmpeg >/dev/null 2>&1; then
             ffmpeg -y -i "$WALLPAPER" -vf "scale=64:64:flags=area" -f rawvideo -pix_fmt rgb24 "$CACHE_DIR/lucid/.wallgrid.rgb" 2>/dev/null || true
-            MODE=$(python3 - << 'PY' 2>/dev/null || echo dark
+            MODE=$(DARK_THRESHOLD="$DARK_THRESHOLD" python3 - << 'PY' 2>/dev/null || echo dark
 import os
 p=os.path.expanduser('~/.cache/lucid/.wallgrid.rgb')
 try:
@@ -252,7 +258,7 @@ try:
         print('dark')
     else:
         dark=sum(1 for i in range(n) if 0.2126*d[3*i]+0.7152*d[3*i+1]+0.0722*d[3*i+2] < 100)
-        print('dark' if dark/n >= 0.25 else 'light')
+        print('dark' if dark/n > float(os.environ.get('DARK_THRESHOLD', '0.25')) else 'light')
 except Exception:
     print('dark')
 PY
@@ -284,7 +290,6 @@ fi
 # Latest selection wins. Every later invocation overwrites this token; stale
 # invocations exit before they can paint over the newer one.
 TOKEN="$(date +%s%N)-$$"
-COMMIT_AT_NS=""
 printf '%s|%s|%s' "$TOKEN" "$WALLPAPER" "$MODE" >"$REQ_FILE.tmp"
 mv -f "$REQ_FILE.tmp" "$REQ_FILE"
 
@@ -511,12 +516,6 @@ matugen)
                 matugen image "$WALLPAPER" -m "$MODE" -t "$MATUGEN_SCHEME" --contrast "$MATUGEN_CONTRAST"
                 "$LUCID_DIR/app-surface-sync.sh" >/dev/null 2>&1 || true
                 "$LUCID_DIR/opencode-theme-notify.sh" >/dev/null 2>&1 || true
-        if [[ "$REVEALING" == "1" && -z "${COMMIT_AT_NS:-}" ]]; then
-            # Uncached image: OpenCode's timer starts when the final theme is
-            # written. Keep the circle closed until that timer and the fanout
-            # have both landed.
-            COMMIT_AT_NS=$(( $(date +%s%N) + 1000000000 ))
-        fi
                 SCHEME_FILE=""
             fi
         fi
@@ -541,18 +540,10 @@ matugen)
         # fanout below is the single delivery point.
         matugen -c "$MATUGEN_CFG" json "$SCHEME_FILE" -m "$MODE" -q
 
-        # Finish the shared app surface now, before the fanout's 250 ms settle
-        # window. This pins the OpenCode theme to bgOpaque and starts its 1 s
-        # refresh timer as early as the final file exists. The later fanout
-        # call is a fast no-op.
+        # Finish the shared app surface now, before the fanout's settle window.
+        # The later fanout call is a fast no-op.
         "$LUCID_DIR/app-surface-sync.sh" >/dev/null 2>&1 || true
         "$LUCID_DIR/opencode-theme-notify.sh" >/dev/null 2>&1 || true
-        if [[ "$REVEALING" == "1" && -z "${COMMIT_AT_NS:-}" ]]; then
-            # Uncached image: OpenCode's timer starts when the final theme is
-            # written. Keep the circle closed until that timer and the fanout
-            # have both landed.
-            COMMIT_AT_NS=$(( $(date +%s%N) + 1000000000 ))
-        fi
 
         # one pass over kitty's palette (soften + saturate), no signals here
         TUNE_KEY=$(sha1sum "$HOME/.config/kitty/matugen-colors.conf" \
@@ -570,16 +561,8 @@ matugen)
         # Deliver every consumer while the iris is still closed, then wait for
         # signalled apps to finish settling before opening it. This is what
         # guarantees the palette/theme change is never revealed half-applied.
-        THEME_SETTLE_MS="${COMMIT_AT_NS:+0}" "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 || true
-        if [[ "$REVEALING" == "1" && -n "${COMMIT_AT_NS:-}" ]]; then
-            # Minimum 100 ms after full cover; if the app fanout took longer,
-            # hold until that has landed too. Never open onto a half-applied
-            # palette.
-            target=$(( COMMIT_AT_NS + 100000000 ))
-            now=$(date +%s%N)
-            if (( target > now )); then
-                sleep "$(awk -v ns="$((target - now))" 'BEGIN { printf "%.3f", ns / 1000000000 }')"
-            fi
+        THEME_SETTLE_MS=50 "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 || true
+        if [[ "$REVEALING" == "1" ]]; then
             reveal_write out
             printf '0' >"$REVEAL_FLAG"
         fi

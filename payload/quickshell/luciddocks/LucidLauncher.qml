@@ -80,11 +80,15 @@ PanelWindow {
     readonly property real contentH: root.bodyOpen ? root.openContentH : root.collapsedContentH
     readonly property int panelPad: dock ? dock.panelPadding : Theme.dp(36)
     readonly property real revealCenterY: root.ring + root.padV + root.collapsedContentH * root.scaleFactor * 0.5
-    // Use the largest possible body, not the height that happens to be laid
-    // out at the first frame: opening straight onto a tab resizes the window
-    // after the animation target can already have been sampled.
-    readonly property real openPanelH: root.openContentH * root.scaleFactor + root.padV * 2 + root.ring * 2
-    readonly property real revealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH + root.ring, Math.max(root.revealCenterY, root.openPanelH - root.revealCenterY)) + 8
+    // Use the panel height that is actually being revealed, not the largest
+    // possible body: a collapsed open shows a 64 px head, and sizing the circle
+    // to the expanded body crossed that head at t ~ 0.15 (two frames), which
+    // read as "no mask". panelHeight is a binding, not a laid-out height, so a
+    // direct-tab open still gets the full body on the first frame.
+    // It is also why typing during the reveal no longer snaps the mask off:
+    // bodyOpen grows panelHeight, revealMax follows, and the circle retargets
+    // and finishes over the expanded body before onFinished releases the layer.
+    readonly property real revealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH + root.ring, Math.max(root.revealCenterY, root.panelHeight - root.revealCenterY)) + 8
     readonly property real ring: Theme.dp(4)
     readonly property var activeBorderColours: HyprConfig.coloursOf(HyprConfig.value("general.col.active_border"))
     readonly property color activeBorderColour: root.activeBorderColours.length > 0 ? root.activeBorderColours[0] : Theme.accent
@@ -94,12 +98,17 @@ PanelWindow {
     // the window border lifted the same rung, so it still reads against the fill
     readonly property color panelBorder: Theme.atTone(root.activeBorderColour, Theme.toneOf(root.activeBorderColour) + (Theme.isLight ? -5 : 5))
     implicitHeight: root.panelHeight
+
+    // Typing during the grow used to switch the mask off outright, which popped
+    // the body in. If the body arrives mid-reveal the window gets taller, so
+    // grow the circle from where it is to the new target instead of cutting it.
     onBodyOpenChanged: {
-        // once the body is out, the circle must release the whole surface
-        if (root.bodyOpen && !root.closing) {
-            root.revealRadius = Math.max(root.width, root.height) * 2;
-            root.maskActive = false;
-        }
+        if (!root.bodyOpen || root.closing || !openAnim.running)
+            return;
+        openAnim.stop();
+        retargetAnim.from = root.revealRadius;
+        retargetAnim.to = root.revealMax;
+        retargetAnim.restart();
     }
 
     Connections {
@@ -131,6 +140,7 @@ PanelWindow {
                 root.startOpen();
             } else {
                 openAnim.stop();
+                retargetAnim.stop();
                 root.panelVisible = true;
                 root.closing = true;
                 root.maskActive = true;
@@ -146,26 +156,39 @@ PanelWindow {
 
         target: root
         property: "revealRadius"
-        from: 0
+        // A few pixels, not zero: the first visible frame is the dot. startOpen
+        // sets 2 before restart; the animation used to override it with 0.
+        from: 2
         to: root.revealMax
         duration: Theme.ms(280)
         easing.type: Easing.OutCubic
-        onFinished: {
-            root.revealRadius = Math.max(root.width, root.height) * 2;
-            root.maskActive = false;
-        }
+        onFinished: root.finishOpen()
+    }
+
+    // A body that arrives mid-reveal (typing, a tab) grows the window. Continue
+    // from the current radius to the new revealMax for a short beat instead of
+    // either cutting the mask or jumping the radius to the new target.
+    NumberAnimation {
+        id: retargetAnim
+
+        target: root
+        property: "revealRadius"
+        duration: Theme.ms(200)
+        easing.type: Easing.OutCubic
+        onFinished: root.finishOpen()
+    }
+
+    function finishOpen() {
+        // release the whole surface once the circle covers it
+        root.revealRadius = Math.max(root.width, root.height) * 2;
+        root.maskActive = false;
     }
 
     Timer {
         id: closeHide
 
         interval: Theme.ms(180)
-        onTriggered: {
-            root.closing = false;
-            root.maskActive = false;
-            root.panelVisible = false;
-            root.bodyOpen = false;
-        }
+        onTriggered: root.finishClose()
     }
 
     NumberAnimation {
@@ -176,12 +199,7 @@ PanelWindow {
         to: 0
         duration: Theme.ms(140)
         easing.type: Easing.OutCubic
-        onFinished: {
-            root.closing = false;
-            root.maskActive = false;
-            root.panelVisible = false;
-            root.bodyOpen = false;
-        }
+        onFinished: root.finishClose()
     }
 
     // everything is layered so the window can be revealed through a circle
@@ -197,7 +215,7 @@ PanelWindow {
             fragmentShader: "LauncherMask.qsb"
         }
 
-    SquircleRect {
+        SquircleRect {
         id: surface
 
         anchors.horizontalCenter: parent.horizontalCenter
@@ -335,6 +353,10 @@ PanelWindow {
     }
     function startOpen() {
         root.closing = false;
+        // An interrupted close may not have reached finishClose yet. Start from
+        // the collapsed head, then re-derive the body from the requested tab so
+        // the previous session's expanded body cannot be inherited.
+        root.bodyOpen = false;
         // Direct tab selection leaves the field empty; every non-Apps tab
         // still needs its body. pinnedMode is set before menuOpen, while
         // face.mode may still be settling from the old tab.
@@ -346,9 +368,34 @@ PanelWindow {
         root.revealRadius = 2;
         closeHide.stop();
         closeAnim.stop();
+        retargetAnim.stop();
         openAnim.restart();
         if (face)
             face.focusSearch();
+    }
+    function finishClose() {
+        // closeHide can land after closeAnim already finished (or after a new
+        // open cancelled the close): only the first pass owns the reset.
+        if (!root.closing)
+            return;
+        root.closing = false;
+        // The reveal radius is at zero here. Reset the tab and the body while
+        // the canvas is still considered visible, so QML re-lays the face out
+        // now; hiding it first can leave the old expanded layout to be polished
+        // on the next open, which reads as the body animating back in.
+        root.bodyOpen = false;
+        // Put the dock's mode, query and selection back to the first frame only
+        // after the surface is no longer drawn. The window stays mapped while
+        // closed, so resetting here lets Hyprland settle the surface's new
+        // width and margins before the next reveal instead of moving the panel
+        // sideways while it opens.
+        if (root.dock)
+            root.dock.resetLauncherState();
+        // Resetting the tab must not leave the body open behind it: the next
+        // open is the collapsed head unless it explicitly asks for a tab.
+        root.bodyOpen = false;
+        root.maskActive = false;
+        root.panelVisible = false;
     }
     function closeLauncher() {
         if (root.dock)

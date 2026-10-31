@@ -385,6 +385,10 @@ Item {
                                 id: appIcon
 
                                 anchors.fill: parent
+                                // 5px breathing room inside the plate, so the
+                                // artwork itself sits a little smaller than
+                                // the antialiased circle it is masked to
+                                anchors.margins: Theme.dp(5)
                                 asynchronous: true
                                 cache: true
                                 // Decode above the drawn size so the surface's

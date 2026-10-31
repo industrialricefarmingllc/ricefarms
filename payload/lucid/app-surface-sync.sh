@@ -143,11 +143,11 @@ PY
 [ -n "${BG:-}" ] || exit 0
 
 # one static, heavily blurred wallpaper soft-light blended against the surface
-# at 25%: every consumer gets a plain opaque texture, no runtime shader.
+# at 80%: every consumer gets a plain opaque texture, no runtime shader.
 # Generate it detached: the palette is already live, and this is the one step
 # that cost seconds at full screen resolution. The script itself is a no-op
 # (~0.1 s) when its key is already cached.
-( setsid python3 "$LUCID/wallpaper-softlight.py" --base "$BG" >/dev/null 2>&1 & ) 2>/dev/null || true
+( setsid python3 "$LUCID/wallpaper-softlight.py" --base "$BG" 9>&- >/dev/null 2>&1 & ) 2>/dev/null || true
 
 write_file() { # $1 = destination; content on stdin
     local dst="$1" tmp="${1}.tmp.$$"

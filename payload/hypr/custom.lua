@@ -550,10 +550,20 @@ local function applyGlassGooState()
   end)
   local glassEn = glassOff and 0 or 1
   local gooEn = (not gooOff) and 1 or 0
-  pcall(function() hl.config({ plugin = { liquidglass = { enabled = glassEn } } }) end)
-  pcall(function() hl.config({ plugin = { gooworkspaces = { enabled = gooEn } } }) end)
+  -- plugin:* keys only exist after the .so has been loaded. Go through
+  -- `hyprctl eval` (guarded on the plugin) instead of hl.config(): at parse
+  -- time hl.config raises "unknown config key 'plugin.*'" and that error
+  -- aborts the rest of the config chunk.
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr && hyprctl eval 'hl.config({plugin={liquidglass={enabled=" .. glassEn .. "}}})' >/dev/null 2>&1 || true")
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr && hyprctl eval 'hl.config({plugin={gooworkspaces={enabled=" .. gooEn .. "}}})' >/dev/null 2>&1 || true")
 end
-pcall(applyGlassGooState)
+-- Re-apply only once the plugins are up (hyprland.start, after hyprland.lua's
+-- autostart loads them) and on every reload. Keep the timer referenced so the
+-- Lua GC cannot collect it before it fires.
+local glassGooTimer, cornerTimer
+hl.on("hyprland.start", function()
+  glassGooTimer = hl.timer(applyGlassGooState, { timeout = 700, type = "oneshot" })
+end)
 pcall(function() hl.on("config.reloaded", applyGlassGooState) end)
 
 -- Touch gestures (src/hypr-edge-swipe/hypr-touch-gestures.so):
@@ -579,13 +589,18 @@ pcall(function()
 end)
 -- Pibble corner-open gesture off. This is belt-and-braces: the plugin keeps
 -- its compiled default unless rebuilt, so the launcher entrypoint is also
--- non-executable on this machine.
-pcall(function()
-  hl.config({ plugin = { touch = { corner_enabled = 0 } } })
-end)
+-- non-executable on this machine. Never set it with a bare hl.config() at
+-- parse time: plugin:touch:* only exists after the .so loads, and the raised
+-- "unknown config key 'plugin.touch.corner_enabled'" aborts the chunk. Applied
+-- after the load (and on reload) instead.
+local function applyCornerState()
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q hypr-touch-gestures && hyprctl getoption plugin:touch:corner_enabled 2>/dev/null | grep -q '^int' && hyprctl eval 'hl.config({plugin={touch={corner_enabled=0}}})' >/dev/null 2>&1 || true")
+end
 hl.on("hyprland.start", function()
   hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q hypr-touch-gestures || hyprctl plugin load /home/nicerice/src/hypr-edge-swipe/hypr-touch-gestures.so")
+  cornerTimer = hl.timer(applyCornerState, { timeout = 400, type = "oneshot" })
 end)
+pcall(function() hl.on("config.reloaded", applyCornerState) end)
 
 -- Ignore maximize requests from all apps (stock Hyprland 0.56 rule).
 -- Without this, apps that restore a maximized state (kitty, Zed, btop, ...)

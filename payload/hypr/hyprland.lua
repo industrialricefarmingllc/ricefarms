@@ -100,6 +100,22 @@ hl.env("NIXOS_OZONE_WL", "1")
 -------------------
 ---- AUTOSTART ----
 -------------------
+-- Goo workspace-morph preset (liquid-glass-hypr), filled in beside the
+-- workspaces animation below. Declared here because the autostart handler
+-- below has to apply it *after* the plugin loads: the plugin registers
+-- plugin:gooworkspaces:* at load time, so handing the same table to
+-- hl.config() while the config is parsed raises
+--   unknown config key 'plugin.gooworkspaces.*'
+-- and aborts the rest of this chunk (no binds, no custom.lua).
+local gooPreset, gooPresetOptional
+local gooTimer
+local function applyGooPreset()
+  local guard = "hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr"
+  hl.exec_cmd(guard .. " && hyprctl eval 'hl.config({plugin={gooworkspaces={" .. gooPreset .. "}}})' >/dev/null 2>&1 || true")
+  -- resize_stretch postdates the 0.8.30 .so installed here, and one unknown
+  -- key rejects the whole table, so apply it only if the build registers it.
+  hl.exec_cmd(guard .. " && hyprctl getoption plugin:gooworkspaces:resize_stretch 2>/dev/null | grep -q '^float' && hyprctl eval 'hl.config({plugin={gooworkspaces={" .. gooPresetOptional .. "}}})' >/dev/null 2>&1 || true")
+end
 hl.on("hyprland.start", function()
   pcall(function()
     local home = os.getenv("HOME") or "/home/nicerice"
@@ -162,7 +178,7 @@ hl.on("hyprland.start", function()
   -- on reload (only top-level code + reloaded handlers do). Stays configurable
   -- live via hyprctl eval (capture_scale 2 = half-res/full buffers,
   -- 4 = quarter-res/lean). No-ops harmlessly if the plugin isn't up yet.
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=2, ca=0}}})' 2>/dev/null || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=2, ca=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
   -- Liquid glass + goo states are owned by liquid-glass-toggle (prefs.json:
   -- liquidGlassEnabled + gooWorkspacesEnabled). Do NOT pin
   -- windows/namespaces here: the toggle must control every glass surface
@@ -170,7 +186,11 @@ hl.on("hyprland.start", function()
   -- effective states after every reload. hide_window_shadows IS pinned to 0
   -- (user preference, 2026-10-24): window drop shadows stay visible even
   -- under glass, instead of only appearing while a window is being damaged.
-  hl.exec_cmd("sleep 0.5; hyprctl eval 'hl.config({plugin={liquidglass={windows=\"\", hide_window_shadows=0}}})' 2>/dev/null || true")
+  hl.exec_cmd("sleep 0.5; hyprctl eval 'hl.config({plugin={liquidglass={hide_window_shadows=0}}})' >/dev/null 2>&1 || true")
+  -- Goo morph, applied only once the plugin is actually loaded (see the
+  -- gooPreset comment below — a static hl.config() would abort the config).
+  -- custom.lua re-applies the persisted gooWorkspacesEnabled afterwards.
+  gooTimer = hl.timer(applyGooPreset, { timeout = 600, type = "oneshot" })
   -- hypr-goo-workspaces merged INTO liquid-glass-hypr 0.5.0 (single
   -- renderWindow trampoline owner; standalone build retired). No separate
   -- load — it would double-hook rounding/events.
@@ -181,7 +201,8 @@ end)
 -- hl.config sets runtime values without triggering another reload (same
 -- pattern as shader.lua's config.reloaded handler).
 hl.on("config.reloaded", function()
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=2, ca=0, hide_window_shadows=0}}})' 2>/dev/null || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=2, ca=0, hide_window_shadows=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
+  applyGooPreset()
 end)
 
 -----------------------
@@ -328,48 +349,41 @@ hl.animation({ leaf = "workspaces", enabled = true, speed = 4.43, bezier = "defa
 -- collisions) + small hash wobble. All motion params zero.
 -- Default only: custom.lua re-applies the persisted gooWorkspacesEnabled
 -- preference after every reload. Goo is independent of liquid glass.
-hl.config({ plugin = { gooworkspaces = {
-  enabled = 1,
-  duration_ms = 367.0,
+--
+-- IMPORTANT: this is a plain string for `hyprctl eval`, NOT hl.config().
+-- liquid-glass-hypr registers plugin:gooworkspaces:* only when the .so is
+-- loaded (hyprland.start, further up). Calling hl.config() with these keys
+-- while the config is being parsed raises
+--   unknown config key 'plugin.gooworkspaces.*'
+-- and aborts the remaining chunk. The autostart handler and the
+-- config.reloaded handler above both replay this string after the load.
+gooPreset =
+  "enabled=1,duration_ms=367.0,duration_spread_ms=23.4,"
   -- Keep the per-window spread short: the stock slide finishes around 400ms,
   -- and a long spread leaves late windows scaling after the workspace has
   -- already settled, which reads as a glitch/ghost.
-  duration_spread_ms = 23.4,
-  slide_ratio = 0.0,
+  .. "slide_ratio=0.0,"
   -- Real window geometry: stretch along the workspace motion axis and
   -- squash across it, both directions, settling to 1.0.
-  stretch = 0.067,
-  squash = 0.040,
-  blob_scale = 0.973,
-  collapse = 0.83,
-  fade_out_min = 0.35,
-  wobble_amp = 0.0,
-  wobble_freq = 1.5,
+  .. "stretch=0.067,squash=0.040,blob_scale=0.973,collapse=0.83,"
+  .. "fade_out_min=0.35,wobble_amp=0.0,wobble_freq=1.5,"
   -- Legacy (start-delay era); ignored by the duration-spread design. Kept
   -- so old configs never hit unknown-key errors.
-  stagger = 0.375,
-  in_curve = "spring",
-  out_curve = "linear",
-  spring_stiffness = 50.0,
-  spring_damping = 16.0,
-  spring_velocity = 2.0,
-  genie_pull = 0.0,
-  -- 0 = do not warp native resize geometry (it stalls Hyprland's animvar)
-  resize_stretch = 0.0,
+  .. "stagger=0.375,in_curve=\"spring\",out_curve=\"linear\","
+  .. "spring_stiffness=50.0,spring_damping=16.0,spring_velocity=2.0,"
+  .. "genie_pull=0.0,"
   -- True window-body liquid shape is NOT implemented. Droplet rounding only
   -- clips corners; the tip/smear shader only paints fragments. Keep all
   -- pseudo-shape layers off until a real window-content warp pass exists.
-  droplet = 0.0,
-  tip_enable = 0,
-  tip_curve = 1.45,
-  tip_max = 260.0,
+  .. "droplet=0.0,tip_enable=0,tip_curve=1.45,tip_max=260.0,"
   -- New in 0.8.33: pixels are reprojected into an inflated liquid shape.
   -- The old smear shader used the same key; keep it 0 until the session has
   -- restarted onto the new .so, or a reload would re-enable the old smear.
-  goo_strength = 0.0,
-  goo_smear = 0.0,
-  goo_wobble = 1.0,
-} } })
+  .. "goo_strength=0.0,goo_smear=0.0,goo_wobble=1.0"
+-- Optional keys, applied in a second eval because one unknown key rejects the
+-- whole table. resize_stretch is absent from the 0.8.30 .so installed here;
+-- 0 = do not warp native resize geometry (it stalls Hyprland's animvar).
+gooPresetOptional = "resize_stretch=0.0"
 
 ---------------------
 ---- KEYBINDINGS ----
@@ -854,12 +868,11 @@ pcall(function() dofile(os.getenv("HOME") .. "/.config/hypr/custom.lua") end)
 -- rules do not: every matugen wallpaper switch reloads and wipes them).
 hl.window_rule({ name = "kitty-glass", match = { class = "kitty" }, no_blur = true })
 
--- Zen: liquid glass master-off, so Zen keeps its own translucency and
--- Hyprland's native blur handles the backdrop (no_blur=false). Class is
--- "zen" (covers zen-browser). If you turn glass back on, set this to
--- no_blur=true so the plugin's refraction isn't frosted over; Zen has no
--- toggle-managed opacity file like kitty does.
-hl.window_rule({ name = "zen-glass", match = { class = "zen" }, no_blur = false })
+-- Zen: liquid glass is on, so native blur is off for it - otherwise the
+-- compositor's blur pass frosts over the plugin refraction. Zen keeps its
+-- own translucency (no toggle-managed opacity file like kitty has). Flip
+-- this back to no_blur=false if glass is left off for good.
+hl.window_rule({ name = "zen-glass", match = { class = "zen" }, no_blur = true })
 
 -- liquid-glass-hypr plugin keys intentionally NOT set via hl.config here:
 -- the plugin registers them at load time, so setting them statically
@@ -1060,3 +1073,11 @@ if hl.plugin["lucid-capture"] then
   })
   lc.layer("quickshell", { mask_threshold = 0.001 })
 end
+
+
+-- Hyprland 0.57 fractional-scale regression: clients start with wrong buffer
+-- scales after the Lua config switch. Re-applying the output config once the
+-- compositor is up forces them to re-render correctly.
+hl.on("hyprland.start", function()
+  hl.exec_cmd("~/.config/hypr/scripts/fractional-scale-fix.sh")
+end)

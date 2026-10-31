@@ -263,6 +263,20 @@ Item {
         widgetPage.resetSelection();
     }
 
+    // Back to the first frame once the launcher has closed (but its surface is
+    // still mapped). The dock resets the mode and query; this drops the bits
+    // that live only on the face, so reopening never inherits the previous
+    // visit's picker card, armed action, translated conversation or selection.
+    function resetAfterClose() {
+        face.pickerIndex = -1;
+        face.pickerSettling = false;
+        face.tabsFocused = false;
+        face.clearArmed = false;
+        face.pendingTranslateFocus = false;
+        face.resetSelection();
+        face.resetTranslate();
+    }
+
     function resultsChanged() {
         resultList.ensureSelectable();
         face.resultsRevision++;

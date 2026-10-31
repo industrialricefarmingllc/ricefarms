@@ -24,6 +24,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PAYLOAD_DIR="${PAYLOAD_DIR:-$REPO_DIR/payload}"
 LARGE_DIR="$REPO_DIR/payload-large"
 TARGET_HOME="${TARGET_HOME:-$HOME}"
+TARGET_HOME="${TARGET_HOME%/}"
 TARGET_USER="${TARGET_USER:-${USER:-$(whoami)}}"
 # Overridable for tests (installed helpers go to /usr/local/bin on targets).
 USRLOCAL_BIN="${USRLOCAL_BIN:-/usr/local/bin}"
@@ -110,6 +111,9 @@ install_file() {
   backup_file "$dst"
   cp -a "$src" "$dst"
   [[ -n "$mode" ]] && chmod "$mode" "$dst"
+  # payload files are owned by the source user; cp -a keeps that ownership,
+  # which makes sudo refuse a root-owned-only file like the sudoers drop-in.
+  if [[ $EUID -eq 0 && "$dst" != "$TARGET_HOME"/* ]]; then chown root:root "$dst"; fi
   log "install: $src -> $dst"
 }
 
@@ -120,6 +124,8 @@ install_dir() {
   mkdir -p "$dst"
   # merge-copy (no --delete: never wipe target extras like Singleton locks)
   cp -a "$src/." "$dst/"
+  # see install_file: system paths must not stay owned by the source user
+  if [[ $EUID -eq 0 && "$dst" != "$TARGET_HOME"/* ]]; then chown -R root:root "$dst"; fi
   log "install-dir: $src -> $dst"
 }
 
@@ -265,9 +271,11 @@ build_chvt_fast() {
 build_modepin() {
   info "build: kmscon-modepin.so (DP-1 @120Hz pin, fakes DP-2/DP-3 disconnected)"
   local src="/usr/local/src/kmscon-dp1-only.c" so="/usr/local/lib/kmscon-modepin.so"
-  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: cc -shared -fPIC $src -o $so -ldrm -ldl"; return 0; fi
+  # xf86drm.h pulls <drm.h>, which lives in libdrm's own include dir
+  local drm_cflags; drm_cflags="$(pkg-config --cflags libdrm 2>/dev/null || echo -I/usr/include/libdrm)"
+  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: cc -shared -fPIC $drm_cflags $src -o $so -ldrm -ldl"; return 0; fi
   [[ -f "$src" ]] || { warn "modepin src missing — skipping"; return 0; }
-  run_cmd sudo cc -shared -fPIC "$src" -o "$so" -ldrm -ldl
+  run_cmd sudo cc -shared -fPIC $drm_cflags "$src" -o "$so" -ldrm -ldl
   log "built $so"
 }
 
@@ -297,6 +305,8 @@ phase_hypr_stack() {
   install_dir "$P/hypr" "$TARGET_HOME/.config/hypr"
   install_dir "$P/quickshell" "$TARGET_HOME/.config/quickshell"
   install_dir "$P/lucid" "$TARGET_HOME/.config/lucid"
+  # cava visualiser config for the bar strip (payload/cava/quickshell.conf)
+  install_dir "$P/cava" "$TARGET_HOME/.config/cava"
   install_file "$P/local-bin/nautilus" "$TARGET_HOME/.local/bin/nautilus" "755"
   install_file "$P/dbus-1/services/org.gnome.Nautilus.service" "$TARGET_HOME/.local/share/dbus-1/services/org.gnome.Nautilus.service" "644"
   install_file "$P/systemd-user/quickshell.service" "$TARGET_HOME/.config/systemd/user/quickshell.service" "644"

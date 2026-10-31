@@ -15,6 +15,22 @@ import qs
 // "out" collapses the same circle toward the top-left, exposing the already
 // recoloured desktop underneath. The window is click-through and sits on the
 // overlay layer, above the bar, dock and all normal windows.
+//
+// Cost model (what this file is shaped around):
+//   * idle: nothing. The layer surface is unmapped, so the compositor does not
+//     blend a fullscreen transparent layer over the desktop on every repaint.
+//   * one decode per switch, not one per output: all screens ask the pixmap
+//     cache for the same bounded size, and the decode happens off the GUI
+//     thread. Before this, three synchronous native-size decodes (6666x3527 is
+//     ~105 ms and ~90 MB each) ran inside beginReveal on the GUI thread.
+//   * one fullscreen shader pass per animated frame, not two: the wallpaper is
+//     rendered into the ShaderEffectSource once, after the decode, instead of
+//     live:true re-rendering the image into an FBO on every frame.
+//   * only visible frames are animated: the grow completes as soon as the
+//     circle covers the screen, and the shrink starts where the circle first
+//     touches a corner. Both skipped segments draw exactly the same pixels as
+//     the frame before, so nothing visible changes; they were ~310 ms + ~380 ms
+//     of frames that could not be seen.
 PanelWindow {
     id: root
 
@@ -36,6 +52,11 @@ PanelWindow {
         right: true
     }
 
+    // An unmapped layer surface costs nothing. A mapped one is a fullscreen
+    // alpha buffer the compositor blends into every desktop frame, even when
+    // the iris is idle and fully transparent.
+    visible: root.active
+
     Component.onCompleted: {
         // The shell script writes this before every palette swap; on a fresh
         // boot create it so Theme's FileView does not warn about a missing file.
@@ -48,14 +69,74 @@ PanelWindow {
     property bool active: false
     readonly property real sw: screen ? screen.width : 1368
     readonly property real sh: screen ? screen.height : 912
-    property real cx: sw
-    property real cy: sh
-    property real radius: 0
+    readonly property real coverRadius: (Math.hypot(sw / 2, sh / 2) + 2) * 1.25 * 1.25
     property bool pendingIn: false
     property bool concealRequested: false
+    property bool completing: false
     readonly property string readyPath: Quickshell.env("HOME") + "/.cache/quickshell/reveal-ready"
     readonly property string coveredPath: Quickshell.env("HOME") + "/.cache/quickshell/reveal-covered"
-    readonly property real coverRadius: (Math.hypot(sw / 2, sh / 2) + 2) * 1.25 * 1.25
+
+    // The circle travels from beyond the bottom-right corner to the centre.
+    readonly property real startX: root.sw * 1.35
+    readonly property real startY: root.sh * 1.35
+    readonly property real endX: root.sw / 2
+    readonly property real endY: root.sh / 2
+    readonly property real outX: -root.sw * 0.45
+    readonly property real outY: -root.sh * 0.45
+
+    // Grow progress, already in eased space (0 = off-screen, 1 = covered).
+    property real cover: 0
+    // Shrink time, 0..1; the InCubic easing is applied in `progress`.
+    property real outT: 0
+    property bool leaving: false
+
+    // One animator instead of three: the same single progress drives centre and
+    // radius, so a frame writes one property and one uniform set.
+    readonly property real progress: root.leaving ? root.outT * root.outT * root.outT : root.cover
+    readonly property real cx: root.leaving ? root.endX + (root.outX - root.endX) * root.progress : root.startX + (root.endX - root.startX) * root.progress
+    readonly property real cy: root.leaving ? root.endY + (root.outY - root.endY) * root.progress : root.startY + (root.endY - root.startY) * root.progress
+    readonly property real radius: root.coverRadius * (root.leaving ? 1 - root.progress : root.progress)
+
+    // The point in the shrink where the circle first stops covering a corner.
+    // Everything before it is invisible, so the out animation starts here. The
+    // solve is monotonic: the radius falls while the centre moves away from the
+    // far corner.
+    readonly property real tLeave: {
+        var lo = 0;
+        var hi = 1;
+        for (var i = 0; i < 24; i++) {
+            var s = (lo + hi) / 2;
+            var x = root.endX + (root.outX - root.endX) * s;
+            var y = root.endY + (root.outY - root.endY) * s;
+            var r = root.coverRadius * (1 - s);
+            var d = Math.max(Math.hypot(x, y), Math.hypot(root.sw - x, y), Math.hypot(x, root.sh - y), Math.hypot(root.sw - x, root.sh - y));
+            if (r >= d + 2)
+                lo = s;
+            else
+                hi = s;
+        }
+        return Math.pow(lo, 1 / 3);
+    }
+
+    // One decode size for every output. The pixmap cache is keyed by source and
+    // sourceSize, so a shared size means one decode for three windows instead
+    // of three decodes, and it bounds the texture at the physical screen size
+    // instead of the wallpaper's native 6666x3527.
+    readonly property size decodeSize: {
+        var w = 0;
+        var h = 0;
+        for (var i = 0; i < Quickshell.screens.length; i++) {
+            var s = Quickshell.screens[i];
+            w = Math.max(w, Math.round(s.width * s.devicePixelRatio));
+            h = Math.max(h, Math.round(s.height * s.devicePixelRatio));
+        }
+        return Qt.size(w || 1920, h || 1080);
+    }
+
+    function covered() {
+        var d = Math.max(Math.hypot(root.cx, root.cy), Math.hypot(root.sw - root.cx, root.cy), Math.hypot(root.cx, root.sh - root.cy), Math.hypot(root.sw - root.cx, root.sh - root.cy));
+        return root.radius >= d + 2;
+    }
 
     function beginReveal(id, path) {
         // A duplicate IPC delivery for the same selection must not reset the
@@ -69,28 +150,42 @@ PanelWindow {
         root.active = true;
         root.pendingIn = true;
         root.concealRequested = false;
-        root.radius = 0;
-        root.cx = root.sw * 1.35;
-        root.cy = root.sh * 1.35;
+        root.leaving = false;
+        root.cover = 0;
+        root.outT = 0;
         Quickshell.execDetached(["sh", "-c", "rm -f \"$0\" \"$1\"", root.readyPath, root.coveredPath]);
         // Force the Image through Null/Loading so a Ready status from the
-        // previous wallpaper cannot start the new animation early. Then wait
-        // for the new texture before growing.
+        // previous wallpaper cannot start the new animation early. The decode
+        // is asynchronous now; startIn runs from the status handler once the
+        // texture exists.
         root.revealSource = "";
         root.revealSource = "file://" + encodeURI(root.wallpaper);
         if (image.status === Image.Ready)
-            Qt.callLater(root.startIn);
+            Qt.callLater(root.imageReady);
+    }
+
+    function imageReady() {
+        if (!root.pendingIn || image.status !== Image.Ready)
+            return;
+        // Render the wallpaper into its FBO once; it is static for the whole
+        // reveal, so there is no reason to re-render it every frame.
+        wallpaperSource.scheduleUpdate();
+        Qt.callLater(root.startIn);
     }
 
     function startIn() {
         if (!root.pendingIn)
             return;
         root.pendingIn = false;
-        root.cx = root.sw * 1.35;
-        root.cy = root.sh * 1.35;
-        root.radius = 0;
+        root.cover = 0;
         Quickshell.execDetached(["sh", "-c", "touch \"$0\"", root.readyPath]);
         inAnim.restart();
+    }
+
+    function startOut() {
+        root.leaving = true;
+        root.outT = root.tLeave;
+        outAnim.restart();
     }
 
     function endReveal(id) {
@@ -98,17 +193,28 @@ PanelWindow {
             return;
         // A conceal that arrives while the circle is still growing must not
         // interrupt it; that is the "small circle flies across" bug. Defer it
-        // until the grow has completed, then hold the requested 100 ms.
+        // until the grow has completed, then hold the requested 50 ms.
         if (root.pendingIn || inAnim.running) {
             root.concealRequested = true;
             return;
         }
-        outAnim.restart();
+        root.startOut();
     }
 
-    ParallelAnimation {
+    NumberAnimation {
         id: inAnim
 
+        target: root
+        property: "cover"
+        from: 0
+        to: 1
+        duration: 700
+        easing.type: Easing.OutCubic
+
+        // The moment the last corner is covered the remaining easing only moves
+        // the edge further off-screen. Jump to the end so the covered marker is
+        // touched (and the palette commit can start) without drawing frames
+        // that cannot change a pixel.
         onFinished: {
             Quickshell.execDetached(["sh", "-c", "touch \"$0\"", root.coveredPath]);
             if (root.concealRequested) {
@@ -116,71 +222,38 @@ PanelWindow {
                 holdTimer.start();
             }
         }
+    }
 
-        NumberAnimation {
-            target: root
-            property: "cx"
-            to: root.sw / 2
-            duration: 700
-            easing.type: Easing.OutCubic
+    onCoverChanged: {
+        if (!root.leaving && !root.completing && inAnim.running && root.covered()) {
+            root.completing = true;
+            inAnim.complete();
+            root.completing = false;
         }
-
-        NumberAnimation {
-            target: root
-            property: "cy"
-            to: root.sh / 2
-            duration: 700
-            easing.type: Easing.OutCubic
-        }
-
-        NumberAnimation {
-            target: root
-            property: "radius"
-            to: root.coverRadius
-            duration: 700
-            easing.type: Easing.OutCubic
-        }
-
     }
 
     Timer {
         id: holdTimer
 
-        interval: 100
+        interval: 50
         repeat: false
         onTriggered: {
             if (root.active && !outAnim.running)
-                outAnim.restart();
+                root.startOut();
         }
     }
 
-    ParallelAnimation {
+    NumberAnimation {
         id: outAnim
 
-        NumberAnimation {
-            target: root
-            property: "cx"
-            to: -root.sw * 0.45
-            duration: 700
-            easing.type: Easing.InCubic
-        }
-
-        NumberAnimation {
-            target: root
-            property: "cy"
-            to: -root.sh * 0.45
-            duration: 700
-            easing.type: Easing.InCubic
-        }
-
-        NumberAnimation {
-            target: root
-            property: "radius"
-            to: 0
-            duration: 700
-            easing.type: Easing.InCubic
-        }
-
+        target: root
+        property: "outT"
+        from: root.tLeave
+        to: 1
+        // The tail of the original 700 ms InCubic, so the edge moves at exactly
+        // the same speed; the invisible lead-in is simply not animated.
+        duration: Math.max(1, (1 - root.tLeave) * 700)
+        easing.type: Easing.Linear
         onFinished: {
             Theme.revealActive = false;
             root.active = false;
@@ -195,7 +268,7 @@ PanelWindow {
         running: root.active && !outAnim.running
         onTriggered: {
             if (root.active && !outAnim.running)
-                outAnim.restart();
+                root.startOut();
         }
     }
 
@@ -208,9 +281,16 @@ PanelWindow {
         height: root.sh
         source: root.revealSource
         fillMode: Image.PreserveAspectCrop
-        asynchronous: false
-        cache: false
+        asynchronous: true
+        cache: true
+        sourceSize: root.decodeSize
         visible: false
+        onStatusChanged: {
+            if (status === Image.Ready)
+                root.imageReady();
+            else if (status === Image.Error && root.pendingIn)
+                root.startIn();
+        }
     }
 
     ShaderEffectSource {
@@ -218,8 +298,8 @@ PanelWindow {
 
         sourceItem: image
         hideSource: true
-        live: true
-        recursive: true
+        live: false
+        recursive: false
     }
 
     ShaderEffect {

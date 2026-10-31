@@ -56,7 +56,16 @@ void main() {
     // 1px rim along a tab flush with the screen edge. fwidth(sd) is the
     // distance covered by one pixel, so the ramp stays one pixel wide at any
     // scale and the first row is fully opaque.
-    float fw = max(fwidth(sd), 1e-6);
+    //
+    // fwidth is only a pixel footprint on the edge, where this SDF is metric
+    // (|grad sd| = 1). Inside a superellipse corner the gradient of the
+    // normalised field collapses towards the corner's centre while sd itself
+    // stays finite, so fwidth explodes into the thousands and the smoothstep
+    // band below grows wide enough to eat a faint arc out of the fill — the
+    // stray transparent line inside every rounded corner. Cap the footprint
+    // at a size no real pixel grid produces; on the edge the derivative is
+    // 1/scale and always under the cap, so the edge itself is unchanged.
+    float fw = clamp(fwidth(sd), 1e-6, 2.0);
     float bodyA = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, sd);
     if (bodyA <= 0.001)
         discard;

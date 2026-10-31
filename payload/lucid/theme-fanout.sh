@@ -127,7 +127,12 @@ while :; do
     sig="$(cat "$REQ" 2>/dev/null || snapshot)"
     [ "$sig" = "$(cat "$STATE" 2>/dev/null || true)" ] && break
 
-    apply_once
+    # Apply without fd 9: app-surface-sync.sh backgrounds wallpaper-softlight.py
+    # with setsid, and a child that inherits the lock would keep it after this
+    # fanout exits. That made the next switch sit in flock -w 5 for the full
+    # five seconds. The parent keeps its own fd 9, so the lock is still held
+    # for the whole apply.
+    ( exec 9>&-; apply_once )
 
     printf '%s' "$sig" >"$STATE.tmp" && mv -f "$STATE.tmp" "$STATE"
     # If another wallpaper landed while we were applying, go round once more
