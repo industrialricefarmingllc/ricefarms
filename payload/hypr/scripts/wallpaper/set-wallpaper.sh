@@ -40,11 +40,12 @@ SOURCE_DIR="$CACHE_DIR/lucid/sources"
 REQ_FILE="$CACHE_DIR/lucid/fast.request"
 mkdir -p "$CACHE_DIR/lucid" "$SCHEME_DIR" "$SOURCE_DIR" "$CACHE_DIR/quickshell"
 
-# Pillow/numpy live in the system interpreter (python-pillow/python-numpy).
-# A pyenv or venv shim earlier in PATH cannot import them, so surface-seed.py
-# and wallpaper-softlight.py silently do nothing and kitty/Lucid keep flat,
-# accent-tinted background colours. Prefer an interpreter with both;
-# LUCID_PYTHON overrides.
+# Pillow/numpy are installed for the system interpreter (3.14 here); the
+# pyenv shim pinned to 3.11 for other projects has neither. A shim earlier in
+# PATH therefore made surface-seed.py and wallpaper-softlight.py silently do
+# nothing, leaving kitty/Lucid on flat, accent-tinted background colours. Pick
+# the system python for Lucid's helpers only (LUCID_PYTHON overrides); nothing
+# outside Lucid changes interpreter.
 PYTHON="${LUCID_PYTHON:-}"
 if [ -z "$PYTHON" ]; then
     for _py in /usr/bin/python3 python3; do

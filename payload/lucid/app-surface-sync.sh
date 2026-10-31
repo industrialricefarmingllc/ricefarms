@@ -45,11 +45,12 @@ if [ "${FORCE:-0}" != "1" ] && [ -f "$STATE_DIR/app-surface.key" ] \
     exit 0
 fi
 
-# Pillow/numpy live in the system interpreter (python-pillow/python-numpy).
-# A pyenv or venv shim earlier in PATH cannot import them, which silently
-# disables surface-seed.py and wallpaper-softlight.py (empty seed, no blurred
-# wallpaper) and leaves kitty/Lucid on flat, accent-tinted background colours.
-# Prefer an interpreter that can import both; LUCID_PYTHON overrides.
+# Pillow/numpy are installed for the system interpreter (3.14 here); the
+# pyenv shim pinned to 3.11 for other projects has neither. A shim earlier in
+# PATH therefore made surface-seed.py and wallpaper-softlight.py silently write
+# nothing (empty seed, no blurred wallpaper), leaving kitty/Lucid on flat,
+# accent-tinted background colours. Pick the system python for Lucid's helpers
+# only (LUCID_PYTHON overrides); nothing outside Lucid changes interpreter.
 PYTHON="${LUCID_PYTHON:-}"
 if [ -z "$PYTHON" ]; then
     for _py in /usr/bin/python3 python3; do
