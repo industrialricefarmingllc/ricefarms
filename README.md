@@ -118,6 +118,7 @@ payload/              vendored configs + sources (git-tracked, ~20M)
 payload-large/        tarballs (Git LFS, ~1.1G, see README inside)
 tests/test_install.sh unit tests for every part
 COORDINATION.md       build notes / source inventory
+COLORS.md             matugen palette flow + per-surface secondary rules
 ```
 
 ## Notes / gotchas
@@ -139,6 +140,12 @@ COORDINATION.md       build notes / source inventory
   fallback and is skipped when `skwd-walld` is active.
 - **hypr-edge-swipe** is vendored source and rebuilt on the target. It needs
   `hyprland` headers matching the running compositor (`pkg-config hyprland`).
+  Its edge swipes drive the same 5×3 workspace grid as the keybinds; see
+  `payload/hypr-edge-swipe/README.md` and the touch block in
+  `payload/hypr/custom.lua`.
+- **Secondary accents are per-surface on purpose** (Lucid rotates the hue,
+  kitty saturates the ANSI slot, Hyprland uses the raw role). See
+  `COLORS.md` before "fixing" a mismatch.
 - The source kernel is `linux-surface` with `iptsd` (Surface ALS). `iptsd`
   is in the package list; the patched kernel is not auto-installed — add the
   Surface repo/kernel on non-Surface targets.
