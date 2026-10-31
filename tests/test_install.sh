@@ -439,6 +439,8 @@ assert_true "matugen kitty-font template exists" test -f "$REPO_DIR/payload/matu
 assert_true "lucid auto-brightness config exists" test -f "$REPO_DIR/payload/lucid/auto-brightness.json"
 assert_true "lucid kitty-tune helper exists" test -f "$REPO_DIR/payload/lucid/kitty-tune.py"
 assert_true "lucid surface-seed helper exists" test -f "$REPO_DIR/payload/lucid/surface-seed.py"
+assert_file_has "app surfaces need a PIL/numpy interpreter" "$REPO_DIR/payload/lucid/app-surface-sync.sh" "import PIL, numpy"
+assert_file_has "wallpaper script uses that interpreter" "$REPO_DIR/payload/hypr/scripts/wallpaper/set-wallpaper.sh" '"$PYTHON" "$LUCID_DIR/surface-seed.py"'
 assert_true "lucid theme-fanout helper exists" test -f "$REPO_DIR/payload/lucid/theme-fanout.sh"
 
 echo "== 13. phase F: tmux =="

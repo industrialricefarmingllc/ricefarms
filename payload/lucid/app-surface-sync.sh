@@ -45,6 +45,19 @@ if [ "${FORCE:-0}" != "1" ] && [ -f "$STATE_DIR/app-surface.key" ] \
     exit 0
 fi
 
+# Pillow/numpy live in the system interpreter (python-pillow/python-numpy).
+# A pyenv or venv shim earlier in PATH cannot import them, which silently
+# disables surface-seed.py and wallpaper-softlight.py (empty seed, no blurred
+# wallpaper) and leaves kitty/Lucid on flat, accent-tinted background colours.
+# Prefer an interpreter that can import both; LUCID_PYTHON overrides.
+PYTHON="${LUCID_PYTHON:-}"
+if [ -z "$PYTHON" ]; then
+    for _py in /usr/bin/python3 python3; do
+        if "$_py" -c 'import PIL, numpy' >/dev/null 2>&1; then PYTHON="$_py"; break; fi
+    done
+    PYTHON="${PYTHON:-python3}"
+fi
+
 # The background hue comes from the wallpaper's dominant *chromatic* colour,
 # not from the accent: matugen picks the small yellow highlight as primary on a
 # blue-grey photo, and tinting the surfaces toward it turns the whole shell
@@ -66,11 +79,11 @@ elif [ -n "$WALLPAPER" ] && [ -f "$WALLPAPER" ]; then
     # Compute it before app_surfaces(): the surface tint is derived from this
     # seed, so using the previous wallpaper's seed is what left kitty/GTK on a
     # stale colour after a dark -> light switch.
-    python3 "$LUCID/surface-seed.py" "$WALLPAPER" "$PALETTE" \
+    "$PYTHON" "$LUCID/surface-seed.py" "$WALLPAPER" "$PALETTE" \
         "$OUT_SEED" "$SEED_KEY" "$THUMB" >/dev/null 2>&1 || true
 fi
 
-IFS=$'\t' read -r BG FG MUTED OUTLINE PRIMARY ONPRIMARY LIGHT < <(python3 - "$PALETTE" "$PREFS" "$LUCID" "$OUT_OC" <<'PY'
+IFS=$'\t' read -r BG FG MUTED OUTLINE PRIMARY ONPRIMARY LIGHT < <("$PYTHON" - "$PALETTE" "$PREFS" "$LUCID" "$OUT_OC" <<'PY'
 import json, os, re, sys
 sys.path.insert(0, sys.argv[3])
 from lucid_palette import app_surfaces, at_tone, tone, P, hx
@@ -147,7 +160,7 @@ PY
 # Generate it detached: the palette is already live, and this is the one step
 # that cost seconds at full screen resolution. The script itself is a no-op
 # (~0.1 s) when its key is already cached.
-( setsid python3 "$LUCID/wallpaper-softlight.py" --base "$BG" 9>&- >/dev/null 2>&1 & ) 2>/dev/null || true
+( setsid "$PYTHON" "$LUCID/wallpaper-softlight.py" --base "$BG" 9>&- >/dev/null 2>&1 & ) 2>/dev/null || true
 
 write_file() { # $1 = destination; content on stdin
     local dst="$1" tmp="${1}.tmp.$$"

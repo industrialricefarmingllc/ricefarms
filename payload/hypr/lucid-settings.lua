@@ -1,6 +1,6 @@
 -- written by Lucid Settings > Windows and Input, and rewritten on every change there
 return {
-    pinned = { border = "rgba(ddc48cff) rgba(ddc48cff)", size = 2 },
+    pinned = { border = "rgba(745a2fff) rgba(745a2fff)", size = 2 },
     options = {
     },
 }

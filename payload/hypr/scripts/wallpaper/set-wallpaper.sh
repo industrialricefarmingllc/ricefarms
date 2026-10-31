@@ -40,6 +40,19 @@ SOURCE_DIR="$CACHE_DIR/lucid/sources"
 REQ_FILE="$CACHE_DIR/lucid/fast.request"
 mkdir -p "$CACHE_DIR/lucid" "$SCHEME_DIR" "$SOURCE_DIR" "$CACHE_DIR/quickshell"
 
+# Pillow/numpy live in the system interpreter (python-pillow/python-numpy).
+# A pyenv or venv shim earlier in PATH cannot import them, so surface-seed.py
+# and wallpaper-softlight.py silently do nothing and kitty/Lucid keep flat,
+# accent-tinted background colours. Prefer an interpreter with both;
+# LUCID_PYTHON overrides.
+PYTHON="${LUCID_PYTHON:-}"
+if [ -z "$PYTHON" ]; then
+    for _py in /usr/bin/python3 python3; do
+        if "$_py" -c 'import PIL, numpy' >/dev/null 2>&1; then PYTHON="$_py"; break; fi
+    done
+    PYTHON="${PYTHON:-python3}"
+fi
+
 # both settings reads in one jq: the backend switch and the palette signature.
 # jq is by far the most expensive thing on the fast path, so it is called once.
 PREF_LINE=$(jq -r '[(if .skwdWall == false then "false" else "true" end),
@@ -249,7 +262,7 @@ else
         MODE="dark"
         if command -v ffmpeg >/dev/null 2>&1; then
             ffmpeg -y -i "$WALLPAPER" -vf "scale=64:64:flags=area" -f rawvideo -pix_fmt rgb24 "$CACHE_DIR/lucid/.wallgrid.rgb" 2>/dev/null || true
-            MODE=$(DARK_THRESHOLD="$DARK_THRESHOLD" python3 - << 'PY' 2>/dev/null || echo dark
+            MODE=$(DARK_THRESHOLD="$DARK_THRESHOLD" "$PYTHON" - << 'PY' 2>/dev/null || echo dark
 import os
 p=os.path.expanduser('~/.cache/lucid/.wallgrid.rgb')
 try:
@@ -323,7 +336,7 @@ if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
             SEED_THUMB_KEY=$(stat -c '%i-%s-%T@' "$WALLPAPER" 2>/dev/null || true)
             SEED_THUMB="$SEED_THUMB_DIR/$SEED_THUMB_KEY.jpg"
             [ -f "$SEED_THUMB" ] || SEED_THUMB=""
-            python3 "$LUCID_DIR/surface-seed.py" "$WALLPAPER" \
+            "$PYTHON" "$LUCID_DIR/surface-seed.py" "$WALLPAPER" \
                 "$CACHE_DIR/quickshell/matugen.json" "$CACHE_DIR/quickshell/surface-seed.json" \
                 "$SEED_KEY" "$SEED_THUMB" >/dev/null 2>&1 || true
         fi
@@ -549,7 +562,7 @@ matugen)
         TUNE_KEY=$(sha1sum "$HOME/.config/kitty/matugen-colors.conf" \
             "$CACHE_DIR/quickshell/matugen.json" 2>/dev/null | sha1sum | cut -d' ' -f1)
         if [[ "$(cat "$CACHE_DIR/lucid/kitty-tune.key" 2>/dev/null || true)" != "$TUNE_KEY" ]]; then
-            python3 "$LUCID_DIR/kitty-tune.py" \
+            "$PYTHON" "$LUCID_DIR/kitty-tune.py" \
                 "$HOME/.config/kitty/matugen-colors.conf" \
                 "$CACHE_DIR/quickshell/matugen.json" "$MODE" >/dev/null 2>&1 || true
             printf '%s' "$TUNE_KEY" >"$CACHE_DIR/lucid/kitty-tune.key.tmp"
