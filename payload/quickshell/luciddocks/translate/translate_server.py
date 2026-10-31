@@ -15,8 +15,11 @@ and writes one JSON line per result:
   {"id": 1, "text": "...", "usage": {...}, "latency_ms": 1500}
   {"ready": true}
 
-The OpenCode Go credential arrives in QUICK_TRANSLATE_KEY; it is never written
-to disk or put on a command line.
+The OpenCode Go credentials arrive in QUICK_TRANSLATE_KEYS (one per line, the
+preferred key first) and QUICK_TRANSLATE_KEY (the first of them, for older
+callers); they are never written to disk or put on a command line. Keys are
+tried in order and the worker only moves to the next one when the provider
+rejects the current credential, so the common path is still one request.
 """
 
 import base64
@@ -32,19 +35,40 @@ import time
 
 ENDPOINT = "/inference/go/openai/v1/responses"
 HOST = "opencode.ai"
-KEY = os.environ.get("QUICK_TRANSLATE_KEY", "").strip()
 MAX_IMAGE_SIDE = 1280
 
-# The host resolves to IPv6 first here, while the route is IPv4 only. urllib and
-# http.client then fail with "Network is unreachable" instead of falling back.
-_orig_getaddrinfo = socket.getaddrinfo
+# Statuses that mean "this particular credential is not usable right now" as
+# opposed to "the request is wrong": revoked keys (401/403) and accounts over
+# their usage limit (429). Only these trigger a switch to the next key.
+ROTATE_STATUSES = (401, 402, 403, 429)
 
 
-def _ipv4_getaddrinfo(*args, **kwargs):
-    return [entry for entry in _orig_getaddrinfo(*args, **kwargs) if entry[0] == socket.AF_INET]
+def load_keys():
+    """Keys from QUICK_TRANSLATE_KEYS (newline separated), preferred one first.
+
+    QUICK_TRANSLATE_KEY is still honoured so an older caller keeps working; it
+    is only added when the list does not already contain it.
+    """
+    keys = []
+    single = os.environ.get("QUICK_TRANSLATE_KEY", "").strip()
+    if single:
+        keys.append(single)
+    for raw in os.environ.get("QUICK_TRANSLATE_KEYS", "").replace(",", "\n").splitlines():
+        key = raw.strip()
+        if key and key not in keys:
+            keys.append(key)
+    return keys
 
 
-socket.getaddrinfo = _ipv4_getaddrinfo
+KEYS = load_keys()
+_key_index = 0
+
+# opencode.ai is served by Cloudflare and answers with several IPv4 and IPv6
+# addresses. Pinning the resolver to one family (as an earlier IPv4-only hack
+# did) turns a single unreachable anycast address into a hard "No route to
+# host" (errno 113). Try every address instead and remember the last one that
+# completed a handshake so reconnects go straight back to it.
+_last_addr = None
 
 _conn = None
 
@@ -77,21 +101,74 @@ def connection_alive():
         return False
 
 
+def _addresses():
+    """Every distinct (family, address) the host resolves to."""
+    try:
+        infos = socket.getaddrinfo(HOST, 443, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise ProviderError("cannot resolve %s: %s" % (HOST, exc))
+
+    out, seen = [], set()
+    for family, _, _, _, sockaddr in infos:
+        key = (family, sockaddr[0])
+        if key not in seen:
+            seen.add(key)
+            out.append(key)
+
+    if _last_addr is not None:
+        out.sort(key=lambda item: item != _last_addr)
+    return out
+
+
+def connect_socket(timeout):
+    """TCP-connect to the first address that answers, IPv4 or IPv6."""
+    global _last_addr
+    last_error = None
+
+    for family, ip in _addresses():
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        # Keep a dead anycast address from eating the whole request budget.
+        sock.settimeout(min(timeout, 8))
+        try:
+            sock.connect((ip, 443))
+            _last_addr = (family, ip)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    if last_error is not None:
+        raise last_error
+    raise ProviderError("no usable address for " + HOST)
+
+
 def ensure_conn():
     global _conn
     if connection_alive():
         return
     close_conn()
-    _conn = http.client.HTTPSConnection(
-        HOST,
-        timeout=55,
-        context=ssl.create_default_context(),
-    )
-    _conn.connect()
+
+    context = ssl.create_default_context()
+    raw = connect_socket(55)
     try:
-        _conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        sock = context.wrap_socket(raw, server_hostname=HOST)
+    except Exception:
+        try:
+            raw.close()
+        except Exception:
+            pass
+        raise
+
+    conn = http.client.HTTPSConnection(HOST, timeout=55, context=context)
+    conn.sock = sock
+    try:
+        conn.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     except Exception:
         pass
+    _conn = conn
 
 
 def emit(data):
@@ -123,8 +200,49 @@ def image_data_url(path):
     return "data:image/png;base64," + base64.b64encode(out.getvalue()).decode("ascii")
 
 
+def error_detail(raw):
+    try:
+        parsed = json.loads(raw)
+        return str((parsed.get("error") or {}).get("message") or parsed.get("message") or raw).strip()[:800]
+    except ValueError:
+        return str(raw).strip()[:800]
+
+
+def post(key, body):
+    """One request on the shared keep-alive connection, with the given key."""
+    headers = {
+        "Authorization": "Bearer " + key,
+        "Content-Type": "application/json",
+        "User-Agent": "opencode/2.0.32",
+        "x-opencode-session": "quick-translate",
+        "Connection": "keep-alive",
+    }
+    ensure_conn()
+    started = time.monotonic()
+    _conn.request("POST", ENDPOINT, body=body.encode("utf-8"), headers=headers)
+    response = _conn.getresponse()
+    raw = response.read().decode("utf-8", "replace")
+    elapsed = int((time.monotonic() - started) * 1000)
+    if response.will_close:
+        close_conn()
+    return response.status, raw, elapsed
+
+
+def post_with_retry(key, body):
+    """Retry once on a transport error; a dead socket is not a key problem."""
+    last_error = None
+    for attempt in range(2):
+        try:
+            return post(key, body)
+        except Exception as exc:
+            last_error = exc
+            close_conn()
+    raise ProviderError(str(last_error or "request failed"))
+
+
 def translate(prompt, model, effort, image_paths=None):
-    if not KEY:
+    global _key_index
+    if not KEYS:
         raise ProviderError("no OpenCode Go credential")
 
     images = [image_data_url(path) for path in (image_paths or []) if path]
@@ -152,67 +270,44 @@ def translate(prompt, model, effort, image_paths=None):
         "max_output_tokens": 8192 if images else 2048,
     }, ensure_ascii=False)
 
-    headers = {
-        "Authorization": "Bearer " + KEY,
-        "Content-Type": "application/json",
-        "User-Agent": "opencode/2.0.32",
-        "x-opencode-session": "quick-translate",
-        "Connection": "keep-alive",
-    }
-
+    # Start on the key that worked last. A healthy key means exactly one
+    # request; the other keys are only touched when the provider rejects it.
     last_error = None
-    for attempt in range(2):
+    for _ in range(len(KEYS)):
+        status, raw, elapsed = post_with_retry(KEYS[_key_index], body)
+
+        if status in ROTATE_STATUSES:
+            last_error = ProviderError("HTTP %s: %s" % (status, error_detail(raw)))
+            # Stay on the next candidate for subsequent messages too.
+            _key_index = (_key_index + 1) % len(KEYS)
+            continue
+
+        if status != 200:
+            raise ProviderError("HTTP %s: %s" % (status, error_detail(raw)))
+
         try:
-            ensure_conn()
-            started = time.monotonic()
-            _conn.request("POST", ENDPOINT, body=body.encode("utf-8"), headers=headers)
-            response = _conn.getresponse()
-            raw = response.read().decode("utf-8", "replace")
-            elapsed = int((time.monotonic() - started) * 1000)
+            data = json.loads(raw)
+        except ValueError:
+            raise ProviderError("provider returned non-JSON")
 
-            if response.will_close:
-                close_conn()
-
-            if response.status != 200:
-                detail = raw
-                try:
-                    parsed = json.loads(raw)
-                    detail = (parsed.get("error") or {}).get("message") or parsed.get("message") or raw
-                except ValueError:
-                    pass
-                raise ProviderError("HTTP %s: %s" % (response.status, str(detail).strip()[:800]))
-
-            try:
-                data = json.loads(raw)
-            except ValueError:
-                raise ProviderError("provider returned non-JSON")
-
-            text = ""
-            for item in data.get("output", []):
-                if item.get("type") != "message":
-                    continue
-                for part in item.get("content", []):
-                    if part.get("type") == "output_text":
-                        text += part.get("text", "")
-
-            if text.strip() == "":
-                raise ProviderError("provider returned no text")
-
-            return text, data.get("usage") or {}, elapsed
-        except ProviderError:
-            raise
-        except Exception as exc:
-            last_error = exc
-            close_conn()
-            if attempt == 0:
+        text = ""
+        for item in data.get("output", []):
+            if item.get("type") != "message":
                 continue
-            raise ProviderError(str(exc))
+            for part in item.get("content", []):
+                if part.get("type") == "output_text":
+                    text += part.get("text", "")
+
+        if text.strip() == "":
+            raise ProviderError("provider returned no text")
+
+        return text, data.get("usage") or {}, elapsed
 
     raise ProviderError(str(last_error or "request failed"))
 
 
 def main():
-    if not KEY:
+    if not KEYS:
         emit({"ready": False, "error": "no OpenCode Go credential"})
         return
 

@@ -28,6 +28,11 @@ Item {
     property string pendingSource: ""
     property string pendingImagePath: ""
     property string lastImagePath: ""
+    // A pasted image waits here (and in the transcript's footer chip) until the
+    // user presses Enter, so a written message can travel with it.
+    property string attachmentPath: ""
+    property string attachmentUrl: ""
+    readonly property bool hasAttachment: pane.attachmentPath !== ""
     property string pasteSerial: ""
     readonly property string cacheHome: Quickshell.env("XDG_CACHE_HOME") || (pane.home + "/.cache")
     property string lastSource: ""
@@ -41,8 +46,13 @@ Item {
     property bool languageChosen: false
     property bool languageDirty: false
     property bool stateReady: false
-    property string providerKey: ""
+    // Every opencode-go credential from the store, active one first. The
+    // translator rotates through them on its own only when the provider rejects
+    // the current key, so a healthy key costs no extra requests or checks.
+    property var providerKeys: []
+    readonly property string providerKey: pane.providerKeys.length > 0 ? String(pane.providerKeys[0]) : ""
     property string opencodeBin: "opencode"
+    property string pythonBin: "python3"
     property var lastUsage: ({})
     property int lastLatencyMs: 0
     property string translatorStderr: ""
@@ -144,6 +154,7 @@ Item {
     function reset() {
         pane.resetting = true;
         pane.clearPending();
+        pane.clearAttachment();
         pane.history = [];
         pane.metaHistory = [];
         pane.lastSource = "";
@@ -156,6 +167,16 @@ Item {
         if (fallback.running)
             fallback.running = false;
         pane.resetting = false;
+    }
+
+    function translatorEnv() {
+        var keys = pane.providerKeys;
+        return {
+            // The worker reads the list; the single-key variable is kept so an
+            // older worker build still starts with the preferred credential.
+            "QUICK_TRANSLATE_KEY": keys.length > 0 ? String(keys[0]) : "",
+            "QUICK_TRANSLATE_KEYS": keys.join("\n")
+        };
     }
 
     function status() {
@@ -240,38 +261,54 @@ Item {
         if (code !== 0 || path === "")
             return;
 
-        var preview = "file://" + path;
-        pane.submitImage(path, preview);
+        // Stage the image instead of sending it: the user may want to type a
+        // sentence about it and submit both with Enter.
+        pane.attachmentPath = path;
+        pane.attachmentUrl = "file://" + path;
+        pane.clearPending();
+        pane.scrollToEnd();
+        pane.focusInputRequested();
     }
 
-    function buildImagePrompt() {
+    function clearAttachment() {
+        pane.attachmentPath = "";
+        pane.attachmentUrl = "";
+    }
+
+    function buildImagePrompt(note) {
         var lang = pane.languageFor(pane.targetCode);
-        var out = "Read all text visible in the image and translate it. ";
-        out += "If the text is already in " + lang.prompt + ", translate it into English instead; otherwise translate it into " + lang.prompt + ". ";
+        var out = "Read all text visible in the image, detect its language, and translate it. ";
+        out += "If the text is written in " + lang.prompt + ", translate it into English; if it is written in any other language, translate it into " + lang.prompt + ". ";
+        out += "Always reply in the other language: never keep the text in the language it is already in. ";
         out += "Preserve line breaks, lists, and layout as closely as possible. Do not describe the image; return only the translation. ";
+        if (String(note || "").trim() !== "")
+            out += "The user's message that came with the image says: \"" + String(note).trim() + "\". Use it as guidance about what to translate, but still reply with the translation only. ";
         out += "If there is no readable text, reply exactly:\nTARGET: NONE\nTRANSLATION: [no text found]\n\n";
         out += "Reply exactly as:\nTARGET: <English name of the language you translated into>\nTRANSLATION: <only the translation>";
         return out;
     }
 
-    function submitImage(path, previewUrl) {
-        if (pane.busy)
+    function sendImage(note) {
+        if (pane.busy || !pane.hasAttachment)
             return;
 
+        var path = pane.attachmentPath;
+        var text = String(note || "").trim();
         messages.append({
             "kind": "user",
-            "text": "Image",
-            "imageUrl": previewUrl,
+            "text": text !== "" ? text : "Image",
+            "imageUrl": pane.attachmentUrl,
             "lang": "",
             "label": ""
         });
-        pane.history = pane.history.concat([{ "role": "user", "text": "[image]" }]);
+        pane.history = pane.history.concat([{ "role": "user", "text": text !== "" ? text : "[image]" }]);
+        pane.clearAttachment();
         pane.requestLanguage = pane.targetCode;
         pane.pendingKind = "translate";
         pane.pendingSource = "";
         pane.pendingImagePath = path;
         pane.busy = true;
-        pane.sendPrompt(pane.buildImagePrompt(), path);
+        pane.sendPrompt(pane.buildImagePrompt(text), path);
         pane.scrollToEnd();
     }
 
@@ -305,7 +342,10 @@ Item {
 
     function buildPrompt(languageCode) {
         var lang = pane.languageFor(languageCode);
-        var out = "Translate the final user message. If it is already in " + lang.prompt + ", translate it into English instead; otherwise translate it into " + lang.prompt + ".\n\n";
+        var out = "Translate the final user message. Detect its language first.\n";
+        out += "- If the message is written in " + lang.prompt + ", translate it into English.\n";
+        out += "- If it is written in any other language, translate it into " + lang.prompt + ".\n";
+        out += "Always reply in the other language: never echo, transcribe, or rephrase the message in the language it is already in.\n\n";
         var start = Math.max(0, pane.history.length - 12);
         for (var i = start; i < pane.history.length; i++) {
             var turn = pane.history[i];
@@ -359,13 +399,23 @@ Item {
 
     function submit(text) {
         var sentence = String(text || "").trim();
-        if (sentence === "" || pane.busy)
+        if (pane.busy)
             return;
 
         if (sentence.charAt(0) === ">") {
             pane.submitMeta(sentence.slice(1).trim());
             return;
         }
+
+        // Enter with a staged image sends it, and any typed sentence travels
+        // with the image as guidance. Empty input with no image does nothing.
+        if (pane.hasAttachment) {
+            pane.sendImage(sentence);
+            return;
+        }
+
+        if (sentence === "")
+            return;
 
         messages.append({
             "kind": "user",
@@ -664,11 +714,31 @@ Item {
     }
 
     // ---- provider worker --------------------------------------------------
+    // The interpreter is resolved once per session: 3.14 is what the worker is
+    // written for (and the only one here with Pillow for image input), with a
+    // plain python3 fallback so the pane still starts on hosts without it.
+    Process {
+        id: whichPython
+
+        command: ["sh", "-c", "command -v python3.14 2>/dev/null || command -v python3 2>/dev/null"]
+        running: pane.wanted
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var found = String(this.text || "").trim();
+                if (found !== "")
+                    pane.pythonBin = found;
+                whichOpencode.running = true;
+            }
+        }
+
+    }
+
     Process {
         id: whichOpencode
 
         command: ["sh", "-c", "command -v opencode 2>/dev/null || printf '%s' \"$HOME/.bun/bin/opencode\""]
-        running: pane.wanted
+        running: false
 
         stdout: StdioCollector {
             onStreamFinished: {
@@ -691,18 +761,31 @@ Item {
             onStreamFinished: {
                 try {
                     var data = JSON.parse(String(this.text || "").trim());
-                    for (var i = 0; i < (data.data || []).length; i++) {
-                        var item = data.data[i];
-                        if (item.integrationID === "opencode-go" && item.value && item.value.type === "key" && item.value.key) {
-                            pane.providerKey = item.value.key;
-                            break;
-                        }
+                    var list = data.data || [];
+                    var activeKeys = [];
+                    var spareKeys = [];
+                    // The store keeps rotated keys around and flags the live one.
+                    // Order by trust: active first, then the older siblings, which
+                    // only get used if the provider actually rejects the active
+                    // key. No key is probed ahead of time.
+                    for (var i = 0; i < list.length; i++) {
+                        var item = list[i];
+                        if (item.integrationID !== "opencode-go" || !item.value || item.value.type !== "key" || !item.value.key)
+                            continue;
+                        var key = String(item.value.key);
+                        if (activeKeys.indexOf(key) !== -1 || spareKeys.indexOf(key) !== -1)
+                            continue;
+                        if (item.active === true)
+                            activeKeys.push(key);
+                        else
+                            spareKeys.push(key);
                     }
+                    pane.providerKeys = activeKeys.concat(spareKeys);
                 } catch (e) {
                 }
 
                 if (pane.providerKey !== "" && !translator.running) {
-                    translator.environment = ({ "QUICK_TRANSLATE_KEY": pane.providerKey });
+                    translator.environment = pane.translatorEnv();
                     translator.running = true;
                 }
             }
@@ -718,9 +801,9 @@ Item {
 
         running: false
         stdinEnabled: false
-        command: ["python3", pane.serverPath]
+        command: [pane.pythonBin, pane.serverPath]
         workingDirectory: pane.home
-        environment: ({ "QUICK_TRANSLATE_KEY": pane.providerKey })
+        environment: pane.translatorEnv()
 
         onStarted: translator.stdinEnabled = true
 
@@ -754,7 +837,7 @@ Item {
         interval: 1500
         onTriggered: {
             if (pane.providerKey !== "" && !translator.running) {
-                translator.environment = ({ "QUICK_TRANSLATE_KEY": pane.providerKey });
+                translator.environment = pane.translatorEnv();
                 translator.running = true;
             }
         }
@@ -910,8 +993,8 @@ Item {
 
         footer: Item {
             width: list.width
-            height: pane.busy ? Theme.dp(52) : 0
-            visible: pane.busy
+            height: pane.busy ? Theme.dp(52) : (pane.hasAttachment ? Theme.dp(92) : 0)
+            visible: pane.busy || pane.hasAttachment
 
             Rectangle {
                 x: 0
@@ -938,6 +1021,63 @@ Item {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(12)
                     font.variableAxes: Theme.axes(Theme.fs(12), 500, 0)
+                }
+
+            }
+
+            // A pasted image is held here until Enter, so the composer keeps
+            // its normal "type then submit" rhythm. Clicking the chip discards
+            // the attachment.
+            Rectangle {
+                id: attachCard
+
+                visible: pane.hasAttachment
+                x: parent.width - width
+                y: Theme.dp(6)
+                width: Math.min(parent.width, Theme.dp(260))
+                height: Theme.dp(80)
+                radius: Theme.rad(16)
+                color: Theme.assistantBubble
+                border.width: 1
+                border.color: Theme.cardBorder
+                clip: true
+
+                Image {
+                    id: attachThumb
+
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: Theme.dp(80)
+                    source: pane.attachmentUrl
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: false
+                }
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.dp(14)
+                    anchors.right: attachThumb.left
+                    anchors.rightMargin: Theme.dp(10)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Image attached\nPress Enter to send"
+                    color: Theme.subtext
+                    wrapMode: Text.WordWrap
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fs(11)
+                    font.variableAxes: Theme.axes(Theme.fs(11), 500, 0)
+                    lineHeight: 1.15
+                }
+
+                TapHandler {
+                    onTapped: pane.clearAttachment()
+                }
+
+                HoverHandler {
+                    id: attachHover
+
+                    cursorShape: Qt.PointingHandCursor
                 }
 
             }

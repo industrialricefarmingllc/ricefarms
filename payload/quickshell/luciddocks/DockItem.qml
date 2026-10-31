@@ -14,6 +14,11 @@ Item {
     property bool isToggle: false
     property bool toggleActive: false
     property string displayName: ""
+    // pinned entries carry one specific instance; running rows carry the app
+    property bool matchInstance: false
+    // a command with an env assignment belongs to one install (Discord alt
+    // dirs), so go straight to its window instead of opening the chooser
+    readonly property bool specificInstance: dockItem.matchInstance && /(^|\s)[A-Za-z_][A-Za-z0-9_]*=[^\s]+/.test(String(dockItem.command || ""))
     // handed down rather than re-read per item
     property var clients: []
     property int activeWorkspaceId: -1
@@ -28,6 +33,7 @@ Item {
     signal requestToggle()
     signal requestStackPopup()
     signal requestContextMenu()
+    signal requestFocusOrLaunch()
     signal launched()
 
     readonly property int slot: Theme.dp(Prefs.dockIconSize)
@@ -365,15 +371,34 @@ Item {
     TapHandler {
         id: tapHandler
 
-        onTapped: {
+        onTapped: (point) => {
             if (dockItem.isToggle) {
                 dockItem.requestToggle();
                 return;
             }
+
+            // Shift/Ctrl always asks for a second instance
+            if ((point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0) {
+                dockItem.launch();
+                return;
+            }
+
             if (dockItem.active && dockItem.matchingClient) {
-                var winWs = dockItem.matchingClient.workspace ? dockItem.matchingClient.workspace.id : -1;
-                if (dockItem.distinctWorkspaceCount >= 2 || dockItem.windowCount >= 2 || winWs !== dockItem.activeWorkspaceId) {
+                // several windows: let the stack chooser pick one, unless this
+                // pin stands for one specific install
+                if (!dockItem.specificInstance && (dockItem.distinctWorkspaceCount >= 2 || dockItem.windowCount >= 2)) {
                     dockItem.requestStackPopup();
+                    return;
+                }
+
+                // one window: a pinned entry checks that the window belongs to
+                // its own instance (Discord alt dirs share one class); a
+                // running row simply goes to the window
+                if (dockItem.matchingClient.address) {
+                    if (dockItem.matchInstance)
+                        dockItem.requestFocusOrLaunch();
+                    else
+                        Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + dockItem.matchingClient.address + "\" })");
                     return;
                 }
             }

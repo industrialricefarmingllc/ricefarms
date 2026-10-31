@@ -603,7 +603,9 @@ BarPill {
                 SquircleRect {
                     anchors.fill: parent
                     radius: height / 2
-                    smoothing: Prefs.squircleF
+                    // the count badge is a true circle (a pill once it has to
+                    // hold two glyphs), so it opts out of the shared squircle
+                    smoothing: 0
                     fillColor: root.badgeColor
 
                     Behavior on fillColor {

@@ -173,7 +173,13 @@ Item {
     // The QML silhouette is only used when no external glass owns the body.
     // With glass on, the compositor plugin draws the same union shape (see
     // shell.qml's glassPillFor).
-    readonly property bool liquidDrawBody: pill.liquidActive && !pill.externalGlass && !pill.groupBackground
+    //
+    // A notch tab opened in place is the other exception: it is flush with
+    // the screen edge and grows as the one QML tab its side groups already
+    // are. The shader body is born at the click and overshoots the open
+    // rect, while the shoulder flares hug the item rect, so drawing it left
+    // the shoulders racing ahead of the body and coming apart from it.
+    readonly property bool liquidDrawBody: pill.liquidActive && !pill.externalGlass && !pill.groupBackground && !(Prefs.barNotch && !pill.popupMode)
     readonly property bool liquidCentre: pill.popupAlign === "center"
     // Centre and right pills read as an extrusion when their body travels
     // down from the click. Keep their top edge on the bar and let width lead;
@@ -560,6 +566,9 @@ Item {
     // still taller than the pill: a closing panel keeps its colour until it has
     // folded away, or on the full bar its fading contents float over the desktop
     readonly property bool surfaceOpen: pill.anyOpen || pill.height > pill.compactHeight + 0.5
+    // the shell's own shadow is drawn by shellSurface, never by layering the
+    // shell: a layer around the panel would resample and soften its text
+    readonly property bool shellShadowWanted: !pill.externalGlass && !(pill.groupBackground && !pill.popupMode) && (pill.surfaceLayered || (pill.anyOpen && !pill.liquidDrawBody))
     readonly property int barRadius: pill.popupMode ? Prefs.barPillRadius : pill.cornerRadius
     readonly property int barTopRadius: pill.popupMode ? pill.pillTopRadius : pill.topRadius
 
@@ -906,6 +915,62 @@ Item {
 
     }
 
+    // Panel body + shadow. Keeping the shadow on the shell itself forced the
+    // whole panel (text included) through a MultiEffect layer, which resampled
+    // glyphs and left the open panel looking slightly soft. The body lives
+    // here instead, one item behind the shell, so the shadow only ever wraps
+    // the background and the content is drawn unlayered.
+    // Skipped during the liquid morph (LiquidShape carries its own shadow) and
+    // under external glass (the compositor plugin draws both).
+    Item {
+        id: shellSurface
+
+        // A flush tab's body runs to the screen edge, where the shadow layer's
+        // outermost row samples partly transparent at a fractional output
+        // scale (see NotchGroupBg.edgeOverhang): a 1px line of wallpaper over
+        // the tab. Carry the body two pixels past the edge so the row on screen
+        // is fully opaque; the shape is square at the top there, so nothing
+        // visible changes. Island panels sit below the edge and keep their
+        // rounded top, so only flush tabs take the overhang.
+        readonly property real edgeOverhang: (Prefs.barFlush && !pill.popupMode) ? 2 : 0
+
+        x: shell.x
+        y: shell.y - edgeOverhang
+        width: shell.width
+        height: shell.height + edgeOverhang
+        visible: shell.visible && !pill.liquidDrawBody && !(pill.groupBackground && !pill.popupMode) && width > 0.5 && height > 0.5
+        layer.enabled: visible && pill.shellShadowWanted
+        layer.samples: 4
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowBlur: Theme.hyprShadowBlur
+            blurMax: Theme.hyprShadowBlurMax
+            shadowColor: Theme.hyprShadow
+            shadowHorizontalOffset: Theme.hyprShadowOffsetX
+            shadowVerticalOffset: Theme.hyprShadowOffsetY
+            shadowScale: Theme.hyprShadowScale
+            autoPaddingEnabled: true
+        }
+
+        LiquidGlassBg {
+            anchors.fill: parent
+            externalGlass: pill.externalGlass
+            hostWindow: pill.hostWindow
+            targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
+            powerFactor: Prefs.liquidGlassPower + (pill.anyOpen ? 0.4 : 0)
+            bgRadius: pill.cornerRadius
+            bgTopLeftRadius: pill.topRadius
+            bgTopRightRadius: pill.topRadius
+            borderColor: WindowBorder.colour
+            borderWidth: pill.windowBorderWidth
+            // a notch tab is flush with the screen edge: no top outline, and
+            // the side outline yields to the shoulder flares
+            borderTop: pill.topRadius > 0 ? 1 : 0
+            borderGap: Qt.vector2d(pill.notchGapLeft + shellSurface.edgeOverhang, pill.notchGapRight + shellSurface.edgeOverhang)
+            usePill: true
+        }
+    }
+
     Rectangle {
         id: shell
 
@@ -924,49 +989,17 @@ Item {
         bottomLeftRadius: pill.popupMode ? pill.cornerRadius : pill.capped(pill.hangSides, "bl", pill.capped(pill.hangCorners, "bl", pill.joinLeft && !pill.hangSides ? 0 : pill.cornerRadius))
         bottomRightRadius: pill.popupMode ? pill.cornerRadius : pill.capped(pill.hangSides, "br", pill.capped(pill.hangCorners, "br", pill.joinRight && !pill.hangSides ? 0 : pill.cornerRadius))
         clip: true
-        // Panel path uses the layered shell; compact islands have no panel
-        // layer, so force the same shadow here (skipped during the liquid
-        // morph, whose LiquidShape already carries a shadow, and under
-        // external glass, where the plugin draws it).
-        layer.enabled: !(pill.groupBackground && !pill.popupMode) && (pill.surfaceLayered || (pill.anyOpen && !pill.liquidDrawBody && !pill.externalGlass))
-        layer.samples: 4
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowBlur: Theme.hyprShadowBlur
-            blurMax: Theme.hyprShadowBlurMax
-            shadowColor: Theme.hyprShadow
-            shadowHorizontalOffset: Theme.hyprShadowOffsetX
-            shadowVerticalOffset: Theme.hyprShadowOffsetY
-            shadowScale: Theme.hyprShadowScale
-            autoPaddingEnabled: true
-        }
 
-        LiquidGlassBg {
-            anchors.fill: parent
-            visible: !pill.liquidDrawBody && !(pill.groupBackground && !pill.popupMode)
-            externalGlass: pill.externalGlass
-            hostWindow: pill.hostWindow
-            targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
-            powerFactor: Prefs.liquidGlassPower + (pill.anyOpen ? 0.4 : 0)
-            bgRadius: pill.cornerRadius
-            bgTopLeftRadius: pill.topRadius
-            bgTopRightRadius: pill.topRadius
-            borderColor: WindowBorder.colour
-            borderWidth: pill.windowBorderWidth
-            // a notch tab is flush with the screen edge: no top outline, and
-            // the side outline yields to the shoulder flares
-            borderTop: pill.topRadius > 0 ? 1 : 0
-            borderGap: Qt.vector2d(pill.notchGapLeft, pill.notchGapRight)
-            usePill: true
-        }
         // inner clip for content overflow — separate from outer layer
         Item {
             id: shellContentClip
             anchors.fill: parent
             clip: true
-            // the shader mask is only needed while a panel is morphing; the
-            // compact pills are already inside the squircle body
-            layer.enabled: pill.anyOpen || pill.popupMode || pill.liquidActive
+            // the shader mask is only needed while a panel is morphing: leaving
+            // it on for the whole open state pushed the panel text through a
+            // second MultiEffect layer, which resampled it and made the open
+            // panel look blurry next to the compact bar
+            layer.enabled: pill.liquidActive || pill.panelTransitioning
             layer.effect: MultiEffect {
                 maskEnabled: true
                 maskSource: shellContentMask

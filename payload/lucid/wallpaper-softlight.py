@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Bake the window-background overlay: a heavily blurred wallpaper, soft-light
-blended against the surface colour, at 25%.
+blended against the surface colour, at 80%.
 
 Doing the blend here keeps every consumer (Quickshell, kitty, GTK) on a plain
 static image: no runtime shader, no backdrop capture. Regenerated only when the
@@ -31,7 +31,7 @@ PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
 LOCK = os.path.join(CACHE, "wallpaper-softlight.lock")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
 MIX = 1.0
-VERSION = 8
+VERSION = 11
 # 2 = half the screen's logical resolution. Set 1 for full resolution, 3 for
 # a third (still fine under a 14 px blur at typical viewing distance).
 SCALE = max(1, int(os.environ.get("LUCID_SOFTLIGHT_SCALE", "2")))
@@ -139,7 +139,7 @@ def main():
         blended = soft_light(b, blurred)
         result = np.clip(b * (1.0 - MIX) + blended * MIX, 0.0, 1.0)
         # 8x8 ordered dither: the wash is a near-flat gradient, and the
-        # 10/25% alpha quantisation bands visibly on a large screen
+        # 10/80% alpha quantisation bands visibly on a large screen
         bayer = np.array([
             [0, 32, 8, 40, 2, 34, 10, 42],
             [48, 16, 56, 24, 50, 18, 58, 26],
@@ -154,8 +154,8 @@ def main():
         result = np.clip(result + tile[..., None] / 255.0, 0.0, 1.0)
         # The wash is drawn only over windows (lucidbar/WallpaperOverlay.qml);
         # the screen-bezel corners are a separate overlay (lucidcorners/
-        # ScreenCorners.qml), so the texture itself is pure 25% wash.
-        alpha = np.full((height, width), 0.25, dtype=np.float32)
+        # ScreenCorners.qml), so the texture itself is a pure 80% wash.
+        alpha = np.full((height, width), 0.80, dtype=np.float32)
         out_rgba = np.dstack([np.clip(result, 0.0, 1.0), alpha])
         out_image = Image.fromarray((out_rgba * 255.0 + 0.5).astype(np.uint8), "RGBA")
 

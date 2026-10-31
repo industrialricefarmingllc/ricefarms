@@ -20,6 +20,7 @@ PanelWindow {
     // grim and wf-recorder take the overlay's own monitor, not the whole layout
 
     property string recordingState: "idle"
+    property bool recorderAvailable: true
     property int recordSeconds: 0
     property bool micOn: true
     property bool headphoneOn: true
@@ -272,7 +273,9 @@ function stopRecordingBackend() {
             for (var i = 0; i < segs.length; i++) {
                 listCmds += "echo \"file '" + segs[i] + "'\" >> '" + listFile + "'; ";
             }
-            mergeCmd = listCmds + "ffmpeg -y -f concat -safe 0 -i '" + listFile + "' -c copy '" + mergedFile + "'; ";
+            // && so a failed concat skips the encode instead of handing ffmpeg
+            // a half-written file
+            mergeCmd = listCmds + "ffmpeg -y -f concat -safe 0 -i '" + listFile + "' -c copy '" + mergedFile + "' && ";
         } else {
             mergedFile = segs[0];
             mergeCmd = "";
@@ -288,16 +291,28 @@ function stopRecordingBackend() {
         }).join(" ");
         var cleanupMerged = segs.length > 1 ? "'" + mergedFile + "'" : "";
         Quickshell.execDetached(["sh", "-c",
-            "[ -f " + snapWindow.recordPidFile + " ] && kill -INT \"$(cat " + snapWindow.recordPidFile + ")\" 2>/dev/null; " +
-            "sleep 0.6; " +
+            "PIDFILE='" + snapWindow.recordPidFile + "'; " +
+            // wf-recorder writes the mp4's index on SIGINT, so wait for it to
+            // actually exit: a fixed sleep handed ffmpeg a file still being
+            // written, and the failed encode used to delete the segments
+            "if [ -f \"$PIDFILE\" ]; then " +
+            "PID=$(cat \"$PIDFILE\"); " +
+            "kill -INT \"$PID\" 2>/dev/null; " +
+            "i=0; while kill -0 \"$PID\" 2>/dev/null && [ \"$i\" -lt 100 ]; do sleep 0.1; i=$((i+1)); done; " +
+            "fi; " +
             "for f in /tmp/quickshell-wfrec-nullsink.pid /tmp/quickshell-wfrec-loop-mic.pid /tmp/quickshell-wfrec-loop-sys.pid; do " +
             "if [ -f \"$f\" ]; then pactl unload-module \"$(cat \"$f\")\" 2>/dev/null; rm -f \"$f\"; fi; " +
             "done; " +
-            "rm -f " + snapWindow.recordPidFile + "; " +
+            "rm -f \"$PIDFILE\"; " +
             mergeCmd +
             finalCmd + "; OK=$?; " +
+            "if [ $OK -eq 0 ]; then " +
             "rm -f '" + listFile + "' " + cleanupSegs + " " + cleanupMerged + "; " +
-            "[ $OK -eq 0 ] && printf '%s\\t%s\\n' \"$(date +%s%N)\" '" + file + "' > '" + snapWindow.savedMark + "'"
+            "printf '%s\\t%s\\n' \"$(date +%s%N)\" '" + file + "' > '" + snapWindow.savedMark + "'; " +
+            "else " +
+            // keep the raw segments: they are the only copy if the encode failed
+            "notify-send -a 'Screen recorder' -i 'media-record' 'Recording not saved' 'The encoder failed; segments kept in " + snapWindow.recordSaveDir + "'; " +
+            "fi"
         ]);
     }
 
@@ -332,10 +347,28 @@ function stopRecordingBackend() {
         onLoadFailed: savedView.primed = true
     }
 
+    // wf-recorder is the only backend: without it Start would run a phantom
+    // timer and Stop would have nothing to encode, silently losing the take
+    Process {
+        id: recorderProbe
+
+        running: true
+        command: ["sh", "-c", "command -v wf-recorder >/dev/null"]
+        onExited: (code) => snapWindow.recorderAvailable = code === 0
+    }
+
     function recorderLaunchCmd(segFile) {
+        // a render node existing does not mean VAAPI works: on this box
+        // opening it fails, and wf-recorder used to die right after Start
+        // while the bar kept counting up. probe the device first, then fall
+        // back to libx264 rather than launching a recorder that exits at once.
         return "DRI=$(ls /dev/dri/renderD* 2>/dev/null | head -1); " +
-            "if [ -n \"$DRI\" ]; then " +
-            "wf-recorder" + snapWindow.outputArg() + " -c h264_vaapi -d \"$DRI\" --audio=wfrec_combined.monitor -f '" + segFile + "' & " +
+            "VAAPI=0; " +
+            "if [ -n \"$DRI\" ] && ffmpeg -hide_banner -loglevel error " +
+            "-init_hw_device \"vaapi=va:$DRI\" -f lavfi -i color=black:s=64x64:d=0.1 " +
+            "-frames:v 1 -f null - >/dev/null 2>&1; then VAAPI=1; fi; " +
+            "if [ \"$VAAPI\" = 1 ]; then " +
+            "wf-recorder" + snapWindow.outputArg() + " -c h264_vaapi -d \"$DRI\" --no-dmabuf --audio=wfrec_combined.monitor -f '" + segFile + "' & " +
             "else " +
             "wf-recorder" + snapWindow.outputArg() + " --audio=wfrec_combined.monitor -x yuv420p -f '" + segFile + "' & " +
             "fi; " +
@@ -400,12 +433,18 @@ function stopRecordingBackend() {
         if (id === "video") {
             snapWindow.recordingState = "idle";
             snapWindow.recordSeconds = 0;
+            // the package may have been installed since the shell started
+            recorderProbe.running = true;
             snapWindow.refreshMicStatus();
         }
     }
 
     function togglePlayPause() {
         if (snapWindow.recordingState === "idle") {
+            if (!snapWindow.recorderAvailable) {
+                Quickshell.execDetached(["notify-send", "-a", "Screen recorder", "-i", "media-record", "Recording unavailable", "Install wf-recorder to record the screen"]);
+                return;
+            }
             snapWindow.recordingState = "recording";
             snapWindow.recordSeconds = 0;
             snapWindow.startRecordingBackend();
@@ -997,6 +1036,10 @@ function stopRecordingBackend() {
             opacity: 0
             visible: opacity > 0
 
+            // Escape must still close the bar while one of its controls has
+            // tab focus: the keys bubble up from the focused item to here
+            Keys.onEscapePressed: snapWindow.open = false
+
             transform: Translate {
                 y: toolbar.rise
             }
@@ -1191,6 +1234,15 @@ function stopRecordingBackend() {
 
             readonly property bool active: snapWindow.colorFormat === fchip.fmt
 
+            activeFocusOnTab: true
+
+            Keys.onPressed: (event) => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                    snapWindow.colorFormat = fchip.fmt;
+                    event.accepted = true;
+                }
+            }
+
             width: fchipText.implicitWidth + Theme.dp(18)
             height: Theme.dp(28)
 
@@ -1205,6 +1257,15 @@ function stopRecordingBackend() {
                     }
                 }
 
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.radiusXs
+                color: "transparent"
+                border.width: Theme.dp(2)
+                border.color: Theme.accent
+                visible: fchip.activeFocus
             }
 
             Text {
@@ -1255,6 +1316,16 @@ function stopRecordingBackend() {
 
             signal tapped()
 
+            activeFocusOnTab: !action.disabled
+
+            Keys.onPressed: (event) => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                    if (!action.disabled)
+                        action.tapped();
+                    event.accepted = true;
+                }
+            }
+
             width: Theme.dp(44)
             height: Theme.dp(44)
 
@@ -1300,6 +1371,16 @@ function stopRecordingBackend() {
                             duration: Theme.ms(150)
                         }
                     }
+                }
+
+                // keyboard focus ring, drawn over the state layer
+                Rectangle {
+                    anchors.fill: stateLayer
+                    radius: stateLayer.radius
+                    color: "transparent"
+                    border.width: Theme.dp(2)
+                    border.color: Theme.accent
+                    visible: action.activeFocus
                 }
 
                 Icon {
@@ -1386,6 +1467,16 @@ function stopRecordingBackend() {
 
             signal tapped()
 
+            activeFocusOnTab: !seg.disabled
+
+            Keys.onPressed: (event) => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                    if (!seg.disabled)
+                        seg.tapped();
+                    event.accepted = true;
+                }
+            }
+
             width: Theme.dp(84)
             height: parent.height
 
@@ -1400,6 +1491,15 @@ function stopRecordingBackend() {
                         duration: Theme.ms(120)
                     }
                 }
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: height / 2
+                color: "transparent"
+                border.width: Theme.dp(2)
+                border.color: Theme.accent
+                visible: seg.activeFocus
             }
 
             Row {
@@ -1610,6 +1710,15 @@ function stopRecordingBackend() {
 
             signal tapped()
 
+            activeFocusOnTab: true
+
+            Keys.onPressed: (event) => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                    chip.tapped();
+                    event.accepted = true;
+                }
+            }
+
             width: chipRow.implicitWidth + Theme.dp(20)
             height: Theme.dp(34)
             scale: tap.pressed ? 0.94 : (chipHover.hovered ? 1.03 : 1)
@@ -1631,6 +1740,15 @@ function stopRecordingBackend() {
                         duration: Theme.ms(150)
                     }
                 }
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.radiusSm
+                color: "transparent"
+                border.width: Theme.dp(2)
+                border.color: Theme.accent
+                visible: chip.activeFocus
             }
 
             Row {

@@ -397,6 +397,17 @@ PanelWindow {
 
             case "workspace":
                 {
+                    // Hyprland broadcasts a switch to every monitor and the
+                    // event names none of them. Only the focused monitor can
+                    // have switched, though: `workspace` lands on the focused
+                    // display, and switching another one has to focus it
+                    // first. Replaying the slide everywhere would make the
+                    // overlays on the untouched displays slide their own static
+                    // windows off-screen and back.
+                    const focused = Hyprland.focusedMonitor;
+                    if (!focused || focused.name !== String(root.screen.name))
+                        break;
+
                     const to = parseInt(event.data, 10);
                     const from = root.workspaceId;
                     if (!isNaN(to) && from > 0 && to !== from)

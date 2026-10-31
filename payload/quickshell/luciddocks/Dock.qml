@@ -1708,16 +1708,247 @@ PanelWindow {
 
     }
 
-    function activateResult(index) {
+    function classesLike(cls, want) {
+        if (!cls || !want)
+            return false;
+
+        var c = String(cls).toLowerCase();
+        var w = String(want).toLowerCase();
+        if (w === "")
+            return false;
+        if (c === w)
+            return true;
+
+        var cn = c.replace(/[-_. ]/g, "");
+        var wn = w.replace(/[-_. ]/g, "");
+        if (cn === wn)
+            return true;
+        if (c.endsWith("." + w) || w.endsWith("." + c))
+            return true;
+
+        var cf = c.split(/[-_.]/)[0];
+        var wf = w.split(/[-_.]/)[0];
+        return cf.length >= 3 && cf === wf;
+    }
+
+    // candidate windows for a launcher entry, best first
+    function windowCandidates(wmClass, base) {
+        var wants = [];
+        if (wmClass)
+            wants.push(String(wmClass));
+        if (base)
+            wants.push(String(base));
+
+        var scored = [];
+        if (wants.length === 0)
+            return [];
+
+        for (var i = 0; i < dockWindow.clientsData.length; i++) {
+            var c = dockWindow.clientsData[i];
+            var cls = String(c.class || "");
+            if (cls === "" || cls === "org.quickshell" || !c.address)
+                continue;
+
+            var hit = false;
+            for (var j = 0; j < wants.length; j++) {
+                if (dockWindow.classesLike(cls, wants[j])) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit)
+                continue;
+
+            // prefer the current workspace, then the focused window, then the
+            // most recently used one
+            var score = 0;
+            if (c.workspace && c.workspace.id === dockWindow.activeWorkspaceId)
+                score += 1000;
+            if (c.address === dockWindow.focusedAddress)
+                score += 500;
+            var fh = Number(c.focusHistoryID);
+            if (isFinite(fh))
+                score += Math.max(0, 200 - fh);
+            scored.push({
+                "client": c,
+                "score": score
+            });
+        }
+        scored.sort((a, b) => b.score - a.score);
+
+        var out = [];
+        for (var k = 0; k < scored.length; k++) out.push(scored[k].client);
+        return out;
+    }
+
+    // `env VAR=value cmd` is how variants of one app are started; the pair is
+    // inherited by the process that owns the window
+    function appEnvSignature(command) {
+        var out = [];
+        var re = /(^|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s]+)/g;
+        var m;
+        while ((m = re.exec(String(command || ""))) !== null) out.push(m[2] + "=" + m[3]);
+
+        return out;
+    }
+
+    // signatures of the other launcher entries for the same app, so the plain
+    // entry can tell "no variant env" from the alt instances
+    function appVariantSignatures(wmClass, base, command) {
+        var out = [];
+        var seen = ({});
+        for (var i = 0; i < dockWindow.scannedApps.length; i++) {
+            var a = dockWindow.scannedApps[i];
+            if (!a || !a.command || a.command === command)
+                continue;
+
+            var same = false;
+            if (wmClass && a.wmClass && dockWindow.classesLike(a.wmClass, wmClass))
+                same = true;
+            if (!same && base && a.base && String(a.base) === String(base))
+                same = true;
+            if (!same)
+                continue;
+
+            var sigs = dockWindow.appEnvSignature(a.command);
+            for (var j = 0; j < sigs.length; j++) {
+                if (!seen[sigs[j]]) {
+                    seen[sigs[j]] = true;
+                    out.push(sigs[j]);
+                }
+            }
+        }
+        return out;
+    }
+
+    function focusCandidate(c, title) {
+        if (!c || !c.address)
+            return false;
+
+        dockWindow.menuOpen = false;
+        windowFocus.address = c.address;
+        windowFocus.restart();
+        if (title)
+            dockWindow.recordLaunch(title);
+        return true;
+    }
+
+    function launchJob(job) {
+        if (!job)
+            return;
+
+        if (!dockWindow.ghostLaunch(job.command, job.title, job.iconName, job.iconRect, job.wmClass, job.base))
+            Quickshell.execDetached(["sh", "-c", job.command]);
+        dockWindow.recordLaunch(job.title);
+        dockWindow.menuOpen = false;
+    }
+
+    function iconRectForView(view) {
+        if (!view)
+            return null;
+
+        var p = view.mapToItem(null, 0, 0);
+        return {
+            "x": p.x,
+            "y": p.y,
+            "width": view.width,
+            "height": view.height
+        };
+    }
+
+    // a dock icon activation goes through the same instance matching as the
+    // launcher, so a Discord alt icon does not take over the default window
+    function focusOrLaunchDockApp(view, appId, iconName, command, displayName) {
+        dockWindow.focusOrLaunchApp({
+            "command": command,
+            "title": displayName || appId,
+            "iconName": iconName,
+            "iconRect": dockWindow.iconRectForView(view),
+            "wmClass": appId,
+            "base": ""
+        });
+    }
+
+    // choose between focusing an already-open instance and starting a new one
+    function focusOrLaunchApp(job) {
+        var cands = dockWindow.windowCandidates(job.wmClass, job.base);
+        if (cands.length === 0) {
+            dockWindow.launchJob(job);
+            return;
+        }
+
+        var sigs = dockWindow.appEnvSignature(job.command);
+        var variants = sigs.length > 0 ? [] : dockWindow.appVariantSignatures(job.wmClass, job.base, job.command);
+
+        // no distinguishing environment on either side: focus the best window
+        if (sigs.length === 0 && variants.length === 0) {
+            dockWindow.focusCandidate(cands[0], job.title);
+            return;
+        }
+
+        var pairs = [];
+        for (var i = 0; i < cands.length; i++) {
+            if (!cands[i].pid)
+                continue;
+            pairs.push(String(cands[i].pid) + ":" + cands[i].address);
+        }
+        if (pairs.length === 0) {
+            dockWindow.launchJob(job);
+            return;
+        }
+
+        focusProbe.job = job;
+        var args = ["sh", "-c", dockWindow.focusProbeScript, "sh", sigs.length > 0 ? "inc" : "exc", (sigs.length > 0 ? sigs : variants).join(" ")];
+        for (var k = 0; k < pairs.length; k++) args.push(pairs[k]);
+        focusProbe.command = args;
+        focusProbe.running = true;
+    }
+
+    readonly property string focusProbeScript: "mode=\"$1\"; shift; sigs=\"$1\"; shift; for pair in \"$@\"; do pid=\"${pair%%:*}\"; addr=\"${pair#*:}\"; [ -r \"/proc/$pid/environ\" ] || continue; ok=1; for s in $sigs; do if [ \"$mode\" = inc ]; then grep -qaF -- \"$s\" \"/proc/$pid/environ\" || { ok=0; break; }; else grep -qaF -- \"$s\" \"/proc/$pid/environ\" && { ok=0; break; }; fi; done; if [ \"$ok\" = \"1\" ]; then printf '%s' \"$addr\"; exit 0; fi; done"
+
+    Process {
+        id: focusProbe
+
+        property var job: null
+
+        stdout: StdioCollector {
+            id: focusProbeOut
+        }
+
+        onExited: (code) => {
+            var job = focusProbe.job;
+            focusProbe.job = null;
+            if (!job)
+                return;
+
+            var addr = focusProbeOut.text.trim();
+            if (code === 0 && addr !== "")
+                dockWindow.focusCandidate({
+                    "address": addr
+                }, job.title);
+            else
+                dockWindow.launchJob(job);
+        }
+    }
+
+    function activateResult(index, newInstance) {
         var row = resultsModel.get(index);
         if (!row || !row.selectable || row.disabled)
             return;
 
         if (row.kind === "app") {
-            if (!dockWindow.ghostLaunch(row.payload, row.title, row.iconName, dockWindow.rowIconRect(index), row.wmClass, row.base))
-                Quickshell.execDetached(["sh", "-c", row.payload]);
-            dockWindow.recordLaunch(row.title);
-            dockWindow.menuOpen = false;
+            var appJob = {
+                "command": row.payload,
+                "title": row.title,
+                "iconName": row.iconName,
+                "iconRect": dockWindow.rowIconRect(index),
+                "wmClass": row.wmClass,
+                "base": row.base
+            };
+            if (newInstance === true)
+                dockWindow.launchJob(appJob);
+            else
+                dockWindow.focusOrLaunchApp(appJob);
         } else if (row.kind === "setting") {
             dockWindow.menuOpen = false;
             Prefs.settingsRequested(row.payload);
@@ -1750,10 +1981,18 @@ PanelWindow {
             windowFocus.restart();
         } else if (row.kind === "action") {
             var act = JSON.parse(row.payload);
-            if (!dockWindow.ghostLaunch(act.command, act.app, row.iconName, dockWindow.rowIconRect(index), row.wmClass, row.base))
-                Quickshell.execDetached(["sh", "-c", act.command]);
-            dockWindow.recordLaunch(act.app);
-            dockWindow.menuOpen = false;
+            var actionJob = {
+                "command": act.command,
+                "title": act.app,
+                "iconName": row.iconName,
+                "iconRect": dockWindow.rowIconRect(index),
+                "wmClass": row.wmClass,
+                "base": row.base
+            };
+            if (newInstance === true)
+                dockWindow.launchJob(actionJob);
+            else
+                dockWindow.focusOrLaunchApp(actionJob);
         } else if (row.kind === "power") {
             dockWindow.requestPower(row.payload);
         }
@@ -1761,15 +2000,23 @@ PanelWindow {
 
     // the app wall activates by its own index; an app row carries the same
     // payload and title the list uses
-    function activateApp(index) {
+    function activateApp(index, newInstance) {
         var row = appsModel.get(index);
         if (!row || !row.selectable || row.disabled)
             return ;
 
-        if (!dockWindow.ghostLaunch(row.payload, row.title, row.iconName, dockWindow.rowIconRect(index), row.wmClass, row.base))
-            Quickshell.execDetached(["sh", "-c", row.payload]);
-        dockWindow.recordLaunch(row.title);
-        dockWindow.menuOpen = false;
+        var job = {
+            "command": row.payload,
+            "title": row.title,
+            "iconName": row.iconName,
+            "iconRect": dockWindow.rowIconRect(index),
+            "wmClass": row.wmClass,
+            "base": row.base
+        };
+        if (newInstance === true)
+            dockWindow.launchJob(job);
+        else
+            dockWindow.focusOrLaunchApp(job);
     }
 
     // where the activated row's icon is, in screen coordinates
@@ -3999,6 +4246,7 @@ PanelWindow {
                 DockRow {
                     id: pinnedRow
 
+                    matchInstance: true
                     dragMode: "reorder"
                     // with desktop icons on, a pin pulled off lands there instead of unpinning
                     desktopDrop: DesktopIcons.live
@@ -4013,6 +4261,7 @@ PanelWindow {
                     dropIndex: shell.dropActive ? shell.pendingDropIndex : dockWindow.pinDropIndex
                     onStackPopupRequested: (view, appId, iconName, command) => dockWindow.openStackPopup(view, appId, iconName, command)
                     onContextMenuRequested: (view, appId, command) => dockWindow.openContextMenu(view, appId, true, command)
+                    onFocusOrLaunchRequested: (view, appId, iconName, command, displayName) => dockWindow.focusOrLaunchDockApp(view, appId, iconName, command, displayName)
                     onLaunchRecorded: (name) => dockWindow.recordLaunch(name)
                     onOrderChanged: dockWindow.persistOrder()
                     onRemoveRequested: (index) => dockWindow.removePinnedAt(index)
@@ -4051,6 +4300,7 @@ PanelWindow {
                         ready: shell.shellReady
                         onStackPopupRequested: (view, appId, iconName, command) => dockWindow.openStackPopup(view, appId, iconName, command)
                         onContextMenuRequested: (view, appId, command) => dockWindow.openContextMenu(view, appId, false, command)
+                        onFocusOrLaunchRequested: (view, appId, iconName, command, displayName) => dockWindow.focusOrLaunchDockApp(view, appId, iconName, command, displayName)
                         onLaunchRecorded: (name) => dockWindow.recordLaunch(name)
                         pointerInside: dockWindow.pointerOnDock
                         pinArmed: dockWindow.pinArmed
@@ -4129,8 +4379,8 @@ PanelWindow {
                 powerButtons: String(Prefs.launcherPowerButtons).split(",")
                 armedPower: dockWindow.armedPower
                 onPowerChipTapped: (id) => dockWindow.requestPower(id)
-                onActivated: (index) => dockWindow.activateResult(index)
-                onAppActivated: (index) => dockWindow.activateApp(index)
+                onActivated: (index, newInstance) => dockWindow.activateResult(index, newInstance)
+                onAppActivated: (index, newInstance) => dockWindow.activateApp(index, newInstance)
                 onCloseRequested: dockWindow.menuOpen = false
                 onBackRequested: dockWindow.setSearchText(dockWindow.mode === "commands" ? "" : ">")
                 onTranslateSubmitted: (text) => {

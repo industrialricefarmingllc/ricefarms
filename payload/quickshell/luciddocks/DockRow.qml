@@ -33,7 +33,10 @@ Item {
 
     signal stackPopupRequested(Item view, string appId, string iconName, string command)
     signal contextMenuRequested(Item view, string appId, string command)
+    signal focusOrLaunchRequested(Item view, string appId, string iconName, string command, string displayName)
     signal launchRecorded(string name)
+    // pinned rows stand for one specific install of an app
+    property bool matchInstance: false
     // the model is already mutated in place
     signal orderChanged()
     signal removeRequested(int index)
@@ -343,6 +346,7 @@ Item {
                 command: slot.command
                 appId: slot.appId
                 displayName: slot.displayName
+                matchInstance: row.matchInstance
                 clients: row.clients
                 activeWorkspaceId: row.activeWorkspaceId
                 focusedAddress: row.focusedAddress
@@ -350,6 +354,7 @@ Item {
                 pointerInside: row.pointerInside
                 onRequestStackPopup: row.stackPopupRequested(itemView, slot.appId, slot.iconName, slot.command)
                 onRequestContextMenu: row.contextMenuRequested(itemView, slot.appId, slot.command)
+                onRequestFocusOrLaunch: row.focusOrLaunchRequested(itemView, slot.appId, slot.iconName, slot.command, slot.displayName)
                 onLaunched: row.launchRecorded(slot.displayName)
             }
 

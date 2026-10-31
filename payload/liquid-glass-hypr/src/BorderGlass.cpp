@@ -1,3 +1,4 @@
+#include "RenderCtx.hpp"
 #include "BorderGlass.hpp"
 #include "Config.hpp"
 #include "Shaders.hpp"
@@ -277,14 +278,14 @@ static void bokehPass(const SP<Render::IFramebuffer>& src, const SP<Render::IFra
 bool drawRing(CHyprOpenGLImpl* gl, const CBox& box, const Config::CGradientValueData& g1,
               const Config::CGradientValueData& g2, float lerp, int borderSize, int round, int outerRound, float a,
               int winRoundFb) {
-    PHLMONITOR monitor = g_pHyprRenderer->m_renderData.pMonitor.lock();
+    PHLMONITOR monitor = LG_RENDER_DATA.pMonitor.lock();
     if (!monitor)
         return false;
 
     CBox newBox = box;
-    g_pHyprRenderer->m_renderData.renderModif.applyToBox(newBox);
+    LG_RENDER_DATA.renderModif.applyToBox(newBox);
     int scaledBorder = (int)std::round(borderSize * monitor->m_scale);
-    scaledBorder = (int)std::round(scaledBorder * g_pHyprRenderer->m_renderData.renderModif.combinedScale());
+    scaledBorder = (int)std::round(scaledBorder * LG_RENDER_DATA.renderModif.combinedScale());
     if (scaledBorder < 1)
         return false;
     newBox.x -= scaledBorder;
@@ -307,10 +308,10 @@ bool drawRing(CHyprOpenGLImpl* gl, const CBox& box, const Config::CGradientValue
     // silhouette (±3px) to the full shadow halo.
     CBox gateBox = newBox;
     gateBox.expand(std::max(4.0f, shPadF));
-    CRegion ringRegion = g_pHyprRenderer->m_renderData.damage.copy().intersect(gateBox);
+    CRegion ringRegion = LG_RENDER_DATA.damage.copy().intersect(gateBox);
     ringRegion.subtract(box.copy().expand(-scaledBorder - (int)std::ceil(roundF)));
-    if (g_pHyprRenderer->m_renderData.clipBox.w != 0 && g_pHyprRenderer->m_renderData.clipBox.h != 0)
-        ringRegion.intersect(g_pHyprRenderer->m_renderData.clipBox);
+    if (LG_RENDER_DATA.clipBox.w != 0 && LG_RENDER_DATA.clipBox.h != 0)
+        ringRegion.intersect(LG_RENDER_DATA.clipBox);
     if (ringRegion.empty())
         return false;
 
@@ -318,7 +319,7 @@ bool drawRing(CHyprOpenGLImpl* gl, const CBox& box, const Config::CGradientValue
     if (!s_ok)
         return false;
 
-    const auto source = g_pHyprRenderer->m_renderData.currentFB;
+    const auto source = LG_RENDER_DATA.currentFB;
     if (!source)
         return false;
     const int srcW = (int)source->m_size.x;
@@ -415,7 +416,7 @@ bool drawRing(CHyprOpenGLImpl* gl, const CBox& box, const Config::CGradientValue
     // one scissored draw per damage rect — exactly upstream's subdivision.
     const auto transform = Math::wlTransformToHyprutils(Math::invertTransform(monitor->m_transform));
     CBox quadBox{(double)qx0, (double)qy0, (double)rw, (double)rh};
-    Mat3x3 proj = g_pHyprRenderer->projectBoxToTarget(quadBox, transform);
+    Mat3x3 proj = g_pHyprRenderer->projectBoxToTarget(lg::rctx(), quadBox, transform);
 
     const float ix = (float)(box.x - qx0), iy = (float)(box.y - qy0);
     auto col0 = g1.m_colors.empty() ? CHyprColor{1, 1, 1, 1} : g1.m_colors[0];
@@ -491,7 +492,7 @@ bool drawRing(CHyprOpenGLImpl* gl, const CBox& box, const Config::CGradientValue
     glUniform1f(s_ru.push, 0.5f);
     glBindVertexArray(s_vao);
     ringRegion.forEachRect([&](const pixman_box32_t& RECT) {
-        gl->scissor(&RECT, g_pHyprRenderer->m_renderData.transformDamage);
+        gl->scissor(lg::rctx(), &RECT, LG_RENDER_DATA.transformDamage);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     });
     glBindVertexArray(0);
@@ -505,7 +506,7 @@ bool drawRing(CHyprOpenGLImpl* gl, const CBox& box, const Config::CGradientValue
 bool wanted() {
     return lg::getInt("plugin:liquidglass:enabled", 1) == 1
         && lg::getInt("plugin:liquidglass:window_borders", 1) == 1
-        && !g_pHyprRenderer->m_bRenderingSnapshot;
+        && !LG_SNAPSHOT;
 }
 
 } // namespace
@@ -515,10 +516,11 @@ bool borderGlassReady() {
     return s_ok;
 }
 
-void hkRenderBorder1(CHyprOpenGLImpl* self, const CBox& box, const Config::CGradientValueData& grad,
+void hkRenderBorder1(CHyprOpenGLImpl* self, Render::CRenderContext& ctx, const CBox& box, const Config::CGradientValueData& grad,
                      CHyprOpenGLImpl::SBorderRenderData data) {
+    lg::SRenderCtxScope scope(ctx);
     if (!wanted() || data.borderSize < 1 || !borderGlassReady()) {
-        g_origRenderBorder1(self, box, grad, data);
+        g_origRenderBorder1(self, ctx, box, grad, data);
         return;
     }
     // Single-gradient borders fire once: draw glass, cancel the flat border.
@@ -529,11 +531,12 @@ void hkRenderBorder1(CHyprOpenGLImpl* self, const CBox& box, const Config::CGrad
     s_haveLast = true;
 }
 
-void hkRenderBorder2(CHyprOpenGLImpl* self, const CBox& box, const Config::CGradientValueData& grad1,
+void hkRenderBorder2(CHyprOpenGLImpl* self, Render::CRenderContext& ctx, const CBox& box, const Config::CGradientValueData& grad1,
                      const Config::CGradientValueData& grad2, float lerp,
                      CHyprOpenGLImpl::SBorderRenderData data) {
+    lg::SRenderCtxScope scope(ctx);
     if (!wanted() || data.borderSize < 1 || !borderGlassReady()) {
-        g_origRenderBorder2(self, box, grad1, grad2, lerp, data);
+        g_origRenderBorder2(self, ctx, box, grad1, grad2, lerp, data);
         return;
     }
     // Animated borders fire twice per border, same box back to back. First
@@ -567,7 +570,9 @@ bool monitorLive(const PHLMONITOR& mon) {
     return false;
 }
 
-void hkDropShadowDraw(CHyprDropShadowDecoration* self, PHLMONITOR monitor, const float& a) {
+void hkDropShadowDraw(CHyprDropShadowDecoration* self, Render::CRenderContext& ctx, PHLMONITOR monitor, const float& a,
+                      const Render::SWindowRenderPresentation& presentation) {
+    lg::SRenderCtxScope scope(ctx);
     // A shadow draw can arrive with a monitor that is mid-teardown (output
     // reconfiguration during rapid VT switches): the PHLMONITOR bytes are
     // garbage and copying it for the forward call bumps a bogus refcount —
@@ -580,7 +585,7 @@ void hkDropShadowDraw(CHyprDropShadowDecoration* self, PHLMONITOR monitor, const
     if (lg::getInt("plugin:liquidglass:enabled", 1) == 1
         && lg::getInt("plugin:liquidglass:hide_window_shadows", 1) == 1)
         return; // cancel: no shadow pass element is submitted
-    g_origDropShadowDraw(self, monitor, a);
+    g_origDropShadowDraw(self, ctx, monitor, a, presentation);
 }
 
 } // namespace lg

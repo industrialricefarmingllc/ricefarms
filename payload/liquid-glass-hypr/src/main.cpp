@@ -7,17 +7,20 @@
 // read back, encoded, written to disk, or re-decoded — that whole pipeline
 // (previously ~150-250ms per update, ~5fps) is gone.
 
+#include "RenderCtx.hpp"
+#include "WinCompat.hpp"
 #include "Config.hpp"
 #include "Glass.hpp"
 #include "GlassPass.hpp"
 #include "BorderGlass.hpp"
-#include "GooMorph.hpp"
+#include "GooStub.hpp"
 #include "WindowGlass.hpp"
+#include "WindowWash.hpp"
 
 #include <hyprland/src/Compositor.hpp>
-#include <hyprland/src/desktop/Workspace.hpp>
+#include <hyprland/src/workspace/HLWorkspace.hpp>
 #include <hyprland/src/desktop/view/LayerSurface.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
@@ -66,16 +69,17 @@ void pruneDeadWindows() {
     }
 }
 
-using RenderLayerFn = void (*)(Render::IHyprRenderer*, PHLLS, PHLMONITOR, const Time::steady_tp&, bool, bool);
+using RenderLayerFn = void (*)(Render::IHyprRenderer*, Render::CRenderContext&, PHLLS, PHLMONITOR, const Time::steady_tp&, bool, bool, bool);
 RenderLayerFn g_originalRenderLayer = nullptr;
 
-void hkRenderLayer(Render::IHyprRenderer* self, PHLLS surface, PHLMONITOR monitor, const Time::steady_tp& now, bool popups, bool lockscreen) {
+void hkRenderLayer(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHLLS surface, PHLMONITOR monitor, const Time::steady_tp& now, bool popups, bool lockscreen, bool workspaceScene) {
+    lg::SRenderCtxScope scope(ctx);
     // Never inject into snapshots (e.g. layer fade-out captures): the
     // snapshot framebuffer starts transparent/black and the surface may be
     // half-destroyed — sampling it bakes garbage and touching its members
     // can fault (observed SEGV in namespaceAllowed via onUnmap).
-    if (g_pHyprRenderer->m_bRenderingSnapshot) {
-        g_originalRenderLayer(self, surface, monitor, now, popups, lockscreen);
+    if (LG_SNAPSHOT) {
+        g_originalRenderLayer(self, ctx, surface, monitor, now, popups, lockscreen, workspaceScene);
         return;
     }
 
@@ -84,7 +88,7 @@ void hkRenderLayer(Render::IHyprRenderer* self, PHLLS surface, PHLMONITOR monito
     // deletes anything queued before it. Elements are discardable (damage-
     // gated in render()): static frames skip all blit/blur/draw work and the
     // GPU sleeps; backdrop/tune/bounds changes damage us back as needed.
-    if (!popups && surface && surface->m_mapped && lg::getInt("plugin:liquidglass:enabled", 1)
+    if (!popups && surface && surface->mapped() && lg::getInt("plugin:liquidglass:enabled", 1)
         && lg::namespaceAllowed(surface->m_namespace)) {
         pruneDead();
         auto* raw = surface.get();
@@ -92,21 +96,24 @@ void hkRenderLayer(Render::IHyprRenderer* self, PHLLS surface, PHLMONITOR monito
         if (it == LAYERS->end() || !it->second->get())
             it = LAYERS->emplace(raw, std::make_shared<CGlassLayer>(surface)).first;
         CGlassPassElement::SData data{it->second};
-        g_pHyprRenderer->m_renderPass.add(makeUnique<CGlassPassElement>(data));
+        LG_PASS.add(makeUnique<CGlassPassElement>(data));
     }
 
-    g_originalRenderLayer(self, surface, monitor, now, popups, lockscreen);
+    g_originalRenderLayer(self, ctx, surface, monitor, now, popups, lockscreen, workspaceScene);
 }
 
-using RenderWindowFn = void (*)(Render::IHyprRenderer*, PHLWINDOW, PHLMONITOR, const Time::steady_tp&, bool,
+using RenderWindowFn = void (*)(Render::IHyprRenderer*, Render::CRenderContext&, PHLWINDOW, PHLMONITOR,
+                                const Render::SWindowRenderPresentation&, const Time::steady_tp&, bool,
                                 Render::eRenderPassMode, bool, bool);
 RenderWindowFn g_originalRenderWindow = nullptr;
 
-void hkRenderWindow(Render::IHyprRenderer* self, PHLWINDOW window, PHLMONITOR monitor, const Time::steady_tp& now,
+void hkRenderWindow(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHLWINDOW window, PHLMONITOR monitor,
+                    const Render::SWindowRenderPresentation& presentation, const Time::steady_tp& now,
                     bool decorate, Render::eRenderPassMode passMode, bool ignorePosition, bool standalone) {
+    lg::SRenderCtxScope scope(ctx);
     // Same snapshot rule as layers: never inject into captures.
-    if (g_pHyprRenderer->m_bRenderingSnapshot) {
-        g_originalRenderWindow(self, window, monitor, now, decorate, passMode, ignorePosition, standalone);
+    if (LG_SNAPSHOT) {
+        g_originalRenderWindow(self, ctx, window, monitor, presentation, now, decorate, passMode, ignorePosition, standalone);
         return;
     }
 
@@ -136,7 +143,7 @@ void hkRenderWindow(Render::IHyprRenderer* self, PHLWINDOW window, PHLMONITOR mo
     // deliberately NO on-top/rim overdraw pass anymore (removed): edge glass
     // over regular windows is gone entirely.
     const bool glassEnabled = lg::getInt("plugin:liquidglass:enabled", 1) != 0;
-    if (mainPass && glassEnabled && window && lg::windowAllowed(window->m_class)) {
+    if (mainPass && glassEnabled && window && lg::windowAllowed(window->metadata().appID())) {
         pruneDeadWindows();
         auto* raw = window.get();
         auto it = WINDOWS->find(raw);
@@ -146,7 +153,7 @@ void hkRenderWindow(Render::IHyprRenderer* self, PHLWINDOW window, PHLMONITOR mo
         // element (proven target space). Skips damage inside and yield null.
         if (auto draw = it->second->snapshot(monitor)) {
             CWindowGlassPassElement::SData data{it->second, *draw, false};
-            g_pHyprRenderer->m_renderPass.add(makeUnique<CWindowGlassPassElement>(data));
+            LG_PASS.add(makeUnique<CWindowGlassPassElement>(data));
         }
     }
 
@@ -172,16 +179,28 @@ void hkRenderWindow(Render::IHyprRenderer* self, PHLWINDOW window, PHLMONITOR mo
             const auto v = sv->value();
             const auto g = sv->goal();
             if (g.x < v.x - 0.5 || g.y < v.y - 0.5) {
-                prevAnimatingIn = window->m_animatingIn;
-                window->m_animatingIn = false;
+                prevAnimatingIn = window->presentation().animatingIn();
+                window->presentation().setAnimatingIn(false);
                 cropShrink = true;
             }
         }
     }
 
-    g_originalRenderWindow(self, window, monitor, now, decorate, passMode, ignorePosition, standalone);
+    g_originalRenderWindow(self, ctx, window, monitor, presentation, now, decorate, passMode, ignorePosition, standalone);
+
+    // Warm wallpaper wash: draw after the window content, using the same
+    // live geometry the compositor just used. This runs only when the window
+    // itself renders, so unrelated damage can never re-blend an old wash.
+    if (mainPass && !LG_SNAPSHOT && window && window->mapped() && !window->isHidden()) {
+        if (auto wash = lg::washTexture()) {
+            if (auto d = lg::windowWashSnapshot(window, monitor))
+                LG_PASS.add(
+                    makeUnique<CWindowWashPassElement>(CWindowWashPassElement::SData{*d, wash}));
+        }
+    }
+
     if (cropShrink)
-        window->m_animatingIn = prevAnimatingIn;
+        window->presentation().setAnimatingIn(prevAnimatingIn);
     goo::endWindowMorph(window, gooSave);
 }
 
@@ -208,12 +227,12 @@ int windowGlassCount(PHLMONITOR monitor) {
     int count = 0;
     for (const auto& [key, glass] : *WINDOWS) {
         const auto win = glass ? glass->get() : nullptr;
-        if (!win || !win->m_isMapped || win->isHidden() || win->monitorID() != monitor->m_id)
+        if (!win || !win->mapped() || win->isHidden() || win->monitorID() != monitor->m_id)
             continue;
-        if (!win->m_pinned &&
+        if (!lg::winPinned(win) &&
             !workspaceRenders(win->m_workspace, monitor->m_activeWorkspace, monitor->m_activeSpecialWorkspace))
             continue;
-        if (lg::windowAllowed(win->m_class) && !win->opaque())
+        if (lg::windowAllowed(win->metadata().appID()) && !win->presentation().opaque())
             ++count;
     }
     return count;
@@ -226,12 +245,12 @@ bool windowGlassNeedsFrame(PHLMONITOR monitor, const CBox& damage) {
     const CBox dmgLogical{damage.x / scale, damage.y / scale, damage.w / scale, damage.h / scale};
     for (const auto& [key, glass] : *WINDOWS) {
         const auto win = glass ? glass->get() : nullptr;
-        if (!win || !win->m_isMapped || win->isHidden() || win->monitorID() != monitor->m_id)
+        if (!win || !win->mapped() || win->isHidden() || win->monitorID() != monitor->m_id)
             continue;
-        if (!win->m_pinned &&
+        if (!lg::winPinned(win) &&
             !workspaceRenders(win->m_workspace, monitor->m_activeWorkspace, monitor->m_activeSpecialWorkspace))
             continue;
-        if (!lg::windowAllowed(win->m_class) || win->opaque())
+        if (!lg::windowAllowed(win->metadata().appID()) || win->presentation().opaque())
             continue;
         if (const auto bounds = glass->glassBounds(); bounds && !bounds->intersection(dmgLogical).empty())
             return true;

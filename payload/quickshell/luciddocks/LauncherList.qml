@@ -63,7 +63,9 @@ Item {
         return view.indexAt(view.width / 2, y);
     }
 
-    signal activated(int index)
+    // newInstance is true when Shift or Ctrl was held: the caller must not
+    // focus an existing window for this activation
+    signal activated(int index, bool newInstance)
     signal deleteRequested(int index)
     signal hideRequested(int index)
     signal prefixChosen(string prefix)
@@ -221,9 +223,9 @@ Item {
         scrollAnim.start();
     }
 
-    function activateCurrent() {
+    function activateCurrent(newInstance) {
         if (list.isSelectable(list.currentIndex))
-            list.activated(list.currentIndex);
+            list.activated(list.currentIndex, newInstance === true);
 
     }
 
@@ -609,13 +611,12 @@ Item {
                     source: rowItem.iconName === "" ? "" : (IconTheme.generation >= 0 && IconTheme.pathFor(rowItem.iconName) !== "" ? IconTheme.pathFor(rowItem.iconName) : Quickshell.iconPath(rowItem.iconName, true))
                 }
 
-                Text {
+                Twemoji {
                     anchors.centerIn: parent
                     visible: rowItem.emoji !== ""
-                    text: rowItem.emoji
-                    font.pixelSize: Math.round(list.leadSlot * 0.6)
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                    emoji: rowItem.emoji
+                    size: Math.round(list.leadSlot * 0.6)
+                    fallbackColor: Theme.text
                 }
 
                 Rectangle {
@@ -903,9 +904,9 @@ Item {
                 id: rowTap
 
                 enabled: rowItem.selectable && !rowItem.disabled
-                onTapped: {
+                onTapped: (point) => {
                     list.currentIndex = rowItem.index;
-                    list.activated(rowItem.index);
+                    list.activated(rowItem.index, (point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0);
                 }
             }
 

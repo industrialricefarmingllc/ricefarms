@@ -76,15 +76,6 @@ float sdRoundBox4(vec2 p, vec2 b, vec4 r) {
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - rad;
 }
 
-// Superellipse SDF (same as glass.frag): the squircle corner arc.
-// n = 2 is exactly the circle; n = 2 + 4*f, so f = 0.5 is the classic n = 4.
-float sdSuperellipse(vec2 p, float n, float r) {
-    vec2 pa = abs(p);
-    float num = pow(pa.x, n) + pow(pa.y, n) - pow(r, n);
-    float den = n * sqrt(pow(pa.x, 2.0 * n - 2.0) + pow(pa.y, 2.0 * n - 2.0)) + 0.00001;
-    return num / den;
-}
-
 // Squircle rounded box: same quadrant-picked radii as sdRoundBox4, corner
 // arc is a superellipse of exponent n. Reduces exactly to sdRoundBox4 at
 // n = 2; radius-0 corners take the exact box path.
@@ -159,26 +150,25 @@ float sdLensAt(vec2 wpx) {
 // Notch flare fillet in window space (fb px, exact): same concave fillet as
 // glass.frag (flare box INTERSECT outside-of-disc about the box outer-bottom
 // corner), relative to the inner (window) box. 1e9 = off -> union no-op.
-// Squircle-aware: with uSquircleF live the disc becomes the same
-// superellipse the glass body uses, or the ring's fillet sits up to ~19%
-// off the glass fillet at the diagonal — a backdrop wedge between them.
+// Always circular, matching glass.frag and QML's BarFlare (smoothing 0): the
+// squircle version collapses toward the tab, so the ring would hug a much
+// smaller arc than the circular hairline drawn on top. uSquircleF still
+// shapes the body corners in sdLensAt/sdPillBox4.
 float sdFlareWin(vec2 wpx, vec2 winSize, vec2 fl) {
     vec2 halfW = winSize * 0.5;
     float sdFl = 1e9;
-    float n = 2.0 + 4.0 * uSquircleF;
-    bool squ = uSquircleF > 0.0005;
     if (fl.x > 0.01) {
         float f = fl.x;
         vec2 bc = vec2(-halfW.x - f * 0.5, -halfW.y + f * 0.5);
         vec2 cc = vec2(-halfW.x - f, -halfW.y + f);
-        float disc = squ ? -sdSuperellipse(wpx - cc, n, f) : (f - length(wpx - cc));
+        float disc = f - length(wpx - cc);
         sdFl = min(sdFl, max(sdBox2(wpx - bc, vec2(f * 0.5)), disc));
     }
     if (fl.y > 0.01) {
         float f = fl.y;
         vec2 bc = vec2(halfW.x + f * 0.5, -halfW.y + f * 0.5);
         vec2 cc = vec2(halfW.x + f, -halfW.y + f);
-        float disc = squ ? -sdSuperellipse(wpx - cc, n, f) : (f - length(wpx - cc));
+        float disc = f - length(wpx - cc);
         sdFl = min(sdFl, max(sdBox2(wpx - bc, vec2(f * 0.5)), disc));
     }
     return sdFl;
@@ -374,26 +364,23 @@ void main() {
     // the tangency proof), unioned into the ring SDF so the 1px frame
     // follows the whole notch silhouette uniformly — one shape, one frame,
     // no start points, no missing segments. Flares off -> 1e9 -> no-op.
-    // Squircle-aware (same superellipse as the glass body): a circular
-    // ring fillet sits up to ~19% off a squirclish glass fillet at the
-    // diagonal, opening a backdrop wedge between glass edge and frame —
-    // the visible seam between notch and inverted corner.
+    // Circular (see sdFlareWin): the QML shoulder arc is smoothing 0, so the
+    // ring must use the same circle or it hugs a much tighter corner than
+    // the hairline drawn over it.
     {
         float sdFlR = 1e9;
-        float nR = 2.0 + 4.0 * uSquircleF;
-        bool squR = uSquircleF > 0.0005;
         if (uFlare.x > 0.01) {
             float f = uFlare.x;
             vec2 bc = vec2(uInner.x - f * 0.5, uInner.y + f * 0.5);
             vec2 cc = vec2(uInner.x - f, uInner.y + f);
-            float disc = squR ? -sdSuperellipse(p - cc, nR, f) : (f - length(p - cc));
+            float disc = f - length(p - cc);
             sdFlR = min(sdFlR, max(sdBox2(p - bc, vec2(f * 0.5)), disc));
         }
         if (uFlare.y > 0.01) {
             float f = uFlare.y;
             vec2 bc = vec2(uInner.x + uInner.z + f * 0.5, uInner.y + f * 0.5);
             vec2 cc = vec2(uInner.x + uInner.z + f, uInner.y + f);
-            float disc = squR ? -sdSuperellipse(p - cc, nR, f) : (f - length(p - cc));
+            float disc = f - length(p - cc);
             sdFlR = min(sdFlR, max(sdBox2(p - bc, vec2(f * 0.5)), disc));
         }
         sd = min(sd, sdFlR);

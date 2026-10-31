@@ -2,10 +2,12 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
+import Quickshell.Io
 import qs
 import qs.lucidui
 import qs.lucidprefs as LP
 import "../squircle"
+import "../lucidbar" as LucidBar
 
 // Raycast-like top-centre launcher. It reuses the dock's LauncherFace and its
 // models, but owns the surface: top anchored, collapsed to the head row until a
@@ -20,6 +22,48 @@ PanelWindow {
     property bool panelVisible: false
     property bool maskActive: false
     property real revealRadius: 0
+
+    property bool launcherGlassReady: false
+    readonly property bool glassOn: root.launcherGlassReady && Prefs.liquidGlassEnabled
+    readonly property bool maskedGlass: root.maskActive && root.maskCapable
+    property bool maskCapable: false
+
+    // This plugin build can clip its glass to a published circle. Until the
+    // compositor restarts onto one, keep the opaque reveal (publishing the
+    // full pill without the clip would flash a rectangle behind the iris).
+    Process {
+        id: maskProbe
+
+        command: ["hyprctl", "getoption", "plugin:liquidglass:mask_support"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root.maskCapable = text.indexOf("int: 1") !== -1
+        }
+    }
+
+    Timer {
+        interval: 500
+        repeat: true
+        running: !root.maskCapable
+        onTriggered: maskProbe.running = true
+    }
+
+    Process {
+        id: glassProbe
+
+        command: ["hyprctl", "getoption", "plugin:liquidglass:launcher_glass"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root.launcherGlassReady = text.indexOf("int: 1") !== -1
+        }
+    }
+
+    Timer {
+        interval: 500
+        repeat: true
+        running: !root.launcherGlassReady
+        onTriggered: glassProbe.running = true
+    }
 
     screen: dock ? (dock.launcherScreen || dock.screen) : null
     // Keep the layer surface mapped from startup: mapping it on Super was the
@@ -222,13 +266,38 @@ PanelWindow {
         y: 0
         width: face.width * root.scaleFactor + root.padH * 2 + root.ring * 2
         height: face.height * root.scaleFactor + root.padV * 2 + root.ring * 2
-        fillColor: root.panelFill
+        fillColor: (root.glassOn && (!root.maskActive || root.maskedGlass)) ? "transparent" : root.panelFill
         borderColor: root.panelBorder
         borderWidth: root.activeBorderWidth
         radius: Theme.radiusXl + root.ring
         smoothing: Prefs.squircleF
         z: -1
     }
+
+    LucidBar.GlassLayout {
+        name: "launcher"
+        surfaceNamespace: "lucid-launcher"
+        targetScreen: root.screen
+        surfaceW: root.width
+        surfaceH: root.height
+        // New plugin: shape is the live committed surface box; the rect below
+        // is ignored (kept so older builds still get a usable bridge).
+        full: true
+        pills: (root.glassOn && (root.panelVisible || root.closing) && (!root.maskActive || root.maskedGlass)) ? [{
+            x: root.maskActive ? 0 : surface.x,
+            y: root.maskActive ? 0 : surface.y,
+            w: root.maskActive ? root.width : surface.width,
+            h: root.maskActive ? root.height : surface.height,
+            r: root.maskActive ? [0, 0, 0, 0]
+                               : [Theme.radiusXl + root.ring, Theme.radiusXl + root.ring,
+                                  Theme.radiusXl + root.ring, Theme.radiusXl + root.ring],
+            sq: root.maskActive ? 0 : Prefs.squircleF
+        }] : []
+        // Same hard circle as LauncherMask.qsb: centre (width/2, revealCenterY),
+        // radius revealRadius, in surface-local logical px.
+        mask: root.maskedGlass ? { x: root.width / 2, y: root.revealCenterY, r: root.revealRadius } : null
+    }
+
 
     LauncherFace {
         id: face
@@ -268,8 +337,8 @@ PanelWindow {
         powerButtons: String(Prefs.launcherPowerButtons).split(",")
         armedPower: root.dock ? root.dock.armedPower : ""
         onPowerChipTapped: (id) => root.dock && root.dock.requestPower(id)
-        onActivated: (index) => root.dock && root.dock.activateResult(index)
-        onAppActivated: (index) => root.dock && root.dock.activateApp(index)
+        onActivated: (index, newInstance) => root.dock && root.dock.activateResult(index, newInstance)
+        onAppActivated: (index, newInstance) => root.dock && root.dock.activateApp(index, newInstance)
         onWidgetAdded: (name) => {
             if (root.toast)
                 root.toast.popup("widgets", name + " added", false);

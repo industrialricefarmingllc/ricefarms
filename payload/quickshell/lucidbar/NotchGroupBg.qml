@@ -30,11 +30,25 @@ Item {
 
     readonly property real cornerRadius: root.bounds ? root.bounds.r : 0
 
+    // The shadow needs a MultiEffect layer, and a layered item at a fractional
+    // output scale (1.333 on DP-1 here) samples its source through the
+    // transparent padding around it: the body's outermost row came out ~30%
+    // transparent. On a notch that row is the one against the screen edge, so
+    // a hairline of wallpaper showed above the tab — and because the shoulder
+    // flares are drawn outside the layer, the see-through row stopped where it
+    // met them, reading as a break between the inverted corner and the tab.
+    //
+    // Carry the same body two pixels past the top edge (the shape is square
+    // there: only its bottom-inner corner is rounded) so the blended row falls
+    // off-screen. The silhouette on screen is unchanged; the fill now reaches
+    // y=0 fully opaque.
+    readonly property real edgeOverhang: 2
+
     visible: root.shown && root.bounds !== null
     x: root.bounds ? root.bounds.x : 0
-    y: root.hiddenOffset
+    y: root.hiddenOffset - root.edgeOverhang
     width: root.bounds ? Math.max(1, root.bounds.w) : 0
-    height: root.bounds ? root.bounds.h : 0
+    height: root.bounds ? root.bounds.h + root.edgeOverhang : 0
     z: -2
 
     layer.enabled: root.visible && !root.borderOnly
@@ -60,7 +74,9 @@ Item {
         borderWidth: WindowBorder.size
         // the tab grows out of the screen edge: no top edge to outline
         borderTop: 0
-        borderGap: Qt.vector2d(root.borderLeftGap, root.borderRightGap)
+        // the overhang above the screen adds to the shoulder's drop, so the
+        // side hairline still resumes where the flare's arc ends
+        borderGap: Qt.vector2d(root.borderLeftGap + root.edgeOverhang, root.borderRightGap + root.edgeOverhang)
         // SquircleRect maps its bottom pair across (its _br reads
         // bottomLeftRadius), so set the inward corner through the opposite
         // property to land it on the right side.

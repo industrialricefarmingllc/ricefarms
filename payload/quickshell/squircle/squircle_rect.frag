@@ -38,11 +38,13 @@ float sdSquircleBox4(vec2 p, vec2 b, vec4 r, float n) {
     if (rad > 0.01 && ap.x > c.x && ap.y > c.y) {
         if (n <= 2.001)
             return length(ap - c) - rad; // exact circle: f = 0 is Rectangle
+        // L^n norm field: 0 exactly on the superellipse, exact circle at
+        // n = 2, bounded and monotone in the corner interior (num/den is a
+        // near-surface linearisation that dives to -hundreds of px one
+        // corner-width in, which steps dist/glow hard along x = b.x - rad
+        // and y = b.y - rad).
         vec2 q = (ap - c) / rad;
-        float n2 = 2.0 * n - 2.0;
-        float num = pow(q.x, n) + pow(q.y, n) - 1.0;
-        float den = n * sqrt(pow(q.x, n2) + pow(q.y, n2)) + 0.0001;
-        return num / den * rad;
+        return (pow(pow(q.x, n) + pow(q.y, n), 1.0 / n) - 1.0) * rad;
     }
     vec2 q2 = ap - b + vec2(rad);
     return min(max(q2.x, q2.y), 0.0) + length(max(q2, 0.0)) - rad;
@@ -73,8 +75,14 @@ void main() {
     // top border is off there; and a side border stops where a concave
     // shoulder flare (which draws its own arc) takes over, so the notch does
     // not read as a separate shape stuck onto the tab.
+    //
+    // The top band carries the fill/border boundary's whole pixel footprint
+    // (fw), not just borderWidth: on a fractional output scale that boundary
+    // lands between device rows, and its antialiasing bled one row past a band
+    // exactly borderWidth tall — a hairline of border colour under the screen
+    // edge, which read as the tab sitting a pixel low.
     vec2 halfSize = itemSize * 0.5;
-    float topBand = (1.0 - borderTop) * step(p.y, -halfSize.y + borderWidth);
+    float topBand = (1.0 - borderTop) * step(p.y, -halfSize.y + borderWidth + fw);
     float leftBand = step(0.5, borderGap.x) * step(p.x, -halfSize.x + borderWidth) * step(p.y, -halfSize.y + borderGap.x);
     float rightBand = step(0.5, borderGap.y) * step(halfSize.x - borderWidth, p.x) * step(p.y, -halfSize.y + borderGap.y);
     float bw = borderWidth * max(0.0, 1.0 - min(1.0, topBand + leftBand + rightBand));

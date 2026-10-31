@@ -354,8 +354,8 @@ hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("pactl set-source-mute @DEFAULT_SOUR
 hl.bind("SUPER + XF86AudioRaiseVolume", hl.dsp.exec_cmd("pactl set-sink-volume @DEFAULT_SINK@ +5%"))
 hl.bind("SUPER + XF86AudioLowerVolume", hl.dsp.exec_cmd("pactl set-sink-volume @DEFAULT_SINK@ -5%"))
 
--- Screenshot: Print = region + freeze + clipboard-only silent (no notification)
-hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --freeze --clipboard-only --silent"))
+-- Screenshot: Print = open Lucid's capture bar (region/full/text/colour, toggle closes)
+hl.bind("Print", hl.dsp.exec_cmd("qs ipc call snap toggle"))
 
 -- F16 = open kitty (single press, no modifier — mirrors F15 desktop-toggle pattern)
 -- kb_variant ",phonetic_winkeys" (via the inet evdev symbols) remaps FK13-FK20:

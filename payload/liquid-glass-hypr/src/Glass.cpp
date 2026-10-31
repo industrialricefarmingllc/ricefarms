@@ -1,3 +1,4 @@
+#include "RenderCtx.hpp"
 #include "Glass.hpp"
 #include "Config.hpp"
 #include "Shaders.hpp"
@@ -906,7 +907,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
         // last glass pixels, so glass stays on screen at zero cost. Empty
         // damage + fresh state likewise returns (nothing to present).
         {
-            const CBox dmg0 = g_pHyprRenderer->m_renderData.damage.getExtents();
+            const CBox dmg0 = LG_RENDER_DATA.damage.getExtents();
             if (!boundsChanged) {
                 if (dmg0.w <= 0 || dmg0.h <= 0)
                     return;
@@ -930,13 +931,13 @@ void CGlassLayer::render(PHLMONITOR monitor) {
     if (!m_shadersOk)
         return;
 
-    const auto caller = g_pHyprRenderer->m_renderData.currentFB;
+    const auto caller = LG_RENDER_DATA.currentFB;
     if (!caller)
         return;
 
     const auto callerSize = caller->m_size;
 
-    const auto source = g_pHyprRenderer->m_renderData.currentFB;
+    const auto source = LG_RENDER_DATA.currentFB;
     const int srcW = (int)source->m_size.x;
     const int srcH = (int)source->m_size.y;
 
@@ -1013,7 +1014,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
     // cf. upstream renderBorder intersecting damage with fb boxes directly).
     // Quads missing it entirely are skipped (blit+blur+draw); the rest draw
     // scissored to it. Outside damage nothing presents, so this is free.
-    const CBox dmgExt = g_pHyprRenderer->m_renderData.damage.getExtents();
+    const CBox dmgExt = LG_RENDER_DATA.damage.getExtents();
 
     // Straight-alpha blending for the glass quads.
     // PERF: no glGet* save/restore per draw (each glGet stalls the pipeline;
@@ -1135,7 +1136,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
             const float ex0 = lp.x - E, ey0 = lp.y - E;
             const float ew = lp.w + 2 * E, eh = lp.h + 2 * E;
             CBox quadBox{ex0, ey0, ew, eh};
-            Mat3x3 proj = g_pHyprRenderer->projectBoxToTarget(quadBox, transform);
+            Mat3x3 proj = g_pHyprRenderer->projectBoxToTarget(lg::rctx(), quadBox, transform);
             // Upstream uploads projectBoxToTarget with GL_TRUE and no manual
             // transpose (see renderRect/renderTexture); match exactly.
 
@@ -1227,7 +1228,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
                 const int cy1 = std::min((int)std::ceil(quadBox.y + quadBox.h), (int)(dmgExt.y + dmgExt.h));
                 if (cx1 > cx0 && cy1 > cy0) {
                     const pixman_box32_t clip{(int32_t)cx0, (int32_t)cy0, (int32_t)cx1, (int32_t)cy1};
-                    g_pHyprOpenGL->scissor(&clip, g_pHyprRenderer->m_renderData.transformDamage);
+                    g_pHyprOpenGL->scissor(lg::rctx(), &clip, LG_RENDER_DATA.transformDamage);
                     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
                     g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
                 }
@@ -1260,7 +1261,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
                 const float pw = lp.w, ph = lp.h;
                 const float ix = lp.x - (float)rx0, iy = lp.y - (float)ry0;
                 CBox ringBox{(double)rx0, (double)ry0, (double)rw, (double)rh};
-                Mat3x3 rproj = g_pHyprRenderer->projectBoxToTarget(ringBox, transform);
+                Mat3x3 rproj = g_pHyprRenderer->projectBoxToTarget(lg::rctx(), ringBox, transform);
                 glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
                 g_pHyprOpenGL->setViewport(0, 0, (int)callerSize.x, (int)callerSize.y);
                 glActiveTexture(GL_TEXTURE0);
@@ -1335,7 +1336,7 @@ void CGlassLayer::render(PHLMONITOR monitor) {
                     const int cy1 = std::min((int)std::ceil(ringBox.y + ringBox.h), (int)(dmgExt.y + dmgExt.h));
                     if (cx1 > cx0 && cy1 > cy0) {
                         const pixman_box32_t clip{(int32_t)cx0, (int32_t)cy0, (int32_t)cx1, (int32_t)cy1};
-                        g_pHyprOpenGL->scissor(&clip, g_pHyprRenderer->m_renderData.transformDamage);
+                        g_pHyprOpenGL->scissor(lg::rctx(), &clip, LG_RENDER_DATA.transformDamage);
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
                         g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
                     }

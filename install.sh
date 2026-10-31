@@ -383,6 +383,9 @@ phase_hypr_plugins() {
     fi
   done
   install_dir "$P/liquid-glass-hypr" "$TARGET_HOME/src/liquid-glass-hypr"
+  # Hyprland 0.57 variant: hyprland.lua loads this one (the 0.56 build no
+  # longer links against the 0.57 ABI).
+  install_dir "$P/liquid-glass-hypr-057" "$TARGET_HOME/src/liquid-glass-hypr-057"
   install_dir "$P/hypr-goo-workspaces" "$TARGET_HOME/src/hypr-goo-workspaces"
   build_liquid_glass
   verify_hypr_plugins
@@ -390,10 +393,12 @@ phase_hypr_plugins() {
 
 build_liquid_glass() {
   info "build: liquidglass.so (needs hyprland headers for running version)"
-  local d="$TARGET_HOME/src/liquid-glass-hypr"
-  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; return 0; fi
-  [[ -f "$d/Makefile" ]] || { warn "liquid-glass-hypr src missing — skipping build"; return 0; }
-  (run_cmd make -C "$d") || warn "liquidglass build failed — install hyprland headers matching your compositor, then make -C ~/src/liquid-glass-hypr"
+  local d
+  for d in "$TARGET_HOME/src/liquid-glass-hypr" "$TARGET_HOME/src/liquid-glass-hypr-057"; do
+    if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; continue; fi
+    [[ -f "$d/Makefile" ]] || { warn "$(basename "$d") src missing — skipping build"; continue; }
+    (run_cmd make -C "$d") || warn "$(basename "$d") build failed — install hyprland headers matching your compositor, then make -C $d"
+  done
   info "hypr-goo-workspaces standalone retired (merged into liquidglass) — not built"
 }
 
@@ -404,6 +409,8 @@ verify_hypr_plugins() {
   done
   [[ -f "$P/liquid-glass-hypr/Makefile" ]] || { warn "liquid-glass-hypr Makefile missing"; ok=0; }
   [[ -f "$P/liquid-glass-hypr/pin.txt" ]] || { warn "liquid-glass-hypr pin missing"; ok=0; }
+  [[ -f "$P/liquid-glass-hypr-057/Makefile" ]] || { warn "liquid-glass-hypr-057 Makefile missing"; ok=0; }
+  [[ -f "$P/liquid-glass-hypr-057/pin.txt" ]] || { warn "liquid-glass-hypr-057 pin missing"; ok=0; }
   [[ -f "$P/hypr-goo-workspaces/Makefile" ]] || { warn "hypr-goo-workspaces src missing"; ok=0; }
   [[ -f "$P/hypr-edge-swipe/Makefile" ]] || { warn "hypr-edge-swipe src missing"; ok=0; }
   [[ -f "$P/hypr-edge-swipe/src/main.cpp" ]] || { warn "hypr-edge-swipe main.cpp missing"; ok=0; }
@@ -831,7 +838,7 @@ export_payload() {
   #   quick-translate (standalone source for the Lucid translate widget).
   # Pruned: .git, build artifacts (*.o/*.so*), generated Shaders.hpp,
   # timestamped backups and Python caches.
-  for proj in liquid-glass-hypr hypr-goo-workspaces hypr-edge-swipe quick-translate; do
+  for proj in liquid-glass-hypr liquid-glass-hypr-057 hypr-goo-workspaces hypr-edge-swipe quick-translate; do
     if [[ -d "$S/src/$proj" ]]; then
       mkdir -p "$P/$proj"
       (cd "$S/src/$proj" && tar --exclude=.git --exclude='*.o' --exclude='*.so*' \
@@ -840,11 +847,13 @@ export_payload() {
       log "export-dir: src/$proj -> payload/$proj (pruned)"
     fi
   done
-  if [[ -d "$S/src/liquid-glass-hypr/.git" ]]; then
-    (cd "$S/src/liquid-glass-hypr" && git rev-parse HEAD 2>/dev/null > "$P/liquid-glass-hypr/pin.txt") || echo unknown > "$P/liquid-glass-hypr/pin.txt"
-    (cd "$S/src/liquid-glass-hypr" && git status --short 2>/dev/null > "$P/liquid-glass-hypr/local-mods.txt") || true
-    log "export: liquid-glass-hypr pin $(cat "$P/liquid-glass-hypr/pin.txt" 2>/dev/null)"
-  fi
+  for proj in liquid-glass-hypr liquid-glass-hypr-057; do
+    if [[ -d "$S/src/$proj/.git" ]]; then
+      (cd "$S/src/$proj" && git rev-parse HEAD 2>/dev/null > "$P/$proj/pin.txt") || echo unknown > "$P/$proj/pin.txt"
+      (cd "$S/src/$proj" && git status --short 2>/dev/null > "$P/$proj/local-mods.txt") || true
+      log "export: $proj pin $(cat "$P/$proj/pin.txt" 2>/dev/null)"
+    fi
+  done
   for proj in hypr-edge-swipe quick-translate; do
     if [[ -d "$S/src/$proj/.git" ]]; then
       (cd "$S/src/$proj" && git rev-parse HEAD 2>/dev/null > "$P/$proj/pin.txt") || echo unknown > "$P/$proj/pin.txt"
@@ -1035,6 +1044,7 @@ verify_install() {
   check "opencode config present" test -f "$TARGET_HOME/.config/opencode/opencode.json"
   check "liquidglass helpers present" test -x "$USRLOCAL_BIN/minimize-all"
   check "liquidglass.so built" test -f "$TARGET_HOME/src/liquid-glass-hypr/liquidglass.so"
+  check "liquidglass.so (0.57) built" test -f "$TARGET_HOME/src/liquid-glass-hypr-057/liquidglass.so"
   if [[ $fails -gt 0 ]]; then warn "verify: $fails checks failed"; return 1; fi
   info "verify: all checks passed"
 }

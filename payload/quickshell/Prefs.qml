@@ -1305,8 +1305,8 @@ Singleton {
         "pinBorder": "tertiary",
         "pinBadge": "top-right",
         "pinPulse": true,
-        "urgentBadge": "top-left",
-        "urgentPulse": true,
+        "urgentBadge": "off",
+        "urgentPulse": false,
         "startupApps": "[]",
         "startupEnv": "[]",
         "startupXdg": false,
@@ -2080,8 +2080,8 @@ Singleton {
             property string pinBorder: "tertiary"
             property string pinBadge: "top-right"
             property bool pinPulse: true
-            property string urgentBadge: "top-left"
-            property bool urgentPulse: true
+            property string urgentBadge: "off"
+            property bool urgentPulse: false
             property string startupApps: "[]"
             property string startupEnv: "[]"
             property bool startupXdg: false

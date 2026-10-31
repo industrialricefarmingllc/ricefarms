@@ -55,6 +55,14 @@ Item {
     property real surfaceH: 0
     // [{x, y, w, h, r: [tl, tr, br, bl]}]
     property var pills: []
+    // Optional circular clip for this surface's glass body, surface-local
+    // logical px: {x, y, r}. The plugin feathers the glass edge to the circle
+    // (used by the launcher iris reveal, whose QML mask clips content the same
+    // way). Empty object/absent = no mask.
+    property var mask: null
+    // Shape is the live committed layer-surface box; only radius/squircle
+    // come from the pills. Removes size/position from the bridge entirely.
+    property bool full: false
 
     readonly property string monitorName: root.targetScreen && root.targetScreen.name ? root.targetScreen.name : "DP-1"
 
@@ -81,6 +89,8 @@ Item {
             property string ns: ""
             property var surface: ({})
             property var pills: []
+            property var mask: ({})
+            property bool full: false
         }
     }
 
@@ -113,6 +123,8 @@ Item {
             "h": root.surfaceH
         };
         json.pills = root.pills;
+        json.mask = root.mask || ({});
+        json.full = root.full;
         if (root._writes === 0)
             root._tFirst = root._lastWriteMs;
         root._writes++;
@@ -131,7 +143,8 @@ Item {
     }
 
     function sigOf() {
-        return root.monitorName + "|" + root.surfaceNamespace + "|" + root.surfaceW + "x" + root.surfaceH + "|" + JSON.stringify(root.pills);
+        return root.monitorName + "|" + root.surfaceNamespace + "|" + root.surfaceW + "x" + root.surfaceH + "|" + JSON.stringify(root.pills)
+            + "|" + JSON.stringify(root.mask || ({})) + "|" + root.full;
     }
 
     property int _writes: 0
@@ -156,6 +169,7 @@ Item {
     }
 
     onPillsChanged: root.sync()
+    onMaskChanged: root.sync()
     onMonitorNameChanged: root.sync()
     onSurfaceNamespaceChanged: root.sync()
     onSurfaceWChanged: root.sync()

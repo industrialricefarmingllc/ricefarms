@@ -654,13 +654,22 @@ Item {
 
                     }
 
+                    Twemoji {
+                        anchors.centerIn: parent
+                        visible: !face.isKaomoji
+                        emoji: face.isKaomoji ? "" : cell.modelData.d
+                        size: Theme.dp(22)
+                        fallbackColor: Theme.text
+                    }
+
                     Text {
                         anchors.centerIn: parent
-                        width: face.isKaomoji ? cell.width - Theme.dp(12) : cell.width
-                        text: cell.modelData.d
+                        width: cell.width - Theme.dp(12)
+                        visible: face.isKaomoji
+                        text: face.isKaomoji ? cell.modelData.d : ""
                         color: Theme.text
-                        font.family: face.isKaomoji ? Theme.fontFamily : "Noto Color Emoji"
-                        font.pixelSize: face.isKaomoji ? Theme.fontBody : Theme.dp(22)
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontBody
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                     }
@@ -853,12 +862,21 @@ Item {
                 spacing: Theme.dp(12)
                 visible: !face.isGif
 
+                Twemoji {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: !face.isKaomoji
+                    emoji: face.current ? face.current.d : ""
+                    size: Theme.dp(22)
+                    fallbackColor: Theme.text
+                }
+
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: face.current ? face.current.d : ""
+                    visible: face.isKaomoji
+                    text: face.isKaomoji && face.current ? face.current.d : ""
                     color: Theme.text
-                    font.family: face.isKaomoji ? Theme.fontFamily : "Noto Color Emoji"
-                    font.pixelSize: face.isKaomoji ? Theme.fontBody : Theme.dp(22)
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontBody
                 }
 
                 Column {

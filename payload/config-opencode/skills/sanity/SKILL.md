@@ -25,4 +25,4 @@ Without reproduction, you cannot ensure the issue is resolved.
 
 ### Communicate in Patches
 
-Be concise. No long explanations. Show only the patch and the reason. If `draw` is also loaded, add its diagram too when suited.
+Be concise. No long explanations. Show only the patch and the reason.

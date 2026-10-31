@@ -6,18 +6,20 @@ local shader = require("shader")
 ------------------
 ---- MONITORS ----
 ------------------
-hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "0x0", scale = 2.4 })
+-- Scales are ~10% larger than the 1.875/1.25/1.5 step (snapped to the nearest
+-- clean divisor, which is +6.7%: 2.0 and 4/3). All externals share a
+-- 1920x1080 logical grid; positions are logical px and contiguous.
+hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "0x0", scale = 2.0 })
 -- DP-1 at 165Hz (monitor overclock on). Was 120Hz so 120/60/60 shared a
 -- content cadence; back to 120 if mixed-refresh judder shows.
-hl.monitor({ output = "DP-1", mode = "2560x1440@165", position = "1600x0", scale = 1.6 })
-hl.monitor({ output = "DP-3", mode = "3840x2160@60", position = "3200x0", scale = 2.4 })
+-- 4/3 = 160/120, the exact divisor Hyprland's scale search picks.
+hl.monitor({ output = "DP-1", mode = "2560x1440@165", position = "1920x0", scale = 4 / 3 })
+hl.monitor({ output = "DP-3", mode = "3840x2160@60", position = "3840x0", scale = 2.0 })
 hl.monitor({ output = "HDMI-A-1", disabled = true })
--- Internal eDP panel (LG, 2736x1824 on 26x17cm -> ~267 PPI): 200%, i.e.
--- 1368x912 logical (the 2x integer divisor for this panel). Before this rule
--- it fell through to the wildcard below at scale 1, i.e. everything rendered
--- half-size. Exact-name match wins over the wildcard fallback regardless of
--- ordering.
-hl.monitor({ output = "eDP-1", mode = "preferred", position = "auto", scale = 2.0 })
+-- Internal eDP panel (LG, 2736x1824 on 26x17cm -> ~267 PPI): 160%, i.e.
+-- 1710x1140 logical. Exact-name match wins over the wildcard fallback
+-- regardless of ordering.
+hl.monitor({ output = "eDP-1", mode = "preferred", position = "auto", scale = 1.6 })
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 
 hl.workspace_rule({ workspace = "1", monitor = "DP-1", persistent = true })
@@ -170,15 +172,19 @@ hl.on("hyprland.start", function()
   -- same .so twice aborts the compositor (SIGABRT 12:46). Skip if present.
   -- 2026-09-06: re-enabled with monitorLive guard in hkDropShadowDraw
   -- (stale-monitor SEGV during VT-switch reconfig fixed in plugin).
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr/liquidglass.so")
+  -- The full plugin is rebuilt for Hyprland 0.57 in -057.
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass.so")
+  -- Layer-wide overlay blending is intentionally not loaded; the wash is
+  -- drawn per window inside the glass plugin to avoid feedback.
+  -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-overlay || hyprctl plugin load /home/nicerice/src/lucid-overlay/lucid-overlay.so")
   -- Machine-local glass preset (this box has VRAM to spare): full-res working
   -- buffers + no CA. Applied BOTH here (fresh boot, after the plugin loads)
   -- and on every config.reloaded below: ephemeral `hl.config` plugin keys are
   -- wiped by every `hyprctl reload`, and the start handler does NOT re-fire
   -- on reload (only top-level code + reloaded handlers do). Stays configurable
-  -- live via hyprctl eval (capture_scale 2 = half-res/full buffers,
+  -- live via hyprctl eval (capture_scale 1 = full-res, 2 = half-res, 4 = quarter-res,
   -- 4 = quarter-res/lean). No-ops harmlessly if the plugin isn't up yet.
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=2, ca=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
   -- Liquid glass + goo states are owned by liquid-glass-toggle (prefs.json:
   -- liquidGlassEnabled + gooWorkspacesEnabled). Do NOT pin
   -- windows/namespaces here: the toggle must control every glass surface
@@ -196,12 +202,33 @@ hl.on("hyprland.start", function()
   -- load — it would double-hook rounding/events.
 end)
 
+-- skwd-walld reaps the layer renderers of every output that goes away (VT
+-- switch, DPMS, unplug) and never brings them back when the output returns,
+-- so a relaunched desktop (F15 -> tty7) comes back bare until a wallpaper is
+-- picked again. Heal on start and whenever an output is (re)added; the script
+-- only acts when a connected output has no skwd layer, so the daemon's own
+-- restore at login is left to finish.
+hl.on("hyprland.start", function()
+  hl.exec_cmd("~/.config/hypr/scripts/wallpaper-heal.sh")
+end)
+
+-- Hyprland 0.57 fractional-scale regression: clients start with wrong
+-- buffer scales after the Lua config switch. Re-applying the output config
+-- once the compositor is up forces them to re-render correctly (text
+-- sharpness + client/glass edge alignment). See the script for details.
+hl.on("hyprland.start", function()
+  hl.exec_cmd("~/.config/hypr/scripts/fractional-scale-fix.sh")
+end)
+hl.on("monitor.added", function()
+  hl.exec_cmd("~/.config/hypr/scripts/wallpaper-heal.sh")
+end)
+
 -- Glass preset re-apply on every reload (top-level runs on reload; the start
 -- handler above does not re-fire). Mirrors the boot apply: no loop risk —
 -- hl.config sets runtime values without triggering another reload (same
 -- pattern as shader.lua's config.reloaded handler).
 hl.on("config.reloaded", function()
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=2, ca=0, hide_window_shadows=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0, hide_window_shadows=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
   applyGooPreset()
 end)
 
@@ -321,11 +348,17 @@ hl.config({
 
 hl.curve("easeOut", { type = "bezier", points = { {0.05, 0.9}, {0.1, 1.05} } })
 hl.curve("lucidResize", { type = "spring", mass = 1, stiffness = 120, dampening = 12 })
-hl.curve("lucidSettle", { type = "bezier", points = { {0.20, 1.50}, {0.70, 1.10} } })
+-- 2026-10-31: placement overshoot scaled to 67% (33% less intense); the
+-- original control points were 1.50 / 1.10. Restore those for full strength.
+hl.curve("lucidSettle", { type = "bezier", points = { {0.20, 1.335}, {0.70, 1.067} } })
 hl.curve("lucidWorkspace", { type = "bezier", points = { {0.0, 0.0}, {0.15, 1.0} } })
-hl.animation({ leaf = "windows", enabled = true, speed = 5.29, bezier = "easeOut" })
+-- Tiling-manager scaling/placement, also at 67% intensity:
+--   windowsIn: popin 0% -> 33% start (scale travel 100% -> 67%)
+--   windowsOut: popin 78% -> 85% end (shrink travel 22% -> 14.7%)
+--   windowsMove: lucidSettle overshoot 50%/10% -> 33.5%/6.7%
+hl.animation({ leaf = "windows", enabled = true, speed = 5.29, bezier = "easeOut", style = "popin 33%" })
 hl.animation({ leaf = "windowsMove", enabled = true, speed = 4.0, bezier = "lucidSettle" })
-hl.animation({ leaf = "windowsOut", enabled = true, speed = 5.29, bezier = "easeOut", style = "popin 78%" })
+hl.animation({ leaf = "windowsOut", enabled = true, speed = 5.29, bezier = "easeOut", style = "popin 85%" })
 hl.animation({ leaf = "border", enabled = true, speed = 10.58, bezier = "default" })
 hl.animation({ leaf = "borderangle", enabled = true, speed = 10.58, bezier = "default" })
 hl.animation({ leaf = "fade", enabled = true, speed = 5.29, bezier = "default" })
@@ -365,8 +398,11 @@ gooPreset =
   .. "slide_ratio=0.0,"
   -- Real window geometry: stretch along the workspace motion axis and
   -- squash across it, both directions, settling to 1.0.
-  .. "stretch=0.067,squash=0.040,blob_scale=0.973,collapse=0.83,"
-  .. "fade_out_min=0.35,wobble_amp=0.0,wobble_freq=1.5,"
+  -- 2026-10-31: morph amplitudes scaled to 67% (33% less intense). The
+  -- originals were stretch=0.067, squash=0.040, blob_scale=0.973,
+  -- collapse=0.83, fade_out_min=0.35; restore those to get full strength.
+  .. "stretch=0.045,squash=0.027,blob_scale=0.982,collapse=0.886,"
+  .. "fade_out_min=0.565,wobble_amp=0.0,wobble_freq=1.5,"
   -- Legacy (start-delay era); ignored by the duration-spread design. Kept
   -- so old configs never hit unknown-key errors.
   .. "stagger=0.375,in_curve=\"spring\",out_curve=\"linear\","
@@ -656,6 +692,8 @@ hl.define_submap("tmux", function()
   tmuxBind("Cyrillic_ha", hl.dsp.window.close())
   tmuxBind("Cyrillic_es", hl.dsp.exec_cmd("qs ipc call -- launcher toggle"))
   tmuxBind("z", hl.dsp.window.fullscreen({ mode = 1 }))
+  -- f = true fullscreen (mode 0), matching the pre-2026-10 tmux submap.
+  tmuxBind("f", hl.dsp.window.fullscreen({ mode = 0 }))
   tmuxBind("v", hl.dsp.window.float({ action = "toggle" }))
   -- Workspace jumps pre-steer the slide with the shared steerWsJump()
   -- (custom.lua) so they never inherit a stale direction; the
@@ -693,8 +731,9 @@ hl.define_submap("tmux", function()
     hl.bind(k, tmuxWsNum(k))
     pcall(function() hl.bind("CTRL + " .. k, tmuxWsNum(k)) end)
   end
-  -- Freed keys: mirror the dev host's tmux `unbind -T prefix o/p/t/f`
-  -- (~/.tmux.conf there, "freed keys" block). In tmux an unbound prefix key
+  -- Freed keys: mirror the dev host's tmux `unbind -T prefix o/p/t`
+  -- (~/.tmux.conf there, "freed keys" block; f is deliberately NOT freed here
+  -- — it is rebound to true fullscreen above). In tmux an unbound prefix key
   -- does nothing AND ends the one-shot prefix table, so do the same here:
   -- swallow the key and reset the submap. (A plain no-op bind would leave the
   -- chain armed, which is not what unbind does.)
@@ -704,7 +743,7 @@ hl.define_submap("tmux", function()
     disarmTmuxTimeout()
     hl.dispatch(hl.dsp.submap("reset"))
   end
-  for _, k in ipairs({ "o", "p", "t", "f" }) do
+  for _, k in ipairs({ "o", "p", "t" }) do
     hl.bind(k, tmuxFreed, { description = "tmux: freed key (cancel chain, mirrors tmux unbind)" })
     pcall(function()
       hl.bind("CTRL + " .. k, tmuxFreed, { description = "tmux: freed key (cancel chain, mirrors tmux unbind)" })
@@ -1073,11 +1112,3 @@ if hl.plugin["lucid-capture"] then
   })
   lc.layer("quickshell", { mask_threshold = 0.001 })
 end
-
-
--- Hyprland 0.57 fractional-scale regression: clients start with wrong buffer
--- scales after the Lua config switch. Re-applying the output config once the
--- compositor is up forces them to re-render correctly.
-hl.on("hyprland.start", function()
-  hl.exec_cmd("~/.config/hypr/scripts/fractional-scale-fix.sh")
-end)

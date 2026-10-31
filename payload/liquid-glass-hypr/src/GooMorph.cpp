@@ -651,12 +651,19 @@ SMorphSave beginWindowMorph(PHLWINDOW window, PHLMONITOR monitor, bool ignorePos
     // Content stretch: upstream's UV path crops a sub-full-size box 1:1
     // UNLESS m_animatingIn (their FIXME: "probably do this for in anims on
     // all views"). A workspace grow IS an in-animation: set the flag so the
-    // full buffer stretches into the warped box (content scales, centered),
-    // restored synchronously below — same hook call, cannot strand.
-    save.wasAnimatingIn    = window->m_animatingIn;
-    window->m_animatingIn  = true;
+    // full buffer stretches into the warped box (content scales about its
+    // center instead of staying pinned to the top-left corner), persisted to
+    // POST like the geometry so the draw still sees it.
+    save.wasAnimatingIn = window->m_animatingIn;
     posVar->setValueAndWarp(newPos);
     sizeVar->setValueAndWarp(newSize);
+    // Must come AFTER the warps: warp(endCallback=true) runs the window's
+    // windowsMove end-callback (setVector2DAnimToMove), which clears
+    // m_animatingIn. Setting it before the warps silently loses it on any
+    // window whose callback is still armed, and the content is then cropped
+    // 1:1 from the top-left while the frame morphs — the "content glued to
+    // the left edge" look.
+    window->m_animatingIn = true;
     // Persist to RENDER_POST (same frame): surface elements sample window
     // geometry AFTER the hook returns, so immediate restore would un-warp
     // before the draw (frame-only scale, unscaled content). POST drains

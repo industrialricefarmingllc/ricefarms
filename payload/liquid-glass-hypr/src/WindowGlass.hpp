@@ -34,9 +34,10 @@
 //   - Fullscreen-coverage windows are skipped: nothing alive behind them, so
 //     glass would only burn GPU to repaint the tint.
 
-#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/Shader.hpp>
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 
 #include <chrono>
@@ -197,16 +198,16 @@ class CWindowGlassPassElement : public IPassElement {
 
     explicit CWindowGlassPassElement(const SData& data);
 
-    std::vector<UP<IPassElement>> draw() override;
-    [[nodiscard]] bool                needsLiveBlur() override;
-    [[nodiscard]] bool                needsPrecomputeBlur() override;
-    [[nodiscard]] std::optional<CBox> boundingBox() override;
-    [[nodiscard]] bool                disableSimplification() override;
+    std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override;
+    [[nodiscard]] bool                needsLiveBlur(Render::CRenderContext& ctx) override;
+    [[nodiscard]] bool                needsPrecomputeBlur(Render::CRenderContext& ctx) override;
+    [[nodiscard]] std::optional<CBox> boundingBox(Render::CRenderContext& ctx) override;
+    [[nodiscard]] bool                disableSimplification(Render::CRenderContext& ctx) override;
     // PERF: discardable (false) like the layer pills: damage-on-change
     // (bounds/tune/tint/glow-ramp in snapshot()) already damages when glass
     // pixels go stale. Was true (forced every frame at monitor Hz even when
     // static: GPU never idled, input queued behind renders, 35% SM at idle).
-    [[nodiscard]] bool                undiscardable() override { return false; }
+    [[nodiscard]] bool                undiscardable(Render::CRenderContext& ctx) override { return false; }
 
     [[nodiscard]] const char* passName() override { return "CWindowGlassPassElement"; }
     [[nodiscard]] ePassElementType type() override { return EK_CUSTOM; }

@@ -7,8 +7,12 @@ return {
     gaps = 0,
     workspaces = {
         special = { enabled = true, apps = {} },
-        music = { enabled = true, apps = {} },
-        comms = { enabled = true, apps = {} },
+        music = { enabled = true, apps = {
+            { name = "Spotify", cmd = "exec 'spotify-launcher'", class = { "spotify" }, title = { "Spotify", "Spotify Free", "Spotify Premium" } },
+        } },
+        comms = { enabled = true, apps = {
+            { name = "Discord", cmd = "exec '/usr/bin/discord' '--url' '--'", class = { "discord" } },
+        } },
         todo = { enabled = true, apps = {} },
         sysmon = { enabled = true, apps = {
             { name = "btop", cmd = "if command -v kitty >/dev/null 2>&1; then exec kitty --class 'lucid.btop' -e 'btop'; elif command -v foot >/dev/null 2>&1; then exec foot --app-id='lucid.btop' 'btop'; elif command -v alacritty >/dev/null 2>&1; then exec alacritty --class 'lucid.btop' -e 'btop'; elif command -v ghostty >/dev/null 2>&1; then exec ghostty --class='lucid.btop' -e 'btop'; fi", class = { "lucid.btop" } },

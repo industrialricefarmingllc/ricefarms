@@ -9,6 +9,7 @@
 
 #include "Glass.hpp"
 
+#include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprutils/math/Box.hpp>
 
@@ -24,11 +25,11 @@ class CGlassPassElement : public IPassElement {
 
     explicit CGlassPassElement(const SData& data);
 
-    std::vector<UP<IPassElement>> draw() override;
-    [[nodiscard]] bool                needsLiveBlur() override;
-    [[nodiscard]] bool                needsPrecomputeBlur() override;
-    [[nodiscard]] std::optional<CBox> boundingBox() override;
-    [[nodiscard]] bool                disableSimplification() override;
+    std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override;
+    [[nodiscard]] bool                needsLiveBlur(Render::CRenderContext& ctx) override;
+    [[nodiscard]] bool                needsPrecomputeBlur(Render::CRenderContext& ctx) override;
+    [[nodiscard]] std::optional<CBox> boundingBox(Render::CRenderContext& ctx) override;
+    [[nodiscard]] bool                disableSimplification(Render::CRenderContext& ctx) override;
     // Layers stay undiscardable (true): tune/bounds detection lives inside
     // render(), which only runs when the element draws — discarding would
     // miss prefs edits with no other damage (stale glass until next damage).
@@ -36,7 +37,7 @@ class CGlassPassElement : public IPassElement {
     // skip all blit/blur/draw work on static frames, so the GPU sleeps.
     // Windows differ (snapshot damages from the hook), so they are
     // discardable — see WindowGlass.hpp.
-    [[nodiscard]] bool                undiscardable() override { return true; }
+    [[nodiscard]] bool                undiscardable(Render::CRenderContext& ctx) override { return true; }
 
     [[nodiscard]] const char* passName() override { return "CGlassPassElement"; }
     [[nodiscard]] ePassElementType type() override { return EK_CUSTOM; }

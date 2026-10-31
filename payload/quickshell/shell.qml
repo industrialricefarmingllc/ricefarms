@@ -33,6 +33,16 @@ ShellRoot {
     // ordinary one-shape pills (no shader-over-glass artifacts).
     property bool glassUnion: false
 
+    Timer {
+        interval: 150
+        running: true
+        repeat: false
+        onTriggered: {
+            for (const s of Quickshell.screens)
+                console.log("DPRPROBE", s.name, "dpr=" + s.devicePixelRatio, "logical=" + s.width + "x" + s.height);
+        }
+    }
+
     Process {
         id: glassCaps
 
@@ -241,13 +251,14 @@ ShellRoot {
     // the real wallpaper stays sharp in the gaps. Created before the bar (and
     // so below it in the Top layer, above every window) so the wash never
     // paints over the shell's own surfaces. See WallpaperOverlay.qml.
-    Variants {
-        model: Quickshell.screens
-
-        WallpaperOverlay {
-        }
-
-    }
+    // Disabled while the per-window soft-light wash is in use.
+    // Variants {
+    //     model: Quickshell.screens
+    //
+    //     WallpaperOverlay {
+    //     }
+    //
+    // }
 
     // one bar, or one on every display when Settings > Displays asks for it
     Variants {

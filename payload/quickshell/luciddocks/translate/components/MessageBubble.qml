@@ -27,7 +27,7 @@ Item {
     readonly property int padV: Theme.dp(10)
     readonly property real maxBubble: root.width * 0.86
     readonly property color fill: root.error ? Theme.errorContainer : (root.user ? Theme.userBubble : (root.instruction ? Theme.surfaceHighest : Theme.assistantBubble))
-    readonly property color ink: root.error ? Theme.onErrorContainer : (root.user ? Theme.userText : Theme.text)
+    readonly property color ink: root.error ? Theme.onErrorContainer : (root.user ? Theme.onUserBubble : Theme.text)
 
     width: parent ? parent.width : 0
     height: content.height

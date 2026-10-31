@@ -79,7 +79,9 @@ Item {
     // the height the drawer actually takes once the panel has had its say
     readonly property real laidOutHeight: gridH + 2 * padY
 
-    signal activated(int index)
+    // newInstance is true when Shift or Ctrl was held: the caller must not
+    // focus an existing window for this activation
+    signal activated(int index, bool newInstance)
 
     implicitHeight: naturalHeight
 
@@ -203,9 +205,9 @@ Item {
         currentIndex = Math.min(count - 1, next * pageSize + w);
     }
 
-    function activateCurrent() {
+    function activateCurrent(newInstance) {
         if (currentIndex >= 0 && currentIndex < count)
-            activated(currentIndex);
+            activated(currentIndex, newInstance === true);
 
     }
 
@@ -424,15 +426,12 @@ Item {
                                 }
                             }
 
-                            Text {
+                            Twemoji {
                                 anchors.centerIn: parent
                                 visible: root.emojiMode
-                                text: cell.shownEntry ? cell.shownEntry.emoji : ""
-                                color: Theme.text
-                                font.family: "Noto Color Emoji"
-                                font.pixelSize: Math.round(root.iconBox * 0.58)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
+                                emoji: cell.shownEntry ? cell.shownEntry.emoji : ""
+                                size: Math.round(root.iconBox * 0.58)
+                                fallbackColor: Theme.text
                             }
 
                             LText {
@@ -447,9 +446,9 @@ Item {
 
                             TapHandler {
                                 enabled: cell.filled
-                                onTapped: {
+                                onTapped: (point) => {
                                     root.currentIndex = cell.appIndex;
-                                    root.activated(cell.appIndex);
+                                    root.activated(cell.appIndex, (point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0);
                                 }
                             }
 

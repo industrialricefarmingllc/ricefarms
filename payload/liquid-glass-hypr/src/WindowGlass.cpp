@@ -1,10 +1,12 @@
+#include "RenderCtx.hpp"
+#include "WinCompat.hpp"
 #include "WindowGlass.hpp"
 #include "Config.hpp"
-#include "GooMorph.hpp"
+#include "GooStub.hpp"
 #include "Shaders.hpp"
 
 #include <GLES3/gl32.h>
-#include <hyprland/src/desktop/Workspace.hpp>
+#include <hyprland/src/workspace/HLWorkspace.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
@@ -137,25 +139,27 @@ class CWindowBackdropPassElement : public IPassElement {
   public:
     explicit CWindowBackdropPassElement(std::shared_ptr<SWindowBackdrop> backdrop) : m_backdrop(std::move(backdrop)) {}
 
-    std::vector<UP<IPassElement>> draw() override {
+    std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override {
+        lg::SRenderCtxScope scope(ctx);
         if (!m_backdrop)
             return {};
-        if (g_pHyprRenderer->m_bRenderingSnapshot)
+        if (LG_SNAPSHOT)
             return {};
-        const auto caller = g_pHyprRenderer->m_renderData.currentFB;
+        const auto caller = LG_RENDER_DATA.currentFB;
         if (!caller)
             return {};
         m_backdrop->captureFrom(caller, m_backdrop->capDiv);
         return {};
     }
 
-    [[nodiscard]] bool needsLiveBlur() override { return false; }
-    [[nodiscard]] bool needsPrecomputeBlur() override { return false; }
-    [[nodiscard]] std::optional<CBox> boundingBox() override {
-        return monitorLogicalBox(g_pHyprRenderer->m_renderData.pMonitor.lock());
+    [[nodiscard]] bool needsLiveBlur(Render::CRenderContext& ctx) override { return false; }
+    [[nodiscard]] bool needsPrecomputeBlur(Render::CRenderContext& ctx) override { return false; }
+    [[nodiscard]] std::optional<CBox> boundingBox(Render::CRenderContext& ctx) override {
+        lg::SRenderCtxScope scope(ctx);
+        return monitorLogicalBox(LG_RENDER_DATA.pMonitor.lock());
     }
-    [[nodiscard]] bool disableSimplification() override { return false; }
-    [[nodiscard]] bool undiscardable() override { return false; }
+    [[nodiscard]] bool disableSimplification(Render::CRenderContext& ctx) override { return false; }
+    [[nodiscard]] bool undiscardable(Render::CRenderContext& ctx) override { return false; }
     [[nodiscard]] const char* passName() override { return "CWindowBackdropPassElement"; }
     [[nodiscard]] ePassElementType type() override { return EK_CUSTOM; }
 
@@ -179,7 +183,8 @@ bool workspaceAnimating(PHLMONITOR mon) {
     return false;
 }
 
-void onWindowStage(eRenderStage stage) {
+void onWindowStage(const Event::SRenderStageEvent& e) {
+    const eRenderStage stage = e.stage;
     if (stage == RENDER_POST) {
         for (auto& [id, bd] : *WINDOW_BACKDROPS) {
             if (bd)
@@ -190,15 +195,20 @@ void onWindowStage(eRenderStage stage) {
     }
     if (stage != RENDER_PRE_WINDOWS)
         return;
-    if (g_pHyprRenderer->m_bRenderingSnapshot)
-        return;
-    const auto mon = g_pHyprRenderer->m_renderData.pMonitor.lock();
+    // PRE_WINDOWS is emitted with a live context; the monitor comes with the
+    // event so this also works if the renderer's frame state is unavailable.
+    std::optional<lg::SRenderCtxScope> scope;
+    if (e.context)
+        scope.emplace(e.context->get());
+    const auto mon = e.monitor;
     if (!mon || mon->isMirror())
+        return;
+    if (LG_SNAPSHOT)
         return;
     (*WINDOW_BOXES)[mon->m_id].clear();
     if (lg::getInt("plugin:liquidglass:enabled", 1) == 0)
         return;
-    const CBox dmg = g_pHyprRenderer->m_renderData.damage.getExtents();
+    const CBox dmg = LG_RENDER_DATA.damage.getExtents();
     if (dmg.w <= 0 || dmg.h <= 0)
         return;
     // A slide/morph moves windows, not the wallpaper/bottom layers: the
@@ -217,7 +227,7 @@ void onWindowStage(eRenderStage stage) {
     const int capDiv = std::clamp((int)std::round(lg::getFloat("plugin:liquidglass:capture_scale", 4.0f)), 2, 4);
     auto bd = backdropFor(mon->m_id);
     bd->begin(capDiv);
-    g_pHyprRenderer->m_renderPass.add(makeUnique<CWindowBackdropPassElement>(bd));
+    LG_PASS.add(makeUnique<CWindowBackdropPassElement>(bd));
 }
 
 } // namespace
@@ -675,12 +685,12 @@ static bool boxEqual(const CBox& a, const CBox& b) {
 }
 
 void lg::noteWindowBox(PHLWINDOW win, PHLMONITOR mon) {
-    if (!win || !mon || !win->m_isMapped || win->isHidden())
+    if (!win || !mon || !win->mapped() || win->isHidden())
         return;
     Vector2D realPos = win->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    if (PHLWORKSPACE ws = win->m_workspace; ws && !win->m_pinned)
+    if (PHLWORKSPACE ws = win->m_workspace; ws && !lg::winPinned(win))
         realPos = realPos + ws->m_renderOffset->value();
-    realPos = realPos + win->m_floatingOffset;
+    realPos = realPos + win->presentation().floatingOffset();
     const Vector2D realSize = win->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     CBox box{realPos.x - mon->m_position.x, realPos.y - mon->m_position.y, realSize.x, realSize.y};
     if (!std::isfinite(box.x) || !std::isfinite(box.y) || box.w <= 0 || box.h <= 0)
@@ -688,7 +698,7 @@ void lg::noteWindowBox(PHLWINDOW win, PHLMONITOR mon) {
     box.scale(mon->m_scale).round().noNegativeSize();
     if (box.w <= 0 || box.h <= 0)
         return;
-    g_pHyprRenderer->m_renderData.renderModif.applyToBox(box);
+    LG_RENDER_DATA.renderModif.applyToBox(box);
     if (box.w <= 0 || box.h <= 0)
         return;
     (*WINDOW_BOXES)[mon->m_id].push_back(box);
@@ -707,16 +717,16 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     const auto win = m_window.lock();
     if (!win || !monitor)
         return std::nullopt;
-    const std::string cls = win->m_class;
+    const std::string cls = win->metadata().appID();
     m_lastCls = cls;
     // Skip-with-cleanup: unmapped/hidden/fullscreen/degenerate geometry
     // must repaint the last-known region instead of leaving a static ghost
     // (workspace switches, fullscreening, closes).
     auto bail = [&] { damageLast(); };
 
-    const bool live = win->m_isMapped && win->isHidden() == false;
+    const bool live = win->mapped() && win->isHidden() == false;
     if (!live) {
-        diagSkip(win->m_isMapped ? "hidden" : "unmapped", cls);
+        diagSkip(win->mapped() ? "hidden" : "unmapped", cls);
         bail();
         return std::nullopt;
     }
@@ -725,7 +735,7 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     // only produce pixels the content immediately overwrites, so skip the
     // whole capture/shader path. opaque() also returns false during alpha
     // fades, which is exactly where we still want the glass to follow.
-    if (win->opaque()) {
+    if (win->presentation().opaque()) {
         diagSkip("opaque", cls);
         bail();
         return std::nullopt;
@@ -735,7 +745,7 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     // fading and drawing a fresh backdrop would flash. Workspace slides are
     // deliberately NOT skipped any more: glass rides the same crop/offset and
     // alpha as the window content.
-    const auto& fade = win->alpha(Desktop::View::WINDOW_ALPHA_FADE);
+    const auto& fade = win->presentation().alpha(Desktop::View::WINDOW_ALPHA_FADE);
     if (fade && (fade->isBeingAnimated() || fade->value() < 0.999f)) {
         diagSkip("window-fade", cls);
         bail();
@@ -746,7 +756,7 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     // Keep drawing, but disable the shared backdrop and the content-only
     // cache: both assume a static lower scene.
     bool wsTransition = workspaceAnimating(monitor);
-    if (PHLWORKSPACE ws = win->m_workspace; ws && !win->m_pinned) {
+    if (PHLWORKSPACE ws = win->m_workspace; ws && !lg::winPinned(win)) {
         const Vector2D off = ws->m_renderOffset->value();
         wsTransition = wsTransition || ws->m_renderOffset->isBeingAnimated() || ws->m_alpha->isBeingAnimated() ||
             std::abs(off.x) > 0.5 || std::abs(off.y) > 0.5 || ws->m_alpha->value() < 0.999f;
@@ -761,16 +771,16 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     // (correctly riding) borders derive from via renderdata.pos.
     Vector2D realPos = win->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     float wsAlpha = 1.f;
-    if (PHLWORKSPACE ws = win->m_workspace; ws && !win->m_pinned) {
+    if (PHLWORKSPACE ws = win->m_workspace; ws && !lg::winPinned(win)) {
         realPos = realPos + ws->m_renderOffset->value();
         wsAlpha = std::clamp(ws->m_alpha->value(), 0.f, 1.f);
     }
     // Goo fades outgoing windows on WINDOW_ALPHA_MOVE_FROM_WORKSPACE; the
     // content uses that channel, so the glass must multiply it too or the
     // pane stays solid under a fading terminal.
-    if (const auto& moveFrom = win->alpha(Desktop::View::WINDOW_ALPHA_MOVE_FROM_WORKSPACE); moveFrom)
+    if (const auto& moveFrom = win->presentation().alpha(Desktop::View::WINDOW_ALPHA_MOVE_FROM_WORKSPACE); moveFrom)
         wsAlpha *= std::clamp(moveFrom->value(), 0.f, 1.f);
-    realPos = realPos + win->m_floatingOffset;
+    realPos = realPos + win->presentation().floatingOffset();
     const Vector2D realSize = win->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const CBox logBox{realPos.x, realPos.y, realSize.x, realSize.y};
     if (!std::isfinite(logBox.x) || !std::isfinite(logBox.y) || logBox.w <= 0 || logBox.h <= 0) {
@@ -800,8 +810,8 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     // renderModif applied as harmless insurance (identity in practice for
     // window content; cf. BorderGlass): real motion tracking comes from the
     // renderOffset replication above.
-    g_pHyprRenderer->m_renderData.renderModif.applyToBox(winBox);
-    const float modifScale = g_pHyprRenderer->m_renderData.renderModif.combinedScale();
+    LG_RENDER_DATA.renderModif.applyToBox(winBox);
+    const float modifScale = LG_RENDER_DATA.renderModif.combinedScale();
     if (winBox.w <= 0 || winBox.h <= 0) {
         bail();
         return std::nullopt;
@@ -880,7 +890,7 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     // changed. Reuse the previous blurred capture instead of blitting the
     // whole pane again. This is the typing/video case; moves, workspace
     // slides and anything outside the pane still recapture.
-    const CBox dmg = g_pHyprRenderer->m_renderData.damage.getExtents();
+    const CBox dmg = LG_RENDER_DATA.damage.getExtents();
     const bool contentOnly = dmg.w > 0 && dmg.h > 0 && dmg.x >= winBox.x - 1 && dmg.y >= winBox.y - 1 &&
         dmg.x + dmg.w <= winBox.x + winBox.w + 1 && dmg.y + dmg.h <= winBox.y + winBox.h + 1;
     const bool reuse = useShared && contentOnly && m_captureValid && m_cacheMon == monitor->m_id &&
@@ -889,7 +899,7 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
 
     // Window's own rounding (windowrule + decoration), framebuffer px,
     // clamped to the box. Uniform corners: the window shape is one roundBox.
-    float rad = win->rounding() * monitor->m_scale * modifScale;
+    float rad = win->presentation().rounding() * monitor->m_scale * modifScale;
     rad = std::clamp(rad, 0.0f, (float)std::min(winBox.w, winBox.h) * 0.5f);
 
     // Damage on change only — same contract as the layer pills (see
@@ -989,7 +999,7 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
         return;
     }
 
-    const auto caller = g_pHyprRenderer->m_renderData.currentFB;
+    const auto caller = LG_RENDER_DATA.currentFB;
     if (!caller) {
         diagSkip("null-caller", cls);
         diagToastOnce("null-caller", "liquidglass: window glass has no framebuffer");
@@ -1010,7 +1020,7 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
         const float shX0 = lg::getFloat("plugin:liquidglass:shadow_offset_x", 0.0f);
         const float shY0 = lg::getFloat("plugin:liquidglass:shadow_offset_y", 20.0f) * 0.5f;
         const float Eg0 = shB0 * 2.2f + std::max(std::fabs(shX0), std::fabs(shY0)) + 8.0f;
-        const CBox dmg0 = g_pHyprRenderer->m_renderData.damage.getExtents();
+        const CBox dmg0 = LG_RENDER_DATA.damage.getExtents();
         if (dmg0.w <= 0 || dmg0.h <= 0) {
             diagSkip("gated", cls);
             return;
@@ -1061,7 +1071,7 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
     };
     const double screenMinLog = std::min(monitor->m_size.x, monitor->m_size.y);
 
-    const CBox dmgExt = g_pHyprRenderer->m_renderData.damage.getExtents();
+    const CBox dmgExt = LG_RENDER_DATA.damage.getExtents();
 
     // PERF: no glGet* save/restore (pipeline stalls; was 5 gets per window
     // per frame). Hyprland re-sets blend per draw anyway.
@@ -1247,7 +1257,7 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
                         const float ex0 = (float)d.box.x - E, ey0 = (float)d.box.y - E;
                         const float ew = (float)d.box.w + 2 * E, eh = (float)d.box.h + 2 * E;
                         CBox quadBox{ex0, ey0, ew, eh};
-                        Mat3x3 proj = g_pHyprRenderer->projectBoxToTarget(quadBox, transform);
+                        Mat3x3 proj = g_pHyprRenderer->projectBoxToTarget(lg::rctx(), quadBox, transform);
 
                         glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
                         g_pHyprOpenGL->setViewport(0, 0, (int)callerSize.x, (int)callerSize.y);
@@ -1340,7 +1350,7 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
                             const int cy1 = std::min((int)std::ceil(quadBox.y + quadBox.h), (int)(dmgExt.y + dmgExt.h));
                             if (cx1 > cx0 && cy1 > cy0) {
                                 const pixman_box32_t clip{(int32_t)cx0, (int32_t)cy0, (int32_t)cx1, (int32_t)cy1};
-                                g_pHyprOpenGL->scissor(&clip, g_pHyprRenderer->m_renderData.transformDamage);
+                                g_pHyprOpenGL->scissor(lg::rctx(), &clip, LG_RENDER_DATA.transformDamage);
                                 glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
                                 g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
                             }
@@ -1365,18 +1375,20 @@ void CWindowGlass::draw(PHLMONITOR monitor, const SWinDraw& d, bool overRim) {
 
 CWindowGlassPassElement::CWindowGlassPassElement(const SData& data) : m_data(data) {}
 
-std::vector<UP<IPassElement>> CWindowGlassPassElement::draw() {
+std::vector<UP<IPassElement>> CWindowGlassPassElement::draw(Render::CRenderContext& ctx) {
+    lg::SRenderCtxScope scope(ctx);
     if (m_data.glass && m_data.glass->get())
-        m_data.glass->draw(g_pHyprRenderer->m_renderData.pMonitor.lock(), m_data.draw, m_data.overRim);
+        m_data.glass->draw(LG_RENDER_DATA.pMonitor.lock(), m_data.draw, m_data.overRim);
     return {};
 }
 
-std::optional<CBox> CWindowGlassPassElement::boundingBox() {
+std::optional<CBox> CWindowGlassPassElement::boundingBox(Render::CRenderContext& ctx) {
+    lg::SRenderCtxScope scope(ctx);
     if (m_data.glass) {
         if (auto b = m_data.glass->glassBounds())
             return b;
     }
-    const auto monitor = g_pHyprRenderer->m_renderData.pMonitor.lock();
+    const auto monitor = LG_RENDER_DATA.pMonitor.lock();
     if (!monitor)
         return std::nullopt;
     const float scale = monitor->m_scale > 0.0f ? monitor->m_scale : 1.0f;
@@ -1384,15 +1396,15 @@ std::optional<CBox> CWindowGlassPassElement::boundingBox() {
     return box;
 }
 
-bool CWindowGlassPassElement::needsLiveBlur() {
+bool CWindowGlassPassElement::needsLiveBlur(Render::CRenderContext& ctx) {
     // False: own blur pyramid from the current framebuffer, same as pills.
     return false;
 }
 
-bool CWindowGlassPassElement::needsPrecomputeBlur() {
+bool CWindowGlassPassElement::needsPrecomputeBlur(Render::CRenderContext& ctx) {
     return false;
 }
 
-bool CWindowGlassPassElement::disableSimplification() {
+bool CWindowGlassPassElement::disableSimplification(Render::CRenderContext& ctx) {
     return false;
 }

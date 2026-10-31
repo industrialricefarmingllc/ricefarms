@@ -23,11 +23,13 @@ float sdSquircleBox4(vec2 p, vec2 b, vec4 r, float n) {
     if (rad > 0.01 && ap.x > c.x && ap.y > c.y) {
         if (n <= 2.001)
             return length(ap - c) - rad; // exact circle: f = 0 is Rectangle
+        // L^n norm field: 0 exactly on the superellipse, exact circle at
+        // n = 2, bounded and monotone in the corner interior (num/den is a
+        // near-surface linearisation that dives to -hundreds of px one
+        // corner-width in, which steps dist/glow hard along x = b.x - rad
+        // and y = b.y - rad).
         vec2 q = (ap - c) / rad;
-        float n2 = 2.0 * n - 2.0;
-        float num = pow(q.x, n) + pow(q.y, n) - 1.0;
-        float den = n * sqrt(pow(q.x, n2) + pow(q.y, n2)) + 0.0001;
-        return num / den * rad;
+        return (pow(pow(q.x, n) + pow(q.y, n), 1.0 / n) - 1.0) * rad;
     }
     vec2 q2 = ap - b + vec2(rad);
     return min(max(q2.x, q2.y), 0.0) + length(max(q2, 0.0)) - rad;

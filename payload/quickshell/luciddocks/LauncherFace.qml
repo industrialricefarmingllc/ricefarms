@@ -181,10 +181,10 @@ Item {
 
     signal powerChipTapped(string id)
 
-    signal activated(int index)
+    signal activated(int index, bool newInstance)
     // the app wall's own activation: its index is into `appsModel`, not the
     // mixed result stream `activated` carries
-    signal appActivated(int index)
+    signal appActivated(int index, bool newInstance)
     signal emojiCopied(string emoji)
     signal widgetAdded(string name)
     signal closeRequested()
@@ -361,10 +361,12 @@ Item {
         face.modeRequested(next.key);
     }
 
-    function submit() {
+    function submit(newInstance) {
         if (face.displayMode === "translate") {
             const text = String(face.highlightQuery || "").trim();
-            if (text !== "")
+            // A staged image is a valid submission on its own; Enter sends it
+            // with whatever text the field happens to hold.
+            if (text !== "" || (translatePane && translatePane.hasAttachment))
                 face.translateSubmitted(text);
             return ;
         }
@@ -381,7 +383,7 @@ Item {
 
         if (face.gridVisible) {
             if (!face.headOnly)
-                appsGrid.activateCurrent();
+                appsGrid.activateCurrent(newInstance);
             else
                 face.revealGrid();
             return ;
@@ -392,7 +394,7 @@ Item {
                 wallStrip.activateCurrent();
 
         } else
-            resultList.activateCurrent();
+            resultList.activateCurrent(newInstance);
     }
 
     function submitTranslate(text) {
@@ -411,6 +413,8 @@ Item {
     }
 
     function pasteTranslateImage() {
+        if (face.displayMode !== "translate")
+            return false;
         return translatePane ? translatePane.pasteImage() : false;
     }
 
@@ -466,6 +470,13 @@ Item {
         if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
             face.closeRequested()
             event.accepted = true
+            return ;
+        }
+        // Paste works wherever focus sits in the launcher, not only on the mode
+        // strip or the language rail.
+        if ((event.modifiers & Qt.ControlModifier) !== 0 && event.key === Qt.Key_V && face.displayMode === "translate") {
+            event.accepted = true;
+            face.pasteTranslateImage();
             return ;
         }
         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
@@ -648,7 +659,7 @@ Item {
             // actually requested; the collapsed head needs none of it
             model: face.headOnly ? null : face.appsModel
             revision: face.resultsRevision
-            onActivated: (index) => face.appActivated(index)
+            onActivated: (index, newInstance) => face.appActivated(index, newInstance)
         }
 
         LauncherGrid {
@@ -660,7 +671,7 @@ Item {
             emojiMode: true
             model: face.headOnly ? null : face.emojiModel
             revision: face.resultsRevision
-            onActivated: (index) => {
+            onActivated: (index, newInstance) => {
                 var em = face.emojiModel ? face.emojiModel.get(index).emoji : "";
                 if (em !== "")
                     face.emojiCopied(em);
@@ -712,8 +723,8 @@ Item {
                 searchInput.text = p;
                 searchInput.forceActiveFocus();
             }
-            onActivated: (index) => {
-                return face.activated(index);
+            onActivated: (index, newInstance) => {
+                return face.activated(index, newInstance);
             }
             onDeleteRequested: (index) => {
                 return face.deleteRequested(index);
@@ -1112,6 +1123,12 @@ Item {
                     event.accepted = true
                     return ;
                 }
+                if ((event.modifiers & Qt.ControlModifier) !== 0 && event.key === Qt.Key_V && face.displayMode === "translate") {
+                    // Start the image probe but leave the event unaccepted so a
+                    // text clipboard still pastes into the field as usual.
+                    face.pasteTranslateImage();
+                    return ;
+                }
                 if (face.gridVisible && (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)) {
                     if (!face.revealGrid())
                         appsGrid.pageMove(event.key === Qt.Key_PageDown ? 1 : -1);
@@ -1139,8 +1156,8 @@ Item {
                 event.accepted = true;
             }
             Keys.onEscapePressed: face.closeRequested()
-            Keys.onReturnPressed: face.submit()
-            Keys.onEnterPressed: face.submit()
+            Keys.onReturnPressed: (event) => face.submit((event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0)
+            Keys.onEnterPressed: (event) => face.submit((event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0)
 
             // the placeholder rolls over when the mode changes, rather than cutting
             LText {

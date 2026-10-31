@@ -234,6 +234,11 @@ Singleton {
     readonly property color assistantBubble: root.surfaceHigh
     readonly property color userBubble: root.primaryContainer
     readonly property color userText: root.onPrimaryContainer
+    // The user's own turn is the only place body copy sits on the accent
+    // container. That container is deep in both themes, so its ink is pinned to
+    // a light tone instead of following the on-container role, which some
+    // palettes resolve close to the surface tone and leave unreadable.
+    readonly property color onUserBubble: root.tone(root.userBubble) < 50 ? root.atTone(root.userBubble, 96) : root.atTone(root.userBubble, 12)
     readonly property color chip: root.surfaceHigh
     // The language selection is the widget's primary highlight, so it uses
     // the shell's accent rather than a tonal container: same emphasis as the

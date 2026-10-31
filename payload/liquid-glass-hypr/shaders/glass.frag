@@ -166,32 +166,14 @@ float sdFlareOnly(vec2 q, vec2 halfPx, vec2 fl) {
     return sdFl;
 }
 
-// Squircle notch flare: same fillet with the disc replaced by a
-// superellipse of exponent n around the same outer-bottom corner (the
-// zero-crossing — the visible silhouette — is exact; only far-field
-// magnitudes are approximate, which the union/min structure tolerates).
-float sdFlareSquOnly(vec2 q, vec2 halfPx, vec2 fl, float n) {
-    float sdFl = 1e9;
-    if (fl.x > 0.01) {
-        float f = fl.x;
-        vec2 bc = vec2(-halfPx.x - f * 0.5, -halfPx.y + f * 0.5);
-        vec2 cc = vec2(-halfPx.x - f, -halfPx.y + f);
-        sdFl = min(sdFl, max(sdBox2(q - bc, vec2(f * 0.5)), -sdSuperellipse(q - cc, n, f)));
-    }
-    if (fl.y > 0.01) {
-        float f = fl.y;
-        vec2 bc = vec2(halfPx.x + f * 0.5, -halfPx.y + f * 0.5);
-        vec2 cc = vec2(halfPx.x + f, -halfPx.y + f);
-        sdFl = min(sdFl, max(sdBox2(q - bc, vec2(f * 0.5)), -sdSuperellipse(q - cc, n, f)));
-    }
-    return sdFl;
-}
-
-// Flare SDF honouring the shared smoothing uniform (legacy arc at f = 0).
+// Notch flares are ALWAYS circular, regardless of uSquircleF. The QML
+// shoulder (BarFlare) is drawn with smoothing 0 on purpose: the same
+// superellipse turned inside out collapses toward the tab side (at f = 0.8
+// the arc is within a pixel of it for most of its height), so a squirclish
+// glass fillet reads as a much smaller corner than the circular hairline
+// laid over it. uSquircleF still shapes the pill's own corners.
 float sdFlareU(vec2 q, vec2 halfPx, vec2 fl) {
-    if (uSquircleF <= 0.0005)
-        return sdFlareOnly(q, halfPx, fl);
-    return sdFlareSquOnly(q, halfPx, fl, 2.0 + 4.0 * uSquircleF);
+    return sdFlareOnly(q, halfPx, fl);
 }
 #endif // LG_WINDOW
 
