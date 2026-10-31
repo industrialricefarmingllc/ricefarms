@@ -44,7 +44,7 @@ if [ -f "$EARLY_FILE" ]; then
     now=$(date +%s%N)
     if [ "$stamp" -gt 0 ] 2>/dev/null; then
         age_ms=$(( (now - stamp) / 1000000 ))
-        [ "$age_ms" -lt 900 ] && skip_signal=1
+        [ "$age_ms" -lt 1050 ] && skip_signal=1
     fi
     rm -f "$EARLY_FILE"
 fi
