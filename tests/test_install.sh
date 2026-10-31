@@ -237,7 +237,17 @@ assert_file_has "minimize-all lua dispatch" "$REPO_DIR/payload/usr-local-bin/min
 assert_file_has "hypr-inputs-ready gates IPC" "$REPO_DIR/payload/usr-local-bin/hypr-inputs-ready" "hyprctl instances"
 assert_file_has "liquid-glass-toggle prefs" "$REPO_DIR/payload/usr-local-bin/liquid-glass-toggle" "prefs.json"
 assert_file_has "gpu-tty-foot kiosk" "$REPO_DIR/payload/usr-local-bin/gpu-tty-foot" "foot-kiosk.ini"
-assert_file_has "liquid-glass pin is live HEAD" "$REPO_DIR/payload/liquid-glass-hypr/pin.txt" "17978c2f13d091018178f9b519cd09acc255ec34"
+# The pin is the vendored tree's HEAD. On the source host compare against the
+# live repo (local commits move it past the upstream base); on a bare clone
+# just require that a pin was recorded.
+for _glass in liquid-glass-hypr liquid-glass-hypr-057; do
+  if [[ -d "$HOME/src/$_glass/.git" ]]; then
+    assert_file_has "$_glass pin is live HEAD" \
+      "$REPO_DIR/payload/$_glass/pin.txt" "$(/usr/bin/git -C "$HOME/src/$_glass" rev-parse HEAD 2>/dev/null)"
+  else
+    assert_true "$_glass pin recorded" test -s "$REPO_DIR/payload/$_glass/pin.txt"
+  fi
+done
 assert_file_has "liquid-glass Makefile target" "$REPO_DIR/payload/liquid-glass-hypr/Makefile" "TARGET = liquidglass.so"
 assert_true "goo sources vendored" test -f "$REPO_DIR/payload/hypr-goo-workspaces/src/main.cpp"
 assert_true "edge-swipe sources vendored" test -f "$REPO_DIR/payload/hypr-edge-swipe/src/main.cpp"
