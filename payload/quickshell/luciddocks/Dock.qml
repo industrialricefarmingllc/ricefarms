@@ -3528,13 +3528,26 @@ PanelWindow {
                         });
 
                     }
+                    // Steam shortcuts run the client, not the game; Proton
+                    // exposes the game window as steam_app_<appid>. Deriving
+                    // that when the .desktop has no StartupWMClass is what lets
+                    // focus-or-launch switch to a running game instead of
+                    // asking Steam to start a second instance.
+                    var wmClass = p[4];
+                    if (wmClass === "") {
+                        var launchId = String(p[3] || "").match(/steam:\/\/rungameid\/([0-9]+)/);
+                        if (!launchId)
+                            launchId = String(p[3] || "").match(/(?:^|\s)-applaunch\s+([0-9]+)/);
+                        if (launchId)
+                            wmClass = "steam_app_" + launchId[1];
+                    }
                     arr.push({
                         "name": name,
                         "iconName": p[1],
                         "search": (name + " " + p[2] + " " + p[5]).toLowerCase(),
                         "initials": initials,
                         "command": p[3],
-                        "wmClass": p[4],
+                        "wmClass": wmClass,
                         "base": p[5],
                         "actions": actions,
                         // the Comment, or the GenericName without one; never the name again
