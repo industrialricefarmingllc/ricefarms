@@ -194,6 +194,11 @@ for _m in lucid-glass.lua lucid-monitors.lua lucid-settings.lua lucid-specials.l
 done
 assert_true "quickshell shell.qml exists" test -f "$REPO_DIR/payload/quickshell/shell.qml"
 assert_true "quickshell translate pane exists" test -f "$REPO_DIR/payload/quickshell/luciddocks/TranslatePane.qml"
+# shell.qml's "./lucidbar" import shadows the root Theme, so the bar copy must
+# carry the same matugen surface-seed logic as Theme.qml or the notch flares
+# (drawn from shell.qml) keep the accent hue.
+assert_file_has "bar theme reads the surface seed" "$REPO_DIR/payload/quickshell/lucidbar/Theme.qml" "surface-seed.json"
+assert_file_has "bar theme tints from the seed" "$REPO_DIR/payload/quickshell/lucidbar/Theme.qml" "root.surfaceTintSource"
 assert_true "lucid apply-theme exists" test -f "$REPO_DIR/payload/lucid/apply-theme.sh"
 assert_true "pibble source retained (disabled)" test -f "$REPO_DIR/payload/pibble/pibble"
 assert_file_has "shader.lua manages Reading Mode" "$REPO_DIR/payload/hypr/shader.lua" "Reading Mode"

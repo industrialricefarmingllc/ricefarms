@@ -6,6 +6,29 @@ pragma Singleton
 Singleton {
     id: root
 
+    // the wallpaper's dominant chromatic colour, for the surface ladder only.
+    // Must match the root Theme.qml: shell.qml resolves `Theme` through its
+    // "./lucidbar" import, so the notch shoulder flares take their fill from
+    // this copy. Without the seed they stayed on the accent hue while the tab
+    // bodies (which resolve the root Theme through `import qs`) used matugen's
+    // seeded surface — the inverted corners did not get the background colour.
+    FileView {
+        id: surfaceSeed
+
+        path: Quickshell.env("HOME") + "/.cache/quickshell/surface-seed.json"
+        watchChanges: true
+        blockLoading: true
+        onFileChanged: reload()
+
+        adapter: JsonAdapter {
+            id: surfaceAdapter
+
+            property real hue: -1
+            property real saturation: 0
+        }
+
+    }
+
     property string themeName: "matugen"
     // false until the palette file has actually been parsed; every colour below
     // is a fallback until then
@@ -60,6 +83,10 @@ Singleton {
     // them from reading as flat paper. k also sets how far `surface()` walks off
     // white (k * _tintLift); below ~0.6 the ramp never leaves the tones where no hue can exist
     readonly property real surfaceTint: pf.surfaceTint >= 0 ? pf.surfaceTint : (root.isLight ? 0.7 : 0)
+    // hue the surface ladder is pulled toward. app-surface-sync writes the
+    // wallpaper's dominant chromatic hue here, so the background can take the
+    // wallpaper's blue-grey while primary stays the yellow highlight.
+    readonly property color surfaceTintSource: surfaceAdapter.hue >= 0 ? Qt.hsla(surfaceAdapter.hue / 360, Math.max(0.35, Math.min(0.8, surfaceAdapter.saturation > 0 ? surfaceAdapter.saturation : 0.4)), 0.55, 1) : root.cPrimary
     property real accentPunch: pf.accentPunch
     readonly property real motionBaseline: 1.125
     readonly property real motionScale: pf.motionScale * root.motionBaseline
@@ -504,16 +531,24 @@ Singleton {
     // pull a neutral toward the accent's hue without moving it off its tone. the
     // blend is re-pinned afterwards so the elevation ladder keeps its spacing
     function tint(c, k) {
+        return root.tintTo(c, k, root.cPrimary);
+    }
+
+    // same, toward a specific source colour. surfaces use a seed taken from the
+    // wallpaper's dominant hue (not the accent) so a yellow highlight can sit
+    // on a blue-grey background without the whole shell turning yellow. Keep
+    // this in step with the root Theme.qml.
+    function tintTo(c, k, source) {
         if (k <= 0)
             return c;
 
-        var h = root.cPrimary.hslHue;
+        var h = source.hslHue;
         if (h < 0)
             return c;
 
         var t = root.toneOf(c);
         // floor the chroma: a wallpaper-derived accent is often nearly grey
-        var pure = root.atTone(Qt.hsla(h, Math.max(0.55, Math.min(1, root.cPrimary.hslSaturation)), 0.55, 1), t);
+        var pure = root.atTone(Qt.hsla(h, Math.max(0.55, Math.min(1, source.hslSaturation)), 0.55, 1), t);
         var head = root.chromaOf(pure);
         if (head <= 0.001)
             return c;
@@ -532,7 +567,7 @@ Singleton {
     // extreme it sits against, because a tone carries no hue there. apps get the
     // same light surfaces from lucid_palette.app_surfaces: keep the two in step
     function surface(c, tones) {
-        return root.tint(root.shade(c, tones + root._rampShift), root.surfaceTint);
+        return root.tintTo(root.shade(c, tones + root._rampShift), root.surfaceTint, root.surfaceTintSource);
     }
 
     // spin a colour round the wheel, holding its tone and chroma
