@@ -43,6 +43,7 @@ foot
 fuse3
 fuzzel
 gamemode
+gcc14
 git
 git-filter-repo
 git-lfs
@@ -84,6 +85,7 @@ libretro-nestopia
 libretro-overlays
 libretro-shaders-slang
 libretro-snes9x
+libxml2-legacy
 libxnvctrl-580xx
 linux
 linux-cachyos
@@ -117,6 +119,7 @@ nvidia-580xx-dkms
 nvidia-580xx-settings
 nvidia-580xx-utils
 openal
+opencv
 openssh
 papirus-icon-theme
 paru
@@ -132,6 +135,7 @@ protonplus
 pyenv
 python311
 python-evdev
+python-onnxruntime-cpu
 python-pillow
 python-pip
 python-pipx
@@ -153,9 +157,11 @@ rtkit
 sddm
 seahorse
 skwd-deck
+skwd-deck-steamworks
 skwd-paper
 skwd-wall-v2
 slurp
+smartmontools
 songrec
 spotify-launcher
 steam

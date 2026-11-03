@@ -306,6 +306,9 @@ Singleton {
         if (!Prefs.loaded || !Prefs.storageLowWarn)
             return ;
 
+        // an absolute floor: how full the volume is as a percentage says
+        // little on a big disk, so warn on free space instead
+        var floor = Math.max(1, Prefs.storageLowGB) * 1024 * 1024 * 1024;
         var warned = Object.assign({}, root._warned);
         for (var i = 0; i < root.volumes.length; i++) {
             var v = root.volumes[i];
@@ -313,12 +316,12 @@ Singleton {
                 continue;
 
             var pct = v.avail / Math.max(1, v.used + v.avail) * 100;
-            if (pct < Prefs.storageLowPercent) {
+            if (v.avail < floor) {
                 if (!warned[v.mount]) {
                     warned[v.mount] = true;
                     root.notifyLow(v, pct);
                 }
-            } else if (pct > Prefs.storageLowPercent + 2) {
+            } else if (v.avail > floor * 1.1) {
                 warned[v.mount] = false;
             }
         }
@@ -355,7 +358,7 @@ Singleton {
 
         }
 
-        function onStorageLowPercentChanged() {
+        function onStorageLowGBChanged() {
             if (Prefs.loaded)
                 root.checkLow();
 

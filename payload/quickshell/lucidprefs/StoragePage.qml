@@ -870,7 +870,7 @@ Column {
         SettingRow {
             title: "Warn when space runs low"
             resetKey: "storageLowWarn"
-            description: "A notification when the system drive, or the one your home is on, gets below " + Prefs.storageLowPercent + "% free. Checked every ten minutes."
+            description: "A notification when the system drive, or the one your home is on, drops below " + Prefs.storageLowGB + " GB free. Checked every ten minutes."
 
             M3Switch {
                 checked: Prefs.storageLowWarn
@@ -883,7 +883,7 @@ Column {
 
         SettingRow {
             title: "Warn below"
-            resetKey: "storageLowPercent"
+            resetKey: "storageLowGB"
             enabled: Prefs.storageLowWarn
             disabledReason: "Warnings are off."
             stacked: true
@@ -891,13 +891,13 @@ Column {
             M3Slider {
                 width: parent.width
                 enabled: Prefs.storageLowWarn
-                from: 5
-                to: 25
+                from: 1
+                to: 20
                 stepSize: 1
-                suffix: "%"
-                value: Prefs.storageLowPercent
+                suffix: " GB"
+                value: Prefs.storageLowGB
                 onMoved: (v) => {
-                    return Prefs.storageLowPercent = Math.round(v);
+                    return Prefs.storageLowGB = Math.round(v);
                 }
             }
 

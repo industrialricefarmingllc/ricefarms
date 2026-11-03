@@ -172,10 +172,18 @@ hl.on("hyprland.start", function()
   -- same .so twice aborts the compositor (SIGABRT 12:46). Skip if present.
   -- 2026-09-06: re-enabled with monitorLive guard in hkDropShadowDraw
   -- (stale-monitor SEGV during VT-switch reconfig fixed in plugin).
-  -- The full plugin is rebuilt for Hyprland 0.57 in -057.
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass.so")
+  -- Liquid glass stays off (prefs), but the .so is loaded for its goo
+  -- workspace morph. The wash is integrated into this plugin now: the
+  -- standalone lucid-wash cannot hook while this one owns renderWindow /
+  -- renderLayer, which produced the two startup errors.
+  -- Dark: 5% screen wash. Light: GPU multiply at 10%.
+  -- Do not hot-unload/reload this .so: it leaves the renderWindow hook broken
+  -- (windows stop repainting). Rebuild, then restart Hyprland.
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-wash2.so")
+  -- Standalone wash is intentionally not loaded; the integrated copy runs above.
+  -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-wash || hyprctl plugin load /home/nicerice/src/lucid-wash/lucid-wash-adv.so")
   -- Layer-wide overlay blending is intentionally not loaded; the wash is
-  -- drawn per window inside the glass plugin to avoid feedback.
+  -- drawn per window to avoid feedback.
   -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-overlay || hyprctl plugin load /home/nicerice/src/lucid-overlay/lucid-overlay.so")
   -- Machine-local glass preset (this box has VRAM to spare): full-res working
   -- buffers + no CA. Applied BOTH here (fresh boot, after the plugin loads)
@@ -912,6 +920,31 @@ hl.window_rule({ name = "kitty-glass", match = { class = "kitty" }, no_blur = tr
 -- own translucency (no toggle-managed opacity file like kitty has). Flip
 -- this back to no_blur=false if glass is left off for good.
 hl.window_rule({ name = "zen-glass", match = { class = "zen" }, no_blur = true })
+
+-- LucidShot's capture overlay has its own layer namespace so recordings can
+-- leave it out. lucidcap captures the *workspace*, and a no_screen_share
+-- layer is skipped there cleanly (the wlr-screencopy path grim/hyprpicker use
+-- would paint it as a black box instead). The rule is toggled by the shell
+-- only while a recording is running: enabled all the time it would black out
+-- the colour picker and the overlay's own re-freeze.
+--
+-- A reload re-registers this rule, and every matugen wallpaper switch does a
+-- `hyprctl reload`. Re-enable it at load time when the shell's recorder pid
+-- file points at a live process, or the toolbar creeps back into the take
+-- halfway through.
+local function lucidTakeRunning()
+  local f = io.open("/tmp/quickshell-wfrecorder.pid", "r")
+  if not f then return false end
+  local pid = (f:read("*a") or ""):match("^%s*(%d+)%s*$")
+  f:close()
+  if not pid then return false end
+  local live = io.open("/proc/" .. pid .. "/cmdline", "r")
+  if not live then return false end
+  live:close()
+  return true
+end
+
+hl.layer_rule({ name = "lucid-snap-rec", match = { namespace = "quickshell-snap" }, no_screen_share = true, enabled = lucidTakeRunning() })
 
 -- liquid-glass-hypr plugin keys intentionally NOT set via hl.config here:
 -- the plugin registers them at load time, so setting them statically

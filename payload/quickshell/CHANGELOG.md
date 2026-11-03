@@ -6,6 +6,11 @@ All notable changes to Lucid are recorded here, newest first.
 
 ### New
 
+- **Recordings leave the capture toolbar out.** Recording now goes through
+  Hyprland's workspace capture instead of screencopy, so the LucidShot toolbar
+  can stay on screen while the video only shows what is behind it. A take
+  follows the workspace you switch to, and `qs ipc call snap record` starts or
+  stops one without opening the toolbar.
 - **Widgets are kept per wallpaper.** Each wallpaper has its own board: the
   widgets you put out, and where they sit, come back when that wallpaper does,
   and a wallpaper you have not used yet starts empty. Presets you saved are

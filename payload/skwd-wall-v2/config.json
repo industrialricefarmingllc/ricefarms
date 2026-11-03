@@ -29,7 +29,7 @@
     "mode": "auto"
   },
   "transition": {
-    "enabled": true,
+    "enabled": false,
     "shader": "fade",
     "durationMs": 400
   }

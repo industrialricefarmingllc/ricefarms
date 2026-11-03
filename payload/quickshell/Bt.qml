@@ -389,13 +389,13 @@ Singleton {
     Timer {
         id: settle
 
-        interval: 900
+        interval: 5000
         repeat: false
         onTriggered: root.refresh()
     }
 
     Timer {
-        interval: 20000
+        interval: 60000
         repeat: true
         running: true
         triggeredOnStart: true

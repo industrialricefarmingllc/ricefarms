@@ -618,3 +618,8 @@ end)
 -- SUPER+T opens Lucid's launcher on the Translate tab.
 hl.bind("SUPER + T", hl.dsp.exec_cmd("qs ipc call launcher translate"), { description = "Translate (SUPER+T)" })
 -- <<< quick-translate <<<
+
+-- SUPER+R opens Lucid's launcher on the Emoji tab, the same way SUPER+T opens
+-- Translate. R already sits in hyprland.lua's super-tap disarm list, so the
+-- release tap cannot reopen the launcher on top of this chord.
+hl.bind("SUPER + R", hl.dsp.exec_cmd("qs ipc call launcher emoji"), { description = "Emoji (SUPER+R)" })

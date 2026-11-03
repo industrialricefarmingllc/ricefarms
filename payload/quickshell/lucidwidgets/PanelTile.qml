@@ -34,7 +34,9 @@ Item {
     implicitWidth: Theme.dp(196)
     implicitHeight: Theme.dp(178)
     opacity: Widgets.full ? 0.4 : (tile.carrying ? 0.5 : 1)
+    Component.onCompleted: console.log("PTILE+", tile.wtype, tile.variantId)
     Component.onDestruction: {
+        console.log("PTILE-", tile.wtype, tile.variantId)
         if (area.carrying && tile.panel)
             tile.panel.abandon();
 

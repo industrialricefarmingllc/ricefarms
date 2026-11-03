@@ -395,7 +395,11 @@ Item {
                     onTapped: {
                         popup.popupVisible = false;
                         if (popup.launchCommand !== "")
-                            Quickshell.execDetached(["sh", "-c", popup.launchCommand]);
+                            Quickshell.execDetached([
+                                Qt.resolvedUrl("../scripts/launch-detached.sh").toString().replace("file://", ""),
+                                "lucid-" + Date.now() + "-" + Math.floor(Math.random() * 1e9),
+                                popup.launchCommand
+                            ]);
 
                     }
                 }

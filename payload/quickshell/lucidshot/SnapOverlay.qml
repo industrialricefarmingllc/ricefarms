@@ -8,6 +8,12 @@ import qs.lucidui
 PanelWindow {
     id: snapWindow
 
+    // wf-recorder cannot do this: screencopy blits the composited monitor,
+    // so the toolbar would be in the frame (and no_screen_share paints it
+    // black). lucidcap records the workspace instead, where flagged layers
+    // are skipped cleanly.
+    WlrLayershell.namespace: "quickshell-snap"
+
     property bool open: false
     property bool contentVisible: true
     property bool animateContent: true
@@ -20,6 +26,9 @@ PanelWindow {
     // grim and wf-recorder take the overlay's own monitor, not the whole layout
 
     property string recordingState: "idle"
+    // stopRecording flips the state to idle before the backend is killed;
+    // keep the capture exclusion until the recorder has actually finished
+    property bool stoppingRecording: false
     property bool recorderAvailable: true
     property int recordSeconds: 0
     property bool micOn: true
@@ -217,11 +226,19 @@ PanelWindow {
         if (snapWindow.recordingState !== "idle")
             return;
         snapWindow.hiddenRecording = false;
+        // stopRecordingBackend drops the exclusion once the recorder is gone;
+        // this covers a take that ended some other way (a reset overlay).
+        if (snapWindow.stoppingRecording)
+            snapWindow.stoppingRecording = false;
+        else
+            Quickshell.execDetached(["sh", "-c", snapWindow.snapRuleCmd(false)]);
         if (snapWindow.toolbarHidden) {
             snapWindow.toolbarHidden = false;
             snapWindow.mask = null;
         }
     }
+
+    Component.onCompleted: Quickshell.execDetached(["sh", "-c", snapWindow.snapRuleCmd(false)])
 
     Timer {
         id: maskApplyTimer
@@ -292,14 +309,15 @@ function stopRecordingBackend() {
         var cleanupMerged = segs.length > 1 ? "'" + mergedFile + "'" : "";
         Quickshell.execDetached(["sh", "-c",
             "PIDFILE='" + snapWindow.recordPidFile + "'; " +
-            // wf-recorder writes the mp4's index on SIGINT, so wait for it to
-            // actually exit: a fixed sleep handed ffmpeg a file still being
-            // written, and the failed encode used to delete the segments
+            // lucidcap closes ffmpeg's stdin on SIGINT and waits for it to
+            // finalise the mp4: a fixed sleep handed the merge a file still
+            // being written, and the failed encode used to delete the segments
             "if [ -f \"$PIDFILE\" ]; then " +
             "PID=$(cat \"$PIDFILE\"); " +
             "kill -INT \"$PID\" 2>/dev/null; " +
             "i=0; while kill -0 \"$PID\" 2>/dev/null && [ \"$i\" -lt 100 ]; do sleep 0.1; i=$((i+1)); done; " +
             "fi; " +
+            snapWindow.snapRuleCmd(false) + "; " +
             "for f in /tmp/quickshell-wfrec-nullsink.pid /tmp/quickshell-wfrec-loop-mic.pid /tmp/quickshell-wfrec-loop-sys.pid; do " +
             "if [ -f \"$f\" ]; then pactl unload-module \"$(cat \"$f\")\" 2>/dev/null; rm -f \"$f\"; fi; " +
             "done; " +
@@ -347,33 +365,50 @@ function stopRecordingBackend() {
         onLoadFailed: savedView.primed = true
     }
 
-    // wf-recorder is the only backend: without it Start would run a phantom
-    // timer and Stop would have nothing to encode, silently losing the take
+    // lucidcap is the only backend: without it Start would run a phantom
+    // timer and Stop would have nothing to encode, silently losing the take.
+    // absolute path: the user service PATH has no ~/.local/bin
+    readonly property string capBin: Quickshell.env("HOME") + "/.local/bin/lucidcap"
+
     Process {
         id: recorderProbe
 
         running: true
-        command: ["sh", "-c", "command -v wf-recorder >/dev/null"]
+        command: ["sh", "-c", "test -x '" + snapWindow.capBin + "'"]
         onExited: (code) => snapWindow.recorderAvailable = code === 0
     }
 
-    function recorderLaunchCmd(segFile) {
+    function recorderLaunchCmd(segFile, withAudio) {
         // a render node existing does not mean VAAPI works: on this box
-        // opening it fails, and wf-recorder used to die right after Start
+        // opening it fails, and the recorder used to die right after Start
         // while the bar kept counting up. probe the device first, then fall
         // back to libx264 rather than launching a recorder that exits at once.
+        var cap = "'" + snapWindow.capBin + "'";
+        var args = " --monitor '" + snapWindow.outputName() + "' --fps 30 --quiet --output '" + segFile + "'";
+        if (withAudio)
+            args += " --audio wfrec_combined.monitor";
         return "DRI=$(ls /dev/dri/renderD* 2>/dev/null | head -1); " +
             "VAAPI=0; " +
             "if [ -n \"$DRI\" ] && ffmpeg -hide_banner -loglevel error " +
             "-init_hw_device \"vaapi=va:$DRI\" -f lavfi -i color=black:s=64x64:d=0.1 " +
             "-frames:v 1 -f null - >/dev/null 2>&1; then VAAPI=1; fi; " +
+            // only now: the colour picker keeps working until frames flow
+            snapWindow.snapRuleCmd(true) + "; " +
             "if [ \"$VAAPI\" = 1 ]; then " +
-            "wf-recorder" + snapWindow.outputArg() + " -c h264_vaapi -d \"$DRI\" --no-dmabuf --audio=wfrec_combined.monitor -f '" + segFile + "' & " +
+            cap + args + " --encoder h264_vaapi --device \"$DRI\" & " +
             "else " +
-            "wf-recorder" + snapWindow.outputArg() + " --audio=wfrec_combined.monitor -x yuv420p -f '" + segFile + "' & " +
+            cap + args + " & " +
             "fi; " +
             "echo $! > " + snapWindow.recordPidFile + "; " +
             "wait";
+    }
+
+    // The overlay is flagged no_screen_share only while frames are being
+    // written: lucidcap skips it cleanly, but the wlr-screencopy path that
+    // grim and hyprpicker use would see a black rectangle instead, so the
+    // colour picker and the overlay's own re-freeze need the rule off.
+    function snapRuleCmd(on) {
+        return "hyprctl eval 'hl.layer_rule({ name = \"lucid-snap-rec\", match = { namespace = \"quickshell-snap\" }, no_screen_share = true, enabled = " + (on ? "true" : "false") + " })' >/dev/null 2>&1";
     }
 
     function startRecordingBackend() {
@@ -390,13 +425,20 @@ function stopRecordingBackend() {
         Quickshell.execDetached(["sh", "-c",
             "mkdir -p '" + snapWindow.recordSaveDir + "'; " +
             "SINK_MON=\"$(pactl get-default-sink).monitor\"; SRC=\"$(pactl get-default-source)\"; " +
-            "pactl load-module module-null-sink sink_name=wfrec_combined > /tmp/quickshell-wfrec-nullsink.pid; " +
-            "pactl load-module module-loopback source=\"$SRC\" sink=wfrec_combined sink_input_properties=media.name=lucidshot-mic latency_msec=1 > /tmp/quickshell-wfrec-loop-mic.pid; " +
-            "pactl load-module module-loopback source=\"$SINK_MON\" sink=wfrec_combined sink_input_properties=media.name=lucidshot-sys latency_msec=1 > /tmp/quickshell-wfrec-loop-sys.pid; " +
+            // a wedged pulse server (its 64-client cap) refuses these and used
+            // to leave a video whose audio track was pure silence; fall back
+            // to a video-only take and say so instead
+            "if pactl load-module module-null-sink sink_name=wfrec_combined > /tmp/quickshell-wfrec-nullsink.pid 2>/dev/null && " +
+            "pactl load-module module-loopback source=\"$SRC\" sink=wfrec_combined sink_input_properties=media.name=lucidshot-mic latency_msec=1 > /tmp/quickshell-wfrec-loop-mic.pid 2>/dev/null && " +
+            "pactl load-module module-loopback source=\"$SINK_MON\" sink=wfrec_combined sink_input_properties=media.name=lucidshot-sys latency_msec=1 > /tmp/quickshell-wfrec-loop-sys.pid 2>/dev/null; then " +
             "sleep 0.2; " +
             "SYSID=$(pactl list sink-inputs | awk '/^Sink Input #/{id=$3} /media.name = \"lucidshot-sys\"/{gsub(\"#\",\"\",id); print id}' | tail -1); " +
             "[ -n \"$SYSID\" ] && pactl set-sink-input-mute \"$SYSID\" " + sysMute + "; " +
-            snapWindow.recorderLaunchCmd(segFile)
+            snapWindow.recorderLaunchCmd(segFile, true) + "; " +
+            "else " +
+            "notify-send -a 'Screen recorder' -i 'media-record' 'Recording without audio' 'The sound server did not accept the audio inputs'; " +
+            snapWindow.recorderLaunchCmd(segFile, false) + "; " +
+            "fi"
         ]);
     }
 
@@ -408,13 +450,13 @@ function stopRecordingBackend() {
     }
 
     function pauseRecordingBackend() {
-        Quickshell.execDetached(["sh", "-c", "[ -f " + snapWindow.recordPidFile + " ] && kill -INT \"$(cat " + snapWindow.recordPidFile + ")\" 2>/dev/null; true"]);
+        Quickshell.execDetached(["sh", "-c", "[ -f " + snapWindow.recordPidFile + " ] && kill -INT \"$(cat " + snapWindow.recordPidFile + ")\" 2>/dev/null; " + snapWindow.snapRuleCmd(false) + "; true"]);
     }
 
     function resumeRecordingBackend() {
         var segFile = snapWindow.lastRecordingFile.replace(/\.mp4$/, "") + ".part" + snapWindow.segmentFiles.length + ".mp4";
         snapWindow.segmentFiles.push(segFile);
-        Quickshell.execDetached(["sh", "-c", snapWindow.recorderLaunchCmd(segFile)]);
+        Quickshell.execDetached(["sh", "-c", snapWindow.recorderLaunchCmd(segFile, true)]);
     }
 
     function setCaptureMode(id) {
@@ -442,7 +484,7 @@ function stopRecordingBackend() {
     function togglePlayPause() {
         if (snapWindow.recordingState === "idle") {
             if (!snapWindow.recorderAvailable) {
-                Quickshell.execDetached(["notify-send", "-a", "Screen recorder", "-i", "media-record", "Recording unavailable", "Install wf-recorder to record the screen"]);
+                Quickshell.execDetached(["notify-send", "-a", "Screen recorder", "-i", "media-record", "Recording unavailable", snapWindow.capBin + " is missing"]);
                 return;
             }
             snapWindow.recordingState = "recording";
@@ -460,6 +502,7 @@ function stopRecordingBackend() {
     function stopRecording() {
         if (snapWindow.recordingState === "idle")
             return;
+        snapWindow.stoppingRecording = true;
         snapWindow.recordingState = "idle";
         snapWindow.recordSeconds = 0;
         snapWindow.resetSelection();
@@ -1956,6 +1999,20 @@ function stopRecordingBackend() {
 
         function close(): void {
             snapWindow.open = false;
+        }
+
+        // start or stop the recorder on its own, without the toolbar
+        function record(): void {
+            if (snapWindow.recordingState === "idle") {
+                var wasClosed = !snapWindow.open;
+                snapWindow.togglePlayPause();
+                // so a later SUPER+S lands on the running take instead of
+                // resetting the overlay to a fresh session
+                if (wasClosed && snapWindow.recordingState !== "idle")
+                    snapWindow.hiddenRecording = true;
+            } else {
+                snapWindow.stopRecording();
+            }
         }
 
         // what the overlay thinks it is doing, for a bug report

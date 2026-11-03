@@ -286,7 +286,7 @@ PanelWindow {
     // pill per island once it splits. Nothing for a hidden shell, or the plugin
     // keeps drawing the last pill as a ghost. Radii are [tl, tr, br, bl].
     readonly property var glassPills: {
-        if (!dockWindow.extGlass || !shell.visible || shell.width < 1 || shell.height < 1)
+        if (!shell.visible || shell.width < 1 || shell.height < 1)
             return [];
 
         if (dockWindow.splitDrawn) {
@@ -410,6 +410,7 @@ PanelWindow {
     }
 
     property string fallbackWallpaper: Qt.resolvedUrl("../assets/fallback.jpg").toString().replace("file://", "")
+    readonly property string workshopRemoveScript: Quickshell.env("HOME") + "/.config/quickshell/luciddocks/workshop-remove.sh"
     property var scannedApps: []
     readonly property string currentTheme: Prefs.currentTheme
     property string appliedWallpaper: ""
@@ -425,6 +426,10 @@ PanelWindow {
     property int wallpaperRevision: 0
     // the last query + list state the picker copies were built for
     property string pickerSyncKey: ""
+    // set while syncPickerFilter is rebuilding the picker's rows; a call that
+    // lands in that window is queued instead of nesting (see syncPickerFilter)
+    property bool pickerSyncing: false
+    property bool pickerSyncQueued: false
     // the exact SkwdWall.items array already laid into the two ListModels
     property var appliedSkwdItems: null
     // a pin on its way to the desktop keeps the dock up, or the drag would lose its source
@@ -558,6 +563,10 @@ PanelWindow {
             dockWindow.rebuildResults();
         }
 
+        function onWallpaperWorkshopDeleteRequested(id) {
+            dockWindow.removeWorkshopItem(id);
+        }
+
     }
 
     readonly property string rawQuery: dockWindow.launcherItem ? dockWindow.launcherItem.searchText : ""
@@ -653,6 +662,9 @@ PanelWindow {
     // pictures and videos share the picker: one tab each
     readonly property bool pickerMode: dockWindow.mode === "wallpaper" || dockWindow.mode === "live"
     readonly property var pickerModel: dockWindow.pickerModelFor(dockWindow.mode)
+    // the local prefix of the picker model; Home/End stop here, before the
+    // latest/web results that follow it
+    readonly property int pickerLocalCount: filteredWallpapersModel.count + filteredLiveModel.count
     readonly property string filterQuery: dockWindow.queryFor(dockWindow.rawQuery)
 
     onRawQueryChanged: {
@@ -675,17 +687,95 @@ PanelWindow {
             // the cards outlive the menu, so the strip is on the current picture
             // from the first frame rather than once the rescan lands; on the
             // other tab (Pictures while a video plays) it starts at the first
+            dockWindow.pickerPlacePending = true;
             dockWindow.syncPickerFilter();
             dockWindow.syncStripToCurrent(true);
+            // The picker's copies are rebuilt as the mode changes, so the model
+            // can still be empty on the line above and the strip would fall
+            // back to the first card. Place it once more after the model has
+            // arrived, but only if the user has not moved the selection yet.
+            dockWindow.pickerPlaceFrom = dockWindow.launcherItem ? dockWindow.launcherItem.pickerIndex : -1;
+            dockWindow.pickerPlaceTries = 0;
+            pickerPlace.restart();
+            // a Wallhaven or Workshop download may have landed since the
+            // last scan; the picker should not need a shell restart to see it
+            if (SkwdWall.enabled)
+                SkwdWall.refresh(true);
             wallpaperScanner.scan();
         } else {
             // leaving the picker hands the copies back whole, so the next open
             // never starts on the last search's matches
+            dockWindow.pickerPlacePending = false;
             dockWindow.syncPickerFilter();
         }
         if (dockWindow.mode === "clipboard")
             Clip.refresh();
 
+    }
+
+    // The picker model is rebuilt as the mode changes (and again when the scan
+    // lands), so it can still be empty when the strip is first moved to the
+    // active wallpaper. Keep re-placing it until the copies have arrived, but
+    // stop the moment the index is no longer the one this placed, so a fast
+    // arrow key is never undone.
+    property int pickerPlaceFrom: -1
+    property int pickerPlaceTries: 0
+    // True from opening until the picker has been put on the current
+    // wallpaper. While it is set, a fresh scan may complete the placement;
+    // once it is placed, later downloads leave the selection alone.
+    property bool pickerPlacePending: false
+
+    Timer {
+        id: pickerPlace
+
+        interval: 200
+        repeat: true
+        onTriggered: {
+            if ((dockWindow.mode !== "wallpaper" && dockWindow.mode !== "live")
+                    || !dockWindow.launcherItem) {
+                pickerPlace.stop();
+                return ;
+            }
+            if (dockWindow.launcherItem.pickerIndex !== dockWindow.pickerPlaceFrom) {
+                pickerPlace.stop();
+                return ;
+            }
+            if (dockWindow.pickerModel.count > 0) {
+                dockWindow.syncStripToCurrent(true);
+                dockWindow.pickerPlaceFrom = dockWindow.launcherItem.pickerIndex;
+                pickerPlace.stop();
+                return ;
+            }
+            if (++dockWindow.pickerPlaceTries >= 20)
+                pickerPlace.stop();
+        }
+    }
+
+    // The picker knows the next wallpaper before it is applied. Warming its
+    // depth/matte while the user is still looking turns the 8-9 s first-use
+    // generation into a cache hit at click time. 450 ms so sweeping the
+    // pointer across the strip does not spawn a run for every card.
+    readonly property string pickerHoverPath: {
+        const face = dockWindow.launcherItem;
+        if (!face || !dockWindow.pickerMode)
+            return "";
+        const path = face.hoveredWallpaperPath;
+        return path === undefined || path === null ? "" : String(path);
+    }
+    onPickerHoverPathChanged: {
+        if (dockWindow.pickerHoverPath !== "")
+            pickerWarm.restart();
+    }
+
+    Timer {
+        id: pickerWarm
+
+        interval: 450
+        repeat: false
+        onTriggered: {
+            if (dockWindow.pickerMode)
+                SpatialWall.prewarm(dockWindow.pickerHoverPath);
+        }
     }
 
     readonly property var allCommands: [{
@@ -1833,12 +1923,25 @@ PanelWindow {
         return true;
     }
 
+    // Run a launcher command outside the shell's systemd cgroup. execDetached
+    // only detaches the process tree; the app still inherits quickshell's
+    // cgroup, so a shell restart (KillMode=control-group) kills every app the
+    // launcher started. The helper puts it in its own transient scope.
+    readonly property string launchHelper: Qt.resolvedUrl("../scripts/launch-detached.sh").toString().replace("file://", "")
+
+    function launchDetached(command, token) {
+        if (!command)
+            return;
+
+        Quickshell.execDetached([dockWindow.launchHelper, token || ("lucid-" + Date.now() + "-" + Math.floor(Math.random() * 1e9)), command]);
+    }
+
     function launchJob(job) {
         if (!job)
             return;
 
         if (!dockWindow.ghostLaunch(job.command, job.title, job.iconName, job.iconRect, job.wmClass, job.base))
-            Quickshell.execDetached(["sh", "-c", job.command]);
+            dockWindow.launchDetached(job.command);
         dockWindow.recordLaunch(job.title);
         dockWindow.menuOpen = false;
     }
@@ -2149,7 +2252,8 @@ PanelWindow {
         dockWindow.requestedWallpapers = {};
         dockWindow.appliedWallpaper = p;
         wallpaperState.current = p;
-        dockWindow.syncStripToCurrent();
+        if (!dockWindow.menuOpen)
+            dockWindow.syncStripToCurrent();
     }
 
     // a point given as fractions of this window, as fractions of the screen it is on:
@@ -2172,6 +2276,31 @@ PanelWindow {
     function applyWallpaper(path, origin) {
         if (path === "")
             return;
+
+        // the load-more row is an action, not a wallpaper: keep the picker up
+        if (path.indexOf("more:") === 0) {
+            RemoteWall.loadMore();
+            return ;
+        }
+        // the fetching placeholder is not selectable as a wallpaper
+        if (path.indexOf("status:") === 0)
+            return ;
+
+        // a wallhaven result has no local file yet. Download it, then let
+        // set-wallpaper.sh do the normal apply/palette pass. A Workshop scene
+        // that is not installed opens its Steam page and applies once Steam
+        // has finished downloading it.
+        if (path.indexOf("wh:") === 0) {
+            dockWindow.appliedWallpaper = path;
+            wallpaperState.current = path;
+            dockWindow.requestedWallpapers[path] = true;
+            RemoteWall.applyWallhaven(path.substring(3), Prefs.wallpaperDir);
+            return ;
+        }
+        if (path.indexOf("skwd:we:") === 0 && !SkwdWall.entryForPath(path)) {
+            RemoteWall.applySteam(path.substring(8));
+            return ;
+        }
 
         dockWindow.appliedWallpaper = path;
         wallpaperState.current = path;
@@ -2225,8 +2354,10 @@ PanelWindow {
         dockWindow.syncPickerFilter();
         if (!changed && dockWindow.pickerQuery() === "")
             return ;
-
-        dockWindow.selectPickerForDisplay();
+        // a download landing must not move the card under the user while the
+        // picker is open, but a scan that finishes the opening placement may.
+        if (!dockWindow.menuOpen || dockWindow.pickerPlacePending)
+            dockWindow.selectPickerForDisplay();
     }
 
     // the wallpaper on the desktop changed. One the picker asked for earlier can
@@ -2248,7 +2379,8 @@ PanelWindow {
         dockWindow.requestedWallpapers = {};
         dockWindow.appliedWallpaper = p;
         wallpaperState.current = p;
-        dockWindow.syncStripToCurrent();
+        if (!dockWindow.menuOpen)
+            dockWindow.syncStripToCurrent();
     }
 
     // the picker's search: a name typed after the prefix narrows the strip, so
@@ -2269,15 +2401,97 @@ PanelWindow {
     // only while the picker is up: an app query ("fire") must not leave the
     // strip filtered behind the scenes
     function pickerQuery() {
-        return dockWindow.pickerMode ? dockWindow.filterQuery.toLowerCase() : "";
+        // read the raw field through the same functions the mode uses rather
+        // than the bound filterQuery: onRawQueryChanged fires before the
+        // bindings have caught up, and a stale "" here would skip the web search
+        const mode = dockWindow.modeFor(dockWindow.rawQuery);
+        if (mode !== "wallpaper" && mode !== "live")
+            return "";
+
+        return dockWindow.queryFor(dockWindow.rawQuery).toLowerCase();
+    }
+
+    // wallhaven files that are already in the folder should not appear twice:
+    // once as the downloaded local picture, once as the web result
+    function remoteDownloaded(id) {
+        if (id === "")
+            return false;
+
+        const needle = "/wallhaven-" + id + ".";
+        for (let i = 0; i < wallpapersModel.count; i++) {
+            if (wallpapersModel.get(i).path.indexOf(needle) !== -1)
+                return true;
+        }
+        return false;
+    }
+
+    // when the selection gets within seven cards of the end, pull the next
+    // batch (or the next page if the pool is empty). Cheap guard: loadMore
+    // itself no-ops while a request is in flight.
+    function maybeLoadMore() {
+        if (!dockWindow.pickerMode || !RemoteWall.enabled)
+            return ;
+
+        const face = dockWindow.launcherItem;
+        if (!face)
+            return ;
+
+        const query = dockWindow.pickerQuery();
+        const local = dockWindow.pickerLocalCount;
+
+        // No query: latest web results wait until the local list reaches its
+        // last card. End/Home and normal stepping both land here.
+        if (query === "" && !RemoteWall.latest) {
+            if (local > 0 && face.pickerIndex >= local - 1)
+                RemoteWall.loadLatest();
+            return ;
+        }
+        if (query !== "" && RemoteWall.query !== query)
+            return ;
+        if (!RemoteWall.hasMore || RemoteWall.loading)
+            return ;
+
+        const count = dockWindow.pickerModel.count;
+        if (count > 7 && face.pickerIndex >= count - 8)
+            RemoteWall.loadMore();
     }
 
     // both tabs are kept in step, so the switch beside the picker finds its
     // matches already cut. Moving cards about in place rather than clearing and
     // refilling keeps the delegates (and their thumbnails) for the ones that stay
     function syncPickerFilter() {
+        // A row inserted here changes the picker's count, which can move its
+        // index, which asks RemoteWall for more, which bumps its revision and
+        // calls straight back here - a stack of nested runs, not a filter. Let
+        // the run in flight finish and repeat once after it instead.
+        if (dockWindow.pickerSyncing) {
+            dockWindow.pickerSyncQueued = true;
+            return ;
+        }
+        dockWindow.pickerSyncing = true;
+        dockWindow.pickerSyncQueued = false;
+        try {
+            dockWindow.syncPickerFilterRows();
+        } finally {
+            dockWindow.pickerSyncing = false;
+            if (dockWindow.pickerSyncQueued) {
+                dockWindow.pickerSyncQueued = false;
+                Qt.callLater(dockWindow.syncPickerFilter);
+            }
+        }
+    }
+
+    function syncPickerFilterRows() {
         const query = dockWindow.pickerQuery();
-        const key = query + "|" + wallpapersModel.count + "|" + liveModel.count + "|" + dockWindow.wallpaperRevision;
+        // the picker's own field is the web search too: local matches stay in
+        // front, the two web sources are asked in the background and appended
+        // below them once they answer
+        if (RemoteWall.enabled && query !== "")
+            RemoteWall.search(query);
+        else if (!(query === "" && RemoteWall.latest))
+            RemoteWall.clear();
+
+        const key = query + "|" + wallpapersModel.count + "|" + liveModel.count + "|" + dockWindow.wallpaperRevision + "|" + RemoteWall.revision + "|" + (RemoteWall.loading ? 1 : 0) + "|" + (RemoteWall.latest ? 1 : 0);
         if (key === dockWindow.pickerSyncKey)
             return ;
 
@@ -2329,11 +2543,13 @@ PanelWindow {
         }
 
         // one flat list for the picker: pictures first, then videos, both
-        // narrowed by the same query
-        filteredPickerModel.clear();
+        // narrowed by the same query. Build it aside and reconcile it into the
+        // model in place: clear() would drop every row (and so every card, and
+        // every decoded picture behind it) on each keystroke.
+        const flat = [];
         for (let p = 0; p < filteredWallpapersModel.count; p++) {
             const e = filteredWallpapersModel.get(p);
-            filteredPickerModel.append({
+            flat.push({
                 "path": e.path,
                 "name": e.name,
                 "thumb": e.thumb,
@@ -2345,7 +2561,7 @@ PanelWindow {
         }
         for (let v = 0; v < filteredLiveModel.count; v++) {
             const e = filteredLiveModel.get(v);
-            filteredPickerModel.append({
+            flat.push({
                 "path": e.path,
                 "name": e.name,
                 "thumb": e.thumb,
@@ -2354,6 +2570,101 @@ PanelWindow {
                 "kind": e.kind || "",
                 "tab": "live"
             });
+        }
+
+        // web results, after the local matches. Their path is virtual and
+        // their thumb is a URL; the card media handles both. A downloaded
+        // wallhaven image is skipped (it is already in the local list), and a
+        // Workshop scene that is already installed is skipped by path.
+        const showRemote = (query !== "" && RemoteWall.query === query) || (query === "" && RemoteWall.latest);
+        if (showRemote) {
+            const seen = {};
+            const seenKeys = {};
+            for (let s = 0; s < flat.length; s++) {
+                const row = flat[s];
+                seen[row.path] = true;
+                if (row.key !== "")
+                    seenKeys[row.key] = true;
+            }
+
+            const remote = RemoteWall.items || [];
+            for (let r = 0; r < remote.length; r++) {
+                const e = remote[r];
+                if (e.path === "" || e.thumb === "" || seen[e.path])
+                    continue;
+                // a video's local path is its file, while the remote item is
+                // skwd:we:<id>; the library key is what they share
+                if (e.key !== "" && seenKeys[e.key])
+                    continue;
+                if (e.kind === "wallhaven" && dockWindow.remoteDownloaded(e.key))
+                    continue;
+                seen[e.path] = true;
+                if (e.key !== "")
+                    seenKeys[e.key] = true;
+                flat.push({
+                    "path": e.path,
+                    "name": e.name || e.key || "",
+                    "thumb": e.thumb,
+                    "preview": e.preview || "",
+                    "key": e.key || "",
+                    "kind": e.kind || "static",
+                    "tab": e.kind === "steam" ? "live" : "wallpaper"
+                });
+            }
+            if (RemoteWall.hasMore && !RemoteWall.loading)
+                flat.push({
+                    "path": "more:remote",
+                    "name": "Load more results",
+                    "thumb": "",
+                    "preview": "",
+                    "key": "",
+                    "kind": "more",
+                    "tab": "wallpaper"
+                });
+            // the fetching state occupies a card slot, not a floating pill:
+            // with no results it is the empty state, with results it is the
+            // next preview that is on its way
+            if (RemoteWall.loading)
+                flat.push({
+                    "path": "status:remote",
+                    "name": RemoteWall.items.length === 0 ? "Searching" : "Loading more",
+                    "thumb": "",
+                    "preview": "",
+                    "key": "",
+                    "kind": "status",
+                    "tab": "wallpaper"
+                });
+        }
+
+        // drop what is gone, move what stayed, insert what is new: the rows
+        // that survive a filter keep their delegates and their pictures
+        const keep = {};
+        for (let k = 0; k < flat.length; k++)
+            keep[flat[k].path] = true;
+        for (let r = filteredPickerModel.count - 1; r >= 0; r--) {
+            if (!keep[filteredPickerModel.get(r).path])
+                filteredPickerModel.remove(r, 1);
+        }
+        for (let k = 0; k < flat.length; k++) {
+            let at = -1;
+            for (let m = k; m < filteredPickerModel.count; m++) {
+                if (filteredPickerModel.get(m).path === flat[k].path) {
+                    at = m;
+                    break;
+                }
+            }
+            if (at === -1) {
+                filteredPickerModel.insert(k, flat[k]);
+            } else {
+                if (at !== k)
+                    filteredPickerModel.move(at, k, 1);
+
+                const cur = filteredPickerModel.get(k);
+                if (cur.name !== flat[k].name || cur.thumb !== flat[k].thumb || cur.preview !== flat[k].preview
+                        || cur.kind !== flat[k].kind || cur.tab !== flat[k].tab)
+                    filteredPickerModel.set(k, flat[k]);
+
+            }
         }
     }
 
@@ -2370,7 +2681,7 @@ PanelWindow {
             return ;
 
         let idx = 0;
-        if (dockWindow.filterQuery.toLowerCase() === "") {
+        if (dockWindow.pickerQuery() === "") {
             const want = dockWindow.appliedWallpaper !== "" ? dockWindow.appliedWallpaper : wallpaperState.current;
             for (let i = 0; i < model.count; i++) {
                 if (model.get(i).path === want) {
@@ -2380,6 +2691,7 @@ PanelWindow {
             }
         }
         const strip = dockWindow.launcherItem.wallStrip;
+        dockWindow.pickerPlacePending = false;
         if (strip && strip.currentIndex === idx)
             return ;
 
@@ -2388,8 +2700,13 @@ PanelWindow {
 
     function syncStripToCurrent(orFirst) {
         const model = dockWindow.pickerModel;
+        // wallpaperState.current is the palette sample for a scene/video, so
+        // prefer the exact path the picker applied or skwd reports.
+        const want = dockWindow.appliedWallpaper !== ""
+            ? dockWindow.appliedWallpaper : dockWindow.currentWallpaperPath();
         for (let i = 0; i < model.count; i++) {
-            if (model.get(i).path === wallpaperState.current) {
+            if (model.get(i).path === want) {
+                dockWindow.pickerPlacePending = false;
                 if (dockWindow.launcherItem)
                     dockWindow.launcherItem.setWallpaperIndex(i);
 
@@ -2401,15 +2718,74 @@ PanelWindow {
             dockWindow.launcherItem.setWallpaperIndex(0);
     }
 
-    // Delete on the picker: move the file to the XDG trash, then drop just that
-    // row from the source and filtered models. No folder rescan, so the other
-    // cards, their thumbnails and the selection stay exactly where they are.
+    function findWorkshopPath(id) {
+        const models = [liveModel, wallpapersModel, dockWindow.pickerModel, filteredLiveModel, filteredWallpapersModel, filteredPickerModel];
+        for (let m = 0; m < models.length; m++) {
+            const model = models[m];
+            if (!model)
+                continue;
+            for (let i = 0; i < model.count; i++) {
+                const p = model.get(i).path;
+                if (SkwdWall.workshopIdFor(p) === id)
+                    return p;
+            }
+        }
+        return "";
+    }
+
+    function removeWorkshopItem(id) {
+        if (id === "" || workshopRemove.running)
+            return ;
+
+        // the card goes as soon as Delete is pressed; the Steam unsubscribe
+        // behind it can take seconds and must not hold the picker's UI hostage
+        workshopRemove.dropped = true;
+        dockWindow.dropWorkshopRow(id);
+        workshopRemove.workshopId = id;
+        workshopRemove.running = true;
+    }
+
+    function dropWorkshopRow(id) {
+        const path = dockWindow.findWorkshopPath(id);
+        if (path !== "") {
+            dockWindow.dropWallpaperRow(path);
+            return ;
+        }
+
+        const models = [wallpapersModel, filteredWallpapersModel, liveModel, filteredLiveModel, filteredPickerModel];
+        for (let m = 0; m < models.length; m++) {
+            const model = models[m];
+            for (let i = model.count - 1; i >= 0; i--) {
+                if (SkwdWall.workshopIdFor(model.get(i).path) === id)
+                    model.remove(i, 1);
+            }
+        }
+        dockWindow.wallpaperRevision++;
+    }
+
+    // Delete on the picker: drop just that row from the source and filtered
+    // models at once, then move the file to the XDG trash in the background.
+    // No folder rescan, so the other cards, their thumbnails and the selection
+    // stay exactly where they are; if the trash refuses, the row comes back.
     // Ctrl+Z restores the last one from the trash and puts the row back.
     function deleteWallpaper(path) {
         if (path === "" || wallpaperTrash.running || wallpaperTrashList.running || wallpaperRestore.running)
             return ;
-        // scenes live in Steam's workshop, not in a folder we can trash
-        if (SkwdWall.isVirtual(path))
+
+        // Delete in the picker is already deliberate. Settings' tile asks
+        // first (its action goes straight to removeWorkshopItem), while the
+        // picker key must not raise a dialog on a hidden Settings window.
+        // A search result that was never downloaded has nothing local to remove.
+        const workshopId = SkwdWall.workshopIdFor(path);
+        if (workshopId !== "") {
+            if (workshopRemove.running || !SkwdWall.entryForPath(path))
+                return ;
+            dockWindow.removeWorkshopItem(workshopId);
+            return ;
+        }
+
+        // a web result that has not been downloaded has no local row to remove
+        if (SkwdWall.isVirtual(path) || path.indexOf("wh:") === 0 || path.indexOf("more:") === 0 || path.indexOf("status:") === 0)
             return ;
 
         const tab = LiveWall.isVideo(path) ? "live" : "wallpaper";
@@ -2459,6 +2835,9 @@ PanelWindow {
         rec.pickerIndex = pickerIndex;
         wallpaperTrash.record = rec;
         wallpaperTrash.path = path;
+        // the card is gone from the picker now, not when gio answers: a big
+        // picture over a slow mount must not leave a deleted card on screen
+        dockWindow.dropWallpaperRow(path);
         wallpaperTrash.running = true;
     }
 
@@ -2846,7 +3225,7 @@ PanelWindow {
         else if (id === "unpin")
             dockWindow.unpinApp(appId);
         else if (id === "newWindow" && contextMenu.command !== "")
-            Quickshell.execDetached(["sh", "-c", contextMenu.command]);
+            dockWindow.launchDetached(contextMenu.command);
         else if (id === "close")
             dockWindow.closeAppWindows(appId, false);
         else if (id === "closeAll")
@@ -2987,6 +3366,55 @@ PanelWindow {
         target: SkwdWall
     }
 
+    // web results arrived (or a page was appended): rebuild the picker's flat
+    // model with them. Only a picker that was empty is moved; appending a page
+    // must not yank the selection back to the first card.
+    Connections {
+        function onRevisionChanged() {
+            if (!dockWindow.pickerMode)
+                return ;
+
+            const face = dockWindow.launcherItem;
+            // the picker model is cleared and refilled by syncPickerFilter;
+            // remember the real card under the selection so a batch/latest
+            // arrival does not throw the user back to the first wallpaper
+            let keepPath = "";
+            if (face && face.pickerIndex >= 0) {
+                for (let i = Math.min(face.pickerIndex, dockWindow.pickerModel.count - 1); i >= 0; i--) {
+                    const p = dockWindow.pickerModel.get(i).path;
+                    if (p !== "" && p.indexOf("status:") !== 0 && p.indexOf("more:") !== 0) {
+                        keepPath = p;
+                        break;
+                    }
+                }
+            }
+
+            const had = dockWindow.pickerModel.count;
+            dockWindow.syncPickerFilter();
+
+            if (keepPath !== "") {
+                for (let j = 0; j < dockWindow.pickerModel.count; j++) {
+                    if (dockWindow.pickerModel.get(j).path === keepPath) {
+                        face.setWallpaperIndex(j);
+                        Qt.callLater(dockWindow.maybeLoadMore);
+                        return ;
+                    }
+                }
+            }
+
+            if (had === 0 && dockWindow.pickerModel.count > 0)
+                dockWindow.selectPickerForDisplay();
+            else
+                Qt.callLater(dockWindow.maybeLoadMore);
+        }
+
+        // A downloaded wallpaper never closes the picker: only activating a
+        // local one does. The card keeps its finished/failed state and the
+        // user closes the picker when they are ready.
+
+        target: RemoteWall
+    }
+
     // The wallpaper strip takes its model as it is built, and the picker only
     // exists while its tab is up: a selection made before that would be lost
     // when the cards arrive (a ListView starts at its first one). Put it back
@@ -3001,6 +3429,10 @@ PanelWindow {
             Qt.callLater(function() {
                 dockWindow.selectPickerForDisplay();
             });
+        }
+
+        function onPickerIndexChanged() {
+            dockWindow.maybeLoadMore();
         }
 
     }
@@ -3057,6 +3489,29 @@ PanelWindow {
             return Prefs.hiddenLauncherApps.join("\n");
         }
 
+        // where the picker currently sits, for scripting a check of the
+        // "opens on the active wallpaper" behaviour
+        function picker(): string {
+            const strip = dockWindow.launcherItem ? dockWindow.launcherItem.wallStrip : null;
+            const idx = strip ? strip.currentIndex : -1;
+            const model = dockWindow.pickerModel;
+            const path = model && idx >= 0 && idx < model.count ? model.get(idx).path : "";
+            let found = -1;
+            for (let i = 0; model && i < model.count; i++) {
+                if (model.get(i).path === dockWindow.appliedWallpaper)
+                    found = i;
+            }
+            return JSON.stringify({
+                "found": found,
+                "mode": dockWindow.mode,
+                "open": dockWindow.menuOpen,
+                "index": idx,
+                "path": path,
+                "applied": dockWindow.appliedWallpaper,
+                "programmatic": dockWindow.launcherItem ? dockWindow.launcherItem.pickerIndex : -1
+            });
+        }
+
         function wallpaper(): void {
             dockWindow.selectMode("wallpaper");
             dockWindow.aimLauncher();
@@ -3068,6 +3523,7 @@ PanelWindow {
             dockWindow.aimLauncher();
             dockWindow.menuOpen = true;
         }
+
 
         function theme(): void {
             dockWindow.selectMode("theme");
@@ -3653,6 +4109,53 @@ PanelWindow {
 
     }
 
+    // Workshop delete: unsubscribe through Steam, remove the local copy and
+    // its preview caches, then let skwd rescan without the row.
+    Process {
+        id: workshopRemove
+
+        property string workshopId: ""
+        // the row was already taken out when the delete was pressed
+        property bool dropped: false
+
+        command: ["bash", dockWindow.workshopRemoveScript, workshopRemove.workshopId]
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (text.trim() !== "")
+                    console.log("workshop-remove:", text.trim());
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (text.trim() !== "")
+                    console.warn("workshop-remove:", text.trim());
+            }
+        }
+        onExited: (code) => {
+            const id = workshopRemove.workshopId;
+            workshopRemove.workshopId = "";
+            if (code !== 0) {
+                if (workshopRemove.dropped) {
+                    // the unsubscribe failed, so the library still has it:
+                    // rebuild the rows from skwd instead of leaving a hole
+                    workshopRemove.dropped = false;
+                    dockWindow.appliedSkwdItems = null;
+                    dockWindow.applySkwdLibrary();
+                }
+                Quickshell.execDetached(["notify-send", "Wallpaper", "Could not unsubscribe Workshop item " + id]);
+                return ;
+            }
+
+            if (!workshopRemove.dropped)
+                dockWindow.dropWorkshopRow(id);
+
+            workshopRemove.dropped = false;
+            SkwdWall.refresh();
+            Quickshell.execDetached(["notify-send", "Wallpaper", "Removed Workshop item " + id]);
+        }
+    }
+
     Process {
         id: wallpaperTrash
 
@@ -3662,11 +4165,16 @@ PanelWindow {
         command: ["gio", "trash", wallpaperTrash.path]
 
         onExited: (code) => {
+            const rec = wallpaperTrash.record;
             if (code === 0) {
-                dockWindow.dropWallpaperRow(wallpaperTrash.path);
-                wallpaperTrashList.record = wallpaperTrash.record;
+                wallpaperTrashList.record = rec;
                 wallpaperTrashList.running = true;
             } else {
+                // the card left the picker when Delete was pressed; put it
+                // back where it was, since the file is still there
+                if (rec)
+                    dockWindow.finishWallpaperUndo(rec);
+
                 Quickshell.execDetached(["notify-send", "Wallpaper", "Could not move to trash: " + wallpaperTrash.path]);
                 dockWindow.undoAfterTrash = false;
             }
@@ -3866,11 +4374,12 @@ PanelWindow {
 
                     return;
                 }
-                // the open already put the strip on the current picture
+                // the open already put the strip on the current picture; a
+                // rescan while it is open must not move it
                 if (!changed && dockWindow.pickerQuery() === "")
                     return ;
-
-                dockWindow.selectPickerForDisplay();
+                if (!dockWindow.menuOpen || dockWindow.pickerPlacePending)
+                    dockWindow.selectPickerForDisplay();
             }
         }
 
@@ -4375,6 +4884,7 @@ PanelWindow {
                 appsModel: dockWindow.launcherAppsModel
                 resultCount: dockWindow.resultCount
                 wallpaperModel: dockWindow.pickerModel
+                wallpaperLocalCount: dockWindow.pickerLocalCount
                 kindRailWidth: dockWindow.wallKindRailWidth
                 onPickerKindRequested: (kind) => dockWindow.setSearchText(kind === "live" ? ">live" : ">wallpaper", true)
                 wallHeroW: dockWindow.wallHeroW
@@ -4417,9 +4927,22 @@ PanelWindow {
                 onHideRequested: (index) => dockWindow.hideResult(index)
                 onClearRequested: Clip.wipe()
                 onWallpaperChosen: (path) => {
+                    if (path.indexOf("more:") === 0) {
+                        RemoteWall.loadMore();
+                        return ;
+                    }
+                    if (path.indexOf("status:") === 0)
+                        return ;
+                    const remote = path.indexOf("wh:") === 0 || (path.indexOf("skwd:we:") === 0 && !SkwdWall.entryForPath(path));
                     var picker = dockWindow.launcherItem ? dockWindow.launcherItem.wallStrip : null;
                     dockWindow.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
-                    dockWindow.menuOpen = false;
+                    // a local pick closes at once and supersedes anything still
+                    // downloading; a web pick stays up for the download and
+                    // after it, until the user closes it
+                    if (!remote) {
+                        RemoteWall.cancelRemoteApply();
+                        dockWindow.menuOpen = false;
+                    }
                 }
                 onWallpaperDeleteRequested: (path) => dockWindow.deleteWallpaper(path)
                 onWallpaperUndoRequested: dockWindow.undoDeleteWallpaper()

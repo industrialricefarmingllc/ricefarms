@@ -13,6 +13,7 @@
 #include "BorderGlass.hpp"
 #include "GooMorph.hpp"
 #include "WindowGlass.hpp"
+#include "WindowWash.hpp"
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/workspace/HLWorkspace.hpp>
@@ -98,6 +99,13 @@ void hkRenderLayer(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHL
     }
 
     g_originalRenderLayer(self, ctx, surface, monitor, now, popups, lockscreen, workspaceScene);
+
+    if (!popups && !lockscreen && surface && surface->mapped()) {
+        if (auto wash = lg::washTexture()) {
+            for (const auto& draw : lg::layerWashSnapshots(surface, monitor))
+                ctx.m_pass.add(makeUnique<CWindowWashPassElement>(CWindowWashPassElement::SData{draw, wash}));
+        }
+    }
 }
 
 using RenderWindowFn = void (*)(Render::IHyprRenderer*, Render::CRenderContext&, PHLWINDOW, PHLMONITOR, const Render::SWindowRenderPresentation&, const Time::steady_tp&, bool,
@@ -182,6 +190,13 @@ void hkRenderWindow(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PH
     }
 
     g_originalRenderWindow(self, ctx, window, monitor, presentation, now, decorate, passMode, ignorePosition, standalone);
+
+    if (mainPass && !ctx.m_renderingSnapshot && window && window->mapped() && !window->isHidden()) {
+        if (auto wash = lg::washTexture()) {
+            if (auto draw = lg::windowWashSnapshot(window, monitor, presentation))
+                ctx.m_pass.add(makeUnique<CWindowWashPassElement>(CWindowWashPassElement::SData{*draw, wash}));
+        }
+    }
 
     if (cropShrink)
         window->presentation().setAnimatingIn(prevAnimatingIn);

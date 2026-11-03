@@ -22,6 +22,9 @@ Variants {
             }
 
             readonly property bool suppressed: Prefs.widgetHideFullscreen && layer.fullscreenUp
+            // virtual outputs used for the background-only live capture have no
+            // widgets: otherwise the clock/calendar would be baked into it
+            readonly property bool captureScreen: String(unit.modelData && unit.modelData.name || "").indexOf("HEADLESS") === 0
             readonly property bool fullscreenUp: {
                 var t = Hyprland.activeToplevel;
                 if (!t || !t.lastIpcObject)
@@ -31,7 +34,7 @@ Variants {
             }
 
             screen: unit.modelData
-            visible: Prefs.loaded && Widgets.loaded && (deck.panelLive || (Prefs.widgetsEnabled && Widgets.count > 0 && !layer.suppressed))
+            visible: Prefs.loaded && Widgets.loaded && !layer.captureScreen && (deck.panelLive || (Prefs.widgetsEnabled && Widgets.count > 0 && !layer.suppressed))
             color: "transparent"
             // reserves nothing and refuses to be shrunk into the bar and dock's strips,
             // so a card can be dragged to a true screen edge and sit under the dock.
@@ -39,6 +42,9 @@ Variants {
             exclusionMode: ExclusionMode.Ignore
             // the widget panel lifts the whole board over the windows until it has slid away
             WlrLayershell.layer: deck.panelLive ? WlrLayer.Overlay : (Prefs.widgetOnTop ? WlrLayer.Top : WlrLayer.Bottom)
+            // the spatial wallpaper ranks this namespace in front of the
+            // desktop icon board but behind the window layer
+            WlrLayershell.namespace: "lucid-widgets"
             WlrLayershell.keyboardFocus: deck.panelUp ? WlrKeyboardFocus.Exclusive : (deck.wantsKeyboard ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None)
 
             anchors {
@@ -74,6 +80,8 @@ Variants {
                 // bumped whenever the repeater's children change, so frameAt() bindings re-run
                 property int rev: 0
                 property Item dragFrame: null
+                property string spatialSig: ""
+                property string spatialHoverSig: ""
 
                 readonly property string screenName: layer.screen ? layer.screen.name : ""
                 readonly property bool isPrimary: layer.screen !== null && layer.screen === Monitors.mainScreen
@@ -88,7 +96,7 @@ Variants {
                 readonly property bool wantsKeyboard: {
                     for (var i = 0; i < Widgets.model.count; i++) {
                         var e = Widgets.model.get(i);
-                        if (!e.closing && (e.wtype === "notes" || e.wtype === "todo" || e.wtype === "github"))
+                        if (!e.closing && (e.wtype === "notes" || e.wtype === "todo" || e.wtype === "github" || e.wtype === "mesh"))
                             return true;
 
                     }
@@ -273,6 +281,51 @@ Variants {
                     anchors.fill: parent
                     z: 1000
                     board: deck
+                }
+
+                // Publish the cards the spatial foreground may need to draw
+                // over. Polling is deliberate: x/y/hover change continuously
+                // during a drag and a per-property binding on every card would
+                // be more code and more churn than one 30 Hz read.
+                Timer {
+                    id: spatialCards
+
+                    interval: 33
+                    repeat: true
+                    running: SpatialWall.enabled && layer.visible && !layer.captureScreen
+                    onRunningChanged: {
+                        if (!spatialCards.running) {
+                            deck.spatialSig = "";
+                            SpatialWidgets.clear(deck.screenName);
+                        }
+                    }
+                    onTriggered: {
+                        var out = [];
+                        var hovered = {};
+                        for (var i = 0; i < deck.frameCount; i++) {
+                            var frame = deck.frameAt(i);
+                            if (!frame || !frame.visible || frame.closing || frame.blanked)
+                                continue;
+                            out.push({
+                                "uid": frame.uid,
+                                "x": frame.x,
+                                "y": frame.y,
+                                "w": frame.width,
+                                "h": frame.height
+                            });
+                            hovered[frame.uid] = frame.hovered === true;
+                        }
+                        const sig = JSON.stringify(out);
+                        if (sig !== deck.spatialSig) {
+                            deck.spatialSig = sig;
+                            SpatialWidgets.update(deck.screenName, out);
+                        }
+                        const hoverSig = JSON.stringify(hovered);
+                        if (hoverSig !== deck.spatialHoverSig) {
+                            deck.spatialHoverSig = hoverSig;
+                            SpatialWidgets.updateHovered(hovered);
+                        }
+                    }
                 }
 
             }

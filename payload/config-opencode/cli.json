@@ -8,5 +8,8 @@
   },
   "session": {
     "thinking": "show"
+  },
+  "prompt": {
+    "paste": "full"
   }
 }

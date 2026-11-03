@@ -45,7 +45,11 @@ WidgetBody {
         if (open)
             open.activate();
         else
-            Quickshell.execDetached(["sh", "-c", app.command]);
+            Quickshell.execDetached([
+                Qt.resolvedUrl("../scripts/launch-detached.sh").toString().replace("file://", ""),
+                "lucid-" + Date.now() + "-" + Math.floor(Math.random() * 1e9),
+                app.command
+            ]);
     }
 
     bare: w.variant === "shapes"

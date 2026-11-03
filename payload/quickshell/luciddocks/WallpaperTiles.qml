@@ -22,10 +22,18 @@ Item {
     property int hoveredIndex: -1
     property alias currentIndex: view.currentIndex
     property string appliedPath: ""
+    // the picker's query, for the explicit "nothing matched" state
+    property string filterText: ""
     // the Live tab: the same picker over the videos
     property bool live: false
     property real stableHeight: height
     property bool syncing: false
+    // see WallpaperStrip.pendingIndex: the grid may still be empty when the
+    // picker asks for the active wallpaper
+    property int pendingIndex: -1
+    // the card the grid should return to after the model is rebuilt; see the
+    // same note in WallpaperStrip
+    property int heldIndex: 0
     property real originX: -1
     property real originY: -1
     // Settings -> Theme -> Tiles: how many rows (two to five), and square or 16:9 tiles
@@ -36,6 +44,7 @@ Item {
     readonly property int cellW: strip.wide ? Math.round(strip.tile * 16 / 9) : strip.tile
 
     signal chosen(string path)
+    signal wallpaperDeleteRequested(string path)
 
     function noteOrigin(card) {
         if (!card || strip.Window.width <= 0 || strip.Window.height <= 0) {
@@ -76,7 +85,31 @@ Item {
         }
     }
 
+    // Delete: the tile under the pointer if there is one, otherwise the
+    // selected tile - the same interface as WallpaperStrip's.
+    function deleteHighlighted() {
+        if (!strip.model || strip.model.count <= 0)
+            return false;
+
+        const at = strip.hoveredIndex >= 0 && strip.hoveredIndex < strip.model.count ? strip.hoveredIndex : view.currentIndex;
+        if (at < 0 || at >= strip.model.count)
+            return false;
+
+        const item = strip.model.get(at);
+        if (!item || item.path === "")
+            return false;
+
+        strip.hoveredIndex = -1;
+        strip.wallpaperDeleteRequested(item.path);
+        return true;
+    }
+
     function setIndexImmediate(i) {
+        if (!strip.model || strip.model.count <= 0) {
+            strip.pendingIndex = i;
+            return;
+        }
+        strip.pendingIndex = -1;
         strip.syncing = true;
         view.currentIndex = i;
         Qt.callLater(strip.centerCurrent);
@@ -114,13 +147,26 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         model: strip.model
         visible: count > 0
+        onCountChanged: {
+            if (count <= 0)
+                return ;
+            if (strip.pendingIndex >= 0) {
+                strip.setIndexImmediate(strip.pendingIndex);
+                return ;
+            }
+            const held = Math.min(strip.heldIndex, count - 1);
+            if (view.currentIndex !== held)
+                view.currentIndex = held;
+        }
         highlightFollowsCurrentItem: false
         cacheBuffer: strip.cellW * 8
 
         onCurrentIndexChanged: {
+            strip.hoveredIndex = -1;
             if (view.currentIndex >= 0)
                 view.positionViewAtIndex(view.currentIndex, GridView.Contain);
-
+            if (count > 0)
+                strip.heldIndex = view.currentIndex;
         }
 
         add: Transition {
@@ -220,6 +266,7 @@ Item {
                     preview: slot.preview
                     kind: slot.kind
                     active: slot.hovered || slot.isCurrent
+                    current: slot.isCurrent
                     sourceSizeWidth: strip.cellW * 2
                     sourceSizeHeight: strip.tile * 2
                 }
@@ -352,11 +399,25 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: strip.live ? "No videos in this folder" : "No wallpapers in this folder"
+            text: strip.filterText !== "" ? (strip.live ? "No live wallpapers found" : "No wallpapers found") : (strip.live ? "No videos in this folder" : "No wallpapers in this folder")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody
             font.weight: Font.Medium
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Math.min(Theme.dp(340), Math.max(Theme.dp(140), strip.width - Theme.dp(32)))
+            visible: strip.filterText !== ""
+            text: (RemoteWall.enabled && RemoteWall.query !== "" && RemoteWall.query === strip.filterText.toLowerCase())
+                ? "Nothing in your library, Wallhaven, or the Workshop matches \"" + strip.filterText + "\"."
+                : "No local wallpaper matches \"" + strip.filterText + "\"."
+            color: Theme.subtextDim
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontLabel
         }
 
     }

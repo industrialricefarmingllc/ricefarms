@@ -421,6 +421,16 @@ Singleton {
     // skwd-wall (when installed) owns the wallpaper backend: images, videos and
     // Wallpaper Engine scenes, through its daemon and animated previews.
     property alias skwdWall: s.skwdWall
+    // the picker's web sources: Wallhaven stills and the Workshop's approved
+    // Wallpaper Engine scenes. The key is only used for Wallhaven requests.
+    property alias webWallpapers: s.webWallpapers
+    // local depth-model parallax: stills, video posters and Workshop previews
+    property alias spatialWallpapers: s.spatialWallpapers
+    // which local model builds the parallax depth map: "da2-vits",
+    // "da3-base", "da3-mono" or "depthpro"
+    property alias spatialDepthModel: s.spatialDepthModel
+    property alias wallhavenApiKey: s.wallhavenApiKey
+    property alias wallhavenPurity: s.wallhavenPurity
     property alias liveDecoder: s.liveDecoder
     property alias livePauseUnder: s.livePauseUnder
     property alias liveGameMode: s.liveGameMode
@@ -708,7 +718,10 @@ Singleton {
     // the newest commit on main, offered for install before it is a release
     property alias updateBeta: s.updateBeta
     property alias storageLowWarn: s.storageLowWarn
+    // percent free, for the trays and bars to colour themselves red
     property alias storageLowPercent: s.storageLowPercent
+    // free space, in GB, the "running out of space" notification waits for
+    property alias storageLowGB: s.storageLowGB
     // 0 means never
     property alias storageTrashDays: s.storageTrashDays
 
@@ -1013,6 +1026,11 @@ Singleton {
         "wallpaperPickerKeys": "sides",
         "liveWallpapers": true,
         "skwdWall": true,
+        "webWallpapers": true,
+        "spatialWallpapers": true,
+        "spatialDepthModel": "da3-mono",
+        "wallhavenApiKey": "",
+        "wallhavenPurity": "110",
         "liveDecoder": "auto",
         "livePauseUnder": "fullscreen",
         "liveGameMode": "pause",
@@ -1224,6 +1242,7 @@ Singleton {
         "updateBeta": false,
         "storageLowWarn": true,
         "storageLowPercent": 10,
+        "storageLowGB": 5,
         "storageTrashDays": 0,
         "idleEnabled": false,
         "idleAutostart": true,
@@ -1365,6 +1384,9 @@ Singleton {
     signal settingsRequested(string page)
     signal resetConfirmRequested(string title, string body, string confirmLabel, string action)
     signal wallpaperDeleteRequested(string path)
+    // a Workshop item is not a file we can trash: confirm its id here and let
+    // the dock unsubscribe + remove the local copy
+    signal wallpaperWorkshopDeleteRequested(string id)
     signal desktopActionRequested(string action)
     signal wallpapersChanged()
 
@@ -1787,6 +1809,15 @@ Singleton {
             property bool liveWallpapers: true
             // use skwd-wall's engine and library when it is installed
             property bool skwdWall: true
+            // search Wallhaven and the Workshop's approved scenes from the
+            // launcher's wallpaper field. purity is Wallhaven's bitmask:
+            // 100 sfw, 110 +sketchy, 111 +nsfw
+            property bool webWallpapers: true
+            // local Depth Anything parallax for every wallpaper surface
+            property bool spatialWallpapers: true
+            property string spatialDepthModel: "da3-mono"
+            property string wallhavenApiKey: ""
+            property string wallhavenPurity: "110"
             property string liveDecoder: "auto"
             property string livePauseUnder: "fullscreen"
             property string liveGameMode: "pause"
@@ -1998,6 +2029,7 @@ Singleton {
             property bool updateBeta: false
             property bool storageLowWarn: true
             property int storageLowPercent: 10
+            property int storageLowGB: 5
             property int storageTrashDays: 0
             property bool idleEnabled: false
             property bool idleAutostart: true

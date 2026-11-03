@@ -24,10 +24,18 @@ Item {
     property int hoveredIndex: -1
     property int currentIndex: -1
     property string appliedPath: ""
+    // the picker's query, for the explicit "nothing matched" state
+    property string filterText: ""
     // the Live tab: the same picker over the videos
     property bool live: false
     property real stableHeight: height
     property bool syncing: false
+    // How many slots either side of the selected one a style can put on screen.
+    // A card's picture is only built within this reach (see the delegate's
+    // `near`), so a library of a hundred wallpapers does not decode a hundred
+    // pictures at once - and does not decode them again on every model rebuild.
+    // Styles that show more (the pills) raise it.
+    property int visibleReach: 6
     property real originX: -1
     property real originY: -1
     readonly property int count: strip.model ? strip.model.count : 0
@@ -47,6 +55,7 @@ Item {
     }
 
     signal chosen(string path)
+    signal wallpaperDeleteRequested(string path)
 
     function noteOrigin(card) {
         if (!card || strip.Window.width <= 0 || strip.Window.height <= 0) {
@@ -81,6 +90,26 @@ Item {
         strip.chosen(path);
     }
 
+    // Delete: the card under the pointer if there is one, otherwise the
+    // selected card - the same interface as WallpaperStrip's, so the launcher's
+    // Delete key works in the slot styles too.
+    function deleteHighlighted() {
+        if (strip.count <= 0)
+            return false;
+
+        const at = strip.hoveredIndex >= 0 && strip.hoveredIndex < strip.count ? strip.hoveredIndex : strip.currentIndex;
+        if (at < 0 || at >= strip.count)
+            return false;
+
+        const item = strip.model ? strip.model.get(at) : null;
+        if (!item || item.path === "")
+            return false;
+
+        strip.hoveredIndex = -1;
+        strip.wallpaperDeleteRequested(item.path);
+        return true;
+    }
+
     function setIndexImmediate(i) {
         strip.syncing = true;
         strip.currentIndex = i;
@@ -88,6 +117,7 @@ Item {
     }
 
     // the model arrives after the picker does
+    onCurrentIndexChanged: strip.hoveredIndex = -1
     onCountChanged: {
         if (strip.count > 0 && strip.currentIndex < 0)
             strip.currentIndex = 0;
@@ -119,25 +149,33 @@ Item {
         Repeater {
             id: slots
 
-            model: strip.count
+            // the model itself, not its count: an int model makes the Repeater
+            // rebuild every delegate whenever a row is appended, which is what
+            // turned each filter keystroke into a hundred card rebuilds. Bound
+            // to the model, inserts and moves only touch the delegates they are
+            // about, the same way the strip's Repeater behaves.
+            model: strip.model
 
             delegate: Item {
                 id: slot
 
                 required property int index
+                required property string path
+                required property string name
+                required property string thumb
+                required property string preview
+                required property string kind
 
                 readonly property int offset: slot.index - strip.currentIndex
                 readonly property var rect: strip.slotRect(slot.offset)
-                readonly property var entry: strip.model ? strip.model.get(slot.index) : null
-                readonly property string path: slot.entry ? slot.entry.path : ""
-                readonly property string thumb: slot.entry ? slot.entry.thumb : ""
-                readonly property string preview: slot.entry ? (slot.entry.preview || "") : ""
-                readonly property string kind: slot.entry ? (slot.entry.kind || "") : ""
                 readonly property bool isCurrent: slot.offset === 0
                 readonly property bool isApplied: strip.appliedPath !== "" && strip.appliedPath === slot.path
                 readonly property bool hovered: slotHover.hovered
                 readonly property bool pressed: slotTap.pressed && slot.hovered
                 readonly property bool wide: slot.width >= Theme.dp(70)
+                // one beyond the reach, so the card entering from the edge
+                // already exists and slides in instead of popping
+                readonly property bool near: Math.abs(slot.offset) <= strip.visibleReach + 1
 
                 x: slot.rect.x
                 y: slot.rect.y
@@ -213,59 +251,75 @@ Item {
 
                 }
 
-                ClippingRectangle {
-                    id: card
-
+                // Only the slots a style can actually show build a card: the
+                // rest stay bare delegates with no picture, no mask layer and
+                // no decode. This is the strip's `near` gate, for the slot
+                // styles (bento, pills) that used to build every wallpaper.
+                Loader {
                     anchors.fill: parent
-                    radius: slot.rect.r
-                    color: Theme.bgTile
+                    active: slot.near
+                    sourceComponent: cardComp
+                }
 
-                    Behavior on radius {
-                        enabled: !strip.syncing
+                Component {
+                    id: cardComp
 
-                        NumberAnimation {
-                            duration: Theme.ms(300)
-                            easing.type: Easing.Bezier
-                            easing.bezierCurve: Theme.easeEmphasizedDecel
-                        }
+                    ClippingRectangle {
+                        id: card
 
-                    }
-
-                    // a narrow shape shows the middle of the picture, a wide one all of it
-                    WallpaperCardMedia {
-                        anchors.centerIn: parent
-                        width: Math.max(parent.width, parent.height * 1.6)
-                        height: parent.height
-                        path: slot.path
-                        thumb: slot.thumb
-                        preview: slot.preview
-                        kind: slot.kind
-                        active: slot.isCurrent || slot.hovered
-                        sourceSizeWidth: Theme.dp(640)
-                        sourceSizeHeight: Theme.dp(400)
-                    }
-
-                    Rectangle {
                         anchors.fill: parent
-                        color: Theme.text
-                        opacity: slot.pressed ? Theme.statePressed : (slot.hovered ? Theme.stateHover : 0)
+                        radius: slot.rect.r
+                        color: Theme.bgTile
 
-                        Behavior on opacity {
+                        Behavior on radius {
+                            enabled: !strip.syncing
+
                             NumberAnimation {
-                                duration: Theme.durShort
+                                duration: Theme.ms(300)
+                                easing.type: Easing.Bezier
+                                easing.bezierCurve: Theme.easeEmphasizedDecel
                             }
 
                         }
 
-                    }
+                        // a narrow shape shows the middle of the picture, a wide one all of it
+                        WallpaperCardMedia {
+                            anchors.centerIn: parent
+                            width: Math.max(parent.width, parent.height * 1.6)
+                            height: parent.height
+                            path: slot.path
+                            thumb: slot.thumb
+                            preview: slot.preview
+                            kind: slot.kind
+                            active: slot.isCurrent || slot.hovered
+                            current: slot.isCurrent
+                            sourceSizeWidth: Theme.dp(640)
+                            sourceSizeHeight: Theme.dp(400)
+                        }
 
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: card.radius
-                        color: "transparent"
-                        border.color: Theme.accent
-                        border.width: slot.isCurrent ? 3 : 0
-                        visible: slot.isCurrent
+                        Rectangle {
+                            anchors.fill: parent
+                            color: Theme.text
+                            opacity: slot.pressed ? Theme.statePressed : (slot.hovered ? Theme.stateHover : 0)
+
+                            Behavior on opacity {
+                                NumberAnimation {
+                                    duration: Theme.durShort
+                                }
+
+                            }
+
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: card.radius
+                            color: "transparent"
+                            border.color: Theme.accent
+                            border.width: slot.isCurrent ? 3 : 0
+                            visible: slot.isCurrent
+                        }
+
                     }
 
                 }
@@ -388,11 +442,25 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: strip.live ? "No videos in this folder" : "No wallpapers in this folder"
+            text: strip.filterText !== "" ? (strip.live ? "No live wallpapers found" : "No wallpapers found") : (strip.live ? "No videos in this folder" : "No wallpapers in this folder")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody
             font.weight: Font.Medium
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Math.min(Theme.dp(340), Math.max(Theme.dp(140), strip.width - Theme.dp(32)))
+            visible: strip.filterText !== ""
+            text: (RemoteWall.enabled && RemoteWall.query !== "" && RemoteWall.query === strip.filterText.toLowerCase())
+                ? "Nothing in your library, Wallhaven, or the Workshop matches \"" + strip.filterText + "\"."
+                : "No local wallpaper matches \"" + strip.filterText + "\"."
+            color: Theme.subtextDim
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontLabel
         }
 
     }

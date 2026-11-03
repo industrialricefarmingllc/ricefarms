@@ -1251,7 +1251,7 @@ Column {
         SettingRow {
             title: "After a capture"
             resetKey: "shotPreview"
-            description: Prefs.shotPreview === "preview" ? "A card in the corner shows it, to open, mark up, drag into an app, find in its folder or delete. Recordings get one too." : (Prefs.shotPreview === "notify" ? "A notification says where it went. Screenshots are on the clipboard either way." : "Nothing shows. Screenshots are still copied to the clipboard.")
+            description: Prefs.shotPreview === "preview" ? "A card in the corner shows it, to open, mark up, drag into an app, find in its folder or delete. Recordings get one too. Both are on the clipboard." : (Prefs.shotPreview === "notify" ? "A notification says where it went. Screenshots and recordings are on the clipboard either way." : "Nothing shows. Screenshots and recordings are still copied to the clipboard.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(300), fitWidth)

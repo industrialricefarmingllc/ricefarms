@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Bake the window-background overlay: a heavily blurred wallpaper, soft-light
-blended against the surface colour, at 80%.
+"""Bake the window-background overlay. Dark mode: the raw blurred wallpaper,
+screen-blended at 15% by the runtime. Light mode: a soft-light bake at 80%
+alpha, drawn source-over.
 
 Doing the blend here keeps every consumer (Quickshell, kitty, GTK) on a plain
 static image: no runtime shader, no backdrop capture. Regenerated only when the
@@ -28,10 +29,12 @@ HOME = os.path.expanduser("~")
 CACHE = os.path.join(HOME, ".cache", "quickshell")
 KEY = os.path.join(CACHE, "wallpaper-softlight.key")
 PATH_FILE = os.path.join(CACHE, "wallpaper-softlight.path")
+LIGHT_PATH_FILE = os.path.join(CACHE, "wallpaper-softlight-light.path")
+SCREEN_PATH_FILE = os.path.join(CACHE, "wallpaper-softlight-screen.path")
 LOCK = os.path.join(CACHE, "wallpaper-softlight.lock")
 WALL_STATE = os.path.join(HOME, ".cache", "current_wallpaper")
-MIX = 1.0
-VERSION = 11
+MIX = 0.05
+VERSION = 20
 # 2 = half the screen's logical resolution. Set 1 for full resolution, 3 for
 # a third (still fine under a 14 px blur at typical viewing distance).
 SCALE = max(1, int(os.environ.get("LUCID_SOFTLIGHT_SCALE", "2")))
@@ -87,18 +90,32 @@ def main():
     except OSError:
         stamp = 0
     base = base_rgb(args.base)
-    key = f"{wallpaper}\t{stamp}\t{logical_w}x{logical_h}\t{args.base}\t{MIX}\t{VERSION}\t{SCALE}"
+    try:
+        theme = open(os.path.join(CACHE, "theme_mode")).read().strip() or "dark"
+    except OSError:
+        theme = "dark"
+    key = f"{wallpaper}\t{stamp}\t{logical_w}x{logical_h}\t{args.base}\t{theme}\t{MIX}\t{VERSION}\t{SCALE}"
     digest = hashlib.sha256(key.encode()).hexdigest()[:12]
     out = os.path.join(CACHE, f"wallpaper-softlight-{digest}.png")
+    light_out = os.path.join(CACHE, f"wallpaper-softlight-light-{digest}.png")
+    screen_out = os.path.join(CACHE, f"wallpaper-softlight-screen-{digest}.png")
 
-    # A previous run may have already produced this exact texture; publishing
-    # the path is all that is left. This is the common case on a re-apply.
-    if os.path.isfile(out):
+    # A previous run may have already produced the current trio; publishing
+    # all paths is all that is left. This is the common case on a re-apply.
+    if os.path.isfile(out) and os.path.isfile(light_out) and os.path.isfile(screen_out):
         try:
             if open(PATH_FILE).read().strip() != out:
                 with open(PATH_FILE + ".tmp", "w") as f:
                     f.write(out)
                 os.replace(PATH_FILE + ".tmp", PATH_FILE)
+            if open(LIGHT_PATH_FILE).read().strip() != light_out:
+                with open(LIGHT_PATH_FILE + ".tmp", "w") as f:
+                    f.write(light_out)
+                os.replace(LIGHT_PATH_FILE + ".tmp", LIGHT_PATH_FILE)
+            if open(SCREEN_PATH_FILE).read().strip() != screen_out:
+                with open(SCREEN_PATH_FILE + ".tmp", "w") as f:
+                    f.write(screen_out)
+                os.replace(SCREEN_PATH_FILE + ".tmp", SCREEN_PATH_FILE)
         except OSError:
             pass
         return 0
@@ -136,8 +153,13 @@ def main():
         blurred = np.clip((blurred - mean) * 1.8 + mean, 0.0, 1.0)
 
         b = np.array(base, dtype=np.float32)
-        blended = soft_light(b, blurred)
-        result = np.clip(b * (1.0 - MIX) + blended * MIX, 0.0, 1.0)
+        # 5% dark-mode mix with the surface colour. The advanced plugin uses
+        # the raw screen texture instead; this legacy mix is kept coherent.
+        result = np.clip(b * (1.0 - MIX) + blurred * MIX, 0.0, 1.0)
+        # Light mode uses a true soft-light bake at 80% alpha; the runtime
+        # draws it source-over. Dark mode keeps the 5% MIN/MAX texture.
+        light_result = np.clip(soft_light(b, blurred), 0.0, 1.0)
+        screen_result = np.clip(blurred, 0.0, 1.0)
         # 8x8 ordered dither: the wash is a near-flat gradient, and the
         # 10/80% alpha quantisation bands visibly on a large screen
         bayer = np.array([
@@ -154,27 +176,49 @@ def main():
         result = np.clip(result + tile[..., None] / 255.0, 0.0, 1.0)
         # The wash is drawn only over windows (lucidbar/WallpaperOverlay.qml);
         # the screen-bezel corners are a separate overlay (lucidcorners/
-        # ScreenCorners.qml), so the texture itself is a pure 80% wash.
-        alpha = np.full((height, width), 0.80, dtype=np.float32)
+        # ScreenCorners.qml), so the dark texture itself is an opaque 85/15 mix.
+        alpha = np.ones((height, width), dtype=np.float32)
         out_rgba = np.dstack([np.clip(result, 0.0, 1.0), alpha])
         out_image = Image.fromarray((out_rgba * 255.0 + 0.5).astype(np.uint8), "RGBA")
+
+        light_alpha = np.full((height, width), 0.10, dtype=np.float32)
+        light_rgba = np.dstack([np.clip(light_result + tile[..., None] / 255.0, 0.0, 1.0), light_alpha])
+        light_image = Image.fromarray((light_rgba * 255.0 + 0.5).astype(np.uint8), "RGBA")
+
+        screen_rgba = np.dstack([np.clip(screen_result + tile[..., None] / 255.0, 0.0, 1.0),
+                                 np.full((height, width), 0.10, dtype=np.float32)])
+        screen_image = Image.fromarray((screen_rgba * 255.0 + 0.5).astype(np.uint8), "RGBA")
 
         os.makedirs(CACHE, exist_ok=True)
         tmp = out + ".tmp"
         out_image.save(tmp, format="PNG", compress_level=1)
         os.replace(tmp, out)
-        # Publish only after the file is complete; readers watch this path.
+        tmp_light = light_out + ".tmp"
+        light_image.save(tmp_light, format="PNG", compress_level=1)
+        os.replace(tmp_light, light_out)
+        tmp_screen = screen_out + ".tmp"
+        screen_image.save(tmp_screen, format="PNG", compress_level=1)
+        os.replace(tmp_screen, screen_out)
+        # Publish only after the files are complete; readers watch these paths.
         with open(PATH_FILE + ".tmp", "w") as f:
             f.write(out)
         os.replace(PATH_FILE + ".tmp", PATH_FILE)
+        with open(LIGHT_PATH_FILE + ".tmp", "w") as f:
+            f.write(light_out)
+        os.replace(LIGHT_PATH_FILE + ".tmp", LIGHT_PATH_FILE)
+        with open(SCREEN_PATH_FILE + ".tmp", "w") as f:
+            f.write(screen_out)
+        os.replace(SCREEN_PATH_FILE + ".tmp", SCREEN_PATH_FILE)
         with open(KEY, "w") as f:
             f.write(key)
         for old in os.listdir(CACHE):
-            if old.startswith("wallpaper-softlight-") and old.endswith(".png") and os.path.join(CACHE, old) != out:
-                try:
-                    os.remove(os.path.join(CACHE, old))
-                except OSError:
-                    pass
+            if old.startswith("wallpaper-softlight-") and old.endswith(".png"):
+                full = os.path.join(CACHE, old)
+                if full not in (out, light_out, screen_out):
+                    try:
+                        os.remove(full)
+                    except OSError:
+                        pass
     except Exception as exc:
         print(f"wallpaper-softlight: {exc}", file=sys.stderr)
         return 1

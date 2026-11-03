@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Recreate the symlinks that let MO2 (running in the shared 489830 Proton
+# prefix) see the Windows Skyrim/MO2/DynDOLOD paths and the existing saves.
+# Run this only if the prefix has been rebuilt (e.g. Steam deletes it).
+set -euo pipefail
+
+CD="$HOME/.local/share/Steam/steamapps/compatdata/489830"
+PFX="$CD/pfx/drive_c"
+PROTON="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-6-x86_64/proton"
+WIN="/mnt/vc"
+
+if [ ! -d "$PFX" ]; then
+    echo "Prefix missing; initializing with GE-Proton (a display is required)..."
+    mkdir -p "$CD"
+    STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam" \
+    STEAM_COMPAT_DATA_PATH="$CD" \
+        "$PROTON" run 'C:\windows\system32\cmd.exe' /c echo prefix-ready
+fi
+
+mkdir -p "$PFX/Program Files (x86)/Steam/steamapps/common" \
+         "$PFX/users/steamuser/Documents/My Games"
+
+ln -sfn "$WIN/Program Files (x86)/MO2" \
+    "$PFX/Program Files (x86)/MO2"
+ln -sfn "$WIN/Program Files (x86)/Tilted Phoques" \
+    "$PFX/Program Files (x86)/Tilted Phoques"
+ln -sfn "$WIN/Games" \
+    "$PFX/Games"
+ln -sfn "$WIN/Program Files (x86)/Steam/steamapps/common/Skyrim Special Edition" \
+    "$PFX/Program Files (x86)/Steam/steamapps/common/Skyrim Special Edition"
+ln -sfn "$WIN/Users/One/Documents/My Games/Skyrim Special Edition" \
+    "$PFX/users/steamuser/Documents/My Games/Skyrim Special Edition"
+ln -sfn "$WIN/Users/One/AppData/Local/Skyrim Special Edition" \
+    "$PFX/users/steamuser/AppData/Local/Skyrim Special Edition"
+ln -sfn "$WIN/Users/One" \
+    "$PFX/users/One"
+ln -sfn "$WIN/Users/Kilian" \
+    "$PFX/users/Kilian"
+ln -sfn "$WIN/Users/Luki" \
+    "$PFX/users/Luki"
+mkdir -p "$WIN/Users/Luki/AppData/Local/Temp"
+
+# Community Shaders needs a real Microsoft d3dcompiler_47; Wine's built-in
+# compiler cannot parse its `namespace` HLSL. The game's PCA folder ships one.
+SYS="$PFX/drive_c/windows/system32"
+NATIVE_COMPILER="$WIN/Program Files (x86)/Steam/steamapps/common/Skyrim Special Edition/PCA/d3dcompiler_47.dll"
+if [ -f "$NATIVE_COMPILER" ] && [ "$(stat -c %s "$SYS/d3dcompiler_47.dll")" -lt 1000000 ]; then
+    cp -a "$SYS/d3dcompiler_47.dll" "$SYS/d3dcompiler_47.dll.wine-builtin" 2>/dev/null || true
+    cp "$NATIVE_COMPILER" "$SYS/d3dcompiler_47.dll"
+fi
+STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam" \
+STEAM_COMPAT_DATA_PATH="$CD" \
+    "$PROTON" run 'C:\windows\system32\reg.exe' add \
+    'HKCU\Software\Wine\DllOverrides' /v d3dcompiler_47 /d 'native,builtin' /f \
+    >/dev/null 2>&1 || true
+
+echo "Prefix links and native d3dcompiler_47 ready. Launch 'Mod Organizer 2' from Steam."

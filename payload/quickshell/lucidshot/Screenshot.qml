@@ -37,9 +37,22 @@ PanelWindow {
         }
     }
 
+    // a file on the clipboard, as the uri list apps paste files from
+    function copyFile(file) {
+        const url = "file://" + file.split("/").map((p) => {
+            return encodeURIComponent(p);
+        }).join("/");
+        Quickshell.execDetached(["wl-copy", "--type", "text/uri-list", url + "\r\n"]);
+    }
+
     // what follows a saved capture, per Prefs.shotPreview: the preview card,
     // the notification it replaces, or nothing (it is on the clipboard already)
     function announce(file, kind) {
+        // a recording goes on the clipboard as a file, the way a screenshot
+        // goes on as its image, whatever the preview setting says
+        if (kind === "video")
+            flashWindow.copyFile(file);
+
         if (kind !== "video")
             Sounds.event("capture", Prefs.soundOnCapture);
 

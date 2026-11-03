@@ -377,6 +377,8 @@ FloatingWindow {
                 Bt.forgetAddress(action.substring(10));
             else if (action.indexOf("kde-unpair:") === 0)
                 KdeConnect.unpair(action.substring(11));
+            else if (action.indexOf("workshop:") === 0)
+                Prefs.wallpaperWorkshopDeleteRequested(action.substring(9));
             else if (action.indexOf("wallpaper:") === 0)
                 Prefs.wallpaperDeleteRequested(action.substring(10));
             else if (action.indexOf("theme:") === 0)

@@ -29,6 +29,8 @@ WALLPAPER="${1:-}"
 EXPLICIT_MODE="${2:-}"
 CACHE_DIR="$HOME/.cache"
 LUCID_DIR="$HOME/.config/lucid"
+LIVE_INDEX="$CACHE_DIR/lucid/live-previews/index.json"
+LIVE_CAPTURE="$HOME/.config/quickshell/luciddocks/live-capture.sh"
 MATUGEN_CFG="$HOME/.config/matugen/config.toml"
 PREFS="$HOME/.config/quickshell/lucidprefs/prefs.json"
 CURRENT_WALL_FILE="$CACHE_DIR/current_wallpaper"
@@ -40,12 +42,11 @@ SOURCE_DIR="$CACHE_DIR/lucid/sources"
 REQ_FILE="$CACHE_DIR/lucid/fast.request"
 mkdir -p "$CACHE_DIR/lucid" "$SCHEME_DIR" "$SOURCE_DIR" "$CACHE_DIR/quickshell"
 
-# Pillow/numpy are installed for the system interpreter (3.14 here); the
-# pyenv shim pinned to 3.11 for other projects has neither. A shim earlier in
-# PATH therefore made surface-seed.py and wallpaper-softlight.py silently do
-# nothing, leaving kitty/Lucid on flat, accent-tinted background colours. Pick
-# the system python for Lucid's helpers only (LUCID_PYTHON overrides); nothing
-# outside Lucid changes interpreter.
+# Pillow/numpy live in the system interpreter (python-pillow/python-numpy).
+# A pyenv or venv shim earlier in PATH cannot import them, so surface-seed.py
+# and wallpaper-softlight.py silently do nothing and kitty/Lucid keep flat,
+# accent-tinted background colours. Prefer an interpreter with both;
+# LUCID_PYTHON overrides.
 PYTHON="${LUCID_PYTHON:-}"
 if [ -z "$PYTHON" ]; then
     for _py in /usr/bin/python3 python3; do
@@ -149,6 +150,67 @@ if [[ "$SKWD" == 1 ]]; then
     [[ -n "$SKWD_TARGET" ]] || SKWD_TARGET="$TARGET_LABEL"
 fi
 
+# ── reveal source ───────────────────────────────────────────────────────────
+# The iris used to reveal a WebP/thumbnail, which is soft and sometimes not
+# decodable. Prefer the poster frame from the 10s live recording, then the
+# author's own preview image, then a real video frame, then the sample.
+REVEAL_SOURCE="$WALLPAPER"
+LIVE_KEY=""
+LIVE_KIND=""
+LIVE_SOURCE=""
+LIVE_SCENE=""
+if [[ "$SKWD" == 1 ]]; then
+    if [[ "$SKWD_TARGET" == we:* ]]; then
+        LIVE_KEY="$SKWD_TARGET"
+        live_meta=$(skwd-helm list --json 2>/dev/null \
+            | jq -r --arg k "$LIVE_KEY" '.wallpapers[]? | select(.key == $k) | [.type, (.video_file // ""), (.path // "")] | @tsv' 2>/dev/null \
+            | head -n1)
+        IFS=$'\t' read -r live_type live_video live_path <<<"$live_meta"
+        if [[ "$live_type" == "video" && -n "$live_video" ]]; then
+            LIVE_KIND=video
+            LIVE_SOURCE="$live_video"
+        else
+            LIVE_KIND=we
+            LIVE_SCENE="$live_path"
+        fi
+    elif [[ "$SKWD_LIVE_LABEL" =~ \.(mp4|webm|mkv|mov|m4v)$ ]]; then
+        LIVE_KIND=video
+        LIVE_SOURCE="$SKWD_LIVE_LABEL"
+        LIVE_KEY=$(skwd-helm list --json 2>/dev/null \
+            | jq -r --arg p "$SKWD_LIVE_LABEL" '.wallpapers[]? | select(.video_file == $p) | .key' 2>/dev/null \
+            | head -n1)
+        [[ -n "$LIVE_KEY" ]] || LIVE_KEY="$SKWD_LIVE_LABEL"
+    fi
+
+    if [[ -n "$LIVE_KEY" && -f "$LIVE_INDEX" ]]; then
+        live_jpg=$(jq -r --arg k "$LIVE_KEY" '.[$k].jpg // empty' "$LIVE_INDEX" 2>/dev/null | head -n1)
+        [[ -n "$live_jpg" && -f "$live_jpg" ]] && REVEAL_SOURCE="$live_jpg"
+    fi
+
+    # first scene apply: the author's preview is a real image, unlike the WebP thumb
+    if [[ "$REVEAL_SOURCE" == "$WALLPAPER" && "$LIVE_KIND" == "we" ]]; then
+        for c in "$LIVE_SCENE/preview.jpg" "$LIVE_SCENE/preview.png" "$LIVE_SCENE/preview.gif"; do
+            if [[ -n "$LIVE_SCENE" && -f "$c" ]]; then
+                REVEAL_SOURCE="$c"
+                break
+            fi
+        done
+    fi
+
+    # first video apply: a real frame at 1s, not the WebP thumb
+    if [[ "$REVEAL_SOURCE" == "$WALLPAPER" && "$LIVE_KIND" == "video" && -n "$LIVE_SOURCE" ]] \
+            && command -v ffmpeg >/dev/null 2>&1; then
+        RF_DIR="$CACHE_DIR/lucid/reveal-frames"
+        RF="$RF_DIR/$(printf '%s|%s' "$LIVE_SOURCE" "$(stat -c %Y "$LIVE_SOURCE" 2>/dev/null || echo 0)" | sha1sum | cut -c1-16).jpg"
+        if [[ ! -f "$RF" ]]; then
+            mkdir -p "$RF_DIR"
+            ffmpeg -v error -y -ss 1 -i "$LIVE_SOURCE" -frames:v 1 -q:v 2 "$RF.$$.jpg" </dev/null \
+                && mv -f "$RF.$$.jpg" "$RF" || rm -f "$RF.$$.jpg"
+        fi
+        [[ -f "$RF" ]] && REVEAL_SOURCE="$RF"
+    fi
+fi
+
 stat_key() { stat -c '%y|%s' "$1" 2>/dev/null || printf missing; }
 write_if_diff() { # $1 = file, $2 = value
     local f="$1" v="$2"
@@ -169,7 +231,32 @@ REVEAL_FILE="$CACHE_DIR/quickshell/wallpaper-reveal.json"
 REVEAL_FLAG="$CACHE_DIR/quickshell/reveal-active"
 REVEAL_READY="$CACHE_DIR/quickshell/reveal-ready"
 REVEAL_COVERED="$CACHE_DIR/quickshell/reveal-covered"
+REVEAL_HEARTBEAT="$CACHE_DIR/quickshell/reveal-heartbeat"
+HEARTBEAT_PID=""
 REVEALING=0
+# The reveal's watchdog closes the iris when the shell has gone quiet. Keep
+# proving this apply is still working while depth/matte/mesh and the wallpaper
+# decode run, so the circle only opens when everything is actually there.
+reveal_heartbeat_start() {
+    [ -n "$HEARTBEAT_PID" ] && return 0
+    # $$ is this script's own pid, and bash keeps it in the subshell below.
+    # $PPID is whatever started the script - normally the shell - so a script
+    # killed without running its EXIT trap used to leave this loop refreshing
+    # the heartbeat for ever: the iris watchdog then never saw a quiet script
+    # and the circle stayed on screen with the wallpaper already applied.
+    ( while kill -0 "$$" 2>/dev/null; do
+        date +%s%3N >"$REVEAL_HEARTBEAT" 2>/dev/null || true
+        sleep 0.5
+      done ) &
+    HEARTBEAT_PID=$!
+}
+reveal_heartbeat_stop() {
+    [ -n "$HEARTBEAT_PID" ] || return 0
+    kill "$HEARTBEAT_PID" 2>/dev/null || true
+    HEARTBEAT_PID=""
+}
+trap 'reveal_heartbeat_stop' EXIT
+trap 'reveal_heartbeat_stop; exit 143' TERM INT HUP
 wait_reveal_ready() {
     local i
     for i in {1..150}; do
@@ -192,7 +279,7 @@ reveal_write() { # $1 = in|out
     # detached so the wallpaper/palette writes happen while the circle is
     # already growing, not after it has gone.
     if [[ "$1" == "in" ]]; then
-        ( timeout 2 qs ipc call wallpaper-reveal reveal "$TOKEN" "$WALLPAPER" >/dev/null 2>&1 & ) 2>/dev/null || true
+        ( timeout 2 qs ipc call wallpaper-reveal reveal "$TOKEN" "$REVEAL_SOURCE" >/dev/null 2>&1 & ) 2>/dev/null || true
     else
         ( timeout 2 qs ipc call wallpaper-reveal conceal "$TOKEN" >/dev/null 2>&1 & ) 2>/dev/null || true
     fi
@@ -252,18 +339,24 @@ DARK_THRESHOLD=0.42431640625
 # so cache the answer. This removes an ffmpeg decode from every re-select and
 # from every mode toggle. The threshold is part of the key, so retuning it
 # never resurrects answers measured against the old one.
+MODE=""
+MODE_KEY=$(printf '%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" "$DARK_THRESHOLD" | sha1sum | cut -d' ' -f1)
+MODE_CACHE="$CACHE_DIR/lucid/wallpaper-mode/$MODE_KEY"
 if [[ -n "$EXPLICIT_MODE" ]]; then
     MODE="$EXPLICIT_MODE"
-else
-    MODE_KEY=$(printf '%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" "$DARK_THRESHOLD" | sha1sum | cut -d' ' -f1)
-    MODE_CACHE="$CACHE_DIR/lucid/wallpaper-mode/$MODE_KEY"
-    if [[ -f "$MODE_CACHE" ]]; then
-        MODE="$(cat "$MODE_CACHE")"
-    else
-        MODE="dark"
-        if command -v ffmpeg >/dev/null 2>&1; then
-            ffmpeg -y -i "$WALLPAPER" -vf "scale=64:64:flags=area" -f rawvideo -pix_fmt rgb24 "$CACHE_DIR/lucid/.wallgrid.rgb" 2>/dev/null || true
-            MODE=$(DARK_THRESHOLD="$DARK_THRESHOLD" "$PYTHON" - << 'PY' 2>/dev/null || echo dark
+elif [[ -f "$MODE_CACHE" ]]; then
+    MODE="$(cat "$MODE_CACHE")"
+fi
+
+# The first sighting of an image costs ~320 ms of ffmpeg + Python before the
+# iris can even start. Nothing the iris needs depends on the answer, so the
+# reveal starts first and this runs while the circle grows.
+detect_mode() {
+    [[ -n "$MODE" ]] && return 0
+    local mode="dark"
+    if command -v ffmpeg >/dev/null 2>&1; then
+        ffmpeg -y -i "$WALLPAPER" -vf "scale=64:64:flags=area" -f rawvideo -pix_fmt rgb24 "$CACHE_DIR/lucid/.wallgrid.rgb" 2>/dev/null || true
+        mode=$(DARK_THRESHOLD="$DARK_THRESHOLD" "$PYTHON" - << 'PY' 2>/dev/null || echo dark
 import os
 p=os.path.expanduser('~/.cache/lucid/.wallgrid.rgb')
 try:
@@ -277,14 +370,33 @@ except Exception:
     print('dark')
 PY
 )
-        fi
-        [[ "$MODE" != "light" && "$MODE" != "dark" ]] && MODE="dark"
-        mkdir -p "$(dirname "$MODE_CACHE")"
-        printf '%s' "$MODE" >"$MODE_CACHE.tmp" && mv -f "$MODE_CACHE.tmp" "$MODE_CACHE"
-        find "$CACHE_DIR/lucid/wallpaper-mode" -type f -mtime +60 -delete 2>/dev/null || true
     fi
-fi
-[[ "$MODE" == "light" || "$MODE" == "dark" ]] || { echo "error: mode must be dark or light (got: $MODE)" >&2; exit 1; }
+    [[ "$mode" != "light" && "$mode" != "dark" ]] && mode="dark"
+    MODE="$mode"
+    mkdir -p "$(dirname "$MODE_CACHE")"
+    printf '%s' "$MODE" >"$MODE_CACHE.tmp" && mv -f "$MODE_CACHE.tmp" "$MODE_CACHE"
+    find "$CACHE_DIR/lucid/wallpaper-mode" -type f -mtime +60 -delete 2>/dev/null || true
+}
+
+# The signature alone is not proof the wallpaper is on screen: a transient
+# backend failure still used to write it, and an apply from skwd's own picker
+# does not update it. Check the actual current wallpaper before taking the
+# fast path, so a downloaded remote item can always be re-applied.
+wallpaper_is_current() {
+    if [[ "$SKWD" == 1 ]]; then
+        command -v skwd-helm >/dev/null 2>&1 || return 1
+        local target="${SKWD_TARGET#we:}"
+        local cur line
+        cur=$(skwd-helm current 2>/dev/null \
+            | awk -F'\t' '$1 !~ /^HEADLESS/ && $2 != "" { print $2 }' || true)
+        [ -n "$cur" ] || return 1
+        while IFS= read -r line; do
+            [[ "$line" == "$target" || "$line" == "$SKWD_TARGET" || "$line" == "$WALLPAPER" ]] || return 1
+        done <<<"$cur"
+        return 0
+    fi
+    [[ "$(cat "$CURRENT_WALL_FILE" 2>/dev/null || true)" == "$WALLPAPER" ]]
+}
 
 # ── fast path: the same wallpaper + mode + theme is already fully applied ───
 # Only the matugen-relevant prefs count. The file is rewritten for unrelated
@@ -297,7 +409,8 @@ if [[ "${FORCE:-0}" != "1" && "$CURRENT_THEME" == "matugen" \
         && "$(cat "$SIG_FILE" 2>/dev/null || true)" == "$SIG" \
         && -s "$CACHE_DIR/quickshell/matugen.json" \
         && -s "$HOME/.config/hypr/colors.conf" \
-        && -s "$HOME/.config/kitty/matugen-colors.conf" ]]; then
+        && -s "$HOME/.config/kitty/matugen-colors.conf" ]] \
+        && wallpaper_is_current; then
     exit 0
 fi
 
@@ -307,6 +420,15 @@ TOKEN="$(date +%s%N)-$$"
 printf '%s|%s|%s' "$TOKEN" "$WALLPAPER" "$MODE" >"$REQ_FILE.tmp"
 mv -f "$REQ_FILE.tmp" "$REQ_FILE"
 
+# Tell the shell which wallpaper this token belongs to before the first pixel
+# is applied, so depth/matte/mesh generation can start under the reveal circle
+# instead of waiting for skwd's output state to catch up.
+if [[ "${THEME_ONLY:-0}" != "1" ]] && command -v jq >/dev/null 2>&1; then
+    SPATIAL_REQ="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lucid-spatial-request.json"
+    jq -n --arg p "$TARGET_LABEL" --arg t "$TOKEN"         --argjson c "$(date +%s%3N)"         '{path:$p, token:$t, created:$c}' >"$SPATIAL_REQ.tmp" \
+        && mv -f "$SPATIAL_REQ.tmp" "$SPATIAL_REQ"
+fi
+
 # ── synchronized commit gate ────────────────────────────────────────────────
 # If this image already has a cached source colour, we can align every visible
 # change with OpenCode's built-in 1 s theme refresh. Start that timer now, wait
@@ -315,8 +437,31 @@ mv -f "$REQ_FILE.tmp" "$REQ_FILE"
 # adding a full second after its decode, so it keeps the normal fast path.
 EARLY_SENT=0
 EARLY_SOURCE_KEY=""
+# Grow the iris without waiting for the brightness decode, the cache keys or
+# the seed: none of them are needed to show the picture inside the circle.
+start_reveal() {
+    [[ "$REVEALING" == "1" ]] && return 0
+    REVEALING=1
+    EARLY_SENT=1
+    printf '1' >"$REVEAL_FLAG"
+    reveal_heartbeat_start
+    is_current || exit 0
+    # Clear markers before the trigger. A stale reveal-covered from the
+    # previous animation otherwise lets the palette write immediately.
+    rm -f "$REVEAL_READY" "$REVEAL_COVERED"
+    reveal_write in
+}
 if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
         && "${LUCID_SYNC_COMMIT:-1}" != "0" ]]; then
+    # The reveal needs the picture, not the brightness answer. Decode the
+    # picture first, then measure while the circle grows; running both large
+    # decodes at once only makes a low-power device slower.
+    if [[ -z "$MODE" ]]; then
+        start_reveal
+        wait_reveal_ready
+        is_current || exit 0
+        detect_mode
+    fi
     EARLY_SOURCE_KEY=$(printf '%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" \
         "$(stat_key "$MATUGEN_CFG")" | sha1sum | cut -d' ' -f1)
     EARLY_SCHEME=$(jq -r '.matugenScheme // "scheme-tonal-spot"' "$PREFS" 2>/dev/null || echo scheme-tonal-spot)
@@ -343,14 +488,7 @@ if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
         fi
     fi
 
-    REVEALING=1
-    EARLY_SENT=1
-    printf '1' >"$REVEAL_FLAG"
-    is_current || exit 0
-    # Clear markers before the trigger. A stale reveal-covered from the
-    # previous animation otherwise lets the palette write immediately.
-    rm -f "$REVEAL_READY" "$REVEAL_COVERED"
-    reveal_write in
+    start_reveal
     wait_reveal_ready
     is_current || exit 0
     # Do not touch the live wallpaper or palette until the iris has finished
@@ -360,6 +498,10 @@ if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
     is_current || exit 0
 fi
 
+# Themes other than matugen skip the block above but still tag the mode files.
+detect_mode
+[[ "$MODE" == "light" || "$MODE" == "dark" ]] || { echo "error: mode must be dark or light (got: $MODE)" >&2; exit 1; }
+
 
 # ── wallpaper ───────────────────────────────────────────────────────────────
 # Start the transition in parallel with the palette work. The two have no
@@ -367,11 +509,69 @@ fi
 # The wallpaper lock is still taken inside the job, so a newer pick waits at
 # most one transition and then becomes the one left on screen.
 WP_PID=""
+
+# A freshly installed Workshop scene exists on disk before skwd's library has
+# scanned it. `skwd-helm apply we:<id>` then says "not found" and the first
+# click leaves the old wallpaper up (the second click works). Wait for the key
+# the download just created, but never block a selection the user has left.
+wait_skwd_target() {
+    [[ "$SKWD" == 1 && "$SKWD_TARGET" == we:* ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    local scene="${SKWD_TARGET#we:}"
+    local dir="$HOME/.local/share/Steam/steamapps/workshop/content/431960/$scene"
+    [ -d "$dir" ] || return 0
+    local i
+    for i in {1..60}; do
+        is_current || return 0
+        if skwd-helm list --json 2>/dev/null \
+                | jq -e --arg k "$SKWD_TARGET" '.wallpapers[]? | select(.key == $k)' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    return 0
+}
+wait_skwd_target
+# The iris stays closed until the spatial layer has its first usable frame.
+# Without this the geometric wallpaper pops in after the circle has gone.
+wait_spatial_ready() {
+    [[ "${REVEALING:-0}" == "1" ]] || return 0
+    [[ "${THEME_ONLY:-0}" != "1" ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    jq -e '.spatialWallpapers // true' "$PREFS" >/dev/null 2>&1 || return 0
+
+    local file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lucid-spatial-ready.json"
+    local target="$TARGET_LABEL"
+    local i
+    # 26 s: a cold 4K still needs depth + matte + two mesh builds, and the cover
+    # must not open halfway through that. A generation that failed reports its
+    # error under the same token and releases the wait instead.
+    for i in {1..260}; do
+        is_current || return 0
+        if [[ -f "$file" ]]; then
+            # An empty token means the shell re-read its request file too late
+            # (a restart during the apply) and could not echo it back; the path
+            # still proves the spatial layer is showing this wallpaper.
+            if jq -e --arg p "$target" --arg t "$TOKEN"                     '.path == $p and .ready == true and (.token == $t or .token == "")' "$file" >/dev/null 2>&1; then
+                # one compositor frame under the cover, so the first mesh frame is
+                # already presented when the iris opens
+                sleep 0.07
+                return 0
+            fi
+            if jq -e --arg p "$target" --arg t "$TOKEN"                     '.path == $p and .token == $t and (.error // "") != ""' "$file" >/dev/null 2>&1; then
+                return 0
+            fi
+        fi
+        sleep 0.1
+    done
+    return 0
+}
+
 wait_wallpaper() {
-    # The iris must not open before the new wallpaper is actually on screen.
-    # skwd in particular renders the handoff asynchronously; the old code
-    # skipped this wait for skwd, which is why the wallpaper sometimes appeared
-    # only after the circle had gone.
+    # skwd's apply RPC is synchronous: it returns after the render handoff, and
+    # a Workshop scene's handoff is part of the same call. Polling `current`
+    # afterwards added seconds (and could never match on a lagging output), so
+    # the client's own completion is the whole wait.
     if [[ -n "${WP_PID:-}" ]]; then
         wait "$WP_PID" 2>/dev/null || true
         WP_PID=""
@@ -385,7 +585,30 @@ if [[ "${THEME_ONLY:-0}" != "1" ]]; then
             exec 8>"$CACHE_DIR/lucid/wallpaper.lock"
             flock 8
             if is_current; then
-                skwd-helm apply "$SKWD_TARGET" >/dev/null 2>&1 \
+                # A scene-to-scene swap reuses skwd's shared scene renderer,
+                # and that renderer keeps the first scene's canvas size. Going
+                # from a 320x200 pixel-art scene to a 4K one then shows the 4K
+                # scene at 320x200. A still in between rebuilds the presenter;
+                # it stays under the reveal cover, and the scene follows at
+                # its own native resolution.
+                if [[ "$SKWD_TARGET" == we:* ]]; then
+                    prev=$(skwd-helm current 2>/dev/null \
+                        | awk -F'\t' '$1 !~ /^HEADLESS/ && $2 ~ /^[0-9]+$/ { print $2; exit }' || true)
+                    if [[ -n "$prev" && "$prev" != "${SKWD_TARGET#we:}" ]]; then
+                        skwd-helm apply "$WALLPAPER" >/dev/null 2>&1 || true
+                    fi
+                fi
+                # A daemon that is still finishing the previous transition can
+                # reject one request; retry before reporting the apply failed.
+                applied=0
+                for _attempt in 1 2 3; do
+                    if skwd-helm apply "$SKWD_TARGET" >/dev/null 2>&1; then
+                        applied=1
+                        break
+                    fi
+                    sleep 0.15
+                done
+                [[ "$applied" == "1" ]] \
                     || echo "warning: skwd could not apply $SKWD_TARGET" >&2
             fi
             flock -u 8
@@ -571,15 +794,26 @@ matugen)
         fi
         printf '%s' "$SIG" >"$SIG_FILE.tmp" && mv -f "$SIG_FILE.tmp" "$SIG_FILE"
         flock -u 7
+        # Deliver the palette now, while the iris is fully closed. The fanout
+        # only recolours the bar/dock and reads the palette file, so it does not
+        # need to wait for the wallpaper; running it here means a slow wallpaper
+        # apply hides the colour commit too, while a fast one still opens the
+        # iris immediately.
+        THEME_SETTLE_MS=50 "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 &
+        FANOUT_PID=$!
         wait_wallpaper
-        # Deliver every consumer while the iris is still closed, then wait for
-        # signalled apps to finish settling before opening it. This is what
-        # guarantees the palette/theme change is never revealed half-applied.
-        THEME_SETTLE_MS=50 "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 || true
+        wait_spatial_ready
+        # Open the iris as soon as the wallpaper is actually on screen. The
+        # shrink exposes the top-left corner last, so a fanout still running
+        # finishes while the circle retracts instead of holding the whole
+        # screen covered for another 300 ms.
         if [[ "$REVEALING" == "1" ]]; then
             reveal_write out
             printf '0' >"$REVEAL_FLAG"
+            reveal_heartbeat_stop
         fi
+        wait "$FANOUT_PID" 2>/dev/null || true
+        FANOUT_PID=""
     else
         # The scheme-cache write path failed but matugen's direct fallback
         # succeeded; still deliver the side effects once.
@@ -620,6 +854,18 @@ pywal)
     echo "static theme ($CURRENT_THEME) — colours unchanged"
     ;;
 esac
+
+# ── live preview ────────────────────────────────────────────────────────────
+# After an animated wallpaper has settled, keep 10s of it. The picker card
+# uses the GIF, and the iris uses the full-size frame from that recording.
+# Best-effort and detached: it must never delay the apply.
+if [[ "$SKWD" == 1 && "${THEME_ONLY:-0}" != "1" && -n "$LIVE_KEY" && -x "$LIVE_CAPTURE" ]]; then
+    if [[ "$LIVE_KIND" == "we" ]]; then
+        ( setsid "$LIVE_CAPTURE" "$LIVE_KEY" we "" "$SKWD_LIVE_LABEL" "$TOKEN" >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
+    elif [[ "$LIVE_KIND" == "video" && -n "$LIVE_SOURCE" ]]; then
+        ( setsid "$LIVE_CAPTURE" "$LIVE_KEY" video "$LIVE_SOURCE" "$SKWD_LIVE_LABEL" "$TOKEN" >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
+    fi
+fi
 
 if [[ "${THEME_ONLY:-0}" == "1" ]]; then
     echo "done: $TARGET_LABEL ($MODE, theme: $CURRENT_THEME, theme-only - wallpaper untouched)"

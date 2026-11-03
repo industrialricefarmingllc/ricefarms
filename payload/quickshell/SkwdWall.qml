@@ -34,6 +34,12 @@ Singleton {
     property bool previewsWarmed: false
     property bool listing: false
     property bool listAgain: false
+    // skwd only notices a file that appeared after startup on a scan; keep
+    // the scan serialised so opening the picker twice does not race itself
+    property bool scanning: false
+    // key -> {jpg,gif,mp4} written by live-capture.sh; these override the
+    // author/library preview once a live recording exists
+    property var livePreviews: ({})
 
     signal listingFailed()
 
@@ -45,6 +51,18 @@ Singleton {
         return root.isVirtual(path) ? String(path).substring(5) : "";
     }
 
+    // A Wallpaper Engine scene is stored as skwd:we:<id>; its video variant is
+    // a real file inside Steam's workshop folder. Both mean the same item.
+    function workshopIdFor(path) {
+        const p = String(path);
+        if (p.indexOf("skwd:we:") === 0)
+            return p.substring(8);
+        if (/^we:\d+$/.test(p))
+            return p.substring(3);
+        const m = p.match(/\/steamapps\/workshop\/content\/431960\/(\d+)(?:\/|$)/);
+        return m ? m[1] : "";
+    }
+
     function entryForPath(path) {
         for (let i = 0; i < root.items.length; i++) {
             if (root.items[i].path === path)
@@ -53,11 +71,21 @@ Singleton {
         return null;
     }
 
-    function refresh() {
+    function refresh(scanFirst) {
         if (!root.enabled) {
             root.items = [];
             root.loaded = false;
             root.currentPath = "";
+            return ;
+        }
+        // A download happened after skwd's last scan. Make the scan discovery
+        // step part of the refresh, otherwise the new file stays invisible
+        // until something else happens to rescan the library.
+        if (scanFirst === true) {
+            if (root.scanning)
+                return ;
+            root.scanning = true;
+            scan.running = true;
             return ;
         }
         if (root.listing) {
@@ -96,10 +124,84 @@ Singleton {
                 "kind": kind
             });
         }
-        root.items = next;
+        root.items = root.applyLivePreviews(next);
         root.loaded = true;
         root.error = "";
         root.warmPreviews();
+        if (!wePreviews.running)
+            wePreviews.running = true;
+    }
+
+    // the live recording is newer than both skwd's WebP thumb and the author's
+    // preview; apply it on top of whatever the item currently has
+    function applyLivePreviews(list) {
+        const map = root.livePreviews || {};
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            var e = list[i];
+            var p = map[e.key];
+            if (p && (p.jpg || p.gif)) {
+                var copy = {};
+                for (var k in e) copy[k] = e[k];
+                if (p.jpg)
+                    copy.thumb = p.jpg;
+                if (p.gif)
+                    copy.preview = p.gif;
+                out.push(copy);
+            } else {
+                out.push(e);
+            }
+        }
+        return out;
+    }
+
+    function mergeLivePreviews(text) {
+        var map = null;
+        try {
+            map = JSON.parse(text);
+        } catch (e) {
+            return ;
+        }
+        if (!map || typeof map !== "object")
+            return ;
+
+        root.livePreviews = map;
+        root.items = root.applyLivePreviews(root.items);
+    }
+
+    // skwd's WebP scene thumbs do not always decode in Qt. The workshop folder
+    // carries the author's own preview.gif/jpg; use it for the still and, when
+    // it is a GIF, play it on hover.
+    function mergeWePreviews(text) {
+        var map = null;
+        try {
+            map = JSON.parse(text);
+        } catch (e) {
+            return ;
+        }
+        if (!map)
+            return ;
+
+        var changed = false;
+        var next = [];
+        for (var i = 0; i < root.items.length; i++) {
+            var e = root.items[i];
+            var p = map[e.key];
+            if (p && (p.thumb || p.preview)) {
+                var copy = {};
+                for (var k in e) copy[k] = e[k];
+                if (p.thumb)
+                    copy.thumb = p.thumb;
+                if (p.preview)
+                    copy.preview = p.preview;
+                next.push(copy);
+                changed = true;
+            } else {
+                next.push(e);
+            }
+        }
+        if (changed)
+            root.items = root.applyLivePreviews(next);
     }
 
     // Ask skwd to cut the short animated WebP previews its picker uses. The
@@ -181,6 +283,16 @@ Singleton {
     }
 
     Process {
+        id: scan
+
+        command: ["sh", "-c", "command -v skwd-wall-scan >/dev/null 2>&1 && skwd-wall-scan >/dev/null 2>&1"]
+        onExited: (code) => {
+            root.scanning = false;
+            root.refresh();
+        }
+    }
+
+    Process {
         id: list
 
         command: ["skwd-helm", "list", "--json"]
@@ -202,12 +314,31 @@ Singleton {
     }
 
     Process {
+        id: wePreviews
+
+        command: ["python3", root.home + "/.config/quickshell/luciddocks/skwd-we-previews.py"]
+        stdout: StdioCollector {
+            onStreamFinished: root.mergeWePreviews(text)
+        }
+    }
+
+    Process {
         id: previews
 
         command: ["bash", root.script]
         onExited: (code) => {
             root.previewsRunning = false;
         }
+    }
+
+    FileView {
+        id: livePreviewsFile
+
+        path: root.home + "/.cache/lucid/live-previews/index.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.mergeLivePreviews(text())
     }
 
     FileView {

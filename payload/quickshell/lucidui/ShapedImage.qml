@@ -9,11 +9,16 @@ Item {
 
     property alias source: img.source
     property string shape: "cookie12"
+    property int fillMode: Image.PreserveAspectCrop
     // a second shape to ease toward, and how far along the way
     property string to: ""
     property real morph: 0
     property real spin: 0
     property color fallbackColor: Theme.primaryContainer
+    // Scale the picture inside the shape without changing the shape itself.
+    // Used for the mesh preview's hover settle.
+    property real contentScale: 1.0
+    property bool fallbackVisible: false
     property int decode: 256
     readonly property bool ready: img.status === Image.Ready
     default property alias fallback: fb.data
@@ -25,7 +30,7 @@ Item {
         morph: si.morph
         spin: si.spin
         color: si.fallbackColor
-        visible: !si.ready
+        visible: si.fallbackVisible || !si.ready
     }
 
     Item {
@@ -39,7 +44,9 @@ Item {
         id: img
 
         anchors.fill: parent
-        fillMode: Image.PreserveAspectCrop
+        scale: si.contentScale
+        transformOrigin: Item.Center
+        fillMode: si.fillMode
         sourceSize.width: si.decode
         sourceSize.height: si.decode
         asynchronous: true
@@ -57,6 +64,13 @@ Item {
         spin: si.spin
         color: "black"
         visible: false
+    }
+
+    Behavior on contentScale {
+        NumberAnimation {
+            duration: 320
+            easing.type: Easing.OutCubic
+        }
     }
 
     OpacityMask {

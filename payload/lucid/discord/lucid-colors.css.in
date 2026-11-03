@@ -1,0 +1,238 @@
+/* --------------------------------------------------------------------------
+ * Lucid for Discord — colour overrides only.
+ *
+ * No layout, spacing or component rules: Discord's own theme stays exactly as
+ * it is, these custom properties just retint it. matugen fills the colour
+ * placeholders on every wallpaper / fixed-theme change.
+ * -------------------------------------------------------------------------- */
+
+:root,
+:root.theme-dark,
+:root.theme-light,
+html.theme-dark,
+html.theme-light,
+body,
+.theme-dark,
+.theme-light {
+    /* ---------- lucid palette ---------- */
+    --lucid-primary: {{colors.primary.default.hex}};
+    --lucid-on-primary: {{colors.on_primary.default.hex}};
+    --lucid-primary-container: {{colors.primary_container.default.hex}};
+    --lucid-secondary: {{colors.secondary.default.hex}};
+    --lucid-tertiary: {{colors.tertiary.default.hex}};
+    --lucid-error: {{colors.error.default.hex}};
+    --lucid-on-error: {{colors.on_error.default.hex}};
+
+    --lucid-surface: {{colors.surface.default.hex}};
+    /* the surface Lucid/kitty use as their body: Theme.bgOpaque is
+       surface_container, not the raw matugen "surface" role */
+    --lucid-base: {{colors.surface_container.default.hex}};
+    --lucid-surface-lowest: {{colors.surface_container_lowest.default.hex}};
+    --lucid-surface-low: {{colors.surface_container_low.default.hex}};
+    --lucid-surface-container: {{colors.surface_container.default.hex}};
+    --lucid-surface-high: {{colors.surface_container_highest.default.hex}};
+    --lucid-surface-highest: {{colors.surface_bright.default.hex}};
+
+    --lucid-on-surface: {{colors.on_surface.default.hex}};
+    --lucid-on-surface-variant: {{colors.on_surface_variant.default.hex}};
+    --lucid-outline: {{colors.outline.default.hex}};
+    --lucid-outline-variant: {{colors.outline_variant.default.hex}};
+
+    --lucid-hover: color-mix(in srgb, var(--lucid-on-surface) 8%, transparent);
+    --lucid-active: color-mix(in srgb, var(--lucid-on-surface) 14%, transparent);
+    --lucid-border: color-mix(in srgb, var(--lucid-outline-variant) 10%, transparent);
+    --lucid-border-hover: color-mix(in srgb, var(--lucid-outline) 10%, transparent);
+    --lucid-mention: color-mix(in srgb, var(--lucid-primary) 10%, transparent);
+    --lucid-mention-hover: color-mix(in srgb, var(--lucid-primary) 15%, transparent);
+
+    /* ---------- font: Discord's pre-gg-sans stack ---------- */
+    --font-primary: 'Whitney', 'Whitney SSm A', 'Whitney SSm B', 'Nebula Sans', 'gg sans', 'Noto Sans', Helvetica, Arial, sans-serif !important;
+    --font-display: var(--font-primary) !important;
+
+    /* ---------- surfaces: legacy tokens ---------- */
+    --background-primary: var(--lucid-base);
+    --background-secondary: var(--lucid-surface-low);
+    --background-secondary-alt: var(--lucid-surface-container);
+    --background-tertiary: var(--lucid-surface-low);
+    --background-accent: var(--lucid-surface-high);
+    --background-floating: var(--lucid-surface-high);
+    --background-nested-floating: var(--lucid-surface-high);
+    --background-mobile-primary: var(--lucid-base);
+    --background-mobile-secondary: var(--lucid-surface-low);
+    --background-brand: var(--lucid-primary);
+    --background-code: var(--lucid-surface-container);
+    --background-mod-subtle: var(--lucid-hover);
+    --background-mod-normal: var(--lucid-surface-high);
+    --background-mod-strong: var(--lucid-surface-highest);
+    --background-mod-muted: var(--lucid-hover);
+    --background-scrim: color-mix(in srgb, black 70%, transparent);
+    --background-scrim-lightbox: color-mix(in srgb, black 85%, transparent);
+
+    /* ---------- surfaces: current semantic tokens ---------- */
+    --background-base-lowest: var(--lucid-surface-lowest);
+    --background-base-low: var(--lucid-surface-low);
+    --background-base-lower: var(--lucid-surface-low);
+    --background-base: var(--lucid-base);
+    --background-surface-high: var(--lucid-surface-high);
+    --background-surface-higher: var(--lucid-surface-high);
+    --background-surface-highest: var(--lucid-surface-highest);
+    --bg-base-primary: var(--lucid-base);
+    --bg-base-secondary: var(--lucid-surface-low);
+    --bg-base-tertiary: var(--lucid-surface-container);
+    --bg-surface-raised: var(--lucid-surface-high);
+    --bg-surface-overlay: var(--lucid-surface-high);
+    --bg-surface-overlay-tmp: var(--lucid-surface-high);
+    --home-background: var(--lucid-base);
+    --chat-background-default: var(--lucid-base);
+    --app-frame-background: var(--lucid-surface-low);
+    --app-frame-border: var(--lucid-border);
+
+    /* ---------- text ---------- */
+    --text-default: var(--lucid-on-surface);
+    --text-normal: var(--lucid-on-surface);
+    --text-primary: var(--lucid-on-surface);
+    --text-strong: var(--lucid-on-surface);
+    --text-subtle: var(--lucid-on-surface-variant);
+    --text-secondary: var(--lucid-on-surface-variant);
+    --text-muted: var(--lucid-on-surface-variant);
+    --text-invert: var(--lucid-surface);
+    --text-link: var(--lucid-primary);
+    --text-brand: var(--lucid-primary);
+    --header-primary: var(--lucid-on-surface);
+    --header-secondary: var(--lucid-on-surface-variant);
+    --channels-default: var(--lucid-on-surface-variant);
+    --channel-icon: var(--lucid-on-surface-variant);
+    --channel-text-area-placeholder: var(--lucid-outline);
+    --app-message-embed-secondary-text: var(--lucid-on-surface-variant);
+    --embed-background: var(--lucid-base);
+    --embed-background-alternate: var(--lucid-surface-container);
+
+    /* ---------- interactive ---------- */
+    --interactive-normal: var(--lucid-on-surface-variant);
+    --interactive-hover: var(--lucid-on-surface);
+    --interactive-active: var(--lucid-on-surface);
+    --interactive-muted: var(--lucid-outline);
+    --interactive-icon-default: var(--lucid-on-surface-variant);
+    --interactive-icon-hover: var(--lucid-on-surface);
+    --interactive-icon-active: var(--lucid-on-surface);
+    --interactive-text-default: var(--lucid-on-surface-variant);
+    --interactive-text-hover: var(--lucid-on-surface);
+    --interactive-text-active: var(--lucid-on-surface);
+    --interactive-background-hover: var(--lucid-hover);
+    --interactive-background-active: var(--lucid-active);
+    --interactive-background-selected: var(--lucid-active);
+
+    /* ---------- accent / brand ---------- */
+    --brand-experiment: var(--lucid-primary);
+    --brand-experiment-360: color-mix(in srgb, var(--lucid-primary) 86%, var(--lucid-on-surface));
+    --brand-experiment-500: var(--lucid-primary);
+    --brand-experiment-560: color-mix(in srgb, var(--lucid-primary) 92%, var(--lucid-on-surface));
+    --brand-experiment-600: color-mix(in srgb, var(--lucid-primary) 84%, var(--lucid-on-surface));
+    --brand-360: var(--brand-experiment-360);
+    --brand-500: var(--brand-experiment-500);
+    --brand-560: var(--brand-experiment-560);
+    --brand-600: var(--brand-experiment-600);
+    --control-brand-foreground: var(--lucid-primary);
+    --focus-primary: var(--lucid-primary);
+
+    /* ---------- status ---------- */
+    --online: var(--lucid-tertiary);
+    --dnd: var(--lucid-error);
+    --idle: var(--lucid-secondary);
+    --streaming: var(--lucid-primary);
+    --offline: var(--lucid-outline);
+    --status-online: var(--lucid-tertiary);
+    --status-danger: var(--lucid-error);
+    --status-positive: var(--lucid-tertiary);
+    --status-warning: var(--lucid-secondary);
+    --status-speaking: var(--lucid-primary);
+    --icon-status-online: var(--lucid-tertiary);
+    --icon-status-dnd: var(--lucid-error);
+    --icon-status-idle: var(--lucid-secondary);
+    --icon-status-offline: var(--lucid-outline);
+    --text-status-online: var(--lucid-tertiary);
+    --text-status-dnd: var(--lucid-error);
+    --text-status-idle: var(--lucid-secondary);
+    --text-status-offline: var(--lucid-outline);
+
+    /* ---------- borders: 10% opacity ---------- */
+    --border-subtle: var(--lucid-border);
+    --border-normal: var(--lucid-border);
+    --border-strong: var(--lucid-border);
+    --border-muted: var(--lucid-border);
+    --border-focus: var(--lucid-primary);
+    --input-border-default: var(--lucid-border);
+    --input-border-hover: var(--lucid-border-hover);
+    --input-border-active: var(--lucid-primary);
+    --user-profile-border: var(--lucid-border);
+    --user-profile-toolbar-border: var(--lucid-border);
+
+    /* ---------- inputs ---------- */
+    --input-background: var(--lucid-surface-high);
+    --input-background-default: var(--lucid-surface-high);
+    --input-text-default: var(--lucid-on-surface);
+    --input-icon-default: var(--lucid-on-surface-variant);
+    --input-foreground-placeholder: var(--lucid-outline);
+    --input-placeholder-text-default: var(--lucid-outline);
+    --channeltextarea-background: var(--lucid-surface-high);
+
+    /* ---------- messages / mentions / reactions ---------- */
+    --message-background-hover: color-mix(in srgb, var(--lucid-on-surface) 5%, transparent);
+    --message-mentioned-background-default: var(--lucid-mention);
+    --message-mentioned-background-hover: var(--lucid-mention-hover);
+    --message-highlight-background-default: color-mix(in srgb, var(--lucid-primary) 12%, transparent);
+    --message-highlight-background-hover: color-mix(in srgb, var(--lucid-primary) 16%, transparent);
+    --mention-background: color-mix(in srgb, var(--lucid-primary) 18%, transparent);
+    --mention-foreground: var(--lucid-on-surface);
+    --reaction-background-default: var(--lucid-surface-container);
+    --reaction-background-hover: var(--lucid-surface-high);
+    --reaction-background-reacted-default: color-mix(in srgb, var(--lucid-primary) 15%, transparent);
+    --reaction-background-reacted-hover: color-mix(in srgb, var(--lucid-primary) 22%, transparent);
+    --reaction-border-default: var(--lucid-border);
+    --reaction-border-reacted-default: var(--lucid-border);
+    --reaction-text-default: var(--lucid-on-surface-variant);
+    --reaction-text-reacted-default: var(--lucid-primary);
+
+    /* ---------- controls ---------- */
+    --checkbox-background-selected-default: var(--lucid-primary);
+    --checkbox-border-selected-default: var(--lucid-primary);
+    --checkbox-icon-active: var(--lucid-on-primary);
+    --radio-background-selected-default: var(--lucid-primary);
+    --radio-border-selected-default: var(--lucid-primary);
+    --switch-background-selected-default: var(--lucid-primary);
+    --switch-border-selected-default: var(--lucid-primary);
+    --switch-thumb-background-selected-default: var(--lucid-on-primary);
+    --redesign-button-primary-background: var(--lucid-primary);
+    --redesign-button-primary-pressed-background: var(--lucid-primary-container);
+    --redesign-button-primary-text: var(--lucid-on-primary);
+    --redesign-button-secondary-background: var(--lucid-surface-high);
+    --redesign-button-secondary-pressed-background: var(--lucid-surface-highest);
+    --redesign-button-secondary-text: var(--lucid-on-surface);
+    --redesign-button-secondary-border: var(--lucid-border);
+    --redesign-button-tertiary-background: transparent;
+    --redesign-button-tertiary-text: var(--lucid-on-surface);
+    --redesign-button-danger-background: var(--lucid-error);
+    --redesign-button-destructive-background: var(--lucid-error);
+    --redesign-button-destructive-text: var(--lucid-on-error);
+
+    /* ---------- modals / cards / profile ---------- */
+    --modal-background: var(--lucid-surface-high);
+    --modal-footer-background: var(--lucid-surface-high);
+    --card-background-default: var(--lucid-surface-high);
+    --user-profile-overlay-background: var(--lucid-surface-high);
+    --user-profile-overlay-background-hover: var(--lucid-surface-highest);
+    --user-profile-toolbar-background: var(--lucid-surface-high);
+    --user-profile-activity-toolbar-background: var(--lucid-surface-high);
+    --profile-gradient-primary-color: var(--lucid-primary);
+    --profile-gradient-secondary-color: var(--lucid-surface-container);
+    --profile-gradient-overlay-color: transparent;
+    --profile-gradient-button-color: var(--lucid-primary);
+
+    /* ---------- scrollbars ---------- */
+    --scrollbar-thin-thumb: var(--lucid-outline-variant);
+    --scrollbar-auto-thumb: var(--lucid-outline-variant);
+    --scrollbar-thin-track: transparent;
+    --scrollbar-auto-track: transparent;
+    --scrollbar-auto-scrollbar-color-thumb: var(--lucid-outline-variant);
+    --scrollbar-auto-scrollbar-color-track: var(--lucid-surface-low);
+}

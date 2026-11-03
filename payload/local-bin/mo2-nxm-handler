@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# x-scheme-handler/nxm dispatcher.
+# Skyrim links -> Mod Organizer 2 (shared Skyrim Proton prefix).
+# Everything else -> the existing Fluffy Mod Manager NXM handler.
+set -u
+
+url=${1:-}
+if [ -z "$url" ]; then
+    exit 2
+fi
+
+domain=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.urlparse(sys.argv[1]).netloc.lower())' "$url" 2>/dev/null || true)
+
+case "$domain" in
+    skyrimspecialedition|skyrimse|skyrim)
+        setsid "$HOME/.local/bin/mo2-forward-nxm" "$url" >/dev/null 2>&1 </dev/null &
+        exit 0
+        ;;
+    *)
+        if [ -x "$HOME/Games/FluffyModManager/nxm-handler.py" ]; then
+            exec "$HOME/Games/FluffyModManager/nxm-handler.py" "$url"
+        fi
+        notify-send "NXM link" "No handler configured for ${domain:-unknown game}" 2>/dev/null || true
+        exit 1
+        ;;
+esac

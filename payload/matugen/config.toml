@@ -49,3 +49,13 @@ output_path = '~/.config/opencode/themes/matugen.json'
 [templates.btop]
 input_path = '~/.config/matugen/templates/btop.theme'
 output_path = '~/.config/btop/themes/matugen.theme'
+
+[templates.equicord]
+input_path = '~/.config/matugen/templates/lucid-discord.css'
+output_path = '~/.config/Equicord/themes/lucid-discord.css'
+
+# the alt accounts run with DISCORD_USER_DATA_DIR=~/.config/discord-altN, which
+# puts Equicord's data dir at ~/.config/EquicordData
+[templates.equicord_alt]
+input_path = '~/.config/matugen/templates/lucid-discord.css'
+output_path = '~/.config/EquicordData/themes/lucid-discord.css'

@@ -18,6 +18,8 @@ WallpaperSlots {
     // the pills in view besides the card: as many as there are when they fit,
     // so a short folder is one row with no empty places on either side
     readonly property int slims: Math.min(Math.max(0, root.count - 1), root.shape === "full" ? 16 : Math.max(2, Math.floor((root.width - root.openW + root.itemGap) / (root.pillW + root.itemGap))))
+    // the pills style really can show this many either side of the card
+    visibleReach: root.slims + 1
     // full fills the panel, so its pills share whatever the card leaves; the others keep their width
     readonly property real slimW: root.shape === "full" ? Math.max(Theme.dp(8), Math.min(root.fullPillMax, (root.width - root.openW - root.slims * root.itemGap) / Math.max(1, root.slims))) : root.pillW
     readonly property real rowStart: Math.round((root.width - root.openW - root.slims * (root.slimW + root.itemGap)) / 2)

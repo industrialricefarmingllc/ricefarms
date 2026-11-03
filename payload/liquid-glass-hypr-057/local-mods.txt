@@ -1,3 +1,5 @@
+?? liquidglass-wash.so
+?? liquidglass-wash2.so
 ?? liquidglass.so.bak
 ?? liquidglass.so.blend
 ?? liquidglass.so.blend-overlay-prev

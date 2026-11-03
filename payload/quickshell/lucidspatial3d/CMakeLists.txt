@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.21)
+project(LucidSpatial3D LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Qml Quick3D Concurrent)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+add_library(kos_spatial3d MODULE depthmeshgeometry.cpp depthmeshgeometry.h meshbuild.cpp meshbuild.h spatial3dplugin.cpp)
+target_include_directories(kos_spatial3d PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(kos_spatial3d PRIVATE Qt6::Core Qt6::Qml Qt6::Quick3D Qt6::Concurrent ${OpenCV_LIBS})
+set_target_properties(kos_spatial3d PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/out")
+
+# Offline mesh cache builder, used by the background warmer.
+add_executable(kos-mesh-cache meshcache_main.cpp meshbuild.cpp meshbuild.h)
+target_include_directories(kos-mesh-cache PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(kos-mesh-cache PRIVATE Qt6::Core Qt6::Gui ${OpenCV_LIBS})
+set_target_properties(kos-mesh-cache PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/out")

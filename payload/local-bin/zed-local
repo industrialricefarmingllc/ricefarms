@@ -1,0 +1,31 @@
+#!/bin/sh
+# Launch the local Zed build from this repo, falling back to the packaged install.
+#
+# Picks the most recently modified of target/release/zed and target/debug/zed.
+# The GUI binary doesn't understand the CLI's --new flag, so drop it when present.
+set -eu
+
+repo="${ZED_SOURCE_DIR:-$HOME/src/zed}"
+
+candidate=""
+candidate_mtime=0
+for profile in debug release; do
+  bin="$repo/target/$profile/zed"
+  if [ -x "$bin" ]; then
+    mtime=$(stat -c %Y "$bin" 2>/dev/null || echo 0)
+    if [ "$mtime" -ge "$candidate_mtime" ]; then
+      candidate="$bin"
+      candidate_mtime="$mtime"
+    fi
+  fi
+done
+
+if [ -n "$candidate" ]; then
+  if [ "${1:-}" = "--new" ]; then
+    shift
+  fi
+  exec "$candidate" "$@"
+fi
+
+# No local build yet: run the installed editor.
+exec /usr/lib/zed/zed-editor "$@"

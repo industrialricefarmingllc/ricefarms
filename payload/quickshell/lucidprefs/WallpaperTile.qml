@@ -19,6 +19,10 @@ Rectangle {
     property bool selected: false
 
     readonly property bool liveItem: tile.live || tile.kind === "video" || tile.kind === "we"
+    // scenes have a virtual path but can still be removed: unsubscribing from
+    // the Workshop and deleting Steam's local copy
+    readonly property string workshopId: SkwdWall.workshopIdFor(tile.path)
+    readonly property bool deletable: tile.workshopId !== "" || !SkwdWall.isVirtual(tile.path)
 
     signal picked()
 
@@ -117,7 +121,7 @@ Rectangle {
         anchors.top: parent.top
         anchors.margins: Theme.dp(6)
         color: delArea.containsMouse ? Theme.error : Theme.alpha(Theme.cShadow, 0.65)
-        opacity: delBtn.active && !SkwdWall.isVirtual(tile.path) ? 1 : 0
+        opacity: delBtn.active && tile.deletable ? 1 : 0
         visible: opacity > 0.01
         scale: delBtn.active ? 1 : 0.7
 
@@ -159,7 +163,11 @@ Rectangle {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: {
-                if (SkwdWall.isVirtual(tile.path))
+                if (tile.workshopId !== "") {
+                    Prefs.askConfirm("Unsubscribe from this scene?", "\"" + tile.name + "\" is unsubscribed from the Steam Workshop, and its files are removed from this computer. You can subscribe again later.", "Unsubscribe", "workshop:" + tile.workshopId);
+                    return ;
+                }
+                if (!tile.deletable)
                     return ;
 
                 Prefs.askConfirm(tile.live ? "Delete this live wallpaper?" : "Delete this wallpaper?", "\"" + tile.name + "\" is moved to the trash, so it can be restored from there if you change your mind.", "Delete", "wallpaper:" + tile.path);

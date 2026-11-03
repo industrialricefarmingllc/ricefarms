@@ -111,7 +111,11 @@ Variants {
             // the windows; with nothing focused it hands the drag to any surface it
             // crosses, so only then does a left press lift the layer over the bar,
             // the dock and the widgets
-            WlrLayershell.layer: (layer.lifted || layer.looking) ? WlrLayer.Overlay : WlrLayer.Background
+            // The spatial wallpaper is a Bottom-layer surface above skwd.
+            // Raise the icon board into that same layer (order 0, in front of
+            // the spatial surface) so icons stay visible and clickable.
+            WlrLayershell.layer: (layer.lifted || layer.looking) ? WlrLayer.Overlay : (SpatialWall.enabled ? WlrLayer.Bottom : WlrLayer.Background)
+            WlrLayershell.namespace: "lucid-desktop"
             // never on-demand at rest: hyprland gives an on-demand layer the keys
             // whenever the pointer crosses it, which would take them from a window
             WlrLayershell.keyboardFocus: !unit.icons ? WlrKeyboardFocus.None : ((layer.grabbing || layer.looking) ? WlrKeyboardFocus.Exclusive : (DesktopIcons.armed ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None))

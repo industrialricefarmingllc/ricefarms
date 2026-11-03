@@ -134,6 +134,14 @@ PanelWindow {
     // and finishes over the expanded body before onFinished releases the layer.
     readonly property real revealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH + root.ring, Math.max(root.revealCenterY, root.panelHeight - root.revealCenterY)) + 8
     readonly property real ring: Theme.dp(4)
+    // Collapsed, the launcher is a search pill: a true stadium (radius half
+    // the surface height, no smoothing). Opened, it uses the same squircle
+    // geometry as the compositor's windows, so the panel and the apps it
+    // launches read as one shape family.
+    readonly property real collapsedRadius: Theme.pill(root.collapsedPanelH)
+    readonly property real expandedRadius: Theme.windowRadius
+    readonly property real surfaceRadius: root.bodyOpen ? root.expandedRadius : root.collapsedRadius
+    readonly property real surfaceSmoothing: root.bodyOpen ? Prefs.squircleF : 0
     readonly property var activeBorderColours: HyprConfig.coloursOf(HyprConfig.value("general.col.active_border"))
     readonly property color activeBorderColour: root.activeBorderColours.length > 0 ? root.activeBorderColours[0] : Theme.accent
     readonly property real activeBorderWidth: Math.max(1, HyprConfig.num("general.border_size", 1))
@@ -269,8 +277,8 @@ PanelWindow {
         fillColor: (root.glassOn && (!root.maskActive || root.maskedGlass)) ? "transparent" : root.panelFill
         borderColor: root.panelBorder
         borderWidth: root.activeBorderWidth
-        radius: Theme.radiusXl + root.ring
-        smoothing: Prefs.squircleF
+        radius: root.surfaceRadius
+        smoothing: root.surfaceSmoothing
         z: -1
     }
 
@@ -280,18 +288,20 @@ PanelWindow {
         targetScreen: root.screen
         surfaceW: root.width
         surfaceH: root.height
-        // New plugin: shape is the live committed surface box; the rect below
-        // is ignored (kept so older builds still get a usable bridge).
-        full: true
-        pills: (root.glassOn && (root.panelVisible || root.closing) && (!root.maskActive || root.maskedGlass)) ? [{
+        // Shape is the live committed surface box while the launcher is open.
+        // The layer surface stays mapped even when closed, so gate on the
+        // actual open state, not on the always-mapped layer. `closing` is
+        // excluded so the wash does not linger through the close animation.
+        full: root.panelVisible && !root.closing
+        pills: (root.panelVisible && !root.closing) ? [{
             x: root.maskActive ? 0 : surface.x,
             y: root.maskActive ? 0 : surface.y,
             w: root.maskActive ? root.width : surface.width,
             h: root.maskActive ? root.height : surface.height,
             r: root.maskActive ? [0, 0, 0, 0]
-                               : [Theme.radiusXl + root.ring, Theme.radiusXl + root.ring,
-                                  Theme.radiusXl + root.ring, Theme.radiusXl + root.ring],
-            sq: root.maskActive ? 0 : Prefs.squircleF
+                               : [root.surfaceRadius, root.surfaceRadius,
+                                  root.surfaceRadius, root.surfaceRadius],
+            sq: root.maskActive ? 0 : root.surfaceSmoothing
         }] : []
         // Same hard circle as LauncherMask.qsb: centre (width/2, revealCenterY),
         // radius revealRadius, in surface-local logical px.
@@ -321,6 +331,7 @@ PanelWindow {
         emojiModel: root.dock ? root.dock.launcherEmojiModel : null
         resultCount: root.dock ? root.dock.resultCount : 0
         wallpaperModel: root.dock ? root.dock.launcherPickerModel : null
+        wallpaperLocalCount: root.dock ? root.dock.pickerLocalCount : 0
         kindRailWidth: root.dock ? root.dock.wallKindRailWidth : 0
         wallHeroW: root.dock ? root.dock.wallHeroW : 0
         wallHeroH: root.dock ? root.dock.wallHeroH : 0
@@ -367,9 +378,15 @@ PanelWindow {
         onClearRequested: Clip.wipe()
         onWallpaperChosen: (path) => {
             if (!root.dock) return;
+            // A local pick closes immediately. A remote result must stay up
+            // while it downloads/subscribes; the dock closes it when
+            // RemoteWall.downloadFinished reports success.
+            const remote = path.indexOf("wh:") === 0
+                || (path.indexOf("skwd:we:") === 0 && !SkwdWall.entryForPath(path));
             var picker = face.wallStrip;
             root.dock.applyWallpaper(path, picker ? Qt.point(picker.originX, picker.originY) : Qt.point(-1, -1));
-            root.dock.menuOpen = false;
+            if (!remote)
+                root.dock.menuOpen = false;
         }
         onWallpaperDeleteRequested: (path) => {
             if (root.dock)

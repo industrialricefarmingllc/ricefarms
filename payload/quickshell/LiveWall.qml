@@ -27,7 +27,7 @@ Singleton {
     property bool loaded: false
     property bool gameMode: false
     // "still" in game mode leaves the first frame on awww and stops the player
-    readonly property bool wanted: !SkwdWall.enabled && Prefs.liveWallpapers && root.video !== "" && !(root.gameMode && Prefs.liveGameMode === "still")
+    readonly property bool wanted: !SkwdWall.enabled && Prefs.liveWallpapers && root.video !== "" && !SpatialWall.playbackActive && !(root.gameMode && Prefs.liveGameMode === "still")
     // Qt's own order puts CUDA first, which wakes a hybrid laptop's dGPU for a
     // wallpaper: auto asks the integrated GPU first
     readonly property string decoders: ({

@@ -14,7 +14,6 @@ WidgetBody {
     property real vramUsed: 0
     property real vramTotal: 0
     property real gpuPower: -1
-    property real cpuTemp: -1
     property var fans: []
     property var fanPeaks: ({})
     property real lastGpuRead: 0
@@ -35,11 +34,13 @@ WidgetBody {
         return a + f.level;
     }, 0) / w.fans.length : 0
     readonly property color fanTint: Theme.hasTonalContainers ? Theme.cSecondary : Theme.subtext
+    // the cpu reading comes from the shared poller, same as the system widget
+    readonly property real cpuLoad: w.preview ? 0.37 : Sys.cpu
     readonly property string headText: {
         if (w.hasGpu)
             return (w.gpuAwake && w.gpuTemp >= 0) ? Units.deg(w.gpuTemp) : "—";
 
-        return w.cpuTemp >= 0 ? Units.deg(w.cpuTemp) : "—";
+        return Math.round(w.cpuLoad * 100) + "%";
     }
     readonly property var gpuStats: {
         var out = [{
@@ -56,13 +57,12 @@ WidgetBody {
                 "tint": Theme.accentMuted
             });
 
-        if (w.cpuTemp >= 0)
-            out.push({
-                "label": "CPU",
-                "value": Units.deg(w.cpuTemp),
-                "level": w.cpuTemp / 100,
-                "tint": w.tempTint(w.cpuTemp)
-            });
+        out.push({
+            "label": "CPU",
+            "value": Math.round(w.cpuLoad * 100) + "%",
+            "level": w.cpuLoad,
+            "tint": Theme.accent
+        });
 
         return out;
     }
@@ -90,13 +90,12 @@ WidgetBody {
                 "tint": Theme.accentMuted
             });
         }
-        if (w.cpuTemp >= 0)
-            out.push({
-                "short": "CPU",
-                "value": w.cpuTemp / 100,
-                "text": Units.deg(w.cpuTemp),
-                "tint": w.tempTint(w.cpuTemp)
-            });
+        out.push({
+            "short": "CPU",
+            "value": w.cpuLoad,
+            "text": Math.round(w.cpuLoad * 100) + "%",
+            "tint": Theme.accentMuted
+        });
 
         if (w.showFans)
             out.push({
@@ -117,12 +116,11 @@ WidgetBody {
                 "tint": w.tempTint(w.gpuTemp)
             });
 
-        if (w.cpuTemp >= 0)
-            out.push({
-                "short": "CPU",
-                "text": Units.deg(w.cpuTemp),
-                "tint": w.tempTint(w.cpuTemp)
-            });
+        out.push({
+            "short": "CPU",
+            "text": Math.round(w.cpuLoad * 100) + "%",
+            "tint": Theme.accentMuted
+        });
 
         if (w.showFans)
             out.push({
@@ -204,9 +202,6 @@ WidgetBody {
                     w.gpuState = "on";
                     w.lastGpuRead = Date.now();
                 }
-            } else if (section === "cpu") {
-                var t = parseInt(line);
-                w.cpuTemp = isNaN(t) ? -1 : (t > 1000 ? t / 1000 : t);
             } else if (section === "fans") {
                 if (p.length >= 5 && !isNaN(parseInt(p[2])))
                     fanRows.push({
@@ -291,8 +286,22 @@ WidgetBody {
     }
 
     // the gallery hands over its host after onCompleted, so seed on either
-    onPreviewChanged: w.seedPreview()
-    Component.onCompleted: w.seedPreview()
+    onPreviewChanged: {
+        w.seedPreview();
+        w.syncHold();
+    }
+    onLiveChanged: w.syncHold()
+    onPollMsChanged: w.syncHold()
+    Component.onCompleted: {
+        w.seedPreview();
+        w.syncHold();
+    }
+    Component.onDestruction: Sys.hold("thermal-" + (w.uid || "w"), false)
+
+    // the cpu load rides on the shared poller, which only runs while a widget holds it
+    function syncHold() {
+        Sys.hold("thermal-" + (w.uid || "w"), w.live && !w.preview, w.pollMs);
+    }
 
     function seedPreview() {
         if (!w.preview)
@@ -305,7 +314,6 @@ WidgetBody {
         w.vramUsed = 2310;
         w.vramTotal = 8188;
         w.gpuPower = 32.4;
-        w.cpuTemp = 64;
         w.fans = [{
             "label": "CPU Fan",
             "rpm": 3120,
@@ -328,7 +336,7 @@ WidgetBody {
     Process {
         id: probe
 
-        readonly property string script: "g=''\n" + "for d in /sys/bus/pci/devices/*; do\n" + "  [ \"$(cat \"$d/vendor\" 2>/dev/null)\" = 0x10de ] || continue\n" + "  case \"$(cat \"$d/class\" 2>/dev/null)\" in 0x03*) g=$d; break ;; esac\n" + "done\n" + "echo @gpu\n" + "if [ -n \"$g\" ] && command -v nvidia-smi >/dev/null 2>&1; then\n" + "  shown=0\n" + "  for c in \"$g\"/drm/card*/card*-*/status; do [ \"$(cat \"$c\" 2>/dev/null)\" = connected ] && shown=1 && break; done\n" + "  st=$(cat \"$g/power/runtime_status\" 2>/dev/null)\n" + "  echo \"pm|$shown|$st\"\n" + "  if [ \"$st\" != suspended ] && { [ \"$shown\" = 1 ] || [ \"$1\" = 1 ]; }; then\n" + "    echo \"nvidia|$(nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw --format=csv,noheader,nounits 2>/dev/null | head -1)\"\n" + "  fi\n" + "else\n" + "  for c in /sys/class/drm/card[0-9]*/device; do\n" + "    [ \"$(cat \"$c/vendor\" 2>/dev/null)\" = 0x1002 ] && [ -r \"$c/gpu_busy_percent\" ] || continue\n" + "    st=$(cat \"$c/power/runtime_status\" 2>/dev/null)\n" + "    echo \"pm|1|$st\"\n" + "    [ \"$st\" = suspended ] && break\n" + "    h=$(ls -d \"$c\"/hwmon/hwmon* 2>/dev/null | head -1)\n" + "    echo \"amd|$(cat \"$h/temp1_input\" 2>/dev/null)|$(cat \"$c/gpu_busy_percent\" 2>/dev/null)|$(cat \"$c/mem_info_vram_used\" 2>/dev/null)|$(cat \"$c/mem_info_vram_total\" 2>/dev/null)|$(cat \"$h/power1_average\" 2>/dev/null || cat \"$h/power1_input\" 2>/dev/null)\"\n" + "    break\n" + "  done\n" + "fi\n" + "echo @cpu\n" + "t=''\n" + "for want in coretemp k10temp zenpower cpu_thermal; do\n" + "  for h in /sys/class/hwmon/hwmon*; do\n" + "    [ \"$(cat \"$h/name\" 2>/dev/null)\" = \"$want\" ] || continue\n" + "    if [ -r \"$h/temp1_input\" ]; then t=$(cat \"$h/temp1_input\"); break 2; fi\n" + "  done\n" + "done\n" + "if [ -z \"$t\" ]; then\n" + "  for h in /sys/class/hwmon/hwmon*; do\n" + "    [ \"$(cat \"$h/name\" 2>/dev/null)\" = acpitz ] || continue\n" + "    if [ -r \"$h/temp1_input\" ]; then t=$(cat \"$h/temp1_input\"); break; fi\n" + "  done\n" + "fi\n" + "echo \"$t\"\n" + "echo @fans\n" + "for h in /sys/class/hwmon/hwmon*; do\n" + "  n=$(cat \"$h/name\" 2>/dev/null)\n" + "  for f in \"$h\"/fan*_input; do\n" + "    [ -r \"$f\" ] || continue\n" + "    b=${f%_input}\n" + "    echo \"$n|${b##*/}|$(cat \"$f\" 2>/dev/null)|$(cat \"${b}_label\" 2>/dev/null)|$(cat \"${b}_max\" 2>/dev/null)\"\n" + "  done\n" + "done\n"
+        readonly property string script: "g=''\n" + "for d in /sys/bus/pci/devices/*; do\n" + "  [ \"$(cat \"$d/vendor\" 2>/dev/null)\" = 0x10de ] || continue\n" + "  case \"$(cat \"$d/class\" 2>/dev/null)\" in 0x03*) g=$d; break ;; esac\n" + "done\n" + "echo @gpu\n" + "if [ -n \"$g\" ] && command -v nvidia-smi >/dev/null 2>&1; then\n" + "  shown=0\n" + "  for c in \"$g\"/drm/card*/card*-*/status; do [ \"$(cat \"$c\" 2>/dev/null)\" = connected ] && shown=1 && break; done\n" + "  st=$(cat \"$g/power/runtime_status\" 2>/dev/null)\n" + "  echo \"pm|$shown|$st\"\n" + "  if [ \"$st\" != suspended ] && { [ \"$shown\" = 1 ] || [ \"$1\" = 1 ]; }; then\n" + "    echo \"nvidia|$(nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw --format=csv,noheader,nounits 2>/dev/null | head -1)\"\n" + "  fi\n" + "else\n" + "  for c in /sys/class/drm/card[0-9]*/device; do\n" + "    [ \"$(cat \"$c/vendor\" 2>/dev/null)\" = 0x1002 ] && [ -r \"$c/gpu_busy_percent\" ] || continue\n" + "    st=$(cat \"$c/power/runtime_status\" 2>/dev/null)\n" + "    echo \"pm|1|$st\"\n" + "    [ \"$st\" = suspended ] && break\n" + "    h=$(ls -d \"$c\"/hwmon/hwmon* 2>/dev/null | head -1)\n" + "    echo \"amd|$(cat \"$h/temp1_input\" 2>/dev/null)|$(cat \"$c/gpu_busy_percent\" 2>/dev/null)|$(cat \"$c/mem_info_vram_used\" 2>/dev/null)|$(cat \"$c/mem_info_vram_total\" 2>/dev/null)|$(cat \"$h/power1_average\" 2>/dev/null || cat \"$h/power1_input\" 2>/dev/null)\"\n" + "    break\n" + "  done\n" + "fi\n" + "echo @fans\n" + "for h in /sys/class/hwmon/hwmon*; do\n" + "  n=$(cat \"$h/name\" 2>/dev/null)\n" + "  for f in \"$h\"/fan*_input; do\n" + "    [ -r \"$f\" ] || continue\n" + "    b=${f%_input}\n" + "    echo \"$n|${b##*/}|$(cat \"$f\" 2>/dev/null)|$(cat \"${b}_label\" 2>/dev/null)|$(cat \"${b}_max\" 2>/dev/null)\"\n" + "  done\n" + "done\n"
 
         stdout: StdioCollector {
             onStreamFinished: w.take(this.text)
@@ -397,7 +405,7 @@ WidgetBody {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 text: w.headText
-                color: w.hasGpu ? (w.gpuAwake ? w.tempTint(w.gpuTemp) : Theme.subtextDim) : w.tempTint(w.cpuTemp)
+                color: w.hasGpu ? (w.gpuAwake ? w.tempTint(w.gpuTemp) : Theme.subtextDim) : Theme.accent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.dp(38)
                 font.bold: true
@@ -423,7 +431,7 @@ WidgetBody {
 
                 Text {
                     width: parent.width
-                    text: w.hasGpu ? (w.gpuAwake ? w.gpuShort : "Asleep, left undisturbed") : "Temperature"
+                    text: w.hasGpu ? (w.gpuAwake ? w.gpuShort : "Asleep, left undisturbed") : "Processor load"
                     color: w.gpuAwake || !w.hasGpu ? Theme.text : Theme.subtextDim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.dp(13)
@@ -475,27 +483,36 @@ WidgetBody {
             model: w.fanStats
         }
 
-        Row {
+        Item {
             visible: w.opt("showControls") !== false
-            spacing: Theme.dp(8)
+            width: parent.width
+            height: controls.implicitHeight
 
-            Chip {
-                icon: Power.symbol(Power.profile)
-                label: Power.name(Power.profile)
-                onClicked: {
-                    if (!w.preview)
-                        Power.cycle();
+            Row {
+                id: controls
 
+                anchors.centerIn: parent
+                spacing: Theme.dp(8)
+
+                Chip {
+                    icon: Power.symbol(Power.profile)
+                    label: Power.name(Power.profile)
+                    onClicked: {
+                        if (!w.preview)
+                            Power.cycle();
+
+                    }
                 }
-            }
 
-            Chip {
-                visible: w.gameModeConfigured || w.preview
-                icon: "games"
-                label: "Game mode"
-                on: w.gameModeOn
-                busy: w.gameModeBusy
-                onClicked: w.setGameMode(!w.gameModeOn)
+                Chip {
+                    visible: w.gameModeConfigured || w.preview
+                    icon: "games"
+                    label: "Game mode"
+                    on: w.gameModeOn
+                    busy: w.gameModeBusy
+                    onClicked: w.setGameMode(!w.gameModeOn)
+                }
+
             }
 
         }

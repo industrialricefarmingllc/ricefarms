@@ -59,7 +59,7 @@ Item {
     readonly property real windowRadius: Math.max(0, HyprConfig.num("decoration.rounding", 8) * HyprConfig.num("decoration.rounding_power", 2) / 2)
     readonly property real windowSmoothing: Prefs.squircleF
     // fast spatial is the right shape but 1/3 quick for a full-tile iris
-    readonly property int irisMs: Math.round(Theme.durFastSpatial * 4 / 3)
+    readonly property int irisMs: Math.round(Theme.durFastSpatial * 4 / 3) + 100
     // fast out, long settle: the rim leaves at speed and eases into the tile
     readonly property var irisCurve: [0.05, 0.7, 0.1, 1, 1, 1]
 
@@ -336,6 +336,9 @@ Item {
                 appName: root.req ? root.req.title : ""
                 radius: root.windowRadius
                 indicator: root.phase === "waiting" || root.phase === "done"
+                // reach full coverage before the ghost's opacity fade makes it
+                // invisible
+                revealProgress: ghost.revealing ? Math.min(1, (ghost.revealRadius / Math.max(1, ghost.revealMax)) / 0.6) : 0
             }
         }
 
@@ -645,6 +648,7 @@ Item {
             }
 
             Image {
+                z: 1
                 x: overlay.iconX
                 y: overlay.iconY
                 width: Math.max(1, overlay.iconSize)
@@ -659,6 +663,7 @@ Item {
             }
 
             Text {
+                z: 1
                 x: overlay.iconX
                 y: overlay.iconY
                 width: Math.max(1, overlay.iconSize)
@@ -674,13 +679,21 @@ Item {
             }
 
             LoadingIndicator {
-                width: Math.max(Theme.dp(24), Math.min(Theme.dp(44), Math.round(Math.min(overlay.toW, overlay.toH) * 0.12)))
+                id: overlayHalo
+
+                readonly property real base: Math.max(Theme.dp(72), root.tileEdge(overlay.toW, overlay.toH) * 1.8)
+                readonly property real full: Math.hypot(overlay.toW, overlay.toH) / (0.84 * overlayHalo.fit) * 1.02
+                readonly property real p: overlay.revealing ? Math.min(1, (overlay.revealRadius / Math.max(1, overlay.revealMax)) / 0.6) : 0
+                readonly property real centerY: root.tileCenterY(overlay.toH)
+
+                width: base + (full - base) * overlayHalo.p
                 height: width
                 x: overlay.toX + (overlay.toW - width) / 2
-                y: overlay.toY + root.tileCenterY(overlay.toH) + root.tileEdge(overlay.toW, overlay.toH) / 2 + Theme.dp(16)
-                // the handover hold is part of the wait, not a blank pause:
-                // the indicator keeps turning until the iris carves the tile
-                running: root.phase === "waiting" || root.phase === "done"
+                y: overlay.toY + centerY + (overlay.toH / 2 - centerY) * overlayHalo.p - height / 2
+                z: 0.5
+                // freeze the sequence for the iris so it becomes a clean disc
+                running: (root.phase === "waiting" || root.phase === "done") && overlayHalo.p <= 0.001
+                circleMorph: overlayHalo.p
                 contained: false
                 color: Theme.accent
                 visible: (root.phase === "waiting" || root.phase === "done") && overlay.effectsT >= 0.999 && !root.ghostPlaced
@@ -1162,7 +1175,16 @@ Item {
 
         root.stats.exec = Date.now();
         root.traceLog("exec " + root.req.command);
-        Quickshell.execDetached(["env", "LUCID_LAUNCH_TOKEN=" + root.token, "sh", "-c", root.req.command]);
+        // The helper starts the app in its own transient systemd scope. A
+        // plain execDetached only detaches the process tree; the app would
+        // still inherit quickshell's cgroup, and stopping or restarting the
+        // shell (KillMode=control-group) would take it down with the shell.
+        // The helper also exports the launch token the pin below reads.
+        Quickshell.execDetached([
+            Qt.resolvedUrl("../scripts/launch-detached.sh").toString().replace("file://", ""),
+            root.token,
+            root.req.command
+        ]);
         timeout.restart();
         regainFocus.restart();
     }
@@ -1200,6 +1222,17 @@ Item {
         target: Hyprland
 
         function onRawEvent(event) {
+            // A special workspace floats over every regular one, so if the
+            // parking workspace is ever left up it becomes the focused
+            // workspace; Hyprland then opens every new window there and those
+            // apps follow you across all workspaces. Hide it the moment it is
+            // shown: it only ever holds the invisible placeholder and ghost.
+            if (event.name === "activespecial") {
+                if (String(event.data || "").split(",")[0] === root.parkWorkspace && root.phase === "idle")
+                    root.hideParkWorkspace();
+                return;
+            }
+
             if (event.name === "configreloaded") {
                 root.installRules();
                 root.probeAnimations();
@@ -2043,6 +2076,13 @@ Item {
         onTriggered: {
             if (root.phase !== "idle")
                 return;
+
+            // safety net for the activespecial guard: if the parking workspace
+            // is still on screen (an event we never saw, or a reload), put it
+            // away before it can attract the next app
+            var fw = Hyprland.focusedWorkspace;
+            if (fw && String(fw.name || "") === root.parkWorkspace)
+                root.hideParkWorkspace();
 
             // cheap refresher: this also repairs a stale address after a hot
             // reload, without touching a window that is still mapped

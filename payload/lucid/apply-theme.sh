@@ -218,87 +218,10 @@ cat > "$HOME/.cache/matugen/vscode-colors.json" <<EOF
 }
 EOF
 
-# discord — vesktop watches its theme files and reloads them live
-if [[ -d "$HOME/.config/vesktop/themes" ]]; then
-    cat > "$HOME/.config/vesktop/themes/midnight-discord.css" <<EOF
-/**
- * @name midnight
- * @description A dark, rounded discord theme.
- * @author refact0r
- * @version 1.6.2
- * @source https://github.com/refact0r/midnight-discord/blob/master/midnight.theme.css
-*/
-
-@import url('https://refact0r.github.io/midnight-discord/build/midnight.css');
-
-:root {
-	--font: 'figtree';
-	--corner-text: 'Midnight';
-
-    --online-indicator: $INVERSE_PRIMARY;
-	--dnd-indicator: $ERROR;
-	--idle-indicator: $TERTIARY_CONTAINER;
-	--streaming-indicator: $ON_PRIMARY;
-
-    --accent-1: $TERTIARY;
-	--accent-2: $PRIMARY;
-	--accent-3: $PRIMARY;
-	--accent-4: $SURFACE_BRIGHT;
-	--accent-5: $PRIMARY_FIXED_DIM;
-    --accent-new: $INVERSE_PRIMARY;
-	--mention: $SURFACE;
-	--mention-hover: $SURFACE_BRIGHT;
-
-	--text-0: $SURFACE;
-	--text-1: $ON_SURFACE;
-	--text-2: $ON_SURFACE;
-	--text-3: $ON_SURFACE_VARIANT;
-	--text-4: $ON_SURFACE_VARIANT;
-	--text-5: $OUTLINE;
-
-    --bg-1: $SURFACE_VARIANT;
-	--bg-2: $SURFACE_CONTAINER_HIGH;
-	--bg-3: $SURFACE_CONTAINER_LOW;
-	--bg-4: $SURFACE;
-	--hover: $SURFACE_BRIGHT;
-	--active: $SURFACE_BRIGHT;
-	--message-hover: $SURFACE_BRIGHT;
-
-	--spacing: 12px;
-	--list-item-transition: 0.2s ease;
-	--unread-bar-transition: 0.2s ease;
-	--moon-spin-transition: 0.4s ease;
-	--icon-spin-transition: 1s ease;
-
-	--roundness-xl: 22px;
-	--roundness-l: 20px;
-	--roundness-m: 16px;
-	--roundness-s: 12px;
-	--roundness-xs: 10px;
-	--roundness-xxs: 8px;
-
-	--discord-icon: none;
-	--moon-icon: block;
-	--moon-icon-url: url('https://upload.wikimedia.org/wikipedia/commons/c/c4/Font_Awesome_5_solid_moon.svg');
-	--moon-icon-size: auto;
-
-	--login-bg-filter: saturate(0.3) hue-rotate(-15deg) brightness(0.4);
-	--green-to-accent-3-filter: hue-rotate(56deg) saturate(1.43);
-	--blurple-to-accent-3-filter: hue-rotate(304deg) saturate(0.84) brightness(1.2);
-}
-
-.selected_f5eb4b,
-.selected_f6f816 .link_d8bfb3 {
-  color: var(--text-0) !important;
-  background: var(--accent-3) !important;
-}
-
-.selected_f6f816 .link_d8bfb3 * {
-  color: var(--text-0) !important;
-  fill: var(--text-0) !important;
-}
-EOF
-fi
+# discord — the Equicord themes are matugen templates (templates.equicord
+# and templates.equicord_alt in ~/.config/matugen/config.toml), rendered by
+# render_templates() below. Wallpapers and fixed themes therefore write the
+# same file, to both Equicord data dirs; there is nothing to write here.
 
 # gtk — only where the app already has a config dir
 for gtkdir in "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"; do
@@ -366,7 +289,6 @@ render_templates() {
             --skip "$HOME/.config/kitty/matugen-colors.conf" \
             --skip "$HOME/.cache/matugen/vscode-colors" \
             --skip "$HOME/.cache/matugen/vscode-colors.json" \
-            --skip "$HOME/.config/vesktop/themes/midnight-discord.css" \
             --skip "$HOME/.config/gtk-3.0/colors.css" \
             --skip "$HOME/.config/gtk-4.0/colors.css" \
             --skip "$HOME/.config/starship.toml" || true

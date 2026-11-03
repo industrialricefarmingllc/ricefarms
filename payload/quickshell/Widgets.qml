@@ -1232,6 +1232,36 @@ Singleton {
             "h": 318
         }],
         "options": []
+    }, {
+        "id": "mesh",
+        "name": "Mesh studio",
+        "blurb": "Drop a photo and every object in it is lifted to a 3D mesh.",
+        "variants": [{
+            "id": "studio",
+            "name": "Studio",
+            "blurb": "The crop behind, the mesh over it, and a bar for the piece.",
+            "w": 320,
+            "h": 300,
+            "resizable": true
+        }],
+        "options": [{
+            "key": "engine",
+            "label": "Engine",
+            "type": "choice",
+            "def": "local",
+            "choices": [{
+                "key": "local",
+                "label": "This GPU (local)"
+            }, {
+                "key": "mock",
+                "label": "Mock (instant, for UI work)"
+            }]
+        }, {
+            "key": "prompts",
+            "label": "",
+            "type": "hidden",
+            "def": "teddy bear, chair"
+        }]
     }]
 
     // the full-width bars every preset stands on. listed first in each, so the cards
@@ -1998,6 +2028,28 @@ Singleton {
         } catch (e) {
             return d[key];
         }
+    }
+
+    // The most recently placed card of a type that has a value for a content
+    // option. Used by the widget panel so a fresh preview can show the image a
+    // mesh card already has instead of the empty drop surface.
+    function latestOption(typeId, key) {
+        var best = "";
+        var bestZ = -1;
+        for (var i = 0; i < instances.count; i++) {
+            var e = instances.get(i);
+            if (e.wtype !== typeId || e.closing)
+                continue;
+            var value = root.readOption(e.optsJson, typeId, key);
+            if (value === undefined || value === "")
+                continue;
+            var z = e.zOrder || 0;
+            if (z < bestZ)
+                continue;
+            best = value;
+            bestZ = z;
+        }
+        return best;
     }
 
     // anything done by hand to what is placed or where

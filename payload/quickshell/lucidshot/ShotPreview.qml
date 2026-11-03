@@ -452,7 +452,7 @@ PanelWindow {
                             if (preview.hint !== "")
                                 return preview.hint;
 
-                            return preview.kind === "video" ? "Recording saved" : "Screenshot copied";
+                            return preview.kind === "video" ? "Recording copied" : "Screenshot copied";
                         }
                         color: preview.armedDelete ? Theme.error : Theme.text
                         font.family: Theme.fontFamily

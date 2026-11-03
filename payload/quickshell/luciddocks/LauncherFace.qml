@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import qs
 import qs.lucidui
 import "../lucidwidgets"
@@ -34,6 +36,8 @@ Item {
     property var appsModel: null
     property var emojiModel: null
     property var wallpaperModel: null
+    // how many leading cards are local; Home/End stop before web results
+    property int wallpaperLocalCount: 0
     // Settings -> Theme picks the style; unknown names fall back to the strip
     readonly property var pickerFiles: ({
         "strip": "WallpaperStrip.qml",
@@ -42,6 +46,15 @@ Item {
         "bento": "WallpaperBento.qml"
     })
     property int pickerIndex: -1
+    // furthest card the user has stepped to this boot; End returns here rather
+    // than to the last local wallpaper. /run survives a shell restart but not
+    // the machine, which is exactly the session the user asked for.
+    property int pickerReach: 0
+    property string pickerReachPath: ""
+    property bool pickerReachLoaded: false
+    // set while a sync/restore moves the strip: only user movement extends reach
+    property bool pickerProgrammatic: false
+    readonly property string pickerReachFile: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/lucid-wallpaper-reach"
     readonly property bool pickerGrid: face.pickerStyle === "tiles"
     readonly property bool pickerUpDown: Prefs.wallpaperPickerKeys === "updown"
     property bool pickerSettling: false
@@ -70,8 +83,8 @@ Item {
         "emoji": "Find an emoji",
         "commands": "Search commands",
         "theme": "Search themes",
-        "wallpaper": "Search wallpapers",
-        "live": "Search live wallpapers",
+        "wallpaper": "Search local, Wallhaven, Workshop",
+        "live": "Search local, Wallhaven, Workshop",
         "widgets": "Search widgets"
     })[face.displayMode] || "Search apps and settings"
     readonly property string modeIcon: ({
@@ -242,19 +255,119 @@ Item {
         onActivated: face.wallpaperUndoRequested()
     }
 
+    // one small write per movement, and only after the user settles on a card
+    Timer {
+        id: reachSave
+
+        interval: 200
+        repeat: false
+        onTriggered: face.savePickerReach()
+    }
+
+    FileView {
+        id: reachStore
+
+        path: face.pickerReachFile
+        watchChanges: false
+        printErrors: false
+        onLoaded: face.loadPickerReach(text())
+    }
+
     function setWallpaperIndex(i) {
+        face.pickerProgrammatic = true;
         face.pickerIndex = i;
         if (wallStrip)
             wallStrip.setIndexImmediate(i);
+        face.pickerProgrammatic = false;
+    }
+
+    // Home still goes to the first local card. End uses the furthest card the
+    // user actually reached this boot, because that is the point they left off.
+    function jumpLocal(which) {
+        if (!wallStrip || face.wallpaperLocalCount <= 0)
+            return ;
+
+        face.setWallpaperIndex(which === "end" ? face.wallpaperLocalCount - 1 : 0);
+    }
+
+    function pickerReachIndex() {
+        if (!wallStrip || wallStrip.count <= 0)
+            return -1;
+
+        if (face.pickerReachPath !== "") {
+            for (let i = 0; i < wallStrip.count; i++) {
+                const item = wallStrip.model.get(i);
+                if (item && item.path === face.pickerReachPath)
+                    return i;
+            }
+        }
+        return Math.max(0, Math.min(wallStrip.count - 1, face.pickerReach));
+    }
+
+    function jumpReach() {
+        const at = face.pickerReachIndex();
+        if (at >= 0)
+            face.setWallpaperIndex(at);
+    }
+
+    function notePickerReach(index) {
+        face.pickerReachLoaded = true;
+        if (!face.pickerMode || index < 0 || index <= face.pickerReach)
+            return ;
+
+        let path = "";
+        if (wallStrip && index < wallStrip.count) {
+            const item = wallStrip.model.get(index);
+            if (item)
+                path = String(item.path || "");
+        }
+        face.pickerReach = index;
+        face.pickerReachPath = path;
+        reachSave.restart();
+    }
+
+    function loadPickerReach(text) {
+        if (face.pickerReachLoaded)
+            return ;
+
+        const lines = String(text).split("\n");
+        const index = parseInt(lines[0], 10);
+        if (!isNaN(index) && index >= 0)
+            face.pickerReach = index;
+        if (lines.length > 1)
+            face.pickerReachPath = lines[1].replace(/\s+$/, "");
+        face.pickerReachLoaded = true;
+    }
+
+    function savePickerReach() {
+        Quickshell.execDetached(["sh", "-c", "printf '%s\\n%s\\n' \"$1\" \"$2\" > \"$3\"", "sh", String(face.pickerReach), face.pickerReachPath, face.pickerReachFile]);
     }
 
     // a picker that was just swapped in (the style changed) starts where the last one was
     function restorePickerIndex() {
-        if (wallStrip && face.pickerIndex >= 0)
+        if (wallStrip && face.pickerIndex >= 0) {
+            face.pickerProgrammatic = true;
             wallStrip.setIndexImmediate(face.pickerIndex);
+            face.pickerProgrammatic = false;
+        }
     }
 
     readonly property int wallpaperCurrentIndex: wallStrip ? wallStrip.currentIndex : -1
+    // The card the pointer is on, else the keyboard selection. The dock warms
+    // its spatial cache while the picker is open, so the click does not pay for
+    // the first-use depth/matte generation.
+    readonly property string hoveredWallpaperPath: {
+        const strip = wallStrip;
+        if (!strip || !face.pickerMode)
+            return "";
+        let at = typeof strip.hoveredIndex === "number" ? strip.hoveredIndex : -1;
+        if (at < 0 && typeof strip.currentIndex === "number")
+            at = strip.currentIndex;
+        if (at < 0 || !strip.model || at >= strip.model.count)
+            return "";
+        const item = strip.model.get(at);
+        return item && item.path ? String(item.path) : "";
+    }
 
     function resetSelection() {
         resultList.resetSelection();
@@ -628,6 +741,8 @@ Item {
 
     }
 
+
+
     Item {
         id: contentArea
         visible: !face.headOnly
@@ -896,6 +1011,7 @@ Item {
         Binding { target: pickerLoader.item; property: "tinyH"; value: face.wallTinyH; when: pickerLoader.item !== null }
         Binding { target: pickerLoader.item; property: "itemGap"; value: face.wallCardGap; when: pickerLoader.item !== null }
         Binding { target: pickerLoader.item; property: "appliedPath"; value: face.appliedWallpaper; when: pickerLoader.item !== null }
+        Binding { target: pickerLoader.item; property: "filterText"; value: face.highlightQuery; when: pickerLoader.item !== null }
         Binding { target: pickerLoader.item; property: "live"; value: face.displayMode === "live"; when: pickerLoader.item !== null }
         Binding { target: pickerLoader.item; property: "stableHeight"; value: face.stableContentHeight; when: pickerLoader.item !== null }
 
@@ -909,8 +1025,13 @@ Item {
             }
 
             function onCurrentIndexChanged() {
-                if (pickerLoader.item && !face.pickerSettling)
+                // an empty model reports 0 while it is being refilled; that is
+                // not the user picking the first card
+                if (pickerLoader.item && pickerLoader.item.count > 0 && !face.pickerSettling) {
                     face.pickerIndex = pickerLoader.item.currentIndex;
+                    if (!face.pickerProgrammatic)
+                        face.notePickerReach(face.pickerIndex);
+                }
             }
 
             target: pickerLoader.item
@@ -1118,6 +1239,17 @@ Item {
             }
             // Ctrl and a digit jumps straight to a mode, in the order the head shows them
             Keys.onPressed: (event) => {
+                if (face.pickerMode && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
+                    // End resumes at the furthest card reached this boot. A
+                    // typed filter is a different list, so it keeps its old
+                    // local-end behaviour.
+                    if (event.key === Qt.Key_End)
+                        face.highlightQuery === "" ? face.jumpReach() : face.jumpLocal("end");
+                    else
+                        face.jumpLocal("start");
+                    event.accepted = true;
+                    return ;
+                }
                 if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
                     face.closeRequested()
                     event.accepted = true

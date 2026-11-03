@@ -21,6 +21,14 @@
 
 set -euo pipefail
 
+# NVIDIA's explicit-sync present path leaks sync_file fds on every surface
+# commit (5-6 per launcher open). Once the default 1024 descriptor limit is
+# full, the shell cannot create EGL contexts or pipes and every launcher open
+# stalls for hundreds of ms. Implicit sync is indistinguishable for the shell,
+# so opt this process out of the leaky path and keep a high ceiling as a guard.
+export __NV_DISABLE_EXPLICIT_SYNC=1
+ulimit -n 65536 2>/dev/null || true
+
 # probe roots, overridable so the detection can be exercised off real hardware
 : "${LUCID_NVIDIA_VERSION_FILE:=/proc/driver/nvidia/version}"
 : "${LUCID_DRM_DIR:=/sys/class/drm}"

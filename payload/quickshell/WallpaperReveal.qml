@@ -75,6 +75,20 @@ PanelWindow {
     property bool completing: false
     readonly property string readyPath: Quickshell.env("HOME") + "/.cache/quickshell/reveal-ready"
     readonly property string coveredPath: Quickshell.env("HOME") + "/.cache/quickshell/reveal-covered"
+    // The applying script rewrites this every half second while depth, matte,
+    // mesh and the wallpaper decode are still running.
+    readonly property string heartbeatPath: Quickshell.env("HOME") + "/.cache/quickshell/reveal-heartbeat"
+    // the script's own 1/0 flag: 0 means it has sent the close (or given up)
+    readonly property string activeFlagPath: Quickshell.env("HOME") + "/.cache/quickshell/reveal-active"
+    property double heartbeatAt: 0
+    // when this reveal began, for the hard deadline below
+    property double begunAt: 0
+    // Nothing may hold the screen under the iris forever. A wedged or killed
+    // apply script, a heartbeat left writing by an older run, or a lost
+    // "conceal" IPC used to leave the circle up with no way back. 45 s is
+    // longer than the slowest cold apply (depth + matte + two meshes on a 4K
+    // still); after that the iris closes whatever the script is doing.
+    readonly property int maxRevealMs: 60000
 
     // The circle travels from beyond the bottom-right corner to the centre.
     readonly property real startX: root.sw * 1.35
@@ -130,6 +144,14 @@ PanelWindow {
             w = Math.max(w, Math.round(s.width * s.devicePixelRatio));
             h = Math.max(h, Math.round(s.height * s.devicePixelRatio));
         }
+        // The iris is a transient cover; decoding a 4K wallpaper at full
+        // physical size costs over a second before the circle can even start.
+        // Cap the long side and let the GPU scale it during the animation.
+        const cap = 2560;
+        if (w > cap) {
+            h = Math.round(h * cap / Math.max(1, w));
+            w = cap;
+        }
         return Qt.size(w || 1920, h || 1080);
     }
 
@@ -150,6 +172,8 @@ PanelWindow {
         root.active = true;
         root.pendingIn = true;
         root.concealRequested = false;
+        root.heartbeatAt = Date.now();
+        root.begunAt = Date.now();
         root.leaving = false;
         root.cover = 0;
         root.outT = 0;
@@ -186,6 +210,25 @@ PanelWindow {
         root.leaving = true;
         root.outT = root.tLeave;
         outAnim.restart();
+    }
+
+    // The last word: drop the iris without waiting for any animation. Used by
+    // the deadline when the normal close never arrived, so a broken animation
+    // cannot keep the screen covered either.
+    function forceClose() {
+        inAnim.stop();
+        outAnim.stop();
+        holdTimer.stop();
+        root.pendingIn = false;
+        root.concealRequested = false;
+        root.completing = false;
+        root.leaving = false;
+        root.cover = 0;
+        root.outT = 0;
+        root.wallpaper = "";
+        root.revealSource = "";
+        Theme.revealActive = false;
+        root.active = false;
     }
 
     function endReveal(id) {
@@ -261,14 +304,58 @@ PanelWindow {
         }
     }
 
-    // A watchdog so a lost "out" event cannot leave the screen covered.
+    // A watchdog so a lost "out" event cannot leave the screen covered. It
+    // only fires once the applying script has gone quiet: a cold wallpaper
+    // spends several seconds in depth/matte/mesh and decode, and closing the
+    // iris on a fixed timeout made the picture land after the circle had gone.
     Timer {
-        interval: 6000
-        repeat: false
+        interval: 1000
+        repeat: true
         running: root.active && !outAnim.running
         onTriggered: {
-            if (root.active && !outAnim.running)
+            if (!root.active || outAnim.running)
+                return ;
+            if (root.heartbeatAt > 0 && Date.now() - root.heartbeatAt < 2500)
+                return ;
+            console.log("REVEAL watchdog: no heartbeat, closing");
+            root.startOut();
+        }
+    }
+
+    FileView {
+        path: root.heartbeatPath
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.heartbeatAt = Date.now()
+    }
+
+    // The script sets its flag to 0 as it sends "out". If that IPC was lost or
+    // overtaken, this is the same news: close now, instead of waiting for the
+    // watchdog. Only once its heartbeat has stopped, so an older apply
+    // finishing under a newer reveal cannot close the newer circle.
+    FileView {
+        path: root.activeFlagPath
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            if (root.active && !root.leaving && text().trim() === "0" && Date.now() - root.heartbeatAt > 1500)
                 root.startOut();
+        }
+    }
+
+    // Hard deadline: see maxRevealMs. Independent of the heartbeat, so a
+    // writer that never stops cannot hold the screen under the iris forever.
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.active
+        onTriggered: {
+            if (!root.active || Date.now() - root.begunAt < root.maxRevealMs)
+                return ;
+            console.warn("REVEAL deadline: closing after " + root.maxRevealMs + " ms");
+            root.forceClose();
         }
     }
 

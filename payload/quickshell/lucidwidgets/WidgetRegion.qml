@@ -41,6 +41,23 @@ Region {
         radius: Math.max(0, reg.rad - reg.inset)
     }
 
+    // the remove badge hangs off a selected card's corner. the mask cannot just
+    // be widened around the card - that would also catch the strip below it - so
+    // the badge gets a rect of its own
+    readonly property bool badgeLive: !reg.blur && !reg.isMenu && reg.frame !== null && reg.frame.badgeShown === true
+    readonly property real bdx: reg.badgeLive ? reg.frame.x + reg.frame.badgeX : 0
+    readonly property real bdy: reg.badgeLive ? reg.frame.y + reg.frame.badgeY : 0
+    readonly property real bdw: reg.badgeLive ? reg.frame.badgeW : 0
+    readonly property real bdh: reg.badgeLive ? reg.frame.badgeH : 0
+
+    Region {
+        x: reg.lo(reg.bdx)
+        y: reg.lo(reg.bdy)
+        width: reg.badgeLive ? Math.max(0, reg.hi(reg.bdx + reg.bdw) - reg.lo(reg.bdx)) : 0
+        height: reg.badgeLive ? Math.max(0, reg.hi(reg.bdy + reg.bdh) - reg.lo(reg.bdy)) : 0
+        radius: reg.badgeLive ? Math.round(reg.bdw / 2) : 0
+    }
+
     // the blur mask is hard edged, so the rounded rect above leaves notches at the corners
     Region {
         x: reg.lo(reg.bx + reg.rad)

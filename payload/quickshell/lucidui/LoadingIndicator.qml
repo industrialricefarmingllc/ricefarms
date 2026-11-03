@@ -10,10 +10,25 @@ Item {
 
     property bool running: visible
     property bool contained: false
+    // 0 keeps the expressive sequence; 1 is a plain circle. Use it to hand the
+    // shape over to a geometric iris without changing shape families abruptly.
+    property real circleMorph: 0
     property color color: li.contained ? Theme.fgPrimaryContainer : Theme.primary
     readonly property var sequence: ["softBurst", "cookie9", "pentagon", "pill", "sunny", "cookie4", "oval"]
+    // fraction of each shape's radial deviation from a circle that is kept.
+    // 0.34 = 66% less amplitude than the authored shapes.
+    property real amplitude: 0.34
     // one scale for every shape, so none leaves the box while it turns
-    readonly property real fit: 1 / Math.max.apply(null, li.sequence.map((n) => Math.max.apply(null, Shapes.radii(n))))
+    readonly property real fit: {
+        var max = 0;
+        for (var i = 0; i < li.sequence.length; i++) {
+            var r = Shapes.radii(li.sequence[i]);
+            var top = 0;
+            for (var j = 0; j < r.length; j++) top = Math.max(top, r[j]);
+            max = Math.max(max, 1 + (top - 1) * li.amplitude);
+        }
+        return 1 / Math.max(0.0001, max);
+    }
     property real t: 0
 
     implicitWidth: Theme.dp(44)
@@ -42,6 +57,16 @@ Item {
         // a spring-ish settle into each shape
         readonly property real e: 1 - Math.pow(1 - Math.min(1, s.f * 1.6), 3)
         readonly property real sz: li.width * (li.contained ? 0.62 : 0.84) * li.fit
+        readonly property var radii: {
+            var base = Shapes.mix(Shapes.radii(li.sequence[s.step]), Shapes.radii(li.sequence[(s.step + 1) % li.sequence.length]), s.e);
+            var m = Math.max(0, Math.min(1, li.circleMorph));
+            // damp toward a circle, then finish the journey to a plain circle
+            // when the iris asks for one (circleMorph)
+            var a = li.amplitude * (1 - m);
+            var out = [];
+            for (var i = 0; i < base.length; i++) out.push(1 + (base[i] - 1) * a);
+            return out;
+        }
 
         width: s.sz
         height: s.sz
@@ -55,7 +80,7 @@ Item {
             strokeWidth: 0
 
             PathSvg {
-                path: Shapes.svg(Shapes.mix(Shapes.radii(li.sequence[s.step]), Shapes.radii(li.sequence[(s.step + 1) % li.sequence.length]), s.e), s.sz, 0)
+                path: Shapes.svg(s.radii, s.sz, 0)
             }
 
         }

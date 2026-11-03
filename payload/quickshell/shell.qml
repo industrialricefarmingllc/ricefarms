@@ -27,6 +27,9 @@ import Quickshell.Wayland
 ShellRoot {
     id: root
 
+    // Referenced so the background spatial warmer is instantiated at startup.
+    readonly property bool spatialWarmAllowed: SpatialWarm.allowed
+
     // True once the running liquid-glass-hypr plugin understands the
     // two-shape `u` union geometry. 0.8.32 is the first build with it; until
     // the compositor is restarted with that build the bar keeps publishing
@@ -41,6 +44,20 @@ ShellRoot {
             for (const s of Quickshell.screens)
                 console.log("DPRPROBE", s.name, "dpr=" + s.devicePixelRatio, "logical=" + s.width + "x" + s.height);
         }
+    }
+
+    // A quickshell that exits or is killed leaves the `pactl subscribe` monitor
+    // from Audio.qml orphaned to init, where nothing collects it. Enough of those
+    // fill pipewire-pulse's client table and then every pactl call fails with
+    // "too many client application connections" - the volume keys with it. Clear
+    // what earlier instances left behind: only orphans (ppid 1), only ones older
+    // than a minute, so this shell's own monitor is never in the way.
+    Process {
+        id: reapAudioSubscribers
+
+        command: ["sh", "-c", "ps -eo pid=,ppid=,etimes=,args= | " +
+            "awk '$2 == 1 && $3 > 60 && /[p]actl subscribe/ { print $1 }' | " +
+            "xargs -r kill 2>/dev/null"]
     }
 
     Process {
@@ -89,6 +106,7 @@ ShellRoot {
     // the sounds, so their ipc target answers before anything has played, and
     // storage, which warns when space runs low and empties old trash
     Component.onCompleted: {
+        reapAudioSubscribers.running = true;
         void KdeConnect.installed;
         void Bt.present;
         void BtReceive.status;
@@ -274,6 +292,8 @@ ShellRoot {
             // the bar that speaks for the shell: it alone turns into notification
             // popups, raises the privacy toast and answers the modules' ipc
             readonly property bool primary: !Monitors.barEverywhere || bar.screen === Monitors.popupScreen
+            // never draw the bar on a virtual capture output
+            readonly property bool captureScreen: String(bar.screen && bar.screen.name || "").indexOf("HEADLESS") === 0
             // Two-shape glass union support (see root.glassUnion).
             readonly property bool glassUnion: root.glassUnion
             // Notch mode: the left/right groups draw as one continuous shape.
@@ -300,7 +320,7 @@ ShellRoot {
                 when: bar.modelData !== "" || Monitors.barPlacement !== null
             }
 
-            visible: Prefs.loaded && Prefs.barEnabled && Monitors.surfacesUp && !bar.fullScreenOpen
+            visible: Prefs.loaded && Prefs.barEnabled && Monitors.surfacesUp && !bar.fullScreenOpen && !bar.captureScreen
             property bool laidOut: false
             readonly property bool anyModuleShown: bar.leftGroupWidth + bar.centreGroupWidth + bar.rightGroupWidth > 0.5
             readonly property bool anyOpen: bar.modules.some((m) => {
@@ -755,7 +775,7 @@ ShellRoot {
             }
 
             readonly property var glassPills: {
-                if (!Prefs.liquidGlassEnabled || !bar.visible)
+                if (!bar.visible)
                     return [];
                 // auto-hide slides the content off the top edge; publishing the
                 // live rects would leave the glass behind on the screen
@@ -1915,6 +1935,14 @@ ShellRoot {
         id: shotPreviewMod
     }
 
+
+    // depth-parallax wallpaper sits on the Background layer, below the
+    // Bottom-layer widget board and its glass
+    SpatialWindows {
+    }
+
+    SpatialWidgetWindows {
+    }
 
     WidgetLayer {
         id: widgetLayer

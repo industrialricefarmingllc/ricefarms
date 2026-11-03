@@ -824,6 +824,134 @@ Column {
     }
 
     SettingCard {
+        title: "WEB WALLPAPERS"
+
+        SettingRow {
+            title: "Search Wallhaven and the Workshop"
+            description: "Typing in the launcher's wallpaper field also asks Wallhaven and the most popular Wallpaper Engine Workshop scenes. Local matches stay first; web results preview with their own thumbnails and are only downloaded or subscribed when you pick one."
+
+            M3Switch {
+                checked: Prefs.webWallpapers
+                onToggled: (v) => {
+                    return Prefs.webWallpapers = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: "Wallhaven"
+            description: "The API key is used for search and for the full-size image when a result is picked. Latest matches are sorted by date added; the picker keeps a local copy after the first apply."
+            visible: Prefs.webWallpapers
+            stacked: true
+
+            Column {
+                width: parent.width
+                spacing: Theme.dp(12)
+
+                M3TextField {
+                    width: Math.min(parent.width, Theme.dp(420))
+                    text: Prefs.wallhavenApiKey
+                    placeholder: "Wallhaven API key"
+                    password: true
+                    onAccepted: (v) => {
+                        return Prefs.wallhavenApiKey = v.trim();
+                    }
+                }
+
+                M3Chips {
+                    options: [{
+                        "key": "100",
+                        "label": "SFW"
+                    }, {
+                        "key": "110",
+                        "label": "+ Sketchy"
+                    }, {
+                        "key": "111",
+                        "label": "+ NSFW"
+                    }]
+                    current: Prefs.wallhavenPurity
+                    onChosen: (key) => Prefs.wallhavenPurity = key
+                }
+
+                Text {
+                    width: parent.width
+                    text: "NSFW needs the key and is only fetched when that chip is selected. The same choice also unlocks Mature Workshop scenes. Nothing is written to the wallpaper folder until a card is picked."
+                    color: Theme.subtext
+                    wrapMode: Text.WordWrap
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontBodySm
+                    font.variableAxes: Theme.axes(Theme.fontBodySm, 420, 0)
+                }
+
+            }
+
+        }
+
+        SettingRow {
+            title: "Workshop"
+            description: "Scenes are sorted by Steam's most popular today, not filtered to Wallpaper Engine's Approved tag. Mature scenes follow the NSFW chip above; Steam has no sketchy tier, so the sketchy chip only affects Wallhaven. A scene that is not installed is installed through skwd's Steam backend when available; otherwise it opens its Steam page and applies when the download finishes."
+            visible: Prefs.webWallpapers
+            showDivider: false
+
+        }
+
+    }
+
+    SettingCard {
+        title: "SPATIAL WALLPAPERS"
+
+        SettingRow {
+            title: "Depth parallax"
+            description: "A local depth model gives stills, videos and Wallpaper Engine previews a slow pointer-driven parallax. The depth map is cached; the model runs on the CPU and only when a wallpaper changes."
+
+            M3Switch {
+                checked: Prefs.spatialWallpapers
+                onToggled: (v) => {
+                    return Prefs.spatialWallpapers = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: "Depth model"
+            description: "Which local model builds the depth map. V2 ViT-S is the lightest; DA3 Base and DA3 Mono-Large hold hair, foliage and thin structures better; Depth Pro has the sharpest boundaries but needs a GPU — about two minutes per new still on this CPU. Each wallpaper is cached per model, so switching back is free."
+            visible: Prefs.spatialWallpapers
+            stacked: true
+
+            M3Chips {
+                width: Math.min(parent.width, Theme.dp(640))
+                current: Prefs.spatialDepthModel
+                options: [{
+                    "key": "da2-vits",
+                    "label": "Depth Anything V2 ViT-S"
+                }, {
+                    "key": "da3-base",
+                    "label": "Depth Anything 3 Base"
+                }, {
+                    "key": "da3-mono",
+                    "label": "Depth Anything 3 Mono-Large"
+                }, {
+                    "key": "depthpro",
+                    "label": "Depth Pro"
+                }]
+                onChosen: (key) => Prefs.spatialDepthModel = key
+            }
+
+        }
+
+        SettingRow {
+            title: "Depth engine"
+            description: SpatialWall.error !== "" ? SpatialWall.error : (SpatialWall.status !== "" ? SpatialWall.status : (SpatialWall.ready ? "Ready — " + SpatialWall.motionKind + " source" : "Waiting for a wallpaper"))
+            visible: Prefs.spatialWallpapers
+            showDivider: false
+
+        }
+
+    }
+
+    SettingCard {
         title: "LIVE WALLPAPERS"
 
         SettingRow {

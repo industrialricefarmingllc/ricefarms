@@ -626,7 +626,7 @@ PanelWindow {
         targetScreen: osdWindow.screen
         surfaceW: osdWindow.width
         surfaceH: osdWindow.height
-        pills: (Prefs.liquidGlassEnabled && card.visible) ? [{
+        pills: card.visible ? [{
             x: osdBlurRegion.paintedX,
             y: osdBlurRegion.paintedY,
             w: osdBlurRegion.paintedWidth,

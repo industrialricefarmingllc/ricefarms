@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Forward a NexusMods nxm:// link into the Mod Organizer 2 instance running
+# in the shared Skyrim Proton prefix.
+set -u
+
+url=${1:-}
+if [ -z "$url" ]; then
+    echo "usage: $0 'nxm://...'" >&2
+    exit 2
+fi
+
+LOG="$HOME/.local/share/mo2-skyrim-backup/nxm-forward.log"
+mkdir -p "$(dirname "$LOG")"
+printf '\n=== %s %s\n' "$(date -Is)" "$url" >>"$LOG"
+
+export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam"
+export STEAM_COMPAT_DATA_PATH="$HOME/.local/share/Steam/steamapps/compatdata/489830"
+export SteamAppId=489830
+export SteamGameId=489830
+export WINEDEBUG=-all
+
+PROTON="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-6-x86_64/proton"
+MO2='Z:\mnt\vc\Program Files (x86)\MO2'
+
+if [ ! -x "$PROTON" ]; then
+    echo "Proton not found: $PROTON" | tee -a "$LOG" >&2
+    exit 1
+fi
+
+# MO2 forwards an nxm:// argument to the running instance, or starts and
+# handles it itself if MO2 is not running yet.
+exec "$PROTON" run "$MO2\\ModOrganizer.exe" "$url" >>"$LOG" 2>&1

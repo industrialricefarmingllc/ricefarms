@@ -47,6 +47,9 @@ Item {
     // the same corner expressed in the body's own unscaled coordinates
     readonly property real bodyRadius: frame.zoom > 0 ? frame.radius / frame.zoom : frame.radius
     readonly property bool active: frame.hovered || frame.dragging || frame.menuOpen
+    // a card leans out under the pointer, as a hint that it is about to be
+    // picked up; the drag itself takes it further
+    readonly property bool lifting: frame.hovered && !frame.locked && !frame.dragging && !frame.resizing && !frame.closing
     // a variant can ask for no container at all and draw straight onto the wallpaper
     readonly property bool bare: body.item !== null && body.item.bare === true
     // ... or for nothing at all. never while you are working on the card, and the
@@ -426,6 +429,13 @@ Item {
     readonly property real surfaceWidth: frame.width
     readonly property real surfaceHeight: frame.height
     readonly property int surfaceRadius: frame.radius
+    // the remove badge overhangs the corner, and the layer's input mask only
+    // takes what these rects say, so the badge gets one of its own
+    readonly property bool badgeShown: removeBadge.shown
+    readonly property real badgeX: removeBadge.x
+    readonly property real badgeY: removeBadge.y
+    readonly property real badgeW: removeBadge.width
+    readonly property real badgeH: removeBadge.height
 
     visible: frame.onThisScreen && frame.opacity > 0.01
     width: frame.cardW
@@ -434,7 +444,7 @@ Item {
     x: frame.resizing ? frame.resX : (frame.dragging ? frame.dragX : frame.clampX(frame.wx))
     y: frame.resizing ? frame.resY : (frame.dragging ? frame.dragY : frame.clampY(frame.wy))
     opacity: (frame.closing || frame.blanked) ? 0 : (frame.appeared ? (frame.overBin ? 0.4 : 1) : 0)
-    scale: frame.closing ? 0.9 : (frame.appeared ? (frame.overBin ? 0.94 : (frame.dragging ? 1.025 : 1)) : (frame.landed ? 1 : (frame.born ? 0.86 : 0.97)))
+    scale: frame.closing ? 0.9 : (frame.appeared ? (frame.overBin ? 0.94 : (frame.dragging ? 1.025 : (frame.lifting ? 1.0125 : 1))) : (frame.landed ? 1 : (frame.born ? 0.86 : 0.97)))
 
     property bool appeared: false
 
@@ -533,12 +543,17 @@ Item {
         cursorShape: (frame.locked || frame.resizing) ? Qt.ArrowCursor : (frame.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor)
     }
 
-    // sits under the body so buttons and fields inside the widget win the click
+    // sits under the body so buttons and fields inside the widget win the click -
+    // except on a selected card, where it lifts over the body: a body that covers
+    // its whole card (notes, palette) would otherwise eat the press and the
+    // selection could never be dragged. the badge and the resize grips stay above
     MouseArea {
         id: dragArea
 
         anchors.fill: parent
+        z: frame.selected ? 7 : 0
         acceptedButtons: Qt.LeftButton
+        cursorShape: frame.selected ? (frame.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.ArrowCursor
         onPressed: (mouse) => {
             Widgets.raise(frame.uid);
             frame.beginDrag(mouse.x, mouse.y);
@@ -797,12 +812,13 @@ Item {
 
     }
 
-    // while the widget panel is open every card carries a way off the desktop,
-    // pulled inside the screen when the card sits right on its edge
+    // while the widget panel is open, and on every card caught by the desktop's
+    // box, a way off the desktop - pulled inside the screen when the card sits
+    // right on its edge
     Item {
         id: removeBadge
 
-        readonly property bool shown: frame.editMode && !frame.closing && !frame.dragging && !frame.resizing
+        readonly property bool shown: (frame.editMode || frame.selected) && !frame.closing && !frame.dragging && !frame.resizing
 
         z: 9
         width: Theme.dp(26)
@@ -842,7 +858,10 @@ Item {
             radius: width / 2
             ripple: false
             tint: Theme.fgError
-            onClicked: Widgets.close(frame.uid)
+            onClicked: {
+                Widgets.select(frame.uid, false);
+                Widgets.close(frame.uid);
+            }
         }
 
         Behavior on opacity {

@@ -993,7 +993,7 @@ Item {
 
         footer: Item {
             width: list.width
-            height: pane.busy ? Theme.dp(52) : (pane.hasAttachment ? Theme.dp(92) : 0)
+            height: pane.busy ? Theme.dp(52) : (pane.hasAttachment ? attachCard.height + Theme.dp(12) : 0)
             visible: pane.busy || pane.hasAttachment
 
             Rectangle {
@@ -1026,16 +1026,20 @@ Item {
             }
 
             // A pasted image is held here until Enter, so the composer keeps
-            // its normal "type then submit" rhythm. Clicking the chip discards
-            // the attachment.
+            // its normal "type then submit" rhythm. The chip is the picture
+            // itself, sized to the image's aspect within a comfortable box, so
+            // the attachment is as readable as the transcript allows. The close
+            // button in the corner discards it.
             Rectangle {
                 id: attachCard
+
+                readonly property real ratio: attachThumb.implicitWidth > 0 ? attachThumb.implicitHeight / attachThumb.implicitWidth : 0.75
 
                 visible: pane.hasAttachment
                 x: parent.width - width
                 y: Theme.dp(6)
-                width: Math.min(parent.width, Theme.dp(260))
-                height: Theme.dp(80)
+                width: Math.min(parent.width, Theme.dp(320))
+                height: Math.min(Theme.dp(180), width * ratio)
                 radius: Theme.rad(16)
                 color: Theme.assistantBubble
                 border.width: 1
@@ -1045,39 +1049,41 @@ Item {
                 Image {
                     id: attachThumb
 
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: Theme.dp(80)
+                    anchors.fill: parent
                     source: pane.attachmentUrl
-                    fillMode: Image.PreserveAspectCrop
+                    fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: false
                 }
 
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.dp(14)
-                    anchors.right: attachThumb.left
-                    anchors.rightMargin: Theme.dp(10)
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "Image attached\nPress Enter to send"
-                    color: Theme.subtext
-                    wrapMode: Text.WordWrap
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fs(11)
-                    font.variableAxes: Theme.axes(Theme.fs(11), 500, 0)
-                    lineHeight: 1.15
-                }
+                Rectangle {
+                    id: attachClear
 
-                TapHandler {
-                    onTapped: pane.clearAttachment()
-                }
+                    width: Theme.dp(22)
+                    height: width
+                    radius: width / 2
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: Theme.dp(6)
+                    color: Qt.rgba(0, 0, 0, 0.45)
 
-                HoverHandler {
-                    id: attachHover
+                    Text {
+                        anchors.centerIn: parent
+                        text: "×"
+                        color: "#ffffff"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fs(14)
+                        font.variableAxes: Theme.axes(Theme.fs(14), 500, 0)
+                    }
 
-                    cursorShape: Qt.PointingHandCursor
+                    TapHandler {
+                        onTapped: pane.clearAttachment()
+                    }
+
+                    HoverHandler {
+                        cursorShape: Qt.PointingHandCursor
+                    }
+
                 }
 
             }
@@ -1087,7 +1093,7 @@ Item {
     }
 
     Text {
-        visible: messages.count === 0 && !pane.busy
+        visible: messages.count === 0 && !pane.busy && !pane.hasAttachment
         anchors.centerIn: list
         width: Math.max(0, list.width - Theme.dp(40))
         text: "Type a sentence and press Enter.\nUse > for a question or refinement."

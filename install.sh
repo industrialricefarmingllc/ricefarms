@@ -304,6 +304,11 @@ phase_hypr_stack() {
   local P="$PAYLOAD_DIR"
   install_dir "$P/hypr" "$TARGET_HOME/.config/hypr"
   install_dir "$P/quickshell" "$TARGET_HOME/.config/quickshell"
+  # Vendored compiled helpers that sit beside the shell sources: the workspace
+  # recorder (lucidcap) and the spatial mesh cache builder (kos-mesh-cache).
+  # The lucidspatial3d QML plugin (.so) ships in the module dir next to qmldir.
+  install_file "$P/quickshell/lucidshot/lucidcap/lucidcap" "$TARGET_HOME/.local/bin/lucidcap" "755"
+  install_file "$P/quickshell/lucidspatial3d/kos-mesh-cache" "$TARGET_HOME/.local/bin/kos-mesh-cache" "755"
   install_dir "$P/lucid" "$TARGET_HOME/.config/lucid"
   # cava visualiser config for the bar strip (payload/cava/quickshell.conf)
   install_dir "$P/cava" "$TARGET_HOME/.config/cava"
@@ -1043,6 +1048,8 @@ verify_install() {
   check "sudoers drop-in present" test -f /etc/sudoers.d/10-ricefarms-nopasswd
   check "opencode config present" test -f "$TARGET_HOME/.config/opencode/opencode.json"
   check "liquidglass helpers present" test -x "$USRLOCAL_BIN/minimize-all"
+  check "lucidcap recorder present" test -x "$TARGET_HOME/.local/bin/lucidcap"
+  check "spatial mesh cache present" test -x "$TARGET_HOME/.local/bin/kos-mesh-cache"
   check "liquidglass.so built" test -f "$TARGET_HOME/src/liquid-glass-hypr/liquidglass.so"
   check "liquidglass.so (0.57) built" test -f "$TARGET_HOME/src/liquid-glass-hypr-057/liquidglass.so"
   if [[ $fails -gt 0 ]]; then warn "verify: $fails checks failed"; return 1; fi

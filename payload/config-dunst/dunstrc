@@ -1,12 +1,12 @@
 [urgency_low]
-background = "#fff8f7"
-foreground = "#231919"
-frame_color = "#904a4a"
+background = "#1a1111"
+foreground = "#f0dede"
+frame_color = "#ffb3b4"
 [urgency_normal]
-background = "#fff8f7"
-foreground = "#231919"
-frame_color = "#904a4a"
+background = "#1a1111"
+foreground = "#f0dede"
+frame_color = "#ffb3b4"
 [urgency_critical]
-background = "#ffdad6"
-foreground = "#410002"
-frame_color = "#ba1a1a"
+background = "#93000a"
+foreground = "#ffdad6"
+frame_color = "#ffb4ab"

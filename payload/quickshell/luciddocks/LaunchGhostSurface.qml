@@ -15,6 +15,8 @@ Item {
     // logical px, matching decoration:rounding unless the ghost says otherwise
     property real radius: 8
     property bool indicator: false
+    // 0 at the behind-icon size, 1 when the halo should cover the whole tile
+    property real revealProgress: 0
 
     // one icon size for both this surface and the overlay, so they land on the
     // same pixel whatever the tile's shape
@@ -41,6 +43,7 @@ Item {
     Image {
         id: icon
 
+        z: 1
         x: Math.round((root.width - root.iconEdge) / 2)
         y: Math.round(root.iconCenterY - root.iconEdge / 2)
         width: root.iconEdge
@@ -57,6 +60,7 @@ Item {
     // an app with no resolvable icon still gets a mark: its initial, in the
     // same place the icon would sit
     Text {
+        z: 1
         x: icon.x
         y: icon.y
         width: icon.width
@@ -71,14 +75,24 @@ Item {
         verticalAlignment: Text.AlignVCenter
     }
 
+    // The loading shape is a filled halo behind the icon. On the iris it grows
+    // past the tile's diagonal so the circle also covers the corners, not just
+    // the inscribed square.
     LoadingIndicator {
-        id: loader
+        id: halo
 
-        width: Math.max(Theme.dp(24), Math.min(Theme.dp(44), Math.round(Math.min(root.width, root.height) * 0.12)))
+        readonly property real base: root.iconEdge * 1.8
+        readonly property real full: Math.hypot(root.width, root.height) / (0.84 * halo.fit) * 1.02
+        readonly property real p: Math.max(0, Math.min(1, root.revealProgress))
+
+        width: base + (full - base) * halo.p
         height: width
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(root.iconCenterY + root.iconEdge / 2 + Theme.dp(16))
-        running: root.indicator
+        x: Math.round((root.width - width) / 2)
+        y: Math.round(root.iconCenterY + (root.height / 2 - root.iconCenterY) * halo.p - height / 2)
+        z: 0.5
+        // freeze the expressive sequence while the iris turns it into a circle
+        running: root.indicator && halo.p <= 0.001
+        circleMorph: halo.p
         contained: false
         color: Theme.accent
         visible: root.indicator

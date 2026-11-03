@@ -10,6 +10,7 @@
 #include <hyprutils/math/Misc.hpp>
 
 #include <png.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -29,16 +30,14 @@ namespace {
 struct SWashState {
     SP<CShader> shader;
     GLuint      vao = 0, vbo = 0;
-    GLint       proj = -1, base = -1, wash = -1;
-    GLint       screen = -1, box = -1, radius = -1, power = -1, alpha = -1, light = -1;
+    GLint       proj = -1, wash = -1;
+    GLint       screen = -1, box = -1, radii = -1, flare = -1, power = -1, soft = -1, darkOpacity = -1, fade = -1;
     bool        ok = false;
 
     SP<ITexture>                    tex;
     std::string                     texPath;
     std::filesystem::file_time_type texStamp = std::filesystem::file_time_type::min();
     std::chrono::steady_clock::time_point lastCheck = std::chrono::steady_clock::time_point::min();
-
-    std::unordered_map<MONITORID, SP<IFramebuffer>> captures;
 
     ~SWashState() = default; // leaked on purpose
 };
@@ -48,15 +47,14 @@ SWashState* state() {
     return s;
 }
 
-GLuint fbId(const SP<IFramebuffer>& fb) {
-    return dynamic_cast<CGLFramebuffer*>(fb.get())->getFBID();
-}
-
-std::string readPathFile() {
+std::string readPathFile(bool light) {
     const char* home = getenv("HOME");
     if (!home || !*home)
         return {};
-    std::ifstream in(std::string(home) + "/.cache/quickshell/wallpaper-softlight.path");
+    // Both modes use the raw blurred wallpaper. Light mode lets the GPU
+    // multiply it against the framebuffer; dark mode screens it at 5%.
+    (void)light;
+    std::ifstream in(std::string(home) + "/.cache/quickshell/wallpaper-softlight-screen.path");
     std::string line;
     std::getline(in, line);
     while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' '))
@@ -70,7 +68,7 @@ SP<ITexture> loadTexture(const std::string& path) {
     if (!png_image_begin_read_from_file(&image, path.c_str()))
         return nullptr;
 
-    image.format = PNG_FORMAT_RGBA;
+    image.format = PNG_FORMAT_BGRA;
     std::vector<png_byte> pixels(PNG_IMAGE_SIZE(image));
     if (!png_image_finish_read(&image, nullptr, pixels.data(), 0, nullptr)) {
         png_image_free(&image);
@@ -110,14 +108,15 @@ void ensureShaders() {
 
     const GLuint p = s->shader->program();
     s->proj   = glGetUniformLocation(p, "proj");
-    s->base   = glGetUniformLocation(p, "uBase");
     s->wash   = glGetUniformLocation(p, "uWash");
     s->screen = glGetUniformLocation(p, "uScreen");
     s->box    = glGetUniformLocation(p, "uBox");
-    s->radius = glGetUniformLocation(p, "uRadius");
+    s->radii  = glGetUniformLocation(p, "uRadii");
+    s->flare  = glGetUniformLocation(p, "uFlare");
     s->power  = glGetUniformLocation(p, "uPower");
-    s->alpha  = glGetUniformLocation(p, "uAlpha");
-    s->light  = glGetUniformLocation(p, "uLight");
+    s->soft   = glGetUniformLocation(p, "uSoft");
+    s->darkOpacity = glGetUniformLocation(p, "uDarkOpacity");
+    s->fade   = glGetUniformLocation(p, "uFade");
 
     static constexpr float QUAD[16] = {
         0.0f, 0.0f, 0.0f, 0.0f,
@@ -149,7 +148,7 @@ SP<ITexture> lg::washTexture() {
         return s->tex;
     s->lastCheck = now;
 
-    const auto path = readPathFile();
+    const auto path = readPathFile(lightTheme());
     if (path.empty()) {
         static bool once = false;
         if (!once) { once = true; std::ofstream("/tmp/lucid-wash.log", std::ios::app) << "wash: empty path\n"; }
@@ -180,14 +179,23 @@ lg::windowWashSnapshot(PHLWINDOW window, PHLMONITOR monitor, const SWindowRender
         return std::nullopt;
 
     // Shell surfaces are not desktop windows; the old overlay excluded them.
-    const auto app = window->metadata().appID();
-    if (app.empty() || app == "org.quickshell")
+    const auto app   = window->metadata().appID();
+    const auto title = window->metadata().title();
+    // Lucid's launcher parks a real (pixel-less) placeholder toleven and draws
+    // the visible tile in a floating ghost toplevel. Both are org.quickshell,
+    // so whitelist only those two titles (plus the pre-stable Launching title).
+    const bool launchTile = app == "org.quickshell" &&
+        (title == "lucid-launch-placeholder" || title == "lucid-launch-ghost" || title.starts_with("Launching "));
+    if (app.empty() || (app == "org.quickshell" && !launchTile))
         return std::nullopt;
 
-    // Translucent windows are handled by the under-glass window shader; a
-    // post-content wash here would tint their text and feed back on redraw.
-    if (!window->presentation().opaque())
-        return std::nullopt;
+    {
+        static int n = 0;
+        if (n++ < 8)
+            std::ofstream("/tmp/lucid-wash.log", std::ios::app)
+                << "snap app=" << app << " opaque=" << window->presentation().opaque() << "\n";
+    }
+
 
     Vector2D realPos = window->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + presentation.workspaceOffset +
         presentation.floatingOffset;
@@ -209,10 +217,151 @@ lg::windowWashSnapshot(PHLWINDOW window, PHLMONITOR monitor, const SWindowRender
     if (fade <= 0.01F)
         return std::nullopt;
 
-    const float rad   = std::max(0.F, window->presentation().rounding() * monitor->m_scale);
-    const float power = std::clamp(window->presentation().roundingPower(), 2.F, 10.F);
+    float rad   = std::max(0.F, window->presentation().rounding() * monitor->m_scale);
+    float power = std::clamp(window->presentation().roundingPower(), 2.F, 10.F);
+    if (launchTile) {
+        // The launch ghost/placeholder rules set compositor rounding to 0;
+        // the QML tile itself uses the decoration radius and squircle. Match
+        // that so the wash does not paint a square over the rounded tile.
+        rad   = 8.F * monitor->m_scale;
+        power = 6.F;
+    }
 
-    return SWindowWashDraw{box, rad, power, fade};
+    return SWindowWashDraw{box, {rad, rad, rad, rad}, {0.F, 0.F}, power, fade};
+}
+
+namespace {
+std::string geoDir() {
+    if (const char* xdg = getenv("XDG_CACHE_HOME"); xdg && *xdg)
+        return std::string(xdg) + "/liquid-glass-hypr";
+    if (const char* home = getenv("HOME"); home && *home)
+        return std::string(home) + "/.cache/liquid-glass-hypr";
+    return {};
+}
+} // namespace
+
+std::vector<SWindowWashDraw> lg::layerWashSnapshots(PHLLS surface, PHLMONITOR monitor) {
+    std::vector<SWindowWashDraw> out;
+    if (!surface || !monitor || !surface->mapped())
+        return out;
+
+    const auto dir = geoDir();
+    if (dir.empty())
+        return out;
+
+    CBox surfBox{surface->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT),
+                 surface->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT)};
+    surfBox.translate(-monitor->m_position);
+    surfBox.scale(monitor->m_scale).round().noNegativeSize();
+    if (surfBox.w < 2 || surfBox.h < 2)
+        return out;
+
+    const float layerAlpha = surface->alpha()[Desktop::View::LS_ALPHA_FADE]->value();
+    if (layerAlpha < 0.99F)
+        return out;
+
+    const std::string suffix = "-" + monitor->m_name + ".json";
+    std::error_code ec;
+    for (const auto& ent : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec)
+            break;
+        if (!ent.is_regular_file(ec))
+            continue;
+        const std::string name = ent.path().filename().string();
+        if (name.size() <= 12 || name.compare(0, 12, "liquidglass-") != 0)
+            continue;
+        if (name.size() <= suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+            continue;
+
+        std::ifstream f(ent.path());
+        if (!f)
+            continue;
+        nlohmann::json j;
+        try {
+            f >> j;
+        } catch (const nlohmann::json::exception&) {
+            continue;
+        }
+        if (!j.is_object())
+            continue;
+
+        const auto ns = j.value("ns", std::string{});
+        if (!ns.empty() && ns != surface->m_namespace)
+            continue;
+
+        const auto& sp = j["surface"];
+        if (!sp.is_object())
+            continue;
+        const double dw = sp.value("w", 0.0);
+        const double dh = sp.value("h", 0.0);
+        if (dw <= 0.0 || dh <= 0.0)
+            continue;
+        const bool full = j.value("full", false);
+        const auto& pills = j["pills"];
+
+        auto addPill = [&](const nlohmann::json& p, const CBox& box, float scale) {
+            std::array<float, 4> rad{0, 0, 0, 0};
+            if (p.contains("r") && p["r"].is_array()) {
+                const auto& r = p["r"];
+                for (size_t i = 0; i < 4 && i < r.size(); ++i)
+                    if (r[i].is_number())
+                        rad[i] = std::max(0.F, r[i].get<float>() * scale);
+            }
+            std::array<float, 2> fl{0, 0};
+            if (p.contains("fl") && p["fl"].is_array()) {
+                const auto& f = p["fl"];
+                for (size_t i = 0; i < 2 && i < f.size(); ++i)
+                    if (f[i].is_number())
+                        fl[i] = std::max(0.F, f[i].get<float>() * scale);
+            }
+            CBox expanded = box;
+            if (fl[0] > 0.F || fl[1] > 0.F) {
+                expanded.x -= fl[0];
+                expanded.w += fl[0] + fl[1];
+            }
+            const float sq = std::clamp(p.value("sq", 0.5), 0.0, 1.0);
+            out.push_back(SWindowWashDraw{expanded, rad, fl, 2.F + 8.F * (float)sq, layerAlpha});
+        };
+
+        if (full) {
+            // Live committed surface box: the launcher can resize/track its
+            // reveal without the bridge having to publish x/y/w/h. The file
+            // may still describe the collapsed size (476x64) while the panel
+            // is resized, so don't gate this on the declared size/ratio.
+            float scale = (float)monitor->m_scale;
+            if (pills.is_array() && !pills.empty() && pills[0].is_object())
+                addPill(pills[0], surfBox, scale);
+            else {
+                const float r = 24.F * scale;
+                out.push_back(SWindowWashDraw{surfBox, {r, r, r, r}, {0.F, 0.F}, 6.F, layerAlpha});
+            }
+            continue;
+        }
+
+        const double rx = surfBox.w / dw;
+        const double ry = surfBox.h / dh;
+        if (!std::isfinite(rx) || !std::isfinite(ry) || rx < 0.25 || rx > 4.0 || ry < 0.25 || ry > 4.0 ||
+            std::fabs(rx - ry) > 0.02)
+            continue;
+        if (!pills.is_array() || pills.empty())
+            continue;
+
+        for (const auto& p : pills) {
+            if (!p.is_object())
+                continue;
+            const double px = p.value("x", 0.0);
+            const double py = p.value("y", 0.0);
+            const double pw = p.value("w", 0.0);
+            const double ph = p.value("h", 0.0);
+            if (pw <= 0.0 || ph <= 0.0)
+                continue;
+            const CBox box{surfBox.x + px * rx, surfBox.y + py * ry, pw * rx, ph * ry};
+            if (box.w < 2 || box.h < 2)
+                continue;
+            addPill(p, box, (float)rx);
+        }
+    }
+    return out;
 }
 
 void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, CRenderContext& ctx) {
@@ -224,6 +373,9 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
     const auto monitor = ctx.m_data.pMonitor.lock();
     const auto caller  = ctx.m_data.currentFB;
     if (!monitor || !caller)
+        return;
+
+    if (draw.alpha <= 0.01F)
         return;
 
     const CBox damage = ctx.m_data.damage.getExtents();
@@ -244,30 +396,6 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
     if (w <= 0 || h <= 0)
         return;
 
-    auto& capture = s->captures[monitor->m_id];
-    if (!capture)
-        capture = g_pHyprRenderer->createFB("lucid-wash-capture");
-    if (!capture)
-        return;
-    if (capture->m_size.x != w || capture->m_size.y != h)
-        capture->alloc(w, h, caller->m_drmFormat);
-    if (!capture->getTexture())
-        return;
-
-    const int sx0 = std::clamp((int)std::floor(draw.box.x), 0, w);
-    const int sy0 = std::clamp((int)std::floor(draw.box.y), 0, h);
-    const int sx1 = std::clamp((int)std::ceil(draw.box.x + draw.box.w), 0, w);
-    const int sy1 = std::clamp((int)std::ceil(draw.box.y + draw.box.h), 0, h);
-    if (sx1 <= sx0 || sy1 <= sy0)
-        return;
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(caller));
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(capture));
-    glBlitFramebuffer(sx0, sy0, sx1, sy1, sx0, sy0, sx1, sy1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
-    g_pHyprRenderer->setViewport(0, 0, w, h);
-
     const auto transform = Math::wlTransformToHyprutils(Math::invertTransform(monitor->m_transform));
     const Mat3x3 proj    = g_pHyprRenderer->projectBoxToTarget(ctx, draw.box, transform);
 
@@ -275,30 +403,38 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
     glUniformMatrix3fv(s->proj, 1, GL_TRUE, proj.getMatrix().data());
 
     glActiveTexture(GL_TEXTURE0);
-    capture->getTexture()->bind();
-    capture->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    capture->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glUniform1i(s->base, 0);
-
-    glActiveTexture(GL_TEXTURE1);
     wash->bind();
     wash->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     wash->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glUniform1i(s->wash, 1);
+    glUniform1i(s->wash, 0);
 
     glUniform2f(s->screen, (float)w, (float)h);
     glUniform2f(s->box, (float)draw.box.w, (float)draw.box.h);
-    glUniform1f(s->radius, draw.radius);
+    glUniform4f(s->radii, draw.radii[0], draw.radii[1], draw.radii[2], draw.radii[3]);
+    glUniform2f(s->flare, draw.flare[0], draw.flare[1]);
     glUniform1f(s->power, draw.power);
-    glUniform1f(s->alpha, std::clamp(draw.alpha, 0.F, 1.F));
-    glUniform1f(s->light, lightTheme() ? 1.F : 0.F);
+    const bool light = lightTheme();
+    glUniform1f(s->soft, light ? 1.F : 0.F);
+    glUniform1f(s->darkOpacity, 0.05F);
+    glUniform1f(s->fade, std::clamp(draw.alpha, 0.F, 1.F));
 
     const int cx0 = std::clamp((int)std::floor(damage.x), 0, w);
     const int cy0 = std::clamp((int)std::floor(damage.y), 0, h);
     const int cx1 = std::clamp((int)std::ceil(damage.x + damage.w), 0, w);
     const int cy1 = std::clamp((int)std::ceil(damage.y + damage.h), 0, h);
 
-    glDisable(GL_BLEND);
+    glEnable(GL_BLEND);
+    if (light) {
+#ifndef GL_MULTIPLY_KHR
+#define GL_MULTIPLY_KHR 0x9294
+#endif
+        // True GPU multiply; source alpha (0.1) supplies the 10% coverage.
+        glBlendEquation(GL_MULTIPLY_KHR);
+    } else {
+        // Dark mode: screen. src is the 15%-scaled raw blurred wallpaper.
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    }
     glBindVertexArray(s->vao);
     if (cx1 > cx0 && cy1 > cy0) {
         const pixman_box32_t clip{cx0, cy0, cx1, cy1};
@@ -308,10 +444,9 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
     }
     glBindVertexArray(0);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
     g_pHyprRenderer->setViewport(0, 0, w, h);
     glActiveTexture(GL_TEXTURE0);
-    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 

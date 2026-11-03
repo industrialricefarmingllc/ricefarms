@@ -27,6 +27,14 @@ QtObject {
     })
 
     function opt(key) {
+        // The panel's mesh tile previews the image an existing mesh card was
+        // given, even though the tile itself has no instance options.
+        if (ph.wtype === "mesh" && key === "last") {
+            var latest = Widgets.latestOption("mesh", "last");
+            if (latest !== undefined && latest !== "")
+                return latest;
+        }
+
         // a preset's own options, and whatever is already written in a card, but an
         // empty note still gets the sample so the tile never shows a blank card
         var own = ph.opts ? ph.opts[key] : undefined;

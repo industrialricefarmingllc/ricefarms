@@ -48,9 +48,16 @@ Item {
 
         anchors.fill: parent
         layer.enabled: true
+        // MultiEffect does not blend the mask's alpha through: it runs it
+        // through smoothstep() first. With the defaults (threshold 0, spread
+        // 0) any partial pixel becomes fully opaque, i.e. a 1-bit cut that
+        // throws away the squircle's antialiased edge. 0.5/1 maps alpha 0..1
+        // back to itself, so the mask's own ramp survives.
         layer.effect: MultiEffect {
             maskEnabled: true
             maskSource: maskItem
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
         }
 
     }
@@ -61,6 +68,11 @@ Item {
         anchors.fill: parent
         visible: false
         layer.enabled: true
+        // Shape antialiasing is multisample-based, and a layer gets no
+        // multisampling unless asked for; Quickshell never enables it on the
+        // window. Smooth is the layer's filtering, and defaults to nearest.
+        layer.samples: 4
+        layer.smooth: true
 
         SquircleMask {
             anchors.fill: parent

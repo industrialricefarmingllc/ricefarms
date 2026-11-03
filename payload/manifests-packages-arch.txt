@@ -72,6 +72,7 @@ c-ares 1.34.9-1.1
 carla 2.5.10-4.1
 cblas 3.12.1-2.1
 cccl 3.5.0-1
+cdparanoia 10.2-10.1
 ceres-solver 2.2.0-5.1
 cfitsio 1:4.7.0-1.1
 cifs-utils 7.9-1.1
@@ -85,6 +86,7 @@ coreutils 9.12-2.1
 cpio 2.15-3.1
 cppdap 1.58.0-3.1
 cpptrace 1.0.4-2.1
+cpuinfo r843.ea6b9f1-1.1
 cracklib 2.10.3-1.1
 cryptsetup 2.8.8-1.1
 cuda 13.4.3-1
@@ -166,6 +168,8 @@ fuzzel 1.15.0-2.1
 gamemode 1.8.2-3.1
 gawk 5.4.1-1.1
 gc 8.2.12-1.1
+gcc14 14.3.1+r516+g5998566829ee-1
+gcc14-libs 14.3.1+r516+g5998566829ee-1
 gcc 16.2.1+r23+gd564253eb6c8-3
 gcc-libs 16.2.1+r23+gd564253eb6c8-3
 gcr 3.41.2-2.1
@@ -233,6 +237,7 @@ gsl 2.8-1
 gsm 1.0.24-1.1
 gssdp 1.6.6-1.1
 gst-plugins-bad-libs 1.28.8-1
+gst-plugins-base 1.28.8-1
 gst-plugins-base-libs 1.28.8-1
 gstreamer 1.28.8-1
 gtest 1.18.0-1.1
@@ -477,6 +482,7 @@ libdaemon 0.14-6.3
 libdatrie 0.2.14-1.1
 libdbusmenu-glib 18.10.20180917-2
 libdbusmenu-gtk3 18.10.20180917-2
+libdc1394 2.2.7-2.1
 libde265 1.1.3-1.1
 libdecor 0.2.5-1.1
 libdeflate 1.26-1.1
@@ -680,6 +686,7 @@ libxkbcommon 1.13.2-1.1
 libxkbcommon-x11 1.13.2-1.1
 libxkbfile 1.2.0-1.1
 libxml2 2.15.4-1.1
+libxml2-legacy 2.13.9-2.1
 libxmlb 0.3.29-1.1
 libxmu 1.3.1-1.1
 libxnvctrl-580xx 580.178.04-1
@@ -816,6 +823,7 @@ openbsd-netcat 1.239_1-1.1
 opencl-nvidia 615.78.08-2
 opencolorio 2.6.0-1.1
 opencore-amr 0.1.6-2.1
+opencv 5.0.0-13.1
 openexr 3.5.2-1.1
 openh264 2.7.0-1.1
 openimagedenoise 2.4.1-2
@@ -915,7 +923,9 @@ python-dbus 1.5.1-1
 python-distro 1.9.0-4
 python-evdev 2.0.0-1.1
 python-filelock 4.0.10-1
+python-flatbuffers 25.12.19-4.1
 python-fonttools 4.68.0-1.1
+python-gmpy2 2.3.2-1.1
 python-gobject 3.58.1-1
 python-idna 3.20-1
 python-installer 1.1.0-1
@@ -931,15 +941,20 @@ python-markdown 3.11.2-1
 python-markupsafe 3.0.4-1.1
 python-matplotlib 3.11.2-1
 python-more-itertools 11.2.1-1
+python-mpmath 1.4.1-1
 python-numpy 2.5.4-1.1
+python-onnxruntime-cpu 1.29.0-3
 python-opengl 3.1.10-3
 python-packaging 26.3-1
 python-pillow 13.0.0-1
 python-pip 26.2.2-1
 python-pipx 1.18.4-2
 python-platformdirs 4.13.5-1
+python-pooch 1.9.0-1
+python-protobuf 36.1-1.1
 python-psutil 7.2.2-1.1
 python-pycparser 3.12-1
+python-py-cpuinfo2 10.1.1-1
 python-pydantic 2.14.1-1
 python-pydantic-core 3:2.50.1-1.1
 python-pydbus 0.6.0-14
@@ -953,8 +968,10 @@ python-pyxdg 0.28-8
 python-pyzstd 0.20.0-1.1
 python-rdflib 7.6.0-1
 python-requests 2.34.2-1
+python-scipy 1.18.1-1.1
 python-setuptools 1:84.2.1-1
 python-six 1.17.0-3
+python-sympy 1.14.0-6
 python-tqdm 4.70.1-1
 python-typing_extensions 4.16.0-1
 python-typing-inspection 0.4.4-1
@@ -1020,10 +1037,12 @@ shadow 4.20.0.arch1-1.1
 shared-mime-info 2.5.1-2.1
 shiboken6 6.12.0-3.1
 skwd-deck 1.0.0_beta.26-1
+skwd-deck-steamworks 1.0.0_beta.26-1
 skwd-paper 1.0.0_beta.26-1
 skwd-wall-v2 1.0.0_beta.26-1
 slang 2.3.3-4.1
 slurp 1.5.0-2.1
+smartmontools 7.5-2.1
 smbclient 2:4.25.1-1.1
 snappy 1.3.1-1.1
 sndio 1.10.0-1.4
@@ -1104,6 +1123,7 @@ v4l-utils 1.32.0-2.1
 vala 0.56.19-2.1
 vapoursynth 81-1.1
 veracrypt 1.26.29-1
+verdict 1.4.5-3.1
 vid.stab 1.1.2-1.1
 vmaf 3.2.1-1.1
 volume_key 0.3.12-12.1

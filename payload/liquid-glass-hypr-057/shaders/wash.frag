@@ -1,28 +1,26 @@
 #version 300 es
+#extension GL_KHR_blend_equation_advanced : require
 precision highp float;
 
 // Per-window wallpaper wash, drawn after the window content.
 //
-// The compositor captures the freshly rendered window pixels (uBase) and
-// this shader mixes the screen-fixed blurred-wallpaper texture (uWash) over
-// them with the W3C soft-light formula. The rounded silhouette comes from the
-// window's own rounding, so the wash never spills past the window edge.
-//
-// Both textures are sampled in screen space (gl_FragCoord / uScreen), which
-// keeps the wash aligned through moves, resizes and workspace slides without
-// any IPC geometry bridge.
+// Dark mode: raw blurred wallpaper, screen-blended at 5%. Light mode: true
+// GPU multiply (GL_MULTIPLY_KHR) at 10% coverage. Both are clipped to the
+// window's rounded silhouette here; the caller selects the blend equation.
 
 in vec2 v_texcoord;
 
-uniform sampler2D uBase;   // window content, full-monitor capture
 uniform sampler2D uWash;   // screen-fixed blurred wallpaper (RGBA)
 uniform vec2      uScreen; // framebuffer size
 uniform vec2      uBox;    // window size, framebuffer px
-uniform float     uRadius; // corner radius, framebuffer px
+uniform vec4      uRadii;  // corner radii tl, tr, br, bl, framebuffer px
+uniform vec2      uFlare;  // notch shoulders left/right, framebuffer px
 uniform float     uPower;  // rounding power (2 = circular)
-uniform float     uAlpha;  // window/workspace fade
-uniform float     uLight;  // 1 = light theme (darken), 0 = dark theme (lighten)
+uniform float     uSoft;   // 1 = light-mode multiply, 0 = dark screen
+uniform float     uDarkOpacity; // dark-mode screen source scale
+uniform float     uFade;        // window/workspace fade 0..1
 
+layout(blend_support_multiply) out;
 layout(location = 0) out vec4 fragColor;
 
 // Shared squircle box SDF (same shape as squircle_box.glsl).
@@ -45,17 +43,53 @@ float sdSquircleBox4(vec2 p, vec2 b, vec4 r, float n) {
     return min(max(q2.x, q2.y), 0.0) + length(max(q2, 0.0)) - rad;
 }
 
+float sdBox2(vec2 p, vec2 b) {
+    vec2 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+
+// Notch flare: flare box intersect outside-of-disc at the outer-bottom corner.
+// Same geometry as the glass shader; the union with the pill fills the
+// inverted shoulder that a plain rounded box leaves unwashsed.
+float sdFlareOnly(vec2 q, vec2 halfPx, vec2 fl) {
+    float sdFl = 1e9;
+    if (fl.x > 0.01) {
+        float f = fl.x;
+        vec2 bc = vec2(-halfPx.x - f * 0.5, -halfPx.y + f * 0.5);
+        vec2 cc = vec2(-halfPx.x - f, -halfPx.y + f);
+        sdFl = min(sdFl, max(sdBox2(q - bc, vec2(f * 0.5)), f - length(q - cc)));
+    }
+    if (fl.y > 0.01) {
+        float f = fl.y;
+        vec2 bc = vec2(halfPx.x + f * 0.5, -halfPx.y + f * 0.5);
+        vec2 cc = vec2(halfPx.x + f, -halfPx.y + f);
+        sdFl = min(sdFl, max(sdBox2(q - bc, vec2(f * 0.5)), f - length(q - cc)));
+    }
+    return sdFl;
+}
+
 void main() {
     vec2 p = v_texcoord * uBox - uBox * 0.5;
-    float sd = sdSquircleBox4(p, uBox * 0.5, vec4(uRadius), uPower);
-    if (sd > 0.5)
+    vec2 pillHalf = vec2((uBox.x - uFlare.x - uFlare.y) * 0.5, uBox.y * 0.5);
+    vec2 pillCenter = vec2((uFlare.x - uFlare.y) * 0.5, 0.0);
+    vec2 pp = p - pillCenter;
+    float sd = sdSquircleBox4(pp, pillHalf, uRadii, uPower);
+    if (uFlare.x > 0.01 || uFlare.y > 0.01)
+        sd = min(sd, sdFlareOnly(pp, pillHalf, uFlare));
+    if (sd > 0.0)
         discard;
+    float mask = 1.0 - smoothstep(-0.75, 0.0, sd);
 
-    float mask = 1.0 - smoothstep(-0.5, 0.5, sd);
     vec2 uv = gl_FragCoord.xy / uScreen;
-    vec4 base = texture(uBase, uv);
     vec4 wash = texture(uWash, uv);
-    // Dark mode: brighten with the wash. Light mode: darken with it.
-    vec3 mixed = uLight > 0.5 ? min(base.rgb, wash.rgb) : max(base.rgb, wash.rgb);
-    fragColor = vec4(mix(base.rgb, mixed, wash.a * uAlpha * mask), 1.0);
+    if (uSoft > 0.5) {
+        // True GPU multiply at 10% coverage. The source is premultiplied;
+        // GL_MULTIPLY_KHR combines it with the framebuffer using source alpha
+        // as coverage, so text and window content are blended, not covered.
+        float a = 0.10 * mask * uFade;
+        fragColor = vec4(wash.rgb * a, a);
+    } else {
+        // Dark mode: screen the raw blurred wallpaper at 5%.
+        fragColor = vec4(wash.rgb * uDarkOpacity * uFade, 1.0);
+    }
 }

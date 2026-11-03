@@ -14,13 +14,13 @@ ifeq ($(basename $(CXX)),g++)
 endif
 
 TARGET = liquidglass.so
-SOURCES = src/main.cpp src/Config.cpp src/Glass.cpp src/GlassPass.cpp src/BorderGlass.cpp src/WindowGlass.cpp src/GooConfig.cpp src/GooMorph.cpp src/GooPass.cpp src/GooTransition.cpp 
-HEADERS = src/Config.hpp src/Glass.hpp src/GlassPass.hpp src/BorderGlass.hpp src/WindowGlass.hpp src/GooConfig.hpp src/GooMorph.hpp src/GooPass.hpp src/GooTransition.hpp src/DamageRect.hpp 
+SOURCES = src/main.cpp src/Config.cpp src/Glass.cpp src/GlassPass.cpp src/BorderGlass.cpp src/WindowGlass.cpp src/GooConfig.cpp src/GooMorph.cpp src/GooPass.cpp src/GooTransition.cpp src/WindowWash.cpp 
+HEADERS = src/Config.hpp src/Glass.hpp src/GlassPass.hpp src/BorderGlass.hpp src/WindowGlass.hpp src/GooConfig.hpp src/GooMorph.hpp src/GooPass.hpp src/GooTransition.hpp src/DamageRect.hpp src/WindowWash.hpp 
 OBJ = $(SOURCES:.cpp=.o)
 
 all: $(TARGET)
 
-src/Shaders.hpp: shaders/glass.frag shaders/kawase_down.frag shaders/kawase_up.frag shaders/bokeh.frag shaders/ring.frag   shaders/glass.vert embed.py
+src/Shaders.hpp: shaders/glass.frag shaders/kawase_down.frag shaders/kawase_up.frag shaders/bokeh.frag shaders/ring.frag shaders/wash.frag   shaders/glass.vert embed.py
 	python3 embed.py
 
 %.o : %.cpp src/Shaders.hpp $(HEADERS)
