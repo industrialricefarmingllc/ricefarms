@@ -31,6 +31,7 @@ WidgetBody {
     property string scenePreview: ""
     property bool dragging: false
     property var external: []
+    property string externalSig: ""
 
     // the piece shown in the single view
     property int curId: -1
@@ -398,6 +399,7 @@ WidgetBody {
         if (!entry)
             return ;
 
+        var priorJob = w.jobId;
         if (entry.job_id && (w.jobId === "" || w.jobId === entry.job_id))
             w.jobId = entry.job_id;
         if (entry.pid)
@@ -411,11 +413,16 @@ WidgetBody {
 
         var list = entry.objects || [];
         if (list.length > 0) {
-            objects.clear();
+            // Reconcile in place. Clearing and re-appending the model on every
+            // 500 ms scan recreated every row (and reloaded its thumbnail),
+            // which showed up as flicker in the list.
+            var seen = {};
             for (var i = 0; i < list.length; i++) {
                 var o = list[i];
-                objects.append({
-                    "oid": o.id !== undefined ? o.id : i,
+                var oid = o.id !== undefined ? o.id : i;
+                seen[oid] = true;
+                var row = {
+                    "oid": oid,
                     "label": o.label || ("object " + i),
                     "crop": o.crop || "",
                     "kind": o.kind || "object",
@@ -424,8 +431,30 @@ WidgetBody {
                     "preview": o.preview || "",
                     "glb": o.glb || "",
                     "note": o.note || ""
-                });
+                };
+                var at = -1;
+                for (var k = 0; k < objects.count; k++) {
+                    if (objects.get(k).oid === oid) {
+                        at = k;
+                        break;
+                    }
+                }
+                if (at < 0) {
+                    objects.append(row);
+                } else {
+                    var cur = objects.get(at);
+                    for (var key in row) {
+                        if (cur[key] !== row[key])
+                            objects.setProperty(at, key, row[key]);
+                    }
+                }
             }
+            for (var r = objects.count - 1; r >= 0; r--) {
+                if (!seen[objects.get(r).oid])
+                    objects.remove(r, 1);
+            }
+        } else if (priorJob !== w.jobId) {
+            objects.clear();
         }
         w.statusText = w.cleanStatus(entry.text || entry.phase || "");
         if (entry.scene && entry.scene.glb) {
@@ -1257,10 +1286,17 @@ WidgetBody {
                         lastDone = e;
                 }
 
-                w.external = out.filter(function (e) {
+                var nextExternal = out.filter(function (e) {
                     return e.alive && e.pid !== w.jobPid
                         && e.phase !== "done" && e.phase !== "failed" && e.phase !== "cancelled";
                 });
+                var externalSig = JSON.stringify(nextExternal.map(function (e) {
+                    return [e.job_id || "", e.pid, e.phase, e.image || "", e.text || ""];
+                }));
+                if (externalSig !== w.externalSig) {
+                    w.externalSig = externalSig;
+                    w.external = nextExternal;
+                }
 
                 if (mine !== null) {
                     w.mirror(mine);

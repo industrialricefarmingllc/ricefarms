@@ -486,12 +486,14 @@ WidgetBody {
         Item {
             visible: w.opt("showControls") !== false
             width: parent.width
-            height: controls.implicitHeight
+            height: controls.implicitHeight + Theme.dp(20)
 
             Row {
                 id: controls
 
-                anchors.centerIn: parent
+                anchors.top: parent.top
+                anchors.topMargin: Theme.dp(20)
+                anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.dp(8)
 
                 Chip {

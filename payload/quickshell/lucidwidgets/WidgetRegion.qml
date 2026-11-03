@@ -49,6 +49,12 @@ Region {
     readonly property real bdy: reg.badgeLive ? reg.frame.y + reg.frame.badgeY : 0
     readonly property real bdw: reg.badgeLive ? reg.frame.badgeW : 0
     readonly property real bdh: reg.badgeLive ? reg.frame.badgeH : 0
+    // the pin badge sits beside the remove one and needs its own mask rect too
+    readonly property bool pinBadgeLive: !reg.blur && !reg.isMenu && reg.frame !== null && reg.frame.pinBadgeShown === true
+    readonly property real pdx: reg.pinBadgeLive ? reg.frame.x + reg.frame.pinBadgeX : 0
+    readonly property real pdy: reg.pinBadgeLive ? reg.frame.y + reg.frame.pinBadgeY : 0
+    readonly property real pdw: reg.pinBadgeLive ? reg.frame.pinBadgeW : 0
+    readonly property real pdh: reg.pinBadgeLive ? reg.frame.pinBadgeH : 0
 
     Region {
         x: reg.lo(reg.bdx)
@@ -56,6 +62,14 @@ Region {
         width: reg.badgeLive ? Math.max(0, reg.hi(reg.bdx + reg.bdw) - reg.lo(reg.bdx)) : 0
         height: reg.badgeLive ? Math.max(0, reg.hi(reg.bdy + reg.bdh) - reg.lo(reg.bdy)) : 0
         radius: reg.badgeLive ? Math.round(reg.bdw / 2) : 0
+    }
+
+    Region {
+        x: reg.lo(reg.pdx)
+        y: reg.lo(reg.pdy)
+        width: reg.pinBadgeLive ? Math.max(0, reg.hi(reg.pdx + reg.pdw) - reg.lo(reg.pdx)) : 0
+        height: reg.pinBadgeLive ? Math.max(0, reg.hi(reg.pdy + reg.pdh) - reg.lo(reg.pdy)) : 0
+        radius: reg.pinBadgeLive ? Math.round(reg.pdw / 2) : 0
     }
 
     // the blur mask is hard edged, so the rounded rect above leaves notches at the corners

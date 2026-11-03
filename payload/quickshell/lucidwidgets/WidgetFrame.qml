@@ -14,6 +14,7 @@ Item {
     required property real bw
     required property real bh
     required property bool pinned
+    required property bool everywhere
     required property real zoom
     required property int zOrder
     required property string screenName
@@ -429,13 +430,18 @@ Item {
     readonly property real surfaceWidth: frame.width
     readonly property real surfaceHeight: frame.height
     readonly property int surfaceRadius: frame.radius
-    // the remove badge overhangs the corner, and the layer's input mask only
-    // takes what these rects say, so the badge gets one of its own
+    // the remove and pin badges overhang the corner, and the layer's input mask
+    // only takes what these rects say, so each badge gets one of its own
     readonly property bool badgeShown: removeBadge.shown
     readonly property real badgeX: removeBadge.x
     readonly property real badgeY: removeBadge.y
     readonly property real badgeW: removeBadge.width
     readonly property real badgeH: removeBadge.height
+    readonly property bool pinBadgeShown: pinBadge.shown
+    readonly property real pinBadgeX: pinBadge.x
+    readonly property real pinBadgeY: pinBadge.y
+    readonly property real pinBadgeW: pinBadge.width
+    readonly property real pinBadgeH: pinBadge.height
 
     visible: frame.onThisScreen && frame.opacity > 0.01
     width: frame.cardW
@@ -862,6 +868,81 @@ Item {
                 Widgets.select(frame.uid, false);
                 Widgets.close(frame.uid);
             }
+        }
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Theme.durFastEffects
+            }
+
+        }
+
+        Behavior on scale {
+            NumberAnimation {
+                duration: Theme.durFastSpatial
+                easing.type: Easing.Bezier
+                easing.bezierCurve: Theme.curveFastSpatial
+            }
+
+        }
+
+    }
+
+    // keeps the card on every wallpaper. each wallpaper still holds its own copy,
+    // so moving it here does not move it on the others
+    Item {
+        id: pinBadge
+
+        readonly property bool shown: removeBadge.shown
+        readonly property bool active: frame.everywhere
+
+        z: 9
+        width: Theme.dp(26)
+        height: Theme.dp(26)
+        x: removeBadge.x + removeBadge.width + Theme.dp(6)
+        y: removeBadge.y
+        opacity: pinBadge.shown ? 1 : 0
+        scale: pinBadge.shown ? 1 : 0.5
+        visible: opacity > 0.01
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: pinBadge.active ? (pinArea.containsMouse ? Theme.primary : Theme.primaryContainer) : Theme.surfaceHighest
+            border.width: 1
+            border.color: pinBadge.active ? Theme.primary : (pinArea.containsMouse ? Theme.accent : Theme.alpha(Theme.text, 0.12))
+
+            Behavior on color {
+                ColorAnimation {
+                    duration: Theme.durFastEffects
+                }
+
+            }
+
+            Behavior on border.color {
+                ColorAnimation {
+                    duration: Theme.durFastEffects
+                }
+
+            }
+
+        }
+
+        Icon {
+            anchors.centerIn: parent
+            name: "keep"
+            size: Theme.dp(18)
+            fill: pinBadge.active ? 1 : 0
+            color: pinBadge.active ? (pinArea.containsMouse ? Theme.fgPrimary : Theme.fgPrimaryContainer) : Theme.text
+        }
+
+        StateLayer {
+            id: pinArea
+
+            radius: width / 2
+            ripple: false
+            tint: Theme.accent
+            onClicked: Widgets.toggleEverywhere(frame.uid)
         }
 
         Behavior on opacity {

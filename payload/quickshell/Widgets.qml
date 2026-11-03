@@ -47,6 +47,10 @@ Singleton {
     property var boards: ({})
     // the wallpaper whose board `instances` holds right now
     property string boardKey: ""
+    // cards asked to sit on every wallpaper. each board still keeps its own copy,
+    // so moving one only moves it on that wallpaper; this holds the latest copy,
+    // whose position is where a wallpaper without one opens it first
+    property var everywhereCards: []
     // what set-wallpaper.sh last wrote: the picture awww shows, and the video if
     // one is playing. the video is the wallpaper; its frame is only the still
     property string wallpaperPicture: ""
@@ -1241,8 +1245,7 @@ Singleton {
             "name": "Studio",
             "blurb": "The crop behind, the mesh over it, and a bar for the piece.",
             "w": 320,
-            "h": 300,
-            "resizable": true
+            "h": 300
         }],
         "options": [{
             "key": "engine",
@@ -1751,6 +1754,7 @@ Singleton {
             "bw": size.w,
             "bh": size.h,
             "pinned": false,
+            "everywhere": false,
             "zoom": 1,
             "zOrder": root.topZ,
             "screenName": screenName || "",
@@ -1798,6 +1802,11 @@ Singleton {
         if (i < 0)
             return ;
 
+        // taking a shared card off means taking it off every wallpaper, not just
+        // leaving it to be put back on the next one
+        if (root.isEverywhere(uid))
+            root.removeEverywhereCopies(uid);
+
         instances.setProperty(i, "closing", true);
         root.edited();
         purgeTimer.restart();
@@ -1818,16 +1827,24 @@ Singleton {
         if (root.presetId === "" && root.liveCount() > 0)
             root.lastLayout = root.snapshot(true);
 
-        for (var i = 0; i < instances.count; i++) instances.setProperty(i, "closing", true)
+        for (var i = 0; i < instances.count; i++) {
+            if (instances.get(i).everywhere === true)
+                root.removeEverywhereCopies(instances.get(i).uid);
+
+            instances.setProperty(i, "closing", true);
+        }
         root.edited();
         purgeTimer.restart();
     }
 
     function closeType(typeId) {
         for (var i = 0; i < instances.count; i++) {
-            if (instances.get(i).wtype === typeId)
-                instances.setProperty(i, "closing", true);
+            if (instances.get(i).wtype === typeId) {
+                if (instances.get(i).everywhere === true)
+                    root.removeEverywhereCopies(instances.get(i).uid);
 
+                instances.setProperty(i, "closing", true);
+            }
         }
         root.edited();
         purgeTimer.restart();
@@ -1862,6 +1879,52 @@ Singleton {
         var i = root.indexOf(uid);
         if (i >= 0)
             root.setPinned(uid, !instances.get(i).pinned);
+
+    }
+
+    // "everywhere" is separate from "pinned": a pinned card is locked in place,
+    // an everywhere card is copied onto every wallpaper's board
+    function setEverywhere(uid, v) {
+        var i = root.indexOf(uid);
+        if (i < 0)
+            return ;
+
+        var on = v === true;
+        if ((instances.get(i).everywhere === true) === on)
+            return ;
+
+        instances.setProperty(i, "everywhere", on);
+        var card = root.entryOf(instances.get(i));
+        if (on) {
+            root.rememberEverywhere(instances.get(i));
+            // every board already visited gets a copy of it now. the current
+            // board keeps its live copy; the others each keep their own place
+            var next = Object.assign({}, root.boards);
+            for (var key in next) {
+                if (key === root.boardKey)
+                    continue;
+
+                next[key] = root.boardWithCard(next[key], card);
+            }
+            root.boards = next;
+        } else {
+            root.forgetEverywhere(uid);
+            var after = Object.assign({}, root.boards);
+            for (var key2 in after) {
+                if (key2 === root.boardKey)
+                    continue;
+
+                after[key2] = root.boardWithoutCard(after[key2], uid);
+            }
+            root.boards = after;
+        }
+        root.save();
+    }
+
+    function toggleEverywhere(uid) {
+        var i = root.indexOf(uid);
+        if (i >= 0)
+            root.setEverywhere(uid, !(instances.get(i).everywhere === true));
 
     }
 
@@ -2102,6 +2165,7 @@ Singleton {
             "bw": e.bw,
             "bh": e.bh,
             "pinned": e.pinned,
+            "everywhere": e.everywhere === true,
             "zoom": e.zoom,
             "zOrder": e.zOrder,
             "screenName": e.screenName,
@@ -2138,6 +2202,7 @@ Singleton {
             "bw": (v.resizable === true && e.bw) ? e.bw : v.w,
             "bh": (v.resizable === true && e.bh) ? e.bh : v.h,
             "pinned": e.pinned === true,
+            "everywhere": e.everywhere === true,
             "zoom": e.zoom || 1,
             "zOrder": e.zOrder || 1,
             "screenName": e.screenName || "",
@@ -2157,18 +2222,130 @@ Singleton {
         });
     }
 
+    function copyCard(e) {
+        var out = Object.assign({}, e);
+        out.opts = JSON.parse(JSON.stringify(e.opts || {}));
+        return out;
+    }
+
+    function everywhereIndex(uid) {
+        for (var i = 0; i < root.everywhereCards.length; i++) {
+            if (root.everywhereCards[i].uid === uid)
+                return i;
+        }
+        return -1;
+    }
+
+    function isEverywhere(uid) {
+        return root.everywhereIndex(uid) >= 0;
+    }
+
+    // the latest definition of a shared card, and the place a new wallpaper
+    // should first put it
+    function rememberEverywhere(e) {
+        var card = root.entryOf(e);
+        card.everywhere = true;
+        var list = root.everywhereCards.slice();
+        var at = root.everywhereIndex(card.uid);
+        if (at >= 0)
+            list[at] = card;
+        else
+            list.push(card);
+        root.everywhereCards = list;
+    }
+
+    function forgetEverywhere(uid) {
+        var at = root.everywhereIndex(uid);
+        if (at < 0)
+            return ;
+
+        var list = root.everywhereCards.slice();
+        list.splice(at, 1);
+        root.everywhereCards = list;
+    }
+
+    // one board's copy, keeping the place it already has there
+    function boardWithCard(b, card) {
+        var src = (b && Array.isArray(b.instances)) ? b.instances : [];
+        var list = [];
+        var at = -1;
+        for (var i = 0; i < src.length; i++) {
+            var copy = root.copyCard(src[i]);
+            if (copy.uid === card.uid)
+                at = i;
+            list.push(copy);
+        }
+        if (at >= 0) {
+            list[at].everywhere = true;
+        } else {
+            var added = root.copyCard(card);
+            added.everywhere = true;
+            list.push(added);
+        }
+        return Object.assign({}, b || {
+            "stash": [],
+            "last": [],
+            "preset": ""
+        }, {
+            "instances": list
+        });
+    }
+
+    function boardWithoutCard(b, uid) {
+        if (!b)
+            return b;
+
+        var src = Array.isArray(b.instances) ? b.instances : [];
+        return Object.assign({}, b, {
+            "instances": src.filter((c) => {
+                return c.uid !== uid;
+            })
+        });
+    }
+
+    // a shared card that moves is still only moved on this wallpaper, but its new
+    // place becomes the one a wallpaper without a copy opens it at
+    function syncEverywhereCards() {
+        if (root.everywhereCards.length === 0)
+            return ;
+
+        var list = root.everywhereCards.slice();
+        for (var i = 0; i < instances.count; i++) {
+            var e = instances.get(i);
+            if (e.closing || e.everywhere !== true)
+                continue;
+
+            var card = root.entryOf(e);
+            var at = root.everywhereIndex(e.uid);
+            if (at >= 0)
+                list[at] = card;
+            else
+                list.push(card);
+        }
+        root.everywhereCards = list;
+    }
+
+    // taking a shared card off the desktop takes it off every wallpaper
+    function removeEverywhereCopies(uid) {
+        root.forgetEverywhere(uid);
+        var next = Object.assign({}, root.boards);
+        for (var key in next) next[key] = root.boardWithoutCard(next[key], uid)
+        root.boards = next;
+    }
+
     // put the current board back under its own wallpaper
     function rememberBoard() {
         if (root.boardKey === "")
             return ;
 
+        root.syncEverywhereCards();
         var next = Object.assign({}, root.boards);
         next[root.boardKey] = root.currentBoard();
         root.boards = next;
     }
 
-    // swap the desktop over to another wallpaper's board; a wallpaper never used
-    // before starts with nothing on it
+    // swap the desktop over to another wallpaper's board. a wallpaper never used
+    // before starts with the shared cards where they were last seen
     function showBoard(key) {
         root.boardKey = key;
         root.menuUid = "";
@@ -2181,18 +2358,34 @@ Singleton {
         instances.clear();
         root.topZ = 1;
         var b = root.boards[key];
+        var shared = root.everywhereCards;
         if (!b) {
             root.stash = [];
             root.lastLayout = [];
             root.presetId = "";
+            for (var s = 0; s < shared.length; s++) root.appendEntry(shared[s])
             root.refreshDesktop();
             return ;
         }
         var list = Array.isArray(b.instances) ? b.instances : [];
-        for (var i = 0; i < list.length; i++) root.appendEntry(list[i])
+        var present = {};
+        for (var i = 0; i < list.length; i++) {
+            root.appendEntry(list[i]);
+            present[list[i].uid] = true;
+        }
+        // a board first seen before a card was shared, or one that was saved
+        // between the two writes, still gets it
+        for (var j = 0; j < shared.length; j++) {
+            if (present[shared[j].uid] !== true)
+                root.appendEntry(shared[j]);
+        }
         root.stash = Array.isArray(b.stash) ? b.stash : [];
         root.lastLayout = Array.isArray(b.last) ? b.last : [];
         root.presetId = (typeof b.preset === "string" && root.presetAt(b.preset) !== null) ? b.preset : "";
+        for (var k = 0; k < instances.count; k++) {
+            if (root.everywhereIndex(instances.get(k).uid) >= 0 && instances.get(k).everywhere !== true)
+                instances.setProperty(k, "everywhere", true);
+        }
         root.refreshDesktop();
     }
 
@@ -2530,6 +2723,10 @@ Singleton {
             };
         }
         root.boards = boards;
+        // the copy new wallpapers start from was laid out at the old size too
+        if (root.everywhereCards.length > 0)
+            root.everywhereCards = root.rescaleEntries(root.everywhereCards, from, to);
+
         // the layout a preset replaced comes back at the size everything else is
         var main = root.primaryScreen();
         if (main && root.lastLayout.length > 0) {
@@ -2778,17 +2975,20 @@ Singleton {
                 "bw": v.resizable === true ? e.bw : v.w,
                 "bh": v.resizable === true ? e.bh : v.h,
                 "pinned": e.pinned === true,
+                "everywhere": e.everywhere === true,
                 "zoom": e.zoom || 1,
                 "zOrder": ++root.topZ,
                 "screenName": e.screenName || ""
             };
             if (got !== null && got.live) {
                 var k = root.indexOf(got.uid);
+                place.everywhere = e.everywhere === true || instances.get(k).everywhere === true;
                 place.optsJson = JSON.stringify(root.mergeOpts(e.type, JSON.parse(instances.get(k).optsJson), e.opts || {}));
                 instances.set(k, place);
                 continue;
             }
             var base = got !== null ? got.entry : null;
+            place.everywhere = e.everywhere === true || (base !== null && base.everywhere === true);
             var uid = base !== null ? base.uid : (e.uid !== undefined ? e.uid : "w" + root.nextId++);
             place.optsJson = JSON.stringify(root.mergeOpts(e.type, base !== null ? (base.opts || {}) : {}, e.opts || {}));
             place.closing = false;
@@ -2810,6 +3010,11 @@ Singleton {
 
             var at = root.indexOf(live[g].uid);
             var gone = instances.get(at);
+            // a card asked to stay on every wallpaper is not cleared away by a
+            // preset on just this one
+            if (gone.everywhere === true)
+                continue;
+
             if (root.holdsContent(gone.wtype, JSON.parse(gone.optsJson)))
                 stash.push(root.entryOf(gone));
 
@@ -2873,6 +3078,7 @@ Singleton {
             "laidScale": root.laidScale,
             "current": root.boardKey,
             "boards": root.boards,
+            "everywhere": root.everywhereCards,
             "preset": root.presetId,
             "saved": root.userPresets,
             "last": root.lastLayout,
@@ -2893,6 +3099,9 @@ Singleton {
         root.laidScale = (data && typeof data.laidScale === "number") ? data.laidScale : 1;
         root.boards = (data && data.boards && typeof data.boards === "object") ? data.boards : {};
         root.boardKey = (data && typeof data.current === "string") ? data.current : "";
+        root.everywhereCards = (data && Array.isArray(data.everywhere)) ? data.everywhere.filter((e) => {
+            return e && typeof e.uid === "string" && typeof e.type === "string";
+        }) : [];
         if (!data || !data.instances) {
             root.loaded = true;
             if (root.boardKey !== "" && root.boards[root.boardKey] !== undefined)
