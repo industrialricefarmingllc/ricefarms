@@ -14,7 +14,7 @@
   },
   "features": {
     "matugen": false,
-    "steam": false,
+    "steam": true,
     "wallhaven": false
   },
   "system": {
