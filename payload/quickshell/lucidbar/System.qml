@@ -10,7 +10,6 @@ import Quickshell.Services.UPower
 import Quickshell.Widgets
 import qs
 import qs.lucidui
-import "../squircle"
 
 BarPill {
     id: root
@@ -184,7 +183,6 @@ BarPill {
     property bool airplaneMode: false
     property bool _preAirplaneWifi: false
     property bool _preAirplaneBt: false
-    property bool einkOn: false
 
     // the old version never put the radios back, so turning it off did nothing
     function toggleAirplane() {
@@ -244,15 +242,8 @@ BarPill {
     }
 
     function setBrightness(percent) {
-        // never allow the panel to go fully black; keep at least 5%
-        root.pendingBrightness = Math.max(5, Math.min(100, Math.round(percent)));
+        root.pendingBrightness = Math.max(0, Math.min(100, Math.round(percent)));
         brightnessDebounce.restart();
-    }
-
-    function setEink(on) {
-        root.einkOn = on;
-        einkProc.command = ["hyprctl", "eval", on ? 'require("shader").enable("Reading Mode")' : 'require("shader").turn_off_all()'];
-        einkProc.running = true;
     }
 
     // hover tooltips over the compact strip
@@ -597,11 +588,9 @@ BarPill {
         if (expanded) {
             root.tipClose();
             root.refreshGameMode();
-            // statsTimer fires on start (proc spawns + parses) and lsblk
-            // rebuilds the disk model: defer past morph start (frame 0)
-            expandWarmupTimer.restart();
+            statsTimer.restart();
+            lsblkProc.running = true;
         } else {
-            expandWarmupTimer.stop();
             statsTimer.stop();
             diskDropdownOpen = false;
             // the counters keep running while closed, so the first delta after
@@ -609,20 +598,6 @@ BarPill {
             root._prevCpuTotal = -1;
             root._prevCpuIdle = -1;
             viewResetTimer.restart();
-        }
-    }
-
-    Timer {
-        id: expandWarmupTimer
-
-        interval: 150
-        repeat: false
-        onTriggered: {
-            if (!root.expanded)
-                return ;
-
-            statsTimer.restart();
-            lsblkProc.running = true;
         }
     }
 
@@ -680,21 +655,6 @@ BarPill {
         id: setBrightnessProc
 
         command: root.pendingBrightness >= 0 ? ["brightnessctl", "set", root.pendingBrightness + "%"] : []
-    }
-
-    Process {
-        id: einkProc
-
-        command: []
-    }
-
-    // shader.lua persists the reading-mode state here; keep the tile in sync
-    // with the keybind and with restarts
-    FileView {
-        path: Quickshell.env("HOME") + "/.cache/quickshell/reading_mode"
-        watchChanges: true
-        onFileChanged: reload()
-        onLoaded: root.einkOn = text().trim() === "on"
     }
 
     Process {
@@ -1413,10 +1373,9 @@ BarPill {
 
                     anchors.centerIn: parent
                     role: "labelMedium"
-                    weight: 700
+                    weight: 620
                     text: root.kbLayout
-                    // the local extra: the alternative layout reads at a glance
-                    color: root.kbLayoutName.toLowerCase().indexOf("russian") !== -1 ? Theme.accent : Theme.text
+                    color: Theme.text
                 }
 
                 MouseArea {
@@ -1468,7 +1427,7 @@ BarPill {
                     visible: !root.volMuted
                     anchors.verticalCenter: parent.verticalCenter
                     role: "labelMedium"
-                    weight: 700
+                    weight: 620
                     text: root.volumePercent
                     color: Theme.text
                 }
@@ -1735,32 +1694,6 @@ BarPill {
 
                         }
 
-                        // the local extras: reading mode, and the active layout
-                        Row {
-                            width: root.contentWidth
-                            spacing: root.sp2
-
-                            QuickTile {
-                                icon: "description"
-                                name: "E-Ink"
-                                sub: root.einkOn ? "Reading mode on" : "Reading mode"
-                                checked: root.einkOn
-                                hasMore: false
-                                onToggled: root.setEink(!root.einkOn)
-                            }
-
-                            QuickTile {
-                                visible: Prefs.showKbLayout && root.kbLayout !== ""
-                                icon: "keyboard"
-                                name: "Layout"
-                                sub: root.kbLayoutName !== "" ? root.kbLayoutName : root.kbLayout
-                                checked: root.kbLayoutName.toLowerCase().indexOf("russian") !== -1
-                                hasMore: false
-                                onToggled: kbSwitchProc.running = true
-                            }
-
-                        }
-
                         Grid {
                             visible: Prefs.systemTileKeys.length > 0
                             width: root.contentWidth
@@ -1786,7 +1719,7 @@ BarPill {
 
                         }
 
-                        SquircleRect {
+                        Rectangle {
                             id: mediaCard
 
                             readonly property var mprisPlayer: root.mprisMod ? root.mprisMod.player : null
@@ -1797,8 +1730,7 @@ BarPill {
                             width: root.contentWidth
                             height: Theme.dp(84)
                             radius: Theme.shapeLgInc
-                            smoothing: Prefs.squircleF
-                            fillColor: Theme.withBlur(Theme.surfaceHigh)
+                            color: Theme.withBlur(Theme.surfaceHigh)
 
                             StateLayer {
                                 radius: parent.radius
@@ -1939,7 +1871,7 @@ BarPill {
 
                         }
 
-                        SquircleRect {
+                        Rectangle {
                             id: statsCard
 
                             readonly property var selectedDiskInfo: {
@@ -1969,8 +1901,7 @@ BarPill {
                             width: root.contentWidth
                             height: gaugeRow.implicitHeight + Theme.dp(28)
                             radius: Theme.shapeLgInc
-                            smoothing: Prefs.squircleF
-                            fillColor: Theme.withBlur(Theme.surfaceHigh)
+                            color: Theme.withBlur(Theme.surfaceHigh)
 
                             Row {
                                 id: gaugeRow
@@ -2870,15 +2801,13 @@ BarPill {
 
     // a big tile: the icon side toggles, the label side opens the detail view.
     // the pill squares off once the tile is on
-    component QuickTile: SquircleRect {
+    component QuickTile: Rectangle {
         id: tile
 
         property string icon: ""
         property string name: ""
         property string sub: ""
         property bool checked: false
-        // a tile with nowhere deeper to go toggles from anywhere
-        property bool hasMore: true
 
         signal toggled()
         signal expandRequested()
@@ -2886,8 +2815,7 @@ BarPill {
         width: (root.contentWidth - root.sp2) / 2
         height: Theme.dp(64)
         radius: tile.checked ? Theme.shapeLgInc : height / 2
-        smoothing: Prefs.squircleF
-        fillColor: tile.checked ? Theme.primary : Theme.withBlur(Theme.surfaceHighest)
+        color: tile.checked ? Theme.primary : Theme.withBlur(Theme.surfaceHighest)
 
         Behavior on radius {
             NumberAnimation {
@@ -2898,7 +2826,7 @@ BarPill {
 
         }
 
-        Behavior on fillColor {
+        Behavior on color {
             ColorAnimation {
                 duration: Theme.durDefaultEffects
             }
@@ -2908,7 +2836,7 @@ BarPill {
         StateLayer {
             radius: tile.radius
             tint: tile.checked ? Theme.fgPrimary : Theme.text
-            onClicked: tile.hasMore ? tile.expandRequested() : tile.toggled()
+            onClicked: tile.expandRequested()
         }
 
         Rectangle {
@@ -2941,8 +2869,8 @@ BarPill {
         Column {
             anchors.left: bubble.right
             anchors.leftMargin: Theme.dp(10)
-            anchors.right: tile.hasMore ? chevron.left : parent.right
-            anchors.rightMargin: tile.hasMore ? Theme.dp(2) : Theme.dp(12)
+            anchors.right: chevron.left
+            anchors.rightMargin: Theme.dp(2)
             anchors.verticalCenter: parent.verticalCenter
             spacing: 0
 
@@ -2969,7 +2897,6 @@ BarPill {
         Icon {
             id: chevron
 
-            visible: tile.hasMore
             anchors.right: parent.right
             anchors.rightMargin: Theme.dp(10)
             anchors.verticalCenter: parent.verticalCenter
@@ -2996,14 +2923,13 @@ BarPill {
         width: root.tileW
         height: root.tileH
 
-        SquircleRect {
+        Rectangle {
             id: sq
 
             width: st.width
             height: st.width
             radius: st.checked ? Theme.shapeLg : width / 2
-            smoothing: Prefs.squircleF
-            fillColor: st.checked ? Theme.primary : Theme.withBlur(Theme.surfaceHighest)
+            color: st.checked ? Theme.primary : Theme.withBlur(Theme.surfaceHighest)
 
             Behavior on radius {
                 NumberAnimation {
@@ -3014,7 +2940,7 @@ BarPill {
 
             }
 
-            Behavior on fillColor {
+            Behavior on color {
                 ColorAnimation {
                     duration: Theme.durDefaultEffects
                 }
@@ -3091,14 +3017,13 @@ BarPill {
 
         }
 
-        SquircleRect {
+        Rectangle {
             id: esq
 
             width: et.width
             height: et.width
             radius: et.held ? Theme.shapeLg : width / 2
-            smoothing: Prefs.squircleF
-            fillColor: et.held ? Theme.primary : Theme.withBlur(Theme.surfaceHighest)
+            color: et.held ? Theme.primary : Theme.withBlur(Theme.surfaceHighest)
 
             Behavior on radius {
                 NumberAnimation {
@@ -3109,18 +3034,17 @@ BarPill {
 
             }
 
-            Behavior on fillColor {
+            Behavior on color {
                 ColorAnimation {
                     duration: Theme.durDefaultEffects
                 }
 
             }
 
-            SquircleRect {
+            Rectangle {
                 anchors.fill: parent
                 radius: parent.radius
-                smoothing: Prefs.squircleF
-                fillColor: Theme.text
+                color: Theme.text
                 opacity: et.hot && !et.held ? Theme.stateHover : 0
 
                 Behavior on opacity {

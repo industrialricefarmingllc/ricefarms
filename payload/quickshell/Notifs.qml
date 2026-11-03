@@ -324,11 +324,7 @@ Singleton {
         return Prefs.notifProgress && root.progressOf(n) >= 0;
     }
 
-    // the bar's Notifications view; set from shell.qml. Used to take a
-    // view-like action back to the sending app's window.
-    property var ui: null
-
-    function invokeAction(a, n) {
+    function invokeAction(a) {
         // an action activates an application; the lock screen is not allowed to
         if (Lockscreen.locked)
             return ;
@@ -339,10 +335,6 @@ Singleton {
 
         } catch (e) {
         }
-        // View/Open/Show (and the default action) also focus the app's window,
-        // switching to its workspace. Mark-read/snooze/delete must not.
-        if (n && Notifs.ui && Notifs.ui.isViewLike && Notifs.ui.isViewLike(a))
-            Notifs.ui.focusNotificationApp(n);
     }
 
     function canReply(n) {

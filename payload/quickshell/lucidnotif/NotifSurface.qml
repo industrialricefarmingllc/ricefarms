@@ -129,7 +129,7 @@ Item {
 
                 for (var i = 0; i < n.actions.length; i++) {
                     if (n.actions[i].identifier === "default") {
-                        Notifs.invokeAction(n.actions[i], n);
+                        Notifs.invokeAction(n.actions[i]);
                         return ;
                     }
                 }

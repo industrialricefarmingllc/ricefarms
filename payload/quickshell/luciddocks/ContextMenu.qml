@@ -1,9 +1,7 @@
 import QtQuick
-import QtQuick.Effects
 import Quickshell
 import Quickshell.Hyprland
 import qs
-import "../squircle"
 
 // the dock's right-click menu. it draws inside a layer window of its own, not a
 // popup, because hyprland only frosts layer surfaces
@@ -96,7 +94,17 @@ Item {
     onMenuVisibleChanged: {
         menu.fadeDuration = menu.menuVisible ? Theme.durEnter : Theme.durExit;
         menu.fadeEasing = menu.menuVisible ? Theme.easeEmphasizedDecel : Theme.easeEmphasizedAccel;
+        if (menu.menuVisible)
+            cardJelly.kickAfter(0.1, Math.round(Theme.durEnter * 0.3));
+        else
+            cardJelly.rest();
     }
+
+    // the card as painted, jelly and all, for the overlay's blur
+    readonly property real paintX: menu.cardX + cardJelly.shiftX
+    readonly property real paintY: menu.cardY + cardJelly.shiftY
+    readonly property real paintW: menu.cardW * cardJelly.xScale
+    readonly property real paintH: menu.cardH * cardJelly.yScale
 
     HyprlandFocusGrab {
         windows: menu.grabWindow ? [menu.grabWindow] : []
@@ -108,7 +116,7 @@ Item {
         }
     }
 
-    SquircleRect {
+    Rectangle {
         id: contentRoot
 
         x: menu.cardX
@@ -116,21 +124,17 @@ Item {
         width: menu.cardW
         height: menu.cardH
         radius: Theme.radiusMd
-        fillColor: Theme.bg
-        smoothing: Prefs.squircleF
+        color: Theme.bg
         opacity: menu.menuVisible ? 1 : 0
         scale: menu.menuVisible ? 1 : 0.9
         transformOrigin: Item.Bottom
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowBlur: Theme.hyprShadowBlur
-            blurMax: Theme.hyprShadowBlurMax
-            shadowColor: Theme.hyprShadow
-            shadowHorizontalOffset: Theme.hyprShadowOffsetX
-            shadowVerticalOffset: Theme.hyprShadowOffsetY
-            shadowScale: Theme.hyprShadowScale
-            autoPaddingEnabled: true
+        readonly property bool jellyWobbling: cardJelly.wobbling
+        transform: Jelly {
+            id: cardJelly
+
+            target: contentRoot
+            anchorY: 1
+            frequency: 4.4
         }
 
         Column {

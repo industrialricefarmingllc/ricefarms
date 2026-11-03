@@ -55,7 +55,7 @@ Item {
             out.push({
                 "text": a.text,
                 "invoke": () => {
-                    return Notifs.invokeAction(a, n);
+                    return Notifs.invokeAction(a);
                 }
             });
         }

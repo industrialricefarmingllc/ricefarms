@@ -1,5 +1,4 @@
 import QtQuick
-import "../squircle"
 import "../lucidwidgets"
 import qs
 import qs.lucidui
@@ -34,14 +33,13 @@ Item {
         onTriggered: page.now = Loc.now()
     }
 
-    SquircleRect {
+    Rectangle {
         id: hero
 
         width: Theme.dp(250)
         height: Theme.dp(330)
         radius: Theme.shapeXl
-        fillColor: Theme.withBlur(Theme.primaryContainer)
-        smoothing: Prefs.squircleF
+        color: Theme.withBlur(Theme.primaryContainer)
         clip: true
 
         // a scalloped dial that turns with the seconds, the way pixel's clock does
@@ -168,7 +166,7 @@ Item {
 
     }
 
-    SquircleRect {
+    Rectangle {
         id: weather
 
         anchors.left: hero.right
@@ -176,8 +174,7 @@ Item {
         anchors.right: parent.right
         height: hero.height
         radius: Theme.shapeXl
-        fillColor: Theme.withBlur(Theme.surfaceHigh)
-        smoothing: Prefs.squircleF
+        color: Theme.withBlur(Theme.surfaceHigh)
 
         Column {
             visible: page.wx === null
@@ -420,7 +417,7 @@ Item {
 
     }
 
-    SquircleRect {
+    Rectangle {
         id: next
 
         anchors.top: hero.bottom
@@ -428,8 +425,7 @@ Item {
         width: parent.width
         height: Theme.dp(62)
         radius: Theme.shapeXl
-        fillColor: Theme.withBlur(Theme.surfaceHigh)
-        smoothing: Prefs.squircleF
+        color: Theme.withBlur(Theme.surfaceHigh)
 
         Row {
             anchors.left: parent.left

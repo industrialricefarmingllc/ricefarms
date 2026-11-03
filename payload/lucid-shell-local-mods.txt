@@ -1,24 +1,130 @@
+ M Bt.qml
  M CHANGELOG.md
+ ?? DepthWallpaper3D.qml
+ M Idle.qml
  M LiveWall.qml
  M Prefs.qml
+ ?? Recorder.qml
+ ?? RemoteWall.qml
+ ?? RemoteWorker.qml
+ ?? SkwdWall.qml
+ ?? SpatialPointer.qml
+ ?? SpatialShake.qml
+ ?? SpatialSurface.qml
+ ?? SpatialWall.qml
+ ?? SpatialWarm.qml
+ ?? SpatialWidgetForeground.qml
+ ?? SpatialWidgetWindows.qml
+ ?? SpatialWidgets.qml
+ ?? SpatialWindows.qml
+ M Storage.qml
+ M Theme.qml
+ ?? WallpaperReveal.qml
  M Widgets.qml
- M install.sh
+ ?? WindowBorder.qml
  M lucidbar/BarFlare.qml
  M lucidbar/BarPill.qml
- M lucidbar/LiquidGlassBg.qml
- M lucidbar/WallpaperOverlay.qml
+ ?? lucidbar/LiquidGlassBg.qml
+ ?? lucidbar/NotchGroupBg.qml
+ M lucidbar/Notifications.qml
+ M lucidbar/Theme.qml
+ ?? lucidbar/WallpaperOverlay.qml
  M lucidbar/Workspaces.qml
- M luciddocks/TranslatePane.qml
+ M luciddesktop/Desktop.qml
+ M luciddocks/Dock.qml
+ M luciddocks/DockItem.qml
+ M luciddocks/DockRow.qml
+ ?? luciddocks/LaunchGhost.qml
+ ?? luciddocks/LaunchGhostSurface.qml
+ M luciddocks/LauncherFace.qml
+ ?? luciddocks/LauncherGrid.qml
+ M luciddocks/LauncherHead.qml
+ M luciddocks/LauncherList.qml
+ ?? luciddocks/LauncherMask.frag
+ ?? luciddocks/LauncherMask.qsb
+ ?? luciddocks/LucidLauncher.qml
+ ?? luciddocks/PowerRow.qml
+ M luciddocks/StackPopup.qml
+ ?? luciddocks/TranslatePane.qml
+ ?? luciddocks/WallpaperCardMedia.qml
+ M luciddocks/WallpaperPills.qml
  M luciddocks/WallpaperSlots.qml
+ M luciddocks/WallpaperStrip.qml
  M luciddocks/WallpaperTiles.qml
+ ?? luciddocks/WidgetsPage.qml
+ ?? luciddocks/depth-engine.py
+ ?? luciddocks/live-capture.sh
+ ?? luciddocks/mesh-job.sh
+ ?? luciddocks/mesh-scan.sh
+ ?? luciddocks/remote-wall-search.py
+ ?? luciddocks/remote-wall.sh
  M luciddocks/resolve-icons.sh
- M luciddocks/translate/components/LanguageRail.qml
- M luciddocks/translate/components/MessageBubble.qml
- M luciddocks/translate/components/Theme.qml
- M luciddocks/translate/translate_server.py
+ ?? luciddocks/shaders/spatial_layered.frag
+ ?? luciddocks/shaders/spatial_layered.frag.qsb
+ ?? luciddocks/shaders/spatial_parallax.frag
+ ?? luciddocks/shaders/spatial_parallax.frag.qsb
+ ?? luciddocks/shaders/spatial_widget_clip.frag
+ ?? luciddocks/shaders/spatial_widget_clip.frag.qsb
+ ?? luciddocks/skwd-previews.sh
+ ?? luciddocks/skwd-we-previews.py
+ ?? luciddocks/spatial-assets.py
+ ?? luciddocks/spatial-pointer.py
+ ?? luciddocks/spatial-prep.py
+ ?? luciddocks/spatial-warm.py
+ ?? luciddocks/translate/components/LanguageRail.qml
+ ?? luciddocks/translate/components/MessageBubble.qml
+ ?? luciddocks/translate/components/Theme.qml
+ ?? luciddocks/translate/translate_server.py
  M luciddocks/wallpaper-thumbs.sh
+ ?? luciddocks/workshop-remove.sh
+ ?? lucidlock/BlurBackdrop.qml
+ M lucidmoji/MojiFace.qml
+ M lucidosd/Osd.qml
+ M lucidprefs/GeneralPage.qml
+ M lucidprefs/Settings.qml
+ M lucidprefs/SettingsIndex.qml
+ M lucidprefs/StoragePage.qml
  M lucidprefs/ThemePage.qml
  M lucidprefs/WallpaperTile.qml
+ ?? lucidshot/Screenshot.qml
+ ?? lucidshot/ShotPreview.qml
+ ?? lucidshot/SnapOverlay.qml
+ ?? lucidshot/lucidcap/Makefile
+ ?? lucidshot/lucidcap/README.md
+ ?? lucidshot/lucidcap/gen/ext-foreign-toplevel-list-v1-client-protocol.h
+ ?? lucidshot/lucidcap/gen/ext-foreign-toplevel-list-v1-protocol.c
+ ?? lucidshot/lucidcap/gen/ext-image-capture-source-v1-client-protocol.h
+ ?? lucidshot/lucidcap/gen/ext-image-capture-source-v1-protocol.c
+ ?? lucidshot/lucidcap/gen/ext-image-copy-capture-v1-client-protocol.h
+ ?? lucidshot/lucidcap/gen/ext-image-copy-capture-v1-protocol.c
+ ?? lucidshot/lucidcap/gen/ext-workspace-v1-client-protocol.h
+ ?? lucidshot/lucidcap/gen/ext-workspace-v1-protocol.c
+ ?? lucidshot/lucidcap/gen/hyprland-workspace-image-capture-source-v1-client-protocol.h
+ ?? lucidshot/lucidcap/gen/hyprland-workspace-image-capture-source-v1-protocol.c
+ ?? lucidshot/lucidcap/lucidcap
+ ?? lucidshot/lucidcap/lucidcap.c
+ ?? lucidshot/lucidcap/protocols/ext-foreign-toplevel-list-v1.xml
+ ?? lucidshot/lucidcap/protocols/ext-image-capture-source-v1.xml
+ ?? lucidshot/lucidcap/protocols/ext-image-copy-capture-v1.xml
+ ?? lucidshot/lucidcap/protocols/ext-workspace-v1.xml
+ ?? lucidshot/lucidcap/protocols/hyprland-workspace-image-capture-source-v1.xml
+ ?? lucidspatial3d/CMakeLists.txt
+ ?? lucidspatial3d/depthmeshgeometry.cpp
+ ?? lucidspatial3d/depthmeshgeometry.h
+ ?? lucidspatial3d/libkos_spatial3d.so
+ ?? lucidspatial3d/meshbuild.cpp
+ ?? lucidspatial3d/meshbuild.h
+ ?? lucidspatial3d/meshcache_main.cpp
+ ?? lucidspatial3d/qmldir
+ ?? lucidspatial3d/shaders/spatial_background.frag
+ ?? lucidspatial3d/shaders/spatial_background.vert
+ ?? lucidspatial3d/shaders/spatial_subject.frag
+ ?? lucidspatial3d/shaders/spatial_subject.vert
+ ?? lucidspatial3d/spatial3dplugin.cpp
+ M lucidui/LoadingIndicator.qml
+ M lucidui/ShapedImage.qml
+ ?? lucidui/Twemoji.qml
+ ?? lucidui/twemoji.js
  M lucidwidgets/BatteryWidget.qml
  M lucidwidgets/CalendarWidget.qml
  M lucidwidgets/ClockWidget.qml
@@ -26,39 +132,36 @@
  M lucidwidgets/GithubWidget.qml
  M lucidwidgets/KdeconnectWidget.qml
  M lucidwidgets/MediaWidget.qml
+ ?? lucidwidgets/MeshView.qml
+ ?? lucidwidgets/MeshWidget.qml
  M lucidwidgets/PaletteWidget.qml
  M lucidwidgets/PanelRow.qml
  M lucidwidgets/PanelTile.qml
  M lucidwidgets/PhotoWidget.qml
+ M lucidwidgets/PreviewHost.qml
  M lucidwidgets/SearchWidget.qml
  M lucidwidgets/ShortcutsWidget.qml
  M lucidwidgets/SystemWidget.qml
+ M lucidwidgets/ThermalWidget.qml
  M lucidwidgets/TimerWidget.qml
  M lucidwidgets/TodoWidget.qml
  M lucidwidgets/TogglesWidget.qml
  M lucidwidgets/WidgetFrame.qml
+ M lucidwidgets/WidgetIpc.qml
+ M lucidwidgets/WidgetLayer.qml
  M lucidwidgets/WidgetMenu.qml
  M lucidwidgets/WidgetPanel.qml
  M lucidwidgets/WidgetPreview.qml
- M squircle/SquircleFlare.qml
- M squircle/SquircleRect.qml
- M squircle/squircle_flare.frag
- M squircle/squircle_flare.frag.qsb
- M squircle/squircle_rect.frag
- M squircle/squircle_rect.frag.qsb
- M support/lucid/app-surface-sync.sh
- M support/lucid/apply-colour.sh
- M support/lucid/apply-theme.sh
- M support/lucid/render-templates.sh
- M support/lucid/set-mode.sh
- M support/lucid/wallpaper-softlight.py
- M support/wallpaper/set-wallpaper.sh
-?? SkwdWall.qml
-?? WindowBorder.qml
-?? lucidbar/NotchGroupBg.qml
-?? luciddocks/skwd-previews.sh
-?? squircle/SquircleClip.qml
-?? support/lucid/kitty-tune.py
-?? support/lucid/opencode-theme-notify.sh
-?? support/lucid/surface-seed.py
-?? support/lucid/theme-fanout.sh
+ M lucidwidgets/WidgetRegion.qml
+ ?? scripts/launch-detached.sh
+ M shell.qml
+ ?? squircle/SquircleClip.qml
+ ?? squircle/SquircleFlare.qml
+ ?? squircle/SquircleRect.qml
+ ?? squircle/squircle_flare.frag
+ ?? squircle/squircle_flare.frag.qsb
+ ?? squircle/squircle_mask.frag
+ ?? squircle/squircle_rect.frag
+ ?? squircle/squircle_rect.frag.qsb
+ ?? wallpaper_circle.frag
+ ?? wallpaper_circle.frag.qsb

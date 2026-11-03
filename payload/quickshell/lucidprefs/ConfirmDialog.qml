@@ -1,7 +1,6 @@
 import QtQuick
 import qs
 import qs.lucidui
-import "../squircle"
 
 // m3 basic dialog: extra-large shape, hero icon, headline, actions bottom-right
 Item {
@@ -51,25 +50,16 @@ Item {
 
     }
 
-    SquircleRect {
+    Rectangle {
         id: card
 
         anchors.centerIn: parent
         width: Math.min(Theme.dp(420), dialog.width - Theme.dp(64))
         height: cardCol.implicitHeight + Theme.dp(56)
         radius: Theme.shapeXl
-        fillColor: Theme.bgHigh
-        smoothing: Prefs.squircleF
-        scale: dialog.shown ? 1 : 0.9
-
-        Behavior on scale {
-            NumberAnimation {
-                duration: Theme.durMedium
-                easing.type: Theme.easeEmphasized
-                easing.overshoot: Theme.emphasizedOvershoot
-            }
-
-        }
+        color: Theme.bgHigh
+        scale: dialog.shown ? 1 : 0.88
+        opacity: dialog.shown ? 1 : 0
 
         // clicks on the card must not reach the dimmer
         MouseArea {
@@ -139,6 +129,15 @@ Item {
                     onClicked: dialog.confirm()
                 }
 
+            }
+
+        }
+
+        Behavior on scale {
+            NumberAnimation {
+                duration: Theme.durMedium
+                easing.type: Theme.easeEmphasized
+                easing.overshoot: Theme.emphasizedOvershoot
             }
 
         }

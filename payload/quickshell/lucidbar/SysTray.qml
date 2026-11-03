@@ -2,11 +2,11 @@ import QtQuick
 import QtQuick.Effects
 import QtQuick.Shapes
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Hyprland._FocusGrab
 import Quickshell.Services.SystemTray
 import Quickshell.Widgets
 import qs
+import qs.lucidicons
 import qs.lucidui
 
 BarPill {
@@ -47,6 +47,14 @@ BarPill {
     property var menuItem: null
     property real menuX: 0
     property real menuY: 0
+
+    onMenuItemChanged: {
+        if (root.menuItem)
+            sheetJelly.kickAfter(Math.min(0.09, Theme.dp(18) / Math.max(1, menuSheet.height)), Math.round(Theme.barDurShort * 0.3));
+        else
+            sheetJelly.rest();
+    }
+
     function resolveIconSource(raw) {
         if (!raw)
             return "";
@@ -61,128 +69,18 @@ BarPill {
         return "file://" + dir + "/" + fileName;
     }
 
-    function normAppId(s) {
-        if (s === undefined || s === null)
+    // an app's lucid icon, unless legacy icons are on or lucid draws none for it.
+    // electron apps all go by chrome_status_icon_n, so their title names them; a
+    // hardware or service icon shows a state (signal, charge) and keeps its own
+    function appSlotOf(item) {
+        if (Prefs.envLegacyIcons || !item || item.category === Category.Hardware || item.category === Category.SystemServices)
             return "";
-        var v = String(s).toLowerCase().trim();
-        if (v.endsWith(".desktop"))
-            v = v.slice(0, -8);
-        return v;
-    }
 
-    function tailAppId(s) {
-        var v = root.normAppId(s);
-        var i = v.lastIndexOf(".");
-        return i >= 0 ? v.slice(i + 1) : v;
-    }
-
-    function candidateIdsForTray(item) {
-        var out = [];
-        if (!item)
-            return out;
-        var raw = [];
-        if (item.id)
-            raw.push(item.id);
-        if (item.title)
-            raw.push(item.title);
-        if (item.tooltipTitle)
-            raw.push(item.tooltipTitle);
-        for (var i = 0; i < raw.length; i++) {
-            var full = root.normAppId(raw[i]);
-            var tail = root.tailAppId(raw[i]);
-            if (full && out.indexOf(full) < 0)
-                out.push(full);
-            if (tail && out.indexOf(tail) < 0)
-                out.push(tail);
-        }
-        return out;
-    }
-
-    // Address of a live window belonging to the tray item, or "".
-    // activate() alone only asks the app to show itself - focusing by
-    // address is what also takes us to the workspace it's on. Several
-    // windows of the same app: most recently focused wins.
-    function findTrayWindow(item) {
-        var ids = root.candidateIdsForTray(item);
-        if (ids.length === 0)
-            return "";
-        var tls = [];
-        try {
-            tls = Hyprland.toplevels ? Hyprland.toplevels.values : [];
-        } catch (e) {
-            return "";
-        }
-        var best = "";
-        var bestFocus = Number.MAX_SAFE_INTEGER;
-        for (var i = 0; i < tls.length; i++) {
-            var t = tls[i];
-            if (!t)
-                continue;
-            var ipc = null;
-            try {
-                ipc = t.lastIpcObject;
-            } catch (e) {
-                ipc = null;
-            }
-            var addrs = [];
-            if (ipc) {
-                if (ipc.class)
-                    addrs.push(ipc.class);
-                if (ipc.initialClass)
-                    addrs.push(ipc.initialClass);
-            }
-            try {
-                if (t.wayland && t.wayland.appId)
-                    addrs.push(t.wayland.appId);
-            } catch (e) {
-            }
-            var match = false;
-            for (var a = 0; a < addrs.length && !match; a++) {
-                var cFull = root.normAppId(addrs[a]);
-                var cTail = root.tailAppId(addrs[a]);
-                for (var j = 0; j < ids.length && !match; j++) {
-                    if (ids[j] === cFull || ids[j] === cTail)
-                        match = true;
-                }
-            }
-            if (!match)
-                continue;
-            var addr = (ipc && ipc.address) ? ipc.address : "";
-            if (!addr) {
-                try {
-                    addr = t.address ? t.address : "";
-                } catch (e) {
-                }
-            }
-            if (!addr)
-                continue;
-            var fh = Number.MAX_SAFE_INTEGER;
-            try {
-                if (ipc && ipc.focusHistoryID !== undefined && ipc.focusHistoryID !== null)
-                    fh = Number(ipc.focusHistoryID);
-            } catch (e) {
-            }
-            if (best === "" || fh < bestFocus) {
-                best = addr;
-                bestFocus = fh;
-            }
-        }
-        return best;
-    }
-
-    // Focus the tray item's window (switching to its workspace).
-    // No-op when the app has no open window - the plain activate()
-    // behavior is preserved then.
-    function focusTrayWindow(item) {
-        var addr = root.findTrayWindow(item);
-        if (!addr)
-            return false;
-        try {
-            Hyprland.dispatch("hl.dsp.focus({window='address:" + addr + "'})");
-            return true;
-        } catch (e) {
-            return false;
-        }
+        const id = /^chrome_status_icon/.test(item.id || "") ? "" : (item.id || "");
+        const name = item.title || item.tooltipTitle || "";
+        const raw = item.icon || "";
+        const icon = raw.indexOf("image://icon/") === 0 ? raw.slice(13).split("?")[0] : "";
+        return LucidIcons.slotFor(id || name, icon, name);
     }
 
     readonly property int horizontalPadding: Theme.dp(10)
@@ -227,6 +125,7 @@ BarPill {
                     id: inline
 
                     required property var modelData
+                    readonly property string lucidSlot: root.appSlotOf(inline.modelData)
 
                     width: Theme.dp(18)
                     height: Theme.dp(18)
@@ -238,21 +137,32 @@ BarPill {
                         anchors.fill: parent
                         source: root.resolveIconSource(inline.modelData.icon)
                         asynchronous: true
-                        visible: status === Image.Ready
+                        visible: status === Image.Ready && inline.lucidSlot === ""
                         layer.enabled: Prefs.trayIconColor !== "original"
                         layer.effect: TrayTint {
                         }
                     }
 
+                    Loader {
+                        anchors.centerIn: parent
+                        active: inline.lucidSlot !== ""
+
+                        sourceComponent: TonalIcon {
+                            size: Math.round(Theme.dp(18))
+                            slot: inline.lucidSlot
+                            hovered: inlineArea.containsMouse
+                        }
+
+                    }
+
                     Text {
-                        visible: !inlineIcon.visible
+                        visible: !inlineIcon.visible && inline.lucidSlot === ""
                         anchors.centerIn: parent
                         text: (inline.modelData.title || inline.modelData.id || "?").charAt(0).toUpperCase()
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.bold: true
                         font.pixelSize: Theme.fs(12)
-                        font.variableAxes: Theme.axes(Theme.fs(12), 700, 0)
                     }
 
                     // one asking for attention
@@ -268,8 +178,11 @@ BarPill {
                     }
 
                     MouseArea {
+                        id: inlineArea
+
                         anchors.fill: parent
                         anchors.margins: -Theme.dp(3)
+                        hoverEnabled: true
                         acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                         cursorShape: Qt.PointingHandCursor
                         onClicked: (mouse) => {
@@ -290,12 +203,6 @@ BarPill {
                                 inline.modelData.secondaryActivate();
                             else
                                 inline.modelData.activate();
-                            // activate() only asks the app to show itself - the
-                            // focus dispatch also takes us to its workspace.
-                            root.focusTrayWindow(inline.modelData);
-                            // we're leaving for the app's workspace - retract
-                            // the panel rather than leaving it open behind.
-                            root.expanded = false;
                         }
                         onWheel: (wheel) => {
                             inline.modelData.scroll(wheel.angleDelta.y, false);
@@ -360,7 +267,7 @@ BarPill {
                     font.family: Theme.fontFamily
                     font.bold: true
                     font.pixelSize: Theme.fs(11)
-                    font.variableAxes: Theme.axes(Theme.fs(11), 700, 0)
+                    font.variableAxes: Theme.axes(Theme.fs(11), 640, 0)
                 }
 
                 Behavior on width {
@@ -538,6 +445,15 @@ BarPill {
                 opacity: root.menuItem !== null ? 1 : 0
                 scale: root.menuItem !== null ? 1 : 0.94
                 transformOrigin: Item.TopLeft
+                readonly property bool jellyWobbling: sheetJelly.wobbling
+                transform: Jelly {
+                    id: sheetJelly
+
+                    target: menuSheet
+                    anchorX: 0
+                    anchorY: 0
+                    frequency: 4.4
+                }
 
                 Behavior on opacity {
                     NumberAnimation {
@@ -657,10 +573,6 @@ BarPill {
                                     onClicked: {
                                         entryRow.entry.triggered();
                                         root.menuItem = null;
-                                        // menu actions can summon app windows
-                                        // too - retract the panel rather than
-                                        // leaving it open behind.
-                                        root.expanded = false;
                                     }
                                 }
 
@@ -699,6 +611,7 @@ BarPill {
         signal requestMenu(var it, real wx, real wy)
 
         readonly property var item: card.modelData
+        readonly property string lucidSlot: root.appSlotOf(card.item)
         readonly property bool needsAttention: card.item.status === Status.NeedsAttention
         readonly property string displayName: card.item.title || card.item.tooltipTitle || card.item.id || "Unknown"
         readonly property string supporting: {
@@ -780,13 +693,8 @@ BarPill {
                     card.requestMenu(card.item, p.x, p.y);
                 } else if (mouse.button === Qt.MiddleButton) {
                     card.item.secondaryActivate();
-                    // focus by address also switches to the app's workspace
-                    root.focusTrayWindow(card.item);
-                    root.expanded = false;
                 } else {
                     card.item.activate();
-                    root.focusTrayWindow(card.item);
-                    root.expanded = false;
                 }
             }
             onWheel: (wheel) => {
@@ -816,14 +724,26 @@ BarPill {
                     height: Theme.dp(22)
                     source: card.resolvedIcon
                     asynchronous: true
-                    visible: status === Image.Ready
+                    visible: status === Image.Ready && card.lucidSlot === ""
                     layer.enabled: Prefs.trayIconColor !== "original"
                     layer.effect: TrayTint {
                     }
                 }
 
+                Loader {
+                    anchors.centerIn: parent
+                    active: card.lucidSlot !== ""
+
+                    sourceComponent: TonalIcon {
+                        size: Math.round(Theme.dp(24))
+                        slot: card.lucidSlot
+                        hovered: cardArea.containsMouse
+                    }
+
+                }
+
                 Rectangle {
-                    visible: !cardIconImage.visible
+                    visible: !cardIconImage.visible && card.lucidSlot === ""
                     anchors.fill: parent
                     radius: Theme.dp(999)
                     color: Theme.withBlur(Theme.bgHigh)

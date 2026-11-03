@@ -1914,13 +1914,17 @@ Singleton {
         if (i < 0 || !scr)
             return ;
 
+        var e = instances.get(i);
         var prime = root.primaryScreen();
-        var name = (prime !== null && prime.name === scr.name) ? "" : scr.name;
+        // a card that stays where it was keeps the name it had; only a card
+        // that really crossed gets a new one, and the primary stays unnamed so
+        // it still follows the main display
+        var here = (e.screenName === "") ? (prime !== null ? prime.name : "") : e.screenName;
+        var name = (here === scr.name) ? e.screenName : ((prime !== null && prime.name === scr.name) ? "" : scr.name);
         var sx = (scr.x !== undefined) ? Number(scr.x) : 0;
         var sy = (scr.y !== undefined) ? Number(scr.y) : 0;
         var x = Math.round(Math.max(0, Math.min(scr.width - w, gx - sx)));
         var y = Math.round(Math.max(0, Math.min(scr.height - h, gy - sy)));
-        var e = instances.get(i);
         if (e.screenName === name && e.wx === x && e.wy === y)
             return ;
 

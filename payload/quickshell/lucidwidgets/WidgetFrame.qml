@@ -259,6 +259,8 @@ Item {
         frame.homeY = frame.y;
         frame.dragX = frame.x;
         frame.dragY = frame.y;
+        frame.pointerX = -1;
+        frame.pointerY = -1;
         frame.dragging = true;
         if (frame.board)
             frame.board.dragFrame = frame;
@@ -331,17 +333,24 @@ Item {
         Widgets.setLive(frame.uid, frame.dragX, frame.dragY, frame.width, frame.height);
     }
 
-    function endDrag() {
+    function endDrag(mx, my) {
         if (!frame.dragging)
             return ;
 
+        var originX = frame.board ? frame.board.screenX : 0;
+        var originY = frame.board ? frame.board.screenY : 0;
+        // the release is the last move, so a quick let-go right at a seam still
+        // lands on the output the pointer ended on
+        if (mx !== undefined && my !== undefined && frame.board) {
+            var at = frame.mapToItem(frame.board, mx, my);
+            frame.pointerX = at.x;
+            frame.pointerY = at.y;
+        }
         var binned = frame.overBin;
         var crew = frame.crew;
         var carry = Widgets.dragRects;
-        var originX = frame.board ? frame.board.screenX : 0;
-        var originY = frame.board ? frame.board.screenY : 0;
-        // the pointer decides the output; a click that never moved leaves it on
-        // the card's own centre
+        // the pointer decides the output; a drag released without a position
+        // leaves it on the card's own centre
         var gx = frame.pointerX >= 0 ? originX + frame.pointerX : originX + frame.dragX + frame.width / 2;
         var gy = frame.pointerY >= 0 ? originY + frame.pointerY : originY + frame.dragY + frame.height / 2;
         var target = Widgets.screenAt(gx, gy);
@@ -619,7 +628,7 @@ Item {
     }
 
     Behavior on x {
-        enabled: !frame.dragging && !frame.resizing
+        enabled: !frame.dragging && !frame.carried && !frame.resizing
 
         NumberAnimation {
             duration: Theme.durMedium
@@ -629,7 +638,7 @@ Item {
     }
 
     Behavior on y {
-        enabled: !frame.dragging && !frame.resizing
+        enabled: !frame.dragging && !frame.carried && !frame.resizing
 
         NumberAnimation {
             duration: Theme.durMedium
@@ -664,7 +673,7 @@ Item {
         onPositionChanged: (mouse) => {
             return frame.moveDrag(mouse.x, mouse.y);
         }
-        onReleased: frame.endDrag()
+        onReleased: (mouse) => frame.endDrag(mouse.x, mouse.y)
         onCanceled: frame.endDrag()
     }
 
@@ -784,9 +793,9 @@ Item {
             }
             frame.moveDrag(mouse.x, mouse.y);
         }
-        onReleased: {
+        onReleased: (mouse) => {
             if (menuArea.moved)
-                frame.endDrag();
+                frame.endDrag(mouse.x, mouse.y);
             else
                 frame.toggleMenu(menuArea.pressX, menuArea.pressY);
             menuArea.moved = false;

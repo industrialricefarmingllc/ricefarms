@@ -1,6 +1,6 @@
 import QtQuick
+import QtQuick.Shapes
 import qs
-import "../squircle"
 
 Item {
     id: flare
@@ -13,17 +13,44 @@ Item {
     implicitHeight: flare.size
     visible: flare.size > 0
 
-    // Concave notch shoulder for the bottom edge: the dock grows out of
-    // the bottom of the screen, so the disc sits on the outer-TOP corner
-    // (the vertical mirror of the bar flare). At squircleF 0 this is
-    // exactly the old quarter-arc.
-    SquircleFlare {
+    Shape {
         anchors.fill: parent
-        size: flare.size
-        mirrored: flare.mirrored
-        discCenter: Qt.vector2d(0, 0)
-        fillColor: flare.fillColor
-        smoothing: Prefs.squircleF
+        preferredRendererType: Shape.CurveRenderer
+        antialiasing: true
+
+        transform: Scale {
+            xScale: flare.mirrored ? -1 : 1
+            origin.x: flare.width / 2
+        }
+
+        ShapePath {
+            strokeWidth: 0
+            fillColor: flare.fillColor
+            startX: flare.size
+            startY: 0
+
+            PathArc {
+                x: 0
+                y: flare.size
+                radiusX: flare.size
+                radiusY: flare.size
+                direction: PathArc.Clockwise
+            }
+
+            PathLine {
+                x: flare.size
+                y: flare.size
+            }
+
+            PathLine {
+                x: flare.size
+                y: 0
+            }
+
+        }
+
     }
 
 }
+
+

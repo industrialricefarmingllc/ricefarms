@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs
 import qs.lucidui
 import "../lucidwidgets"
+import "." as Docks
 
 // the launcher's face, on the m3 search anatomy: a head that carries the mark
 // and the modes, the results under it, and a 56dp search bar at whichever end
@@ -764,7 +765,7 @@ Item {
             onAdded: (name) => face.widgetAdded(name)
         }
 
-        LauncherGrid {
+        Docks.LauncherGrid {
             id: appsGrid
 
             anchors.fill: parent
@@ -777,7 +778,7 @@ Item {
             onActivated: (index, newInstance) => face.appActivated(index, newInstance)
         }
 
-        LauncherGrid {
+        Docks.LauncherGrid {
             id: emojiGrid
 
             anchors.fill: parent

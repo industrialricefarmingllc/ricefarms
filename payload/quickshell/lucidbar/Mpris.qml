@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Effects
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Hyprland._FocusGrab
 import Quickshell.Io
 import Quickshell.Services.Mpris
@@ -243,13 +242,6 @@ BarPill {
     property string listenSource: "system"
     property string monitorDevice: ""
     property string micDevice: ""
-    // spotify-helper: exact-track search and Like sync over the Web API
-    property int spotifyFocusAttempts: 0
-    property bool spotifyReady: true
-    property var pendingSpotifyResult: null
-    property bool spotifyLiked: false
-    property string likeSpotifyId: ""
-    readonly property string spotifyHelper: Quickshell.env("HOME") + "/.config/quickshell/lucidbar/spotify-helper.sh"
     readonly property string listenDevice: root.listenSource === "mic" ? root.micDevice : root.monitorDevice
     property double nowMs: Date.now()
     readonly property string noteGlyph: "music_note"
@@ -270,7 +262,6 @@ BarPill {
     readonly property string micGlyph: "mic"
     readonly property string checkGlyph: "check"
     readonly property string swapGlyph: "swap_horiz"
-    readonly property string heartGlyph: "favorite"
     readonly property var volumeGlyphs: [
         { "max": 0, "path": "volume_mute" },
         { "max": 49, "path": "volume_down" },
@@ -394,17 +385,10 @@ BarPill {
 
     // the player's own window, or play and pause when it has none to show
     function raisePlayer() {
-        if (root.player && root.player.canRaise) {
+        if (root.player && root.player.canRaise)
             root.player.raise();
-            // raise() alone only maps the window - focusing by address is what
-            // also takes us to the workspace it is on
-            root.focusPlayerWindow();
-            // leaving for the app's workspace: retract the panel rather than
-            // leaving it open behind
-            root.expanded = false;
-        } else {
+        else
             root.togglePlay();
-        }
     }
 
     function cyclePlayer() {
@@ -449,331 +433,15 @@ BarPill {
         Quickshell.execDetached(["wl-copy", "--", text]);
     }
 
-    function normAppId(s) {
-        if (s === undefined || s === null)
-            return "";
-
-        var v = String(s).toLowerCase().trim();
-        if (v.endsWith(".desktop"))
-            v = v.slice(0, -8);
-
-        return v;
-    }
-
-    function tailAppId(s) {
-        const v = root.normAppId(s);
-        const i = v.lastIndexOf(".");
-        return i >= 0 ? v.slice(i + 1) : v;
-    }
-
-    // candidate window classes for the current player, from its desktop entry,
-    // identity and dbus name (spotify, Spotify and
-    // org.mpris.MediaPlayer2.spotify all reduce to the Hyprland class "Spotify")
-    function playerCandidateIds() {
-        const out = [];
-        const raw = [];
-        if (root.player) {
-            if (root.player.desktopEntry)
-                raw.push(root.player.desktopEntry);
-
-            if (root.player.identity)
-                raw.push(root.player.identity);
-
-            if (root.player.dbusName)
-                raw.push(root.player.dbusName.replace(/^org\.mpris\.MediaPlayer2\./, ""));
-
-        }
-        for (let i = 0; i < raw.length; i++) {
-            const full = root.normAppId(raw[i]);
-            const tail = root.tailAppId(raw[i]);
-            if (full && out.indexOf(full) < 0)
-                out.push(full);
-
-            if (tail && out.indexOf(tail) < 0)
-                out.push(tail);
-
-        }
-        return out;
-    }
-
-    function windowAddress(addr) {
-        const s = String(addr || "");
-        if (s === "")
-            return "";
-
-        return s.indexOf("0x") === 0 ? s : "0x" + s;
-    }
-
-    // the live window that matches one of the ids, most recently focused first.
-    // returns "" when there is none
-    function findWindow(ids) {
-        if (ids.length === 0)
-            return "";
-
-        let tls = [];
-        try {
-            tls = Hyprland.toplevels ? Hyprland.toplevels.values : [];
-        } catch (e) {
-            return "";
-        }
-        let best = "";
-        let bestFocus = Number.MAX_SAFE_INTEGER;
-        for (let i = 0; i < tls.length; i++) {
-            const t = tls[i];
-            if (!t)
-                continue;
-
-            let ipc = null;
-            try {
-                ipc = t.lastIpcObject;
-            } catch (e) {
-                ipc = null;
-            }
-            const classes = [];
-            if (ipc) {
-                if (ipc.class)
-                    classes.push(ipc.class);
-
-                if (ipc.initialClass)
-                    classes.push(ipc.initialClass);
-
-            }
-            try {
-                if (t.wayland && t.wayland.appId)
-                    classes.push(t.wayland.appId);
-
-            } catch (e) {
-            }
-            let match = false;
-            for (let a = 0; a < classes.length && !match; a++) {
-                const cFull = root.normAppId(classes[a]);
-                const cTail = root.tailAppId(classes[a]);
-                for (let j = 0; j < ids.length && !match; j++) {
-                    if (ids[j] === cFull || ids[j] === cTail)
-                        match = true;
-
-                }
-            }
-            if (!match)
-                continue;
-
-            let addr = (ipc && ipc.address) ? ipc.address : "";
-            if (!addr) {
-                try {
-                    addr = t.address ? t.address : "";
-                } catch (e) {
-                }
-            }
-            if (!addr)
-                continue;
-
-            let fh = Number.MAX_SAFE_INTEGER;
-            try {
-                if (ipc && ipc.focusHistoryID !== undefined && ipc.focusHistoryID !== null)
-                    fh = Number(ipc.focusHistoryID);
-
-            } catch (e) {
-            }
-            if (best === "" || fh < bestFocus) {
-                best = addr;
-                bestFocus = fh;
-            }
-        }
-        return best;
-    }
-
-    // Address of a live window belonging to the current player, or "".
-    // player.raise() alone only maps the window - on another workspace you stay
-    // where you are. Focusing by address is what also switches to its workspace.
-    function findPlayerWindow() {
-        return root.findWindow(root.playerCandidateIds());
-    }
-
-    function focusPlayerWindow() {
-        const addr = root.findPlayerWindow();
-        if (!addr)
-            return false;
-
-        try {
-            Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + root.windowAddress(addr) + "\" })");
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function findSpotifyWindow() {
-        return root.findWindow(["spotify"]);
-    }
-
-    function focusSpotifyWindow() {
-        const addr = root.findSpotifyWindow();
-        if (!addr)
-            return false;
-
-        try {
-            Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + root.windowAddress(addr) + "\" })");
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function spotifyUrlFor(result) {
-        if (!result)
-            return "";
-
-        if (result.spotify && result.spotify !== "")
-            return result.spotify;
-
-        return "https://open.spotify.com/search/" + encodeURIComponent(result.title + " " + result.artist);
-    }
-
-    function openSpotifyDirect(result) {
-        const url = root.spotifyUrlFor(result);
-        if (!url || url === "")
-            return ;
-
-        root.openUrl(url);
-        // only chase the desktop app for spotify: URIs - the https fallback
-        // opens in a browser, so there is no Spotify window to focus
-        if (url.indexOf("spotify:") === 0) {
-            root.spotifyFocusAttempts = 0;
-            spotifyFocusTimer.restart();
-        }
-    }
-
-    // Resolve the first Spotify match and open the exact track page (ready to
-    // play, no autoplay). Falls back to the search URI when the helper is not
-    // set up (see spotify-helper.sh setup) or the lookup fails/times out.
-    function openInSpotify(result) {
-        if (!result)
-            return ;
-
-        if (!root.spotifyReady || root.pendingSpotifyResult !== null) {
-            if (root.pendingSpotifyResult === null)
-                root.openSpotifyDirect(result);
-
-            return ;
-        }
-        root.pendingSpotifyResult = result;
-        const q = (result.artist ? result.artist + " " : "") + (result.title || "");
-        spotifySearchProc.command = ["sh", root.spotifyHelper, "search", q];
-        spotifySearchProc.running = true;
-        spotifySearchFallbackTimer.restart();
-    }
-
     function searchOnline(result) {
-        root.openInSpotify(result);
-    }
-
-    // ---- Like ----
-    // MPRIS exposes no Like/Love primitive, so the general mechanism is a local
-    // liked store (works with any player). When the helper is set up and the
-    // track resolves to a Spotify id, the Like is also synced to Spotify's
-    // Liked Songs.
-    function spotifyIdForPlayer() {
-        if (!root.player)
-            return "";
-
-        let md = null;
-        try {
-            md = root.player.metadata;
-        } catch (e) {
-            md = null;
-        }
-        const candidates = [];
-        if (md) {
-            try {
-                const keys = ["mpris:trackid", "mpris:trackId", "trackid", "trackId", "mpris:trackID"];
-                for (let i = 0; i < keys.length; i++) {
-                    if (md[keys[i]] !== undefined && md[keys[i]] !== null)
-                        candidates.push(String(md[keys[i]]));
-
-                }
-            } catch (e) {
-            }
-        }
-        for (let c = 0; c < candidates.length; c++) {
-            const m = candidates[c].match(/spotify:track:([A-Za-z0-9]{22})/);
-            if (m)
-                return m[1];
-
-        }
-        let ident = "";
-        try {
-            ident = String(root.player.identity || "") + " " + String(root.player.dbusName || "");
-        } catch (e) {
-            ident = "";
-        }
-        if (ident.toLowerCase().indexOf("spotify") !== -1) {
-            for (let k = 0; k < candidates.length; k++) {
-                const tail = candidates[k].match(/([A-Za-z0-9]{22})$/);
-                if (tail)
-                    return tail[1];
-
-            }
-        }
-        return "";
-    }
-
-    function trackKeyForPlayer() {
-        if (!root.player)
-            return "";
-
-        const sp = root.spotifyIdForPlayer();
-        if (sp !== "")
-            return "spotify:track:" + sp;
-
-        return (root.artist || "") + "\n" + (root.title || "") + "\n" + (root.player.trackAlbum || "");
-    }
-
-    function isLiked() {
-        const key = root.trackKeyForPlayer();
-        if (key === "")
-            return false;
-
-        if (root.spotifyLiked && key.indexOf("spotify:track:") === 0)
-            return true;
-
-        const items = likesAdapter.items || [];
-        return items.indexOf(key) !== -1;
-    }
-
-    function toggleLike() {
-        if (!root.player)
+        if (!result)
             return ;
 
-        const key = root.trackKeyForPlayer();
-        if (key === "")
+        if (result.spotify && result.spotify !== "") {
+            root.openUrl(result.spotify);
             return ;
-
-        const items = (likesAdapter.items || []).slice();
-        const at = items.indexOf(key);
-        const nowLiked = at === -1;
-        if (nowLiked)
-            items.unshift(key);
-        else
-            items.splice(at, 1);
-
-        likesAdapter.items = items.slice(0, 200);
-        if (key.indexOf("spotify:track:") === 0 && root.spotifyReady) {
-            const id = key.slice("spotify:track:".length);
-            root.spotifyLiked = nowLiked;
-            spotifyLikeProc.command = ["sh", root.spotifyHelper, nowLiked ? "like" : "unlike", id];
-            spotifyLikeProc.running = true;
         }
-    }
-
-    function refreshLikeStatus() {
-        root.spotifyLiked = false;
-        const id = root.spotifyIdForPlayer();
-        root.likeSpotifyId = (!root.spotifyReady || id === "") ? "" : id;
-        if (root.likeSpotifyId === "")
-            return ;
-
-        spotifyLikeStatusProc.command = ["sh", root.spotifyHelper, "like-status", id];
-        spotifyLikeStatusProc.running = true;
+        root.openUrl("https://open.spotify.com/search/" + encodeURIComponent(result.title + " " + result.artist));
     }
 
     // album/label/released live in a generic metadata list
@@ -902,10 +570,7 @@ BarPill {
         root.posTimestamp = Date.now();
         root.livePosSec = root.posSec;
     }
-    onPlayerChanged: {
-        root.snapNext = true;
-        root.refreshLikeStatus();
-    }
+    onPlayerChanged: root.snapNext = true
     onIsPlayingChanged: {
         root.posBase = root.livePosSec;
         root.posTimestamp = Date.now();
@@ -929,26 +594,11 @@ BarPill {
     }
 
     onExpandedChanged: {
-        if (root.expanded) {
-            // spotify-helper spawn + IPC: defer past morph start (frame 0)
-            expandWarmupTimer.restart();
+        if (root.expanded)
             return ;
-        }
-        expandWarmupTimer.stop();
+
         root.page = "player";
         root.cancelListening();
-    }
-
-    Timer {
-        id: expandWarmupTimer
-
-        interval: 150
-        repeat: false
-        onTriggered: {
-            if (root.expanded)
-                root.refreshLikeStatus();
-
-        }
     }
 
     shown: Prefs.barHas("media") && !(Prefs.mediaHideIdle && root.player === null)
@@ -956,7 +606,7 @@ BarPill {
     compactWidth: compactRow.implicitWidth + Theme.dp(20)
     panelWidth: Math.min(root.miniPanel ? Theme.dp(320) : Theme.dp(400), root.screenW - Theme.dp(34))
     panelHeight: root.pad * 2 + (root.page === "player" ? playerColumn.implicitHeight : shazamColumn.implicitHeight)
-    expandedRadius: Prefs.barPillRadius
+    expandedRadius: Theme.radiusXl
     compactCollapseScale: 0.94
     compactInteractive: false
     surfaceLayered: true
@@ -979,52 +629,6 @@ BarPill {
             property var items: []
 
             onItemsChanged: root.fetchHistoryArt()
-        }
-
-    }
-
-    // the local liked store, shared by every player; synced to Spotify when the
-    // helper is configured
-    FileView {
-        id: likesFile
-
-        path: Qt.resolvedUrl("./mpris_likes.json")
-        blockLoading: true
-        printErrors: false
-        watchChanges: true
-        onFileChanged: reload()
-        onAdapterUpdated: writeAdapter()
-
-        adapter: JsonAdapter {
-            id: likesAdapter
-
-            property var items: []
-        }
-
-    }
-
-    // Watches the Spotify helper config (written by spotify-helper.sh login). A
-    // fresh refresh_token re-arms exact-track + Like sync.
-    FileView {
-        id: spotifyCfgFile
-
-        path: Qt.resolvedUrl("./spotify.json")
-        blockLoading: true
-        printErrors: false
-        watchChanges: true
-        onFileChanged: reload()
-
-        adapter: JsonAdapter {
-            id: spotifyCfgAdapter
-
-            property string refresh_token: ""
-        }
-
-        onAdapterUpdated: {
-            if (spotifyCfgAdapter.refresh_token !== "") {
-                root.spotifyReady = true;
-                root.refreshLikeStatus();
-            }
         }
 
     }
@@ -1052,7 +656,6 @@ BarPill {
     Connections {
         function onTrackChanged() {
             root.snapNext = true;
-            root.refreshLikeStatus();
         }
 
         target: root.player
@@ -1112,38 +715,6 @@ BarPill {
         onTriggered: {
             root.stopListening();
             root.shazamState = "nomatch";
-        }
-    }
-
-    // a spotify: link maps the app's window after a moment; chase it briefly
-    Timer {
-        id: spotifyFocusTimer
-
-        interval: 1000
-        repeat: true
-        onTriggered: {
-            if (root.focusSpotifyWindow()) {
-                spotifyFocusTimer.stop();
-                root.expanded = false;
-                return ;
-            }
-            root.spotifyFocusAttempts++;
-            if (root.spotifyFocusAttempts >= 15)
-                spotifyFocusTimer.stop();
-
-        }
-    }
-
-    Timer {
-        id: spotifySearchFallbackTimer
-
-        interval: 8000
-        onTriggered: {
-            const fallback = root.pendingSpotifyResult;
-            root.pendingSpotifyResult = null;
-            if (fallback)
-                root.openSpotifyDirect(fallback);
-
         }
     }
 
@@ -1242,92 +813,6 @@ BarPill {
         }
     }
 
-    Process {
-        id: spotifySearchProc
-
-        command: ["true"]
-
-        stdout: StdioCollector {
-            id: spotifySearchCollector
-
-            onStreamFinished: {
-                const fallback = root.pendingSpotifyResult;
-                root.pendingSpotifyResult = null;
-                spotifySearchFallbackTimer.stop();
-                if (!fallback)
-                    return ;
-
-                let payload = null;
-                try {
-                    payload = JSON.parse(spotifySearchCollector.text.trim());
-                } catch (e) {
-                    payload = null;
-                }
-                if (payload && payload.id) {
-                    root.openUrl("https://open.spotify.com/track/" + payload.id);
-                    return ;
-                }
-                if (payload && payload.error && String(payload.error).indexOf("not_configured") === 0)
-                    root.spotifyReady = false;
-
-                root.openSpotifyDirect(fallback);
-            }
-        }
-
-    }
-
-    Process {
-        id: spotifyLikeStatusProc
-
-        command: ["true"]
-
-        stdout: StdioCollector {
-            id: spotifyLikeStatusCollector
-
-            onStreamFinished: {
-                let payload = null;
-                try {
-                    payload = JSON.parse(spotifyLikeStatusCollector.text.trim());
-                } catch (e) {
-                    payload = null;
-                }
-                if (payload && payload.liked === true) {
-                    root.spotifyLiked = true;
-                    return ;
-                }
-                if (payload && payload.error && String(payload.error).indexOf("not_configured") === 0)
-                    root.spotifyReady = false;
-
-            }
-        }
-
-    }
-
-    Process {
-        id: spotifyLikeProc
-
-        command: ["true"]
-
-        stdout: StdioCollector {
-            id: spotifyLikeCollector
-
-            onStreamFinished: {
-                let payload = null;
-                try {
-                    payload = JSON.parse(spotifyLikeCollector.text.trim());
-                } catch (e) {
-                    payload = null;
-                }
-                if (payload && payload.error && String(payload.error).indexOf("not_configured") === 0)
-                    root.spotifyReady = false;
-                else if (!payload || payload.ok !== true)
-                    root.refreshLikeStatus();
-
-            }
-        }
-
-    }
-
     compactContent: [
         // Progress: the pill fills, as a capsule, as the song goes
         Rectangle {
@@ -1343,8 +828,6 @@ BarPill {
             color: Theme.alpha(Theme.accent, 0.28)
         },
         MouseArea {
-            id: compactPointer
-
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
@@ -1352,16 +835,14 @@ BarPill {
             onEntered: root.compactHovered = true
             onExited: root.compactHovered = false
             onClicked: (mouse) => {
-                if (mouse.button === Qt.MiddleButton) {
+                if (mouse.button === Qt.MiddleButton)
                     root.skip(1);
-                } else if (mouse.button === Qt.RightButton) {
+                else if (mouse.button === Qt.RightButton)
                     root.skip(-1);
-                } else if (root.popupMode && root.expanded) {
+                else if (root.popupMode && root.expanded)
                     root.expanded = false;
-                } else {
-                    root.noteLiquidOrigin(mouse.x, mouse.y, compactPointer);
+                else
                     root.openPanel("player");
-                }
             }
             onWheel: (wheel) => {
                 if (!Prefs.mediaWheelVolume) {
@@ -1462,16 +943,12 @@ BarPill {
                         sourceSize.height: Theme.dp(64)
                     }
 
-                    // 10fps instead of a continuous 60fps rotation: the bar is
-                    // a full-width layer surface and each frame recomposites
-                    // the whole strip for a 18px disc
-                    property real spin: 0
-                    rotation: compactArt.spin
-                    Timer {
-                        interval: 100
-                        repeat: true
-                        running: root.isPlaying && compactArt.visible && root.compactHovered
-                        onTriggered: compactArt.spin = (compactArt.spin + 2.571) % 360
+                    RotationAnimation on rotation {
+                        from: 0
+                        to: 360
+                        duration: 14000
+                        loops: Animation.Infinite
+                        running: root.isPlaying && compactArt.visible
                     }
 
                 }
@@ -1556,13 +1033,8 @@ BarPill {
                     width: parent.width
                     anchors.verticalCenter: parent.verticalCenter
                     content: root.displayTitle
-                    // freeze while a panel is open: the compact face is faded
-                    // out, so scrolling only burns texture churn through the
-                    // morph for zero visible benefit
-                    scrolling: root.isPlaying && !root.anyOpen && root.compactHovered
+                    scrolling: root.isPlaying
                     bold: true
-                    // bar text uses one weight: the date's 700
-                    weight: 700
                     pixelSize: Theme.fs(13)
                     opacity: root.volumeFlash ? 0 : 1
 
@@ -1594,7 +1066,7 @@ BarPill {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "labelLarge"
                         size: Theme.fs(13)
-                        weight: 700
+                        weight: 640
                         text: Math.round(root.playerVolume * 100) + "%"
                     }
 
@@ -2045,10 +1517,7 @@ BarPill {
                     tintOverride: Theme.subtext
                     opacity: heroVol.open ? 0 : 1
                     visible: opacity > 0.01
-                    onClicked: {
-                        root.openPanel("shazam");
-                        root.startListening();
-                    }
+                    onClicked: root.openPanel("shazam")
 
                     Behavior on opacity {
                         NumberAnimation {
@@ -2309,10 +1778,7 @@ BarPill {
                     visible: root.player !== null
                     icon: root.identifyGlyph
                     tintOverride: Theme.subtext
-                    onClicked: {
-                        root.openPanel("shazam");
-                        root.startListening();
-                    }
+                    onClicked: root.openPanel("shazam")
                 }
 
                 // the player's own volume; its icon mutes and unmutes
@@ -2632,7 +2098,7 @@ BarPill {
 
                         // visible is the effective one: a closed panel stops the pulse
                         SequentialAnimation on opacity {
-                            running: root.isPlaying && root.expanded && liveDot.visible
+                            running: root.isPlaying && liveDot.visible
                             loops: Animation.Infinite
 
                             NumberAnimation {
@@ -2764,17 +2230,6 @@ BarPill {
                         onClicked: root.skip(1)
                     }
 
-                    IconButton {
-                        anchors.verticalCenter: parent.verticalCenter
-                        size: "xs"
-                        visible: root.player !== null && root.spotifyReady && root.likeSpotifyId !== ""
-                        icon: root.heartGlyph
-                        iconFill: root.isLiked() ? 1 : 0
-                        tintOverride: root.isLiked() ? Theme.accent : Theme.subtext
-                        tooltip: root.isLiked() ? "Remove from Liked Songs" : "Save to Liked Songs"
-                        onClicked: root.toggleLike()
-                    }
-
                 }
 
                 IconButton {
@@ -2802,10 +2257,7 @@ BarPill {
                     anchors.centerIn: parent
                     text: "Identify what's playing"
                     icon: root.identifyGlyph
-                    onClicked: {
-                        root.openPanel("shazam");
-                        root.startListening();
-                    }
+                    onClicked: root.openPanel("shazam")
                 }
 
             }
@@ -3167,11 +2619,11 @@ BarPill {
                             Button {
                                 anchors.verticalCenter: parent.verticalCenter
                                 size: "xs"
-                                text: "Spotify"
+                                text: "Shazam"
                                 icon: root.openGlyph
                                 containerOverride: Theme.accent
                                 contentOverride: Theme.fgAccent
-                                onClicked: root.openInSpotify(root.shazamResult)
+                                onClicked: root.openUrl(root.shazamResult ? root.shazamResult.url : "")
                             }
 
                             Item {
@@ -3333,7 +2785,7 @@ BarPill {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.openInSpotify(histRow.modelData)
+                            onClicked: root.openUrl(histRow.modelData.url)
                         }
 
                     }
@@ -3480,7 +2932,7 @@ BarPill {
             visible: false
             text: mq.content + "     •     "
             font.family: Theme.fontFamily
-            font.weight: mq.weight
+            font.bold: mq.bold
             font.pixelSize: mq.pixelSize
             font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
         }
@@ -3491,7 +2943,7 @@ BarPill {
             visible: false
             text: mq.content
             font.family: Theme.fontFamily
-            font.weight: mq.weight
+            font.bold: mq.bold
             font.pixelSize: mq.pixelSize
             font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
         }
@@ -3552,7 +3004,7 @@ BarPill {
                         text: mq.overflowing ? measure.text : mq.content
                         color: mq.textColor
                         font.family: Theme.fontFamily
-                        font.weight: mq.weight
+                        font.bold: mq.bold
                         font.pixelSize: mq.pixelSize
                         font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
                     }
@@ -3561,7 +3013,7 @@ BarPill {
                         text: measure.text
                         color: mq.textColor
                         font.family: Theme.fontFamily
-                        font.weight: mq.weight
+                        font.bold: mq.bold
                         font.pixelSize: mq.pixelSize
                         font.variableAxes: Theme.axes(mq.pixelSize, mq.weight, 0)
                         visible: mq.overflowing

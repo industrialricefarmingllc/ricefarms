@@ -11,8 +11,6 @@ MouseArea {
     property color tint: Theme.text
     property bool ripple: true
     property bool disabled: false
-    property bool showFocusRing: true
-    property bool arrowNavigable: true
     property real hoverOpacity: Theme.stateHover
     property real pressOpacity: Theme.statePressed
     readonly property bool active: sl.containsMouse && !sl.disabled
@@ -21,9 +19,7 @@ MouseArea {
     hoverEnabled: true
     enabled: !sl.disabled
     cursorShape: sl.disabled ? Qt.ArrowCursor : Qt.PointingHandCursor
-    activeFocusOnTab: !sl.disabled
     onPressed: (mouse) => {
-        sl.forceActiveFocus();
         if (!sl.ripple)
             return ;
 
@@ -31,9 +27,6 @@ MouseArea {
         rip.cy = mouse.y;
         rip.restart();
     }
-    Keys.onReturnPressed: if (!sl.disabled) sl.clicked({ "x": sl.width / 2, "y": sl.height / 2, "button": Qt.LeftButton, "modifiers": Qt.NoModifier, "accepted": true })
-    Keys.onEnterPressed: if (!sl.disabled) sl.clicked({ "x": sl.width / 2, "y": sl.height / 2, "button": Qt.LeftButton, "modifiers": Qt.NoModifier, "accepted": true })
-    Keys.onSpacePressed: if (!sl.disabled) sl.clicked({ "x": sl.width / 2, "y": sl.height / 2, "button": Qt.LeftButton, "modifiers": Qt.NoModifier, "accepted": true })
 
     Rectangle {
         anchors.fill: parent
@@ -116,16 +109,6 @@ MouseArea {
 
         }
 
-    }
-
-    Rectangle {
-        anchors.fill: parent
-        radius: sl.radius
-        color: "transparent"
-        border.width: sl.activeFocus ? Math.max(1, Theme.dp(2)) : 0
-        border.color: Theme.accent
-        visible: sl.activeFocus && sl.showFocusRing
-        z: 1000
     }
 
 }

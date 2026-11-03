@@ -329,11 +329,14 @@ BarPill {
                             rounded: 100
                             color: root.timeInk
                             text: ":"
-                            // stepped, not eased: the 400 ms fade repainted the
-                            // whole bar surface at 60 fps (24 frames a second, every
-                            // second) for a 4 px colon — about two thirds of the
-                            // shell's whole idle CPU
                             opacity: root.now.getSeconds() % 2 === 0 || Prefs.clockShowSeconds ? 1 : 0.35
+
+                            Behavior on opacity {
+                                NumberAnimation {
+                                    duration: Theme.barMs(400)
+                                }
+
+                            }
 
                         }
 
@@ -456,7 +459,7 @@ BarPill {
                     anchors.verticalCenter: parent.verticalCenter
                     role: "labelLarge"
                     size: Theme.fs(13.5)
-                    weight: 700
+                    weight: 600
                     rounded: 100
                     text: root.wx ? Units.deg(root.wx.tempC, root.wx.tempF) : ""
                 }

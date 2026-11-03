@@ -547,12 +547,8 @@ PanelWindow {
 
     }
 
-    // Compositor blur yields to the plugin glass (which owns the backdrop
-    // and draws it squircle): a circular blur region under squircle glass
-    // leaves an unblurred lune at every corner. Blur stays for the
-    // no-glass fallback, where the opaque fill covers the region anyway.
-    // A region cannot fade, so it only exists once the panel has some body.
-    BackgroundEffect.blurRegion: Theme.blurAmount > 0 && mojiWindow.open && mojiWindow.rendered && faceLoader.opacity > 0.15 && !Prefs.liquidGlassEnabled ? panelBlurRegion : null
+    // a region cannot fade, so it only exists once the panel has some body
+    BackgroundEffect.blurRegion: Theme.blurAmount > 0 && mojiWindow.rendered && faceLoader.opacity > 0.15 ? panelBlurRegion : null
 
     // the painted rect: scale and rise included, or the frost leads the panel
     Region {

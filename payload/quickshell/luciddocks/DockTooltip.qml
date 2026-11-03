@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Effects
 import qs
 
 Rectangle {
@@ -30,17 +29,6 @@ Rectangle {
     anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
     y: -height - tip.gap - tip.lift
     z: 60
-    layer.enabled: true
-    layer.effect: MultiEffect {
-        shadowEnabled: true
-        shadowBlur: Theme.hyprShadowBlur
-        blurMax: Theme.hyprShadowBlurMax
-        shadowColor: Theme.hyprShadow
-        shadowHorizontalOffset: Theme.hyprShadowOffsetX
-        shadowVerticalOffset: Theme.hyprShadowOffsetY
-        shadowScale: Theme.hyprShadowScale
-        autoPaddingEnabled: true
-    }
 
     Column {
         id: content

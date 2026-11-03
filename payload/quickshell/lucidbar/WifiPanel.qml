@@ -4,7 +4,6 @@ import Quickshell.Networking
 import qs
 import qs.lucidui
 import "../lucidprefs"
-import "../squircle"
 
 Item {
     id: root
@@ -112,12 +111,11 @@ Item {
             target: netItem.modelData
         }
 
-        SquircleRect {
+        Rectangle {
             width: parent.width
             height: Theme.dp(54)
             radius: netItem.isExpanded ? Theme.rad(20) : Theme.rad(14)
-            smoothing: Prefs.squircleF
-            fillColor: netItem.isExpanded ? Theme.withBlur(Theme.surfaceHighest) : (rowArea.containsMouse ? Theme.withBlur(Theme.layer(Theme.surfaceHigh, Theme.text, Theme.stateHover)) : Theme.withBlur(Theme.surfaceHigh))
+            color: netItem.isExpanded ? Theme.withBlur(Theme.surfaceHighest) : (rowArea.containsMouse ? Theme.withBlur(Theme.layer(Theme.surfaceHigh, Theme.text, Theme.stateHover)) : Theme.withBlur(Theme.surfaceHigh))
 
             Behavior on radius {
                 NumberAnimation {
@@ -235,7 +233,7 @@ Item {
                 onClicked: root.expandedKey = netItem.isExpanded ? "" : netItem.modelData.name
             }
 
-            Behavior on fillColor {
+            Behavior on color {
                 ColorAnimation {
                     duration: Theme.barMs(150)
                 }
@@ -894,8 +892,7 @@ Item {
         interval: 1200
         repeat: false
         onTriggered: {
-            // Don't re-activate an already-connected device on shell startup.
-            if (Networking.wifiEnabled && root.wifiDevice && !root.wifiConnected)
+            if (Networking.wifiEnabled && root.wifiDevice)
                 triggerDeviceAutoconnectProc.running = true;
 
         }

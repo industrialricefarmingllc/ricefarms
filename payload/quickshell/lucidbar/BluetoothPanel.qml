@@ -3,7 +3,6 @@ import QtQuick.Shapes
 import Quickshell.Bluetooth
 import qs
 import qs.lucidui
-import "../squircle"
 
 Item {
     id: root
@@ -457,12 +456,11 @@ Item {
             target: devItem.modelData
         }
 
-        SquircleRect {
+        Rectangle {
             width: parent.width
             height: Theme.dp(56)
             radius: devItem.isExpanded ? Theme.rad(20) : Theme.rad(14)
-            smoothing: Prefs.squircleF
-            fillColor: devItem.isExpanded ? Theme.withBlur(Theme.surfaceHighest) : (rowArea.containsMouse ? Theme.withBlur(Theme.layer(Theme.surfaceHigh, Theme.text, Theme.stateHover)) : Theme.withBlur(Theme.surfaceHigh))
+            color: devItem.isExpanded ? Theme.withBlur(Theme.surfaceHighest) : (rowArea.containsMouse ? Theme.withBlur(Theme.layer(Theme.surfaceHigh, Theme.text, Theme.stateHover)) : Theme.withBlur(Theme.surfaceHigh))
 
             Behavior on radius {
                 NumberAnimation {
@@ -644,7 +642,7 @@ Item {
                 }
             }
 
-            Behavior on fillColor {
+            Behavior on color {
                 ColorAnimation {
                     duration: Theme.barMs(150)
                 }
