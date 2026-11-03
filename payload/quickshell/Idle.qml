@@ -129,7 +129,7 @@ Singleton {
     function guarded(cmd, allowAcSkip) {
         var skips = [];
         if (Prefs.idleWhileMedia)
-            skips.push("playerctl -as status 2>/dev/null | grep -qx Playing");
+            skips.push("playerctl -as status 2>/dev/null | grep -q '^Playing$'");
 
         if (allowAcSkip && !Prefs.idleSuspendOnAc && root.acOnline !== "")
             skips.push("grep -qx 1 " + root.acOnline);
