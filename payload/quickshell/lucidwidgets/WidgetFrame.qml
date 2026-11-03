@@ -33,6 +33,11 @@ Item {
     }
     readonly property bool locked: frame.pinned || Prefs.widgetLockAll
     readonly property bool onThisScreen: frame.board !== null && (frame.screenName === "" ? frame.board.isPrimary : frame.screenName === frame.board.screenName)
+    // while the pointer holds this card every output has a copy of it. each copy
+    // draws the part that falls on its own board, so the card crosses the seam
+    // whole instead of stopping at the edge of the screen it started on
+    readonly property var carry: Widgets.dragRects[frame.uid]
+    readonly property bool carried: frame.carry !== undefined && frame.carry !== null
     readonly property var variantInfo: Widgets.variantAt(frame.wtype, frame.wvariant)
     // a variant that carries its own size: drag any edge instead of picking S/M/L/XL
     readonly property bool resizable: frame.variantInfo !== null && frame.variantInfo.resizable === true
@@ -47,7 +52,7 @@ Item {
     readonly property int radius: Math.round(Math.min(body.item !== null && body.item.pill === true ? frame.cardH : Theme.radiusXl * frame.zoom, frame.cardH / 2, frame.cardW / 2))
     // the same corner expressed in the body's own unscaled coordinates
     readonly property real bodyRadius: frame.zoom > 0 ? frame.radius / frame.zoom : frame.radius
-    readonly property bool active: frame.hovered || frame.dragging || frame.menuOpen
+    readonly property bool active: frame.hovered || frame.dragging || frame.carried || frame.menuOpen
     // a card leans out under the pointer, as a hint that it is about to be
     // picked up; the drag itself takes it further
     readonly property bool lifting: frame.hovered && !frame.locked && !frame.dragging && !frame.resizing && !frame.closing
@@ -55,7 +60,7 @@ Item {
     readonly property bool bare: body.item !== null && body.item.bare === true
     // ... or for nothing at all. never while you are working on the card, and the
     // fade to zero takes it out of the mask on its own, since visible follows opacity
-    readonly property bool blanked: body.item !== null && body.item.hidden === true && !frame.dragging && !frame.resizing && !frame.menuOpen && !frame.selected
+    readonly property bool blanked: body.item !== null && body.item.hidden === true && !frame.dragging && !frame.carried && !frame.resizing && !frame.menuOpen && !frame.selected
     // the desktop's box is over this card right now; a pinned or unseen card never counts
     readonly property bool marked: {
         var m = Widgets.marquee;
@@ -190,6 +195,33 @@ Item {
         });
     }
 
+    // the card and its crew in the global layout, for the copies on the other
+    // outputs to draw
+    function publishCarry() {
+        var bx = frame.board ? frame.board.screenX : 0;
+        var by = frame.board ? frame.board.screenY : 0;
+        var out = {};
+        out[frame.uid] = {
+            "x": bx + frame.dragX,
+            "y": by + frame.dragY,
+            "w": frame.width,
+            "h": frame.height
+        };
+        for (var i = 0; i < frame.crew.length; i++) {
+            var c = frame.crew[i];
+            if (!c)
+                continue;
+
+            out[c.uid] = {
+                "x": bx + c.dragX,
+                "y": by + c.dragY,
+                "w": c.width,
+                "h": c.height
+            };
+        }
+        Widgets.dragRects = out;
+    }
+
     function beginDrag(mx, my) {
         // a card outside the selection moves on its own and lets the rest go
         if (!frame.selected)
@@ -231,6 +263,7 @@ Item {
         if (frame.board)
             frame.board.dragFrame = frame;
 
+        publishCarry();
         Widgets.dragUid = frame.uid;
         Widgets.raise(frame.uid);
     }
@@ -239,15 +272,33 @@ Item {
         if (!frame.dragging)
             return ;
 
+        // the pointer may sit over another output now. snapping to the board it
+        // started on would drag the card back to that screen's edges, so the
+        // card only snaps while the pointer is still over its own board
+        var crossing = false;
         if (frame.board) {
             var at = frame.mapToItem(frame.board, mx, my);
             frame.pointerX = at.x;
             frame.pointerY = at.y;
+            var target = Widgets.screenAt(frame.board.screenX + at.x, frame.board.screenY + at.y);
+            crossing = target !== null && target.name !== frame.board.screenName;
         }
-        var snapped = frame.snapTo(frame.dragX + (mx - frame.grabX), frame.dragY + (my - frame.grabY));
+        var rawX = frame.dragX + (mx - frame.grabX);
+        var rawY = frame.dragY + (my - frame.grabY);
+        var snapped;
+        if (crossing) {
+            frame.guideX = -1;
+            frame.guideY = -1;
+            snapped = {
+                "x": rawX,
+                "y": rawY
+            };
+        } else {
+            snapped = frame.snapTo(rawX, rawY);
+        }
         var dx = snapped.x - frame.homeX;
         var dy = snapped.y - frame.homeY;
-        if (frame.board) {
+        if (frame.board && !crossing) {
             // the group stops at an edge as one, so its shape never changes
             var l = frame.homeX;
             var t = frame.homeY;
@@ -276,6 +327,7 @@ Item {
             m.dragX = m.homeX + dx;
             m.dragY = m.homeY + dy;
         }
+        publishCarry();
         Widgets.setLive(frame.uid, frame.dragX, frame.dragY, frame.width, frame.height);
     }
 
@@ -285,6 +337,17 @@ Item {
 
         var binned = frame.overBin;
         var crew = frame.crew;
+        var carry = Widgets.dragRects;
+        var originX = frame.board ? frame.board.screenX : 0;
+        var originY = frame.board ? frame.board.screenY : 0;
+        // the pointer decides the output; a click that never moved leaves it on
+        // the card's own centre
+        var gx = frame.pointerX >= 0 ? originX + frame.pointerX : originX + frame.dragX + frame.width / 2;
+        var gy = frame.pointerY >= 0 ? originY + frame.pointerY : originY + frame.dragY + frame.height / 2;
+        var target = Widgets.screenAt(gx, gy);
+        if (target === null && frame.board)
+            target = Widgets.screenNamed(frame.board.screenName);
+
         frame.crew = [];
         frame.dragging = false;
         frame.guideX = -1;
@@ -299,6 +362,7 @@ Item {
         frame.pointerY = -1;
         // dropped on the panel: the card and whatever rode along with it go
         if (binned) {
+            Widgets.dragRects = ({});
             for (var b = 0; b < crew.length; b++) {
                 if (crew[b]) {
                     crew[b].dragging = false;
@@ -309,15 +373,48 @@ Item {
             Widgets.close(frame.uid);
             return ;
         }
-        Widgets.setPos(frame.uid, frame.dragX, frame.dragY);
-        for (var i = 0; i < crew.length; i++) {
-            var c = crew[i];
-            if (!c)
-                continue;
+        // the whole group lands on the output under the pointer, keeping the
+        // shape it had while it was carried there
+        if (frame.board && target !== null) {
+            var mine = carry[frame.uid];
+            if (!mine)
+                mine = {
+                "x": originX + frame.dragX,
+                "y": originY + frame.dragY,
+                "w": frame.width,
+                "h": frame.height
+            };
 
-            Widgets.setPos(c.uid, c.dragX, c.dragY);
-            c.dragging = false;
+            Widgets.placeOn(frame.uid, target, mine.x, mine.y, mine.w || frame.width, mine.h || frame.height);
+            for (var i = 0; i < crew.length; i++) {
+                var c = crew[i];
+                if (!c)
+                    continue;
+
+                var theirs = carry[c.uid];
+                if (!theirs)
+                    theirs = {
+                    "x": originX + c.dragX,
+                    "y": originY + c.dragY,
+                    "w": c.width,
+                    "h": c.height
+                };
+
+                Widgets.placeOn(c.uid, target, theirs.x, theirs.y, theirs.w || c.width, theirs.h || c.height);
+                c.dragging = false;
+            }
+        } else {
+            Widgets.setPos(frame.uid, frame.dragX, frame.dragY);
+            for (var j = 0; j < crew.length; j++) {
+                var m = crew[j];
+                if (!m)
+                    continue;
+
+                Widgets.setPos(m.uid, m.dragX, m.dragY);
+                m.dragging = false;
+            }
         }
+        Widgets.dragRects = ({});
         // a click that went nowhere lets the selection go
         if (frame.dragX === frame.homeX && frame.dragY === frame.homeY)
             Widgets.clearSelection();
@@ -443,14 +540,14 @@ Item {
     readonly property real pinBadgeW: pinBadge.width
     readonly property real pinBadgeH: pinBadge.height
 
-    visible: frame.onThisScreen && frame.opacity > 0.01
+    visible: (frame.onThisScreen || frame.carried) && frame.opacity > 0.01
     width: frame.cardW
     height: frame.cardH
     z: frame.zOrder
-    x: frame.resizing ? frame.resX : (frame.dragging ? frame.dragX : frame.clampX(frame.wx))
-    y: frame.resizing ? frame.resY : (frame.dragging ? frame.dragY : frame.clampY(frame.wy))
+    x: frame.resizing ? frame.resX : (frame.carried && frame.board ? frame.carry.x - frame.board.screenX : frame.clampX(frame.wx))
+    y: frame.resizing ? frame.resY : (frame.carried && frame.board ? frame.carry.y - frame.board.screenY : frame.clampY(frame.wy))
     opacity: (frame.closing || frame.blanked) ? 0 : (frame.appeared ? (frame.overBin ? 0.4 : 1) : 0)
-    scale: frame.closing ? 0.9 : (frame.appeared ? (frame.overBin ? 0.94 : (frame.dragging ? 1.025 : (frame.lifting ? 1.0125 : 1))) : (frame.landed ? 1 : (frame.born ? 0.86 : 0.97)))
+    scale: frame.closing ? 0.9 : (frame.appeared ? (frame.overBin ? 0.94 : (frame.carried ? 1.025 : (frame.lifting ? 1.0125 : 1))) : (frame.landed ? 1 : (frame.born ? 0.86 : 0.97)))
 
     property bool appeared: false
 
@@ -638,7 +735,7 @@ Item {
                 smoothing: Prefs.squircleF
                 // a pinned card cannot be moved or resized, so it gets no hover chrome
                 // at all - on a bare full-width one this tint was a stray rectangle
-                opacity: frame.locked ? 0 : (frame.dragging ? 0.07 : (frame.active ? 0.035 : 0))
+                opacity: frame.locked ? 0 : (frame.carried ? 0.07 : (frame.active ? 0.035 : 0))
 
                 Behavior on opacity {
                     NumberAnimation {
@@ -824,7 +921,7 @@ Item {
     Item {
         id: removeBadge
 
-        readonly property bool shown: (frame.editMode || frame.selected) && !frame.closing && !frame.dragging && !frame.resizing
+        readonly property bool shown: (frame.editMode || frame.selected) && !frame.closing && !frame.dragging && !frame.carried && !frame.resizing
 
         z: 9
         width: Theme.dp(26)

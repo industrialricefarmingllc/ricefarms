@@ -34,6 +34,11 @@ IpcHandler {
         Widgets.togglePinned(uid);
     }
 
+    // keep the card on every wallpaper; each wallpaper still moves it on its own
+    function everywhere(uid: string): void {
+        Widgets.toggleEverywhere(uid);
+    }
+
     function set(uid: string, key: string, value: string): void {
         var v = value === "true" ? true : (value === "false" ? false : value);
         Widgets.setOption(uid, key, v);
@@ -107,7 +112,7 @@ IpcHandler {
         var out = [];
         for (var i = 0; i < Widgets.model.count; i++) {
             var e = Widgets.model.get(i);
-            out.push(e.uid + "  " + e.wtype + "/" + e.wvariant + "  " + Math.round(e.wx) + "," + Math.round(e.wy) + (e.pinned ? "  pinned" : ""));
+            out.push(e.uid + "  " + e.wtype + "/" + e.wvariant + "  " + Math.round(e.wx) + "," + Math.round(e.wy) + (e.pinned ? "  pinned" : "") + (e.everywhere ? "  everywhere" : ""));
         }
         return out.length > 0 ? out.join("\n") : "no widgets on the desktop";
     }

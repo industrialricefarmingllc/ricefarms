@@ -84,6 +84,10 @@ Variants {
                 property string spatialHoverSig: ""
 
                 readonly property string screenName: layer.screen ? layer.screen.name : ""
+                // where this board sits in the global layout, so a card in hand
+                // can be placed across outputs
+                readonly property real screenX: (layer.screen && layer.screen.x !== undefined) ? Number(layer.screen.x) : 0
+                readonly property real screenY: (layer.screen && layer.screen.y !== undefined) ? Number(layer.screen.y) : 0
                 readonly property bool isPrimary: layer.screen !== null && layer.screen === Monitors.mainScreen
                 // the widget panel is open on this screen, and still on its way out
                 readonly property bool panelUp: Widgets.panelScreen !== "" && Widgets.panelScreen === deck.screenName

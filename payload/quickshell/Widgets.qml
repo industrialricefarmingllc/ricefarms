@@ -29,6 +29,10 @@ Singleton {
     // store hears of it: the desktop icons step out of its way as it goes
     property string liveUid: ""
     property rect liveRect: Qt.rect(0, 0, 0, 0)
+    // uid -> {x, y, w, h} in the global layout for every card the pointer is
+    // carrying. the layer on each output draws the part that overlaps it, so a
+    // card can cross a seam while it is in hand
+    property var dragRects: ({})
     // the desktop's selection box while it is out, {screen, x, y, w, h} in board coords
     property var marquee: null
     // uid -> true for every card the box caught; they drag as one
@@ -1636,6 +1640,43 @@ Singleton {
         return scr !== null && scr.name === name;
     }
 
+    // the output a point in the global layout lands on. points in the gap
+    // between two outputs fall back to the nearest one, so a drop always has
+    // somewhere to go
+    function screenAt(x, y) {
+        var list = Quickshell.screens;
+        for (var i = 0; i < list.length; i++) {
+            var s = list[i];
+            // the live-capture outputs are not places a card can live
+            if (String(s.name || "").indexOf("HEADLESS") === 0)
+                continue;
+
+            var sx = (s.x !== undefined) ? Number(s.x) : 0;
+            var sy = (s.y !== undefined) ? Number(s.y) : 0;
+            if (x >= sx && x < sx + s.width && y >= sy && y < sy + s.height)
+                return s;
+
+        }
+        var best = null;
+        var bestD = Infinity;
+        for (var j = 0; j < list.length; j++) {
+            var t = list[j];
+            if (String(t.name || "").indexOf("HEADLESS") === 0)
+                continue;
+
+            var tx = (t.x !== undefined) ? Number(t.x) : 0;
+            var ty = (t.y !== undefined) ? Number(t.y) : 0;
+            var dx = x - (tx + t.width / 2);
+            var dy = y - (ty + t.height / 2);
+            var d = dx * dx + dy * dy;
+            if (d < bestD) {
+                bestD = d;
+                best = t;
+            }
+        }
+        return best;
+    }
+
     // where a card dragged to nx, ny settles: the screen's edges and centre lines and
     // the other cards' edges, centres and a gap beside them. `others` are items with
     // x, y, width, height. gx/gy are the guide lines to draw, -1 for none
@@ -1866,6 +1907,30 @@ Singleton {
         root.save();
     }
 
+    // a card let go on another output: its place is now local to that screen,
+    // and the primary one keeps the empty name that follows the main display
+    function placeOn(uid, scr, gx, gy, w, h) {
+        var i = root.indexOf(uid);
+        if (i < 0 || !scr)
+            return ;
+
+        var prime = root.primaryScreen();
+        var name = (prime !== null && prime.name === scr.name) ? "" : scr.name;
+        var sx = (scr.x !== undefined) ? Number(scr.x) : 0;
+        var sy = (scr.y !== undefined) ? Number(scr.y) : 0;
+        var x = Math.round(Math.max(0, Math.min(scr.width - w, gx - sx)));
+        var y = Math.round(Math.max(0, Math.min(scr.height - h, gy - sy)));
+        var e = instances.get(i);
+        if (e.screenName === name && e.wx === x && e.wy === y)
+            return ;
+
+        instances.setProperty(i, "screenName", name);
+        instances.setProperty(i, "wx", x);
+        instances.setProperty(i, "wy", y);
+        root.edited();
+        root.save();
+    }
+
     function setPinned(uid, v) {
         var i = root.indexOf(uid);
         if (i < 0)
@@ -1894,19 +1959,8 @@ Singleton {
             return ;
 
         instances.setProperty(i, "everywhere", on);
-        var card = root.entryOf(instances.get(i));
         if (on) {
             root.rememberEverywhere(instances.get(i));
-            // every board already visited gets a copy of it now. the current
-            // board keeps its live copy; the others each keep their own place
-            var next = Object.assign({}, root.boards);
-            for (var key in next) {
-                if (key === root.boardKey)
-                    continue;
-
-                next[key] = root.boardWithCard(next[key], card);
-            }
-            root.boards = next;
         } else {
             root.forgetEverywhere(uid);
             var after = Object.assign({}, root.boards);
@@ -2264,33 +2318,6 @@ Singleton {
         root.everywhereCards = list;
     }
 
-    // one board's copy, keeping the place it already has there
-    function boardWithCard(b, card) {
-        var src = (b && Array.isArray(b.instances)) ? b.instances : [];
-        var list = [];
-        var at = -1;
-        for (var i = 0; i < src.length; i++) {
-            var copy = root.copyCard(src[i]);
-            if (copy.uid === card.uid)
-                at = i;
-            list.push(copy);
-        }
-        if (at >= 0) {
-            list[at].everywhere = true;
-        } else {
-            var added = root.copyCard(card);
-            added.everywhere = true;
-            list.push(added);
-        }
-        return Object.assign({}, b || {
-            "stash": [],
-            "last": [],
-            "preset": ""
-        }, {
-            "instances": list
-        });
-    }
-
     function boardWithoutCard(b, uid) {
         if (!b)
             return b;
@@ -2351,6 +2378,7 @@ Singleton {
         root.menuUid = "";
         root.editUid = "";
         root.dragUid = "";
+        root.dragRects = ({});
         root.liveUid = "";
         root.landingUid = "";
         root.spotUid = "";
@@ -2367,14 +2395,37 @@ Singleton {
             root.refreshDesktop();
             return ;
         }
+        var byUid = {};
+        for (var s = 0; s < shared.length; s++) byUid[shared[s].uid] = shared[s]
         var list = Array.isArray(b.instances) ? b.instances : [];
         var present = {};
         for (var i = 0; i < list.length; i++) {
-            root.appendEntry(list[i]);
-            present[list[i].uid] = true;
+            var e = list[i];
+            var base = byUid[e.uid];
+            if (base === undefined) {
+                // a stale shared mark on a card nobody shares any more: keep the
+                // card where it is on this wallpaper, but stop treating it as shared
+                if (e.everywhere === true) {
+                    var local = root.copyCard(e);
+                    local.everywhere = false;
+                    root.appendEntry(local);
+                } else {
+                    root.appendEntry(e);
+                }
+            } else {
+                // the widget itself follows the shared copy; its place on this
+                // wallpaper stays where it was
+                var placed = root.copyCard(base);
+                placed.wx = typeof e.wx === "number" ? e.wx : base.wx;
+                placed.wy = typeof e.wy === "number" ? e.wy : base.wy;
+                placed.zOrder = e.zOrder !== undefined ? e.zOrder : base.zOrder;
+                placed.screenName = e.screenName !== undefined ? e.screenName : base.screenName;
+                placed.everywhere = true;
+                root.appendEntry(placed);
+            }
+            present[e.uid] = true;
         }
-        // a board first seen before a card was shared, or one that was saved
-        // between the two writes, still gets it
+        // a board first seen before a card was shared gets it where it was last seen
         for (var j = 0; j < shared.length; j++) {
             if (present[shared[j].uid] !== true)
                 root.appendEntry(shared[j]);
@@ -2382,10 +2433,6 @@ Singleton {
         root.stash = Array.isArray(b.stash) ? b.stash : [];
         root.lastLayout = Array.isArray(b.last) ? b.last : [];
         root.presetId = (typeof b.preset === "string" && root.presetAt(b.preset) !== null) ? b.preset : "";
-        for (var k = 0; k < instances.count; k++) {
-            if (root.everywhereIndex(instances.get(k).uid) >= 0 && instances.get(k).everywhere !== true)
-                instances.setProperty(k, "everywhere", true);
-        }
         root.refreshDesktop();
     }
 

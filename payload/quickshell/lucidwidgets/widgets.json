@@ -1,9 +1,9 @@
 {
   "version": 2,
-  "nextId": 128,
+  "nextId": 130,
   "boardFull": true,
   "laidScale": 1,
-  "current": "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-vpq7m8.png",
+  "current": "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-zpvrrj.jpg",
   "boards": {
     "/home/nicerice/Pictures/wallpapers/matugen/wallpaper721.png": {
       "instances": [
@@ -2568,70 +2568,5 @@
   "saved": [],
   "last": [],
   "stash": [],
-  "instances": [
-    {
-      "uid": "w106",
-      "type": "visualiser",
-      "variant": "mirror",
-      "wx": 620,
-      "wy": 706,
-      "bw": 680,
-      "bh": 160,
-      "pinned": false,
-      "everywhere": false,
-      "zoom": 1,
-      "zOrder": 18,
-      "screenName": "",
-      "opts": {
-        "density": "normal",
-        "tint": "accent",
-        "frost": true,
-        "rounded": true,
-        "flip": false,
-        "idleFade": true,
-        "tone": "auto"
-      }
-    },
-    {
-      "uid": "w119",
-      "type": "mesh",
-      "variant": "studio",
-      "wx": 1452,
-      "wy": 329,
-      "bw": 320,
-      "bh": 300,
-      "pinned": false,
-      "everywhere": false,
-      "zoom": 1,
-      "zOrder": 89,
-      "screenName": "",
-      "opts": {
-        "engine": "local",
-        "prompts": "Boy",
-        "tone": "auto",
-        "last": "/run/media/veracrypt3/5f793d5a15cdf2.jpg",
-        "view": "list"
-      }
-    },
-    {
-      "uid": "w120",
-      "type": "thermal",
-      "variant": "detail",
-      "wx": 1452,
-      "wy": 645,
-      "bw": 320,
-      "bh": 236,
-      "pinned": false,
-      "everywhere": false,
-      "zoom": 1,
-      "zOrder": 88,
-      "screenName": "",
-      "opts": {
-        "showFans": true,
-        "showControls": true,
-        "interval": "2",
-        "tone": "auto"
-      }
-    }
-  ]
+  "instances": []
 }
