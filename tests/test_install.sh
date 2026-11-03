@@ -431,12 +431,9 @@ else PASS=$((PASS+1)); echo "ok - no API keys in git history"; fi
 
 echo "== 12. phase E: matugen =="
 assert_true "phase_matugen exists" declare -F phase_matugen
-assert_true "install_matugen_wallpapers exists" declare -F install_matugen_wallpapers
-mkdir -p "$FAKE_PAYLOAD/matugen/templates" "$FAKE_PAYLOAD/hypr-wallpapers" "$FAKE_PAYLOAD/wallpapers-matugen"
-echo "toml" > "$FAKE_PAYLOAD/matugen/config.toml"; echo "img" > "$FAKE_PAYLOAD/wallpapers-matugen/a.jpg"
+mkdir -p "$FAKE_PAYLOAD/matugen/templates"
+echo "toml" > "$FAKE_PAYLOAD/matugen/config.toml"
 DRY_RUN=1; assert_true "phase_matugen dry-run" phase_matugen; DRY_RUN=0
-install_matugen_wallpapers
-assert_true "wallpaper installed" test -f "$FAKE_HOME/Pictures/wallpapers/matugen/a.jpg"
 assert_true "real matugen config exists" test -f "$REPO_DIR/payload/matugen/config.toml"
 assert_file_has "matugen has kitty template" "$REPO_DIR/payload/matugen/config.toml" "kitty"
 assert_true "matugen templates non-empty" test -n "$(ls -A "$REPO_DIR/payload/matugen/templates")"
@@ -486,8 +483,9 @@ assert_file_has "install enables auto-brightness" "$REPO_DIR/install.sh" "auto-b
 assert_file_has "install enables skwd-walld" "$REPO_DIR/install.sh" "skwd-walld.service"
 assert_file_has "packages include skwd" "$REPO_DIR/install.sh" "skwd-deck"
 assert_true "payload-large README exists" test -f "$REPO_DIR/payload-large/README.md"
+assert_true "wallpapers are not tracked" test ! -e "$REPO_DIR/payload-large/wallpapers-matugen.tar.zst"
 assert_file_has "gitattributes LFS-tracks tarballs" "$REPO_DIR/.gitattributes" "payload-large/*.tar.zst filter=lfs"
-for _tb in wallpapers-matugen.tar.zst bucklespring-kalih-box-white.tar.zst zed-custom.tar.zst; do
+for _tb in bucklespring-kalih-box-white.tar.zst zed-custom.tar.zst; do
   # NOTE: working tree holds real binaries; the committed form is the LFS
   # pointer in the index — assert on staged content, not the file.
   # NOTE: tests mock $PATH git — use the real binary for index inspection.

@@ -105,7 +105,7 @@ Layout:
       hypr/ (hyprland.lua, custom.lua, shader.lua, *.conf, shaders/, scripts/)
       quickshell/ (lucid shell.qml + lucid*/), lucid/, lucid-capture/ (src, NOT .so — rebuilt)
       pibble/ (full dir, no build needed)
-      kitty/, nvim/, zed-config/, matugen/, wallpapers-matugen/ (FULL ~50 files), hypr-wallpapers/
+      kitty/, nvim/, zed-config/, matugen/ (FULL ~50 files)
       zsh/{.zshrc,.zshenv,.zprofile}, bash/{.bashrc,.bash_profile,.profile}, Xresources, pam_environment, tmux/{.tmux.conf}, gitignore
       local-bin/ (scripts, NOT ELFs — ELFs rebuilt/copied as tarballs), home-scripts/ (~60 *.sh)
       systemd-user/ (*.service/path/timer), pipewire/, wireplumber/, vac-gui/, bucklespring.service
@@ -113,8 +113,9 @@ Layout:
       manifests/packages-arch.txt, zed-pin.txt (commit ee5cdf5), fonts.txt
       bucklespring-sounds-manifest.txt (banks listed; tarballs external due size — installer rsyncs or rebuilds)
     payload-large/ (Git LFS-tracked via .gitattributes, cloned automatically:
-      wallpapers-matugen.tar.zst ~697M, zed-custom.tar.zst ~113M,
-      bucklespring-kalih-box-white.tar.zst ~1M)
+      zed-custom.tar.zst ~113M, bucklespring-kalih-box-white.tar.zst ~1M)
+      Wallpapers are NOT synced (no tarball, no payload/hypr-wallpapers):
+      keep ~/Pictures/wallpapers/matugen local, it is the slowest part of a pull.
     NOTE 2026-10-17: payload-large was gitignored at first (usb/rsync plan),
       then moved to Git LFS per user request so `git clone` fully replicates.
       Plain git can't hold these (GitHub rejects files >100MB).

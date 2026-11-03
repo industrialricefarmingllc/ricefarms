@@ -684,11 +684,9 @@ install_opencode() {
 
 # ------------------------------------------------------ e) matugen/wallpaper --
 phase_matugen() {
-  info "phase E: matugen + wallpapers"
+  info "phase E: matugen (wallpapers are not synced; keep your own set)"
   local P="$PAYLOAD_DIR"
   install_dir "$P/matugen" "$TARGET_HOME/.config/matugen"
-  install_dir "$P/hypr-wallpapers" "$TARGET_HOME/.config/hypr/wallpapers"
-  install_matugen_wallpapers
   # re-apply current wallpaper state + theme (idempotent)
   if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: matugen image <current> + wallpaper-restore.sh";
   else
@@ -698,18 +696,6 @@ phase_matugen() {
     if command -v matugen >/dev/null 2>&1 && [[ -f "$TARGET_HOME/.config/hypr/current_wallpaper" ]]; then
       run_cmd matugen image "$(cat "$TARGET_HOME/.config/hypr/current_wallpaper")" || warn "matugen apply failed (ok on headless target)"
     fi
-  fi
-}
-
-install_matugen_wallpapers() {
-  local P="$PAYLOAD_DIR"
-  if [[ -f "$LARGE_DIR/wallpapers-matugen.tar.zst" ]]; then
-    if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: extract wallpapers-matugen.tar.zst -> ~/Pictures/wallpapers/matugen/";
-    else mkdir -p "$TARGET_HOME/Pictures/wallpapers/matugen"; tar --zstd -xf "$LARGE_DIR/wallpapers-matugen.tar.zst" -C "$TARGET_HOME/Pictures/wallpapers/matugen/"; fi
-  elif [[ -d "$P/wallpapers-matugen" && -n "$(ls -A "$P/wallpapers-matugen" 2>/dev/null)" ]]; then
-    install_dir "$P/wallpapers-matugen" "$TARGET_HOME/Pictures/wallpapers/matugen"
-  else
-    warn "no matugen wallpapers in payload (expected payload-large/wallpapers-matugen.tar.zst). Copy ~/Pictures/wallpapers/matugen from source via rsync/usb."
   fi
 }
 
@@ -978,10 +964,9 @@ export_payload() {
     sed -i 's/ctx7sk-[A-Za-z0-9-]*/${CONTEXT7_API_KEY}/g; s/sk-ant-[A-Za-z0-9-]*/${ANTHROPIC_API_KEY}/g' "$P/opencode-home/opencode.json" 2>/dev/null || true
     log "export-dir: .opencode -> payload/opencode-home (pruned, redacted)"
   fi
-  # e) matugen + wallpapers state
+  # e) matugen state (wallpapers are deliberately not exported or tracked)
   export_dir "$S/.config/matugen" "$P/matugen"
   prune_export_junk "$P/matugen"
-  export_dir "$S/.config/hypr/wallpapers" "$P/hypr-wallpapers"
   # f) tmux resurrect snapshot (latest only, small)
   if [[ -d "$S/.local/share/tmux/resurrect" ]]; then
     mkdir -p "$P/tmux-resurrect"
@@ -994,9 +979,6 @@ export_payload() {
   mkdir -p "$P"
   # ---- large tarballs (NOT for git; copy via usb/rsync) ----
   info "building large tarballs (may take a while)..."
-  if [[ -d "$S/Pictures/wallpapers/matugen" ]]; then
-    tar --zstd -cf "$LARGE_DIR/wallpapers-matugen.tar.zst" -C "$S/Pictures/wallpapers/matugen" . && log "large: wallpapers-matugen.tar.zst $(du -sh "$LARGE_DIR/wallpapers-matugen.tar.zst" | cut -f1)"
-  fi
   if [[ -d "$S/.local/share/bucklespring/kalih-box-white" ]]; then
     tar --zstd -cf "$LARGE_DIR/bucklespring-kalih-box-white.tar.zst" -C "$S/.local/share/bucklespring" kalih-box-white && log "large: bucklespring tarball done"
   fi
@@ -1009,9 +991,10 @@ export_payload() {
 # payload-large — Git LFS-tracked (see ../.gitattributes)
 # `git clone` smudges these automatically; run `git lfs pull` if it skipped.
 # Keep the same relative path: <repo>/payload-large/
-- wallpapers-matugen.tar.zst  (~/Pictures/wallpapers/matugen, ~750M)
 - bucklespring-kalih-box-white.tar.zst (~/.local/share/bucklespring, ~17M)
 - zed-custom.tar.zst          (/usr/lib/zed + /usr/bin/zeditor, ~350M)
+# Wallpapers are intentionally NOT synced: keep your own set under
+# ~/Pictures/wallpapers/matugen and point current_wallpaper at it.
 EOF
   info "export complete. Review with: git -C $REPO_DIR status --short | head -50"
 }

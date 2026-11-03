@@ -86,8 +86,8 @@ On the SOURCE machine (re-snapshot after rice changes):
 
 ## Large binaries (payload-large/, Git LFS)
 
-Wallpapers + zed binaries are too big for plain git (GitHub hard-rejects
-files >100MB), so they live in `payload-large/` tracked via **Git LFS**.
+Zed + buckle binaries are too big for plain git (GitHub hard-rejects files
+>100MB), so they live in `payload-large/` tracked via **Git LFS**.
 A plain clone replicates everything — no USB/rsync needed:
 
 ```bash
@@ -96,12 +96,15 @@ cd ~/src/ricefarms && git lfs pull      # if your clone skipped them
 ./install.sh --yes
 ```
 
-- `wallpapers-matugen.tar.zst` (~700M → `~/Pictures/wallpapers/matugen`)
 - `bucklespring-kalih-box-white.tar.zst` (~17M → `~/.local/share/bucklespring`)
 - `zed-custom.tar.zst` (~350M → `/usr/lib/zed` + `/usr/bin/zeditor`)
 
-Without them the installer warns and falls back (rebuild zed from pinned
-commit in `payload/zed-pin.txt` — ~30min; rsync wallpapers manually).
+Wallpapers are intentionally **not** synced: keep your own set under
+`~/Pictures/wallpapers/matugen` and point `~/.config/hypr/current_wallpaper`
+at it. This keeps clones/pulls small.
+
+Without the tarballs the installer warns and falls back (rebuild zed from the
+pinned commit in `payload/zed-pin.txt` — ~30min).
 
 ## Tests
 
