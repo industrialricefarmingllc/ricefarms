@@ -1,6 +1,7 @@
 #include "BorderGlass.hpp"
 #include "Config.hpp"
 #include "Shaders.hpp"
+#include "WindowGlass.hpp"
 
 #include <GLES3/gl32.h>
 #include <hyprland/src/render/Renderer.hpp>
@@ -41,10 +42,12 @@ struct SRingU {
     GLint proj = -1, blur = -1, inner = -1, quad = -1, thick = -1, round = -1;
     GLint tint = -1, tint2 = -1, lerp = -1, tintMix = -1, a = -1;
     GLint throwMax = -1, winSize = -1, winR = -1, shape = -1;
-    GLint lA = -1, lB = -1, lC = -1, lD = -1, lFPower = -1;
+    GLint lA = -1, lB = -1, lC = -1, lD = -1, lFPower = -1, logCME = -1;
     GLint glowW = -1, glowE0 = -1, glowE1 = -1, glowT = -1, glowBias = -1;
     GLint radii = -1, useRadii = -1, winRadii = -1, fadeTop = -1, fadeMid = -1, fadeBottom = -1, fadeAng = -1;
+    GLint squircleF = -1;
     GLint frameEnable = -1, frameScale = -1, seed = -1, frieze = -1, gilt = -1, relief = -1;
+    GLint rimLight = -1, rimStrength = -1, rimWidth = -1, rimAngle = -1, rimSplay = -1, rimShade = -1;
     GLint shCol = -1, shA = -1, shOff = -1, shBlur = -1;
     GLint flare = -1, push = -1;
 } s_ru;
@@ -127,6 +130,7 @@ void ensure() {
     s_ru.lC = loc(rp, "uLC");
     s_ru.lD = loc(rp, "uLD");
     s_ru.lFPower = loc(rp, "uLFPower");
+    s_ru.logCME = loc(rp, "uLogCME");
     s_ru.glowW = loc(rp, "uGlowW");
     s_ru.glowE0 = loc(rp, "uGlowE0");
     s_ru.glowE1 = loc(rp, "uGlowE1");
@@ -135,6 +139,7 @@ void ensure() {
     s_ru.radii = loc(rp, "uRadii");
     s_ru.useRadii = loc(rp, "uUseRadii");
     s_ru.winRadii = loc(rp, "uWinRadii");
+    s_ru.squircleF = loc(rp, "uSquircleF");
     s_ru.fadeTop = loc(rp, "uFadeTop");
     s_ru.fadeMid = loc(rp, "uFadeMid");
     s_ru.fadeBottom = loc(rp, "uFadeBottom");
@@ -145,6 +150,12 @@ void ensure() {
     s_ru.frieze = loc(rp, "uFrieze");
     s_ru.gilt = loc(rp, "uGilt");
     s_ru.relief = loc(rp, "uRelief");
+    s_ru.rimLight = loc(rp, "uRimLight");
+    s_ru.rimStrength = loc(rp, "uRimStrength");
+    s_ru.rimWidth = loc(rp, "uRimWidth");
+    s_ru.rimAngle = loc(rp, "uRimAngle");
+    s_ru.rimSplay = loc(rp, "uRimSplay");
+    s_ru.rimShade = loc(rp, "uRimShade");
     s_ru.shCol = loc(rp, "uShadowColor");
     s_ru.shA = loc(rp, "uShadowA");
     s_ru.shOff = loc(rp, "uShadowOff");
@@ -281,12 +292,32 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     if (!monitor)
         return false;
 
+    // A glassed window already carries the Apple rim inside its glass pane
+    // (glass.frag glass_rim). Don't draw a second rim in the outside border
+    // band. Callers still cancel the flat native border, so the pane's own
+    // edge is the only edge treatment here.
+    if (lg::glassWindowBorderAt(box, monitor))
+        return false;
+
     CBox newBox = box;
     ctx.m_data.renderModif.applyToBox(newBox);
     int scaledBorder = (int)std::round(borderSize * monitor->m_scale);
     scaledBorder = (int)std::round(scaledBorder * ctx.m_data.renderModif.combinedScale());
     if (scaledBorder < 1)
         return false;
+
+    // Apple rim light: draw a slightly wider band than the native hairline so
+    // the lit line and its inner falloff have room. This overlays at most
+    // (rim_width - border_size) logical px of window content, which is the
+    // glass edge rather than the window body. rim_width 0 keeps the old band.
+    const bool rimLight = lg::getInt("plugin:liquidglass:rim_light", 1) == 1;
+    if (rimLight) {
+        const float rimLogical = std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_width", 1.75f));
+        const float rimPx = rimLogical * (float)monitor->m_scale * ctx.m_data.renderModif.combinedScale();
+        if (rimPx > (float)scaledBorder)
+            scaledBorder = (int)std::ceil(rimPx);
+    }
+
     newBox.x -= scaledBorder;
     newBox.y -= scaledBorder;
     newBox.w += 2 * scaledBorder;
@@ -357,17 +388,13 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     if (!s_halfA->getTexture() || !s_halfB->getTexture() || !s_halfC->getTexture())
         return false;
 
-    // Size-proportional blur, same rule as the pills: windows are large so
-    // they converge to the full setting; small dialogs stay sharper.
-    // Radius is resolution-proportional (x monitor scale): a scale-blind
-    // framebuffer-px spread reads ~half as strong on a 2.4x 4K panel as on
-    // the 1.6x primary for same-size windows.
+    // Blur radius is the user setting regardless of window size, same as the
+    // glass body. Radius is still resolution-proportional (x monitor scale):
+    // a scale-blind framebuffer-px spread reads ~half as strong on a 2.4x 4K
+    // panel as on the 1.6x primary for same-size windows.
     const float userRadius = lg::getFloat("plugin:liquidglass:blur_radius", 2.0f);
     const int userPasses = std::max(1, std::min(3, (int)std::round(lg::getFloat("plugin:liquidglass:blur_iters", 2.0f))));
-    const double screenMinLog = std::min(monitor->m_size.x, monitor->m_size.y);
-    const double winMinLog = (double)std::min(box.w, box.h) / (double)monitor->m_scale;
-    const float sizeK = (float)std::clamp(winMinLog / screenMinLog, 0.0, 1.0);
-    const float radius = userRadius * sizeK * lg::getFloat("plugin:liquidglass:border_blur_scale", 0.0f);
+    const float radius = userRadius * lg::getFloat("plugin:liquidglass:border_blur_scale", 0.0f);
     const int passes = radius < 0.05f ? 0 : userPasses;
     const float effR = radius * std::sqrt((float)userPasses) * 0.5f * (float)monitor->m_scale;
     const float bokeh = lg::getFloat("plugin:liquidglass:bokeh", 0.0f);
@@ -444,19 +471,33 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     glUniform3f(s_ru.tint, (float)col0.r, (float)col0.g, (float)col0.b);
     glUniform3f(s_ru.tint2, (float)col1.r, (float)col1.g, (float)col1.b);
     glUniform1f(s_ru.lerp, lerp);
-    glUniform1f(s_ru.tintMix, lg::getFloat("plugin:liquidglass:opacity", 0.82f));
+    glUniform1f(s_ru.tintMix, lg::getFloat("plugin:liquidglass:opacity", 0.23f));
     glUniform1f(s_ru.a, a);
     glUniform2f(s_ru.winSize, (float)box.w, (float)box.h);
     glUniform1f(s_ru.winR, (float)winRoundFb);
+    // Window path: use the same corner smoothing as the window glass body
+    // (window_squircle_f, else the shared squircle_f). Those are what
+    // glass.frag uses for the pane and what hyprland.lua mirrors into
+    // decoration:rounding_power, so the ring hugs the content/glass edge
+    // instead of the old always-circular assumption. f = 0 keeps the exact
+    // circular box.
+    {
+        float wsf = lg::getFloat("plugin:liquidglass:window_squircle_f", -1.0f);
+        if (wsf < 0.0f)
+            wsf = lg::getFloat("plugin:liquidglass:squircle_f", 0.5f);
+        glUniform1f(s_ru.squircleF, std::clamp(wsf, 0.0f, 1.0f));
+    }
     // Original lens curve: the pill keys (one material), except D which is
     // border-owned (border_d) — rims want a steeper profile than bodies.
     glUniform2f(s_ru.shape, lg::getFloat("plugin:liquidglass:shape_width", 3.5f),
                 lg::getFloat("plugin:liquidglass:shape_height", 3.5f));
     glUniform1f(s_ru.lA, lg::getFloat("plugin:liquidglass:a", 0.7f));
     glUniform1f(s_ru.lB, lg::getFloat("plugin:liquidglass:b", 2.3f));
-    glUniform1f(s_ru.lC, lg::getFloat("plugin:liquidglass:c", 5.2f));
+    const float lensC = lg::getFloat("plugin:liquidglass:c", 5.2f);
+    glUniform1f(s_ru.lC, lensC);
     glUniform1f(s_ru.lD, lg::getFloat("plugin:liquidglass:border_d", 30.0f));
     glUniform1f(s_ru.lFPower, lg::getFloat("plugin:liquidglass:fpower", 1.0f));
+    glUniform1f(s_ru.logCME, lensC > 0.001f ? std::log(lensC * 2.718281828459045f) : 0.0f);
     glUniform1f(s_ru.glowW, lg::getFloat("plugin:liquidglass:glow_weight", 0.25f));
     glUniform1f(s_ru.glowE0, lg::getFloat("plugin:liquidglass:glow_edge0", 0.5f));
     glUniform1f(s_ru.glowE1, lg::getFloat("plugin:liquidglass:glow_edge1", -0.5f));
@@ -472,13 +513,21 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     glUniform1f(s_ru.fadeBottom, lg::getFloat("plugin:liquidglass:border_fade_bottom", 1.0f));
     glUniform1f(s_ru.fadeAng, lg::getFloat("plugin:liquidglass:border_fade_angle", 33.0f));
     // Picture-frame relief: geometry-hash seed gives per-window variation.
-    glUniform1f(s_ru.frameEnable, (float)lg::getInt("plugin:liquidglass:frame_enable", 1));
+    glUniform1f(s_ru.frameEnable, rimLight ? 0.0f : (float)lg::getInt("plugin:liquidglass:frame_enable", 1));
     glUniform1f(s_ru.frameScale, lg::getFloat("plugin:liquidglass:frame_scale", 1.0f));
     const int seedMode = lg::getInt("plugin:liquidglass:frame_seed_mode", 1);
     glUniform1f(s_ru.seed, seedMode == 1 ? frameSeed(box, lerp) : 0.37f);
     glUniform1f(s_ru.frieze, lg::getFloat("plugin:liquidglass:frame_frieze", -1.0f));
     glUniform1f(s_ru.gilt, lg::getFloat("plugin:liquidglass:frame_gilt", 1.0f));
     glUniform1f(s_ru.relief, lg::getFloat("plugin:liquidglass:frame_relief", 1.0f));
+    // Apple rim light (window path). rim_width is the logical band width;
+    // the line itself takes ~55% of it, floored at one physical pixel.
+    glUniform1f(s_ru.rimLight, rimLight ? 1.0f : 0.0f);
+    glUniform1f(s_ru.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
+    glUniform1f(s_ru.rimWidth, std::max(0.75f, (float)scaledBorder * 0.50f));
+    glUniform1f(s_ru.rimAngle, lg::getFloat("plugin:liquidglass:rim_angle", 135.0f));
+    glUniform1f(s_ru.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
+    glUniform1f(s_ru.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
     // Window drop shadow: same matugen material as the pills, softer alpha.
     glUniform3f(s_ru.shCol, ((shColF >> 24) & 0xFF) / 255.f, ((shColF >> 16) & 0xFF) / 255.f,
                 ((shColF >> 8) & 0xFF) / 255.f);

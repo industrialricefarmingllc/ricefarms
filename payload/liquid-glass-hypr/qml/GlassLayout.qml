@@ -44,6 +44,9 @@ Item {
     id: root
 
     property string name: "unnamed"
+    // Bridge filename prefix. The wash-only publisher uses "liquidwash-" so
+    // the glass plugin (which scans "liquidglass-") ignores its pills.
+    property string filePrefix: "liquidglass-"
     // WlrLayershell.namespace of the window publishing this geometry. The
     // plugin matches it exactly (when the file carries it) *in addition* to
     // the surface size, so a near-identical surface (bar 896 vs an
@@ -79,7 +82,7 @@ Item {
     FileView {
         id: file
 
-        path: root.cacheDir + "/liquidglass-" + root.name + "-" + root.monitorName + ".json"
+        path: root.cacheDir + "/" + root.filePrefix + root.name + "-" + root.monitorName + ".json"
         blockLoading: true
 
         adapter: JsonAdapter {
@@ -94,27 +97,114 @@ Item {
         }
     }
 
-    // Last published geometry signature. Idle re-evaluations that produce
-    // identical geometry skip the file write (no transformation required).
-    // Morph frames publish at most every 16ms: a full debounce would starve
-    // mid-morph (every frame restarts the timer, glass freezes then jumps
-    // late), but 16ms merges only same-frame duplicate publishes at native
-    // frame lag, while halving file I/O, JSON work and plugin re-renders.
-    // Geometry itself is pre-quantized to 0.5px in shell.qml so sub-pixel
-    // float noise can't defeat the signature check.
-    property string _lastSig: ""
+    // Last published geometry, kept as values rather than a serialised
+    // signature. Morph frames publish at most every 4ms: below one frame on a
+    // 165 Hz output, so it only merges duplicate publishes inside the same
+    // frame. At 16ms the glass advanced in ~3-frame steps while the content
+    // (and its mask) moved every frame, which read as a flickering edge once
+    // the rim hairline made it visible.
+    //
+    // The equality check is a field-by-field walk (~0.2 us for six pills), not
+    // a JSON string: stringifying the same list costs ~25 us on V4, and doing
+    // it twice per coalesced frame was the largest fixed cost in the bridge.
+    // The JSON itself is only assembled by the adapter on an actual write.
+    property var _lastPills: []
+    property var _lastMask: ({})
+    property real _lastSurfaceW: -1
+    property real _lastSurfaceH: -1
+    property string _lastNs: ""
+    property string _lastMon: ""
+    property bool _lastFull: false
     property double _lastWriteMs: 0
 
     Timer {
         id: coalesceTimer
 
-        interval: 16
+        interval: 4
         repeat: false
         onTriggered: root.flushPending()
     }
 
-    function doWrite(sig) {
-        root._lastSig = sig;
+    function copyPills(src) {
+        var out = [];
+        if (!Array.isArray(src))
+            return out;
+        for (var i = 0; i < src.length; i++) {
+            var p = src[i];
+            out.push({
+                "x": p.x,
+                "y": p.y,
+                "w": p.w,
+                "h": p.h,
+                "r": p.r ? p.r.slice(0) : [],
+                "sq": p.sq,
+                "fl": p.fl
+            });
+        }
+        return out;
+    }
+
+    function samePills(a, b) {
+        if (!Array.isArray(a) || !Array.isArray(b))
+            return !Array.isArray(a) && !Array.isArray(b);
+        if (a === b)
+            return true;
+        if (!a || !b || a.length !== b.length)
+            return false;
+        for (var i = 0; i < a.length; i++) {
+            var p = a[i], q = b[i];
+            if (!p || !q) {
+                if (p !== q)
+                    return false;
+                continue;
+            }
+            if (p.x !== q.x || p.y !== q.y || p.w !== q.w || p.h !== q.h || p.sq !== q.sq)
+                return false;
+            var pr = p.r || [], qr = q.r || [];
+            if (pr.length !== qr.length)
+                return false;
+            for (var j = 0; j < pr.length; j++) {
+                if (pr[j] !== qr[j])
+                    return false;
+            }
+            var pf = p.fl || [], qf = q.fl || [];
+            if (pf.length !== qf.length)
+                return false;
+            for (j = 0; j < pf.length; j++) {
+                if (pf[j] !== qf[j])
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    function sameMask(a, b) {
+        var am = a || ({}), bm = b || ({});
+        return (am.x || 0) === (bm.x || 0) && (am.y || 0) === (bm.y || 0) && (am.r || 0) === (bm.r || 0);
+    }
+
+    function geometrySame() {
+        return root.monitorName === root._lastMon
+            && root.surfaceNamespace === root._lastNs
+            && root.full === root._lastFull
+            && root.surfaceW === root._lastSurfaceW
+            && root.surfaceH === root._lastSurfaceH
+            && root.sameMask(root.mask, root._lastMask)
+            && root.samePills(root.pills, root._lastPills);
+    }
+
+    function remember() {
+        root._lastMon = root.monitorName;
+        root._lastNs = root.surfaceNamespace;
+        root._lastFull = root.full;
+        root._lastSurfaceW = root.surfaceW;
+        root._lastSurfaceH = root.surfaceH;
+        root._lastMask = root.mask ? { "x": root.mask.x, "y": root.mask.y, "r": root.mask.r } : ({});
+        root._lastPills = root.copyPills(root.pills);
+    }
+
+    function doWrite() {
+        root.remember();
         root._lastWriteMs = Date.now();
         json.monitor = root.monitorName;
         json.ns = root.surfaceNamespace;
@@ -122,29 +212,23 @@ Item {
             "w": root.surfaceW,
             "h": root.surfaceH
         };
-        json.pills = root.pills;
+        json.pills = Array.isArray(root.pills) ? root.pills : [];
         json.mask = root.mask || ({});
         json.full = root.full;
         if (root._writes === 0)
             root._tFirst = root._lastWriteMs;
         root._writes++;
-        if (root._writes % 60 === 0)
-            console.log("GLASS " + root.name + " writes=" + root._writes + " elapsedMs=" + Math.round(root._lastWriteMs - root._tFirst) + " lastSigLen=" + sig.length);
+        if (root._writes % 300 === 0)
+            console.log("GLASS " + root.name + " writes=" + root._writes + " elapsedMs=" + Math.round(root._lastWriteMs - root._tFirst) + " lastPills=" + root._lastPills.length);
         file.writeAdapter();
     }
 
     function flushPending() {
         if (root.name === "" || file.path === "")
             return;
-        var sig = root.sigOf();
-        if (sig === root._lastSig)
+        if (root.geometrySame())
             return;
-        root.doWrite(sig);
-    }
-
-    function sigOf() {
-        return root.monitorName + "|" + root.surfaceNamespace + "|" + root.surfaceW + "x" + root.surfaceH + "|" + JSON.stringify(root.pills)
-            + "|" + JSON.stringify(root.mask || ({})) + "|" + root.full;
+        root.doWrite();
     }
 
     property int _writes: 0
@@ -155,21 +239,21 @@ Item {
             return; // init ordering: bindings settle a frame later
         if (force === true) {
             coalesceTimer.stop();
-            root.flushPending();
+            root.doWrite();
             return;
         }
-        var sig = root.sigOf();
-        if (sig === root._lastSig)
-            return; // idle: nothing transformed, skip the write
-        if (Date.now() - root._lastWriteMs < 16) {
+        if (root.geometrySame())
+            return; // idle: nothing transformed
+        if (Date.now() - root._lastWriteMs < 4) {
             coalesceTimer.restart();
             return;
         }
-        root.doWrite(sig);
+        root.doWrite();
     }
 
     onPillsChanged: root.sync()
     onMaskChanged: root.sync()
+    onFullChanged: root.sync()
     onMonitorNameChanged: root.sync()
     onSurfaceNamespaceChanged: root.sync()
     onSurfaceWChanged: root.sync()

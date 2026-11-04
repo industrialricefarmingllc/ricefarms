@@ -10,6 +10,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <string_view>
 #include <algorithm>
 
 namespace lg {
@@ -84,6 +85,22 @@ inline constexpr const char* FRAMESEED = "plugin:liquidglass:frame_seed_mode";
 inline constexpr const char* FRAMEFRIEZE = "plugin:liquidglass:frame_frieze";
 inline constexpr const char* FRAMEGILT = "plugin:liquidglass:frame_gilt";
 inline constexpr const char* FRAMERELIEF = "plugin:liquidglass:frame_relief";
+// Apple Liquid Glass rim light for window borders (ring.frag). This is the
+// crisp, backdrop-tinted edge light from the iOS 26 material, not the old
+// 45° gradient: a lit hairline on the light-facing edge, a weaker reflection
+// on the opposite edge, and an inner bevel shade.
+inline constexpr const char* RIMLIGHT = "plugin:liquidglass:rim_light";
+inline constexpr const char* RIMSTRENGTH = "plugin:liquidglass:rim_strength";
+inline constexpr const char* RIMWIDTH = "plugin:liquidglass:rim_width";
+inline constexpr const char* RIMANGLE = "plugin:liquidglass:rim_angle";
+inline constexpr const char* RIMSPLAY = "plugin:liquidglass:rim_splay";
+inline constexpr const char* RIMSHADE = "plugin:liquidglass:rim_shade";
+// The same Apple edge light, but on the glass body itself (glass.frag):
+// Lucid bar/dock/OSD pills and kitty/zen window glass. Shares rim_strength,
+// rim_angle, rim_splay and rim_shade with the border ring; glass_rim_width is
+// the hairline width in logical px (the border's rim_width is a band width).
+inline constexpr const char* GLASSRIM = "plugin:liquidglass:glass_rim";
+inline constexpr const char* GLASSRIMW = "plugin:liquidglass:glass_rim_width";
 } // namespace Key
 
 template <typename T, typename V>
@@ -121,7 +138,9 @@ void registerConfig(HANDLE handle) {
     // the non-glowing remainder dominates (~2/3 bright at 0.5, mildly tamed
     // vs the old full-lobe look at 0). No prefs twin.
     add<Values::Float>(handle, Key::GLOW_T, FLOAT{0.5});
-    add<Values::Float>(handle, Key::OPACITY, FLOAT{0.82});
+    // Linear tint coverage: 0 = clear glass, 1 = solid tint. 0.23 matches
+    // the old 0.82 look under the previous hidden 0.82..1 fullness ramp.
+    add<Values::Float>(handle, Key::OPACITY, FLOAT{0.23});
     // Static defaults mirror the CURRENT light theme (surface #f4fbf8).
     // The matugen tuner will push these live later; `hyprctl keyword`
     // cannot under the lua config.
@@ -174,10 +193,10 @@ void registerConfig(HANDLE handle) {
     // (bar washed out vs terminal unreadable). Negative = follow `opacity`.
     // No prefs twin: set via conf or hl.config, live.
     add<Values::Float>(handle, Key::WINOPACITY, FLOAT{-1.0});
-    // Active-window signal (the active border is removed in hyprland.lua):
-    // extra edge glow weight while focused, ramped ~180ms in WindowGlass.
-    // 0 off.
-    add<Values::Float>(handle, Key::WINACTIVEGL, FLOAT{0.2});
+    // Active-window signal: extra edge glow weight while focused, ramped
+    // ~180ms in WindowGlass. Disabled by default (0): focus is not supposed
+    // to paint a second light border on hover; the glass rim is static.
+    add<Values::Float>(handle, Key::WINACTIVEGL, FLOAT{0.0});
     // Bokeh scatter over the blurred backdrop: bright-pass threshold +
     // golden-angle disc taps composited over the Kawase base. 0 = off
     // (zero cost: the pass is skipped). Prefs twin: liquidGlassBokeh.
@@ -220,6 +239,21 @@ void registerConfig(HANDLE handle) {
     add<Values::Float>(handle, Key::FRAMEFRIEZE, FLOAT{-1.0});
     add<Values::Float>(handle, Key::FRAMEGILT, FLOAT{1.0});
     add<Values::Float>(handle, Key::FRAMERELIEF, FLOAT{1.0});
+    // Apple-style rim light on window borders. rim_light replaces the legacy
+    // bevel/glow trio for the window path only; rim_width is the band width in
+    // logical px (the actual Hyprland border can stay 1px), rim_angle is the
+    // virtual light direction in degrees (0 = right, 90 = up, 135 = top-left).
+    add<Values::Int>(handle, Key::RIMLIGHT, INTEGER{1});
+    add<Values::Float>(handle, Key::RIMSTRENGTH, FLOAT{1.0});
+    add<Values::Float>(handle, Key::RIMWIDTH, FLOAT{1.75});
+    add<Values::Float>(handle, Key::RIMANGLE, FLOAT{135.0});
+    add<Values::Float>(handle, Key::RIMSPLAY, FLOAT{0.22});
+    add<Values::Float>(handle, Key::RIMSHADE, FLOAT{0.009});
+    // Glass-body rim: same material as the border ring, applied inside every
+    // glass surface (Lucid pills + kitty/zen panes). glass_rim_width is the
+    // hairline width in logical px, independent of the border band width.
+    add<Values::Int>(handle, Key::GLASSRIM, INTEGER{1});
+    add<Values::Float>(handle, Key::GLASSRIMW, FLOAT{1.1});
 }
 
 // Read fresh on every call: correct across file writes, and at ~20
@@ -230,60 +264,108 @@ const char* tuneSuffix(const char* key);
 bool        tuneLookup(const char* prefsKey, double& out);
 bool        matugenColors(int& primaryRgb, int& surfaceRgb);
 } // namespace
+namespace {
+struct SFloatCacheEntry {
+    float value = 0;
+    std::chrono::steady_clock::time_point at{};
+};
+struct SIntCacheEntry {
+    int value = 0;
+    std::chrono::steady_clock::time_point at{};
+};
+} // namespace
+
 float getFloat(const char* key, float fallback) {
-    if (const char* pk = tuneSuffix(key)) {
-        double v = 0;
-        if (tuneLookup(pk, v))
-            return (float)v;
+    // PERF: 16ms TTL + tune-generation invalidation. The Tune blocks read
+    // ~30 keys per glass draw; most are config-manager lookups. A prefs /
+    // matugen / theme change bumps tuneGeneration() and clears this cache
+    // immediately, so the damage that accompanies the change paints with the
+    // new values. `hyprctl eval` edits (no prefs file) land within 16ms.
+    static std::map<std::string, SFloatCacheEntry, std::less<>> cache;
+    static uint64_t cacheGen = 0;
+    const auto now = std::chrono::steady_clock::now();
+    const uint64_t gen = tuneGeneration();
+    if (gen != cacheGen) {
+        cache.clear();
+        cacheGen = gen;
     }
-    try {
-        const auto v = Config::mgr()->getConfigValue(key);
-        if (!v.dataptr)
-            return fallback; // unregistered key: no value store (SEGVs if deref'd)
-        return (float)**reinterpret_cast<Hyprlang::FLOAT* const*>(v.dataptr);
-    } catch (...) { return fallback; }
+    const std::string_view k = key ? std::string_view(key) : std::string_view();
+    auto it = cache.find(k);
+    if (it != cache.end() && (now - it->second.at) < std::chrono::milliseconds(16))
+        return it->second.value;
+    const float out = [&]() -> float {
+        if (const char* pk = tuneSuffix(key)) {
+            double v = 0;
+            if (tuneLookup(pk, v))
+                return (float)v;
+        }
+        try {
+            const auto v = Config::mgr()->getConfigValue(key);
+            if (!v.dataptr)
+                return fallback; // unregistered key: no value store (SEGVs if deref'd)
+            return (float)**reinterpret_cast<Hyprlang::FLOAT* const*>(v.dataptr);
+        } catch (...) { return fallback; }
+    }();
+    cache.emplace(std::string(k), SFloatCacheEntry{out, now});
+    return out;
 }
 
 int getInt(const char* key, int fallback) {
-    if (!std::strcmp(key, Key::SHADOW)) {
-        // Hue follows the theme live exactly like QML hyprShadow: matugen
-        // primary at tone 10 in light mode, neutral black in dark mode.
-        // Alpha stays with the registered/default low byte (0x11 = 0.0667:
-        // the unified shadow at 33% of the halved OSD reference).
-        int alpha = fallback & 0xFF;
+    static std::map<std::string, SIntCacheEntry, std::less<>> cache;
+    static uint64_t cacheGen = 0;
+    const auto now = std::chrono::steady_clock::now();
+    const uint64_t gen = tuneGeneration();
+    if (gen != cacheGen) {
+        cache.clear();
+        cacheGen = gen;
+    }
+    const std::string_view k = key ? std::string_view(key) : std::string_view();
+    auto it = cache.find(k);
+    if (it != cache.end() && (now - it->second.at) < std::chrono::milliseconds(16))
+        return it->second.value;
+    const int out = [&]() -> int {
+        if (!std::strcmp(key, Key::SHADOW)) {
+            // Hue follows the theme live exactly like QML hyprShadow: matugen
+            // primary at tone 10 in light mode, neutral black in dark mode.
+            // Alpha stays with the registered/default low byte (0x11 = 0.0667:
+            // the unified shadow at 33% of the halved OSD reference).
+            int alpha = fallback & 0xFF;
+            try {
+                const auto v = Config::mgr()->getConfigValue(key);
+                alpha = ((int)**reinterpret_cast<Hyprlang::INT* const*>(v.dataptr)) & 0xFF;
+            } catch (...) {}
+            int pr = -1, sr = -1;
+            if (matugenColors(pr, sr) && pr >= 0)
+                return ((pr << 8) & 0xFFFFFF00) | alpha;
+            // else fall through to registered/default below
+        }
+        if (!std::strcmp(key, Key::TINT)) {
+            // Tint follows the theme's surface (auto dark/light, like QML
+            // bgOpaque); alpha stays with the registered/default low byte.
+            int alpha = fallback & 0xFF;
+            try {
+                const auto v = Config::mgr()->getConfigValue(key);
+                alpha = ((int)**reinterpret_cast<Hyprlang::INT* const*>(v.dataptr)) & 0xFF;
+            } catch (...) {}
+            int pr = -1, sr = -1;
+            if (matugenColors(pr, sr) && sr >= 0)
+                return ((sr << 8) & 0xFFFFFF00) | alpha;
+            // else fall through to registered/default below
+        }
+        if (const char* pk = tuneSuffix(key)) {
+            double v = 0;
+            if (tuneLookup(pk, v))
+                return (int)std::llround(v);
+        }
         try {
             const auto v = Config::mgr()->getConfigValue(key);
-            alpha = ((int)**reinterpret_cast<Hyprlang::INT* const*>(v.dataptr)) & 0xFF;
-        } catch (...) {}
-        int pr = -1, sr = -1;
-        if (matugenColors(pr, sr) && pr >= 0)
-            return ((pr << 8) & 0xFFFFFF00) | alpha;
-        // else fall through to registered/default below
-    }
-    if (!std::strcmp(key, Key::TINT)) {
-        // Tint follows the theme's surface (auto dark/light, like QML
-        // bgOpaque); alpha stays with the registered/default low byte.
-        int alpha = fallback & 0xFF;
-        try {
-            const auto v = Config::mgr()->getConfigValue(key);
-            alpha = ((int)**reinterpret_cast<Hyprlang::INT* const*>(v.dataptr)) & 0xFF;
-        } catch (...) {}
-        int pr = -1, sr = -1;
-        if (matugenColors(pr, sr) && sr >= 0)
-            return ((sr << 8) & 0xFFFFFF00) | alpha;
-        // else fall through to registered/default below
-    }
-    if (const char* pk = tuneSuffix(key)) {
-        double v = 0;
-        if (tuneLookup(pk, v))
-            return (int)std::llround(v);
-    }
-    try {
-        const auto v = Config::mgr()->getConfigValue(key);
-        if (!v.dataptr)
-            return fallback; // unregistered key: no value store (SEGVs if deref'd)
-        return (int)**reinterpret_cast<Hyprlang::INT* const*>(v.dataptr);
-    } catch (...) { return fallback; }
+            if (!v.dataptr)
+                return fallback; // unregistered key: no value store (SEGVs if deref'd)
+            return (int)**reinterpret_cast<Hyprlang::INT* const*>(v.dataptr);
+        } catch (...) { return fallback; }
+    }();
+    cache.emplace(std::string(k), SIntCacheEntry{out, now});
+    return out;
 }
 
 std::string getString(const char* key, const char* fallback) {
@@ -296,9 +378,9 @@ std::string getString(const char* key, const char* fallback) {
         std::chrono::steady_clock::time_point t = std::chrono::steady_clock::now() - std::chrono::hours(1);
         bool has = false;
     };
-    static std::map<std::string, Entry> cache;
+    static std::map<std::string, Entry, std::less<>> cache;
     const auto now = std::chrono::steady_clock::now();
-    auto it = cache.find(key ? key : "");
+    auto it = cache.find(std::string_view(key ? key : ""));
     if (it != cache.end() && it->second.has
         && (now - it->second.t) < std::chrono::milliseconds(200))
         return it->second.value;
@@ -312,26 +394,47 @@ std::string getString(const char* key, const char* fallback) {
             out = *reinterpret_cast<const std::string*>(*v.dataptr);
         }
     } catch (...) { out = std::string(fallback); }
-    cache[std::string(key ? key : "")] = Entry{out, now, true};
+    cache.emplace(std::string(key ? key : ""), Entry{out, now, true});
     return out;
 }
+
+namespace {
+// Comma-separated token lists are read every frame (namespace/window
+// allow-lists). Parse each distinct pattern once; the pattern strings are
+// already 200ms-cached by getString(), so this cache only grows when a rule
+// actually changes.
+const std::vector<std::string>& patternTokens(const std::string& pat) {
+    static std::map<std::string, std::vector<std::string>> cache;
+    auto it = cache.find(pat);
+    if (it != cache.end())
+        return it->second;
+    std::vector<std::string> tokens;
+    size_t start = 0;
+    while (start <= pat.size()) {
+        const size_t end = pat.find(',', start);
+        size_t a = start;
+        while (a < (end == std::string::npos ? pat.size() : end) && (pat[a] == ' ' || pat[a] == '\t'))
+            ++a;
+        size_t b = end == std::string::npos ? pat.size() : end;
+        while (b > a && (pat[b - 1] == ' ' || pat[b - 1] == '\t'))
+            --b;
+        if (b > a)
+            tokens.emplace_back(pat.substr(a, b - a));
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    }
+    return cache.emplace(pat, std::move(tokens)).first->second;
+}
+} // namespace
 
 bool namespaceAllowed(const std::string& ns) {
     // Comma-separated namespace tokens; quickshell covers bar/dock/OSD, and
     // the Lucid launcher has its own layer namespace.
     const auto patterns = getString(Key::NAMESPACES, "quickshell,lucid-launcher");
-    size_t     start    = 0;
-    while (start <= patterns.size()) {
-        const auto end = patterns.find(',', start);
-        auto       tok = patterns.substr(start, end == std::string::npos ? std::string::npos : end - start);
-        while (!tok.empty() && tok.front() == ' ') tok.erase(tok.begin());
-        while (!tok.empty() && tok.back() == ' ') tok.pop_back();
-        if (!tok.empty() && ns.find(tok) != std::string::npos)
+    for (const auto& tok : patternTokens(patterns))
+        if (ns.find(tok) != std::string::npos)
             return true;
-        if (end == std::string::npos)
-            break;
-        start = end + 1;
-    }
     return false;
 }
 
@@ -356,25 +459,11 @@ bool patternMatches(const std::string& pat, const std::string& cls, bool emptyMa
         return emptyMatches;
     // Comma-separated substring list: "kitty,zen" matches class "kitty"
     // and class "zen"/"zen-browser"; a "*" token matches every window.
-    // Tokens are trimmed; empty tokens skip.
-    size_t start = 0;
-    while (start <= pat.size()) {
-        size_t end = pat.find(',', start);
-        if (end == std::string::npos)
-            end = pat.size();
-        size_t a = start;
-        while (a < end && (pat[a] == ' ' || pat[a] == '\t'))
-            ++a;
-        size_t b = end;
-        while (b > a && (pat[b - 1] == ' ' || pat[b - 1] == '\t'))
-            --b;
-        if (b > a && pat.compare(a, b - a, "*") == 0)
+    for (const auto& tok : patternTokens(pat)) {
+        if (tok == "*")
             return true; // wildcard: every window class matches
-        if (b > a && cls.find(pat.substr(a, b - a)) != std::string::npos)
+        if (cls.find(tok) != std::string::npos)
             return true;
-        if (end == pat.size())
-            break;
-        start = end + 1;
     }
     return false;
 }

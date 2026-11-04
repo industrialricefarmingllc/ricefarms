@@ -92,6 +92,12 @@ Item {
 
         Model {
             visible: !root.foregroundOnly && root.backgroundPath.toString().length > 0
+            // Background is transparent (fade) and the subject is transparent,
+            // so Qt sorts them by distance to their *bounds centre*: a scene
+            // whose floor pulls the background centroid in front of the subject
+            // makes the background paint last and erase it. Force the
+            // background to sort behind the subject.
+            depthBias: 2.0
             position: Qt.vector3d(0, 0, -depthGeometry.backgroundDistance)
             source: "#Rectangle"
             scale: Qt.vector3d(
@@ -122,6 +128,10 @@ Item {
 
         Model {
             visible: !root.foregroundOnly
+            // Same sort fix as the plane above: the depth mesh's bounds centre
+            // can sit in front of the subject's (a near floor drags it there),
+            // and then this model is drawn last and paints over the cutout.
+            depthBias: 2.0
             geometry: DepthMeshGeometry {
                 id: depthGeometry
                 depthPath: root.depthPath
@@ -176,6 +186,10 @@ Item {
                 shadingMode: CustomMaterial.Unshaded
                 cullMode: Material.NoCulling
                 property real fade: root.fadeOpacity
+                // 1 for the cutout surface that sits above the widget layer:
+                // its matte has to be opaque inside the subject, otherwise the
+                // glass underneath bleeds through the soft edge band.
+                property real fgOnly: root.foregroundOnly ? 1 : 0
                 sourceBlend: CustomMaterial.One
                 destinationBlend: CustomMaterial.OneMinusSrcAlpha
                 depthDrawMode: Material.NeverDepthDraw

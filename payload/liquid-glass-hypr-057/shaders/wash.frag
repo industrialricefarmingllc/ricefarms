@@ -53,17 +53,20 @@ float sdBox2(vec2 p, vec2 b) {
 // inverted shoulder that a plain rounded box leaves unwashsed.
 float sdFlareOnly(vec2 q, vec2 halfPx, vec2 fl) {
     float sdFl = 1e9;
+    // See glass.frag: overlap the pill so the shared edge is not a boundary
+    // inside the wash mask (it cut a 1px transparent seam at the shoulder).
+    float join = clamp(min(halfPx.x, halfPx.y) * 0.6, 4.0, 40.0);
     if (fl.x > 0.01) {
         float f = fl.x;
-        vec2 bc = vec2(-halfPx.x - f * 0.5, -halfPx.y + f * 0.5);
+        vec2 bc = vec2(-halfPx.x - f * 0.5 + join * 0.5, -halfPx.y + f * 0.5);
         vec2 cc = vec2(-halfPx.x - f, -halfPx.y + f);
-        sdFl = min(sdFl, max(sdBox2(q - bc, vec2(f * 0.5)), f - length(q - cc)));
+        sdFl = min(sdFl, max(sdBox2(q - bc, vec2((f + join) * 0.5, f * 0.5)), f - length(q - cc)));
     }
     if (fl.y > 0.01) {
         float f = fl.y;
-        vec2 bc = vec2(halfPx.x + f * 0.5, -halfPx.y + f * 0.5);
+        vec2 bc = vec2(halfPx.x + f * 0.5 - join * 0.5, -halfPx.y + f * 0.5);
         vec2 cc = vec2(halfPx.x + f, -halfPx.y + f);
-        sdFl = min(sdFl, max(sdBox2(q - bc, vec2(f * 0.5)), f - length(q - cc)));
+        sdFl = min(sdFl, max(sdBox2(q - bc, vec2((f + join) * 0.5, f * 0.5)), f - length(q - cc)));
     }
     return sdFl;
 }
@@ -73,12 +76,21 @@ void main() {
     vec2 pillHalf = vec2((uBox.x - uFlare.x - uFlare.y) * 0.5, uBox.y * 0.5);
     vec2 pillCenter = vec2((uFlare.x - uFlare.y) * 0.5, 0.0);
     vec2 pp = p - pillCenter;
-    float sd = sdSquircleBox4(pp, pillHalf, uRadii, uPower);
-    if (uFlare.x > 0.01 || uFlare.y > 0.01)
-        sd = min(sd, sdFlareOnly(pp, pillHalf, uFlare));
-    if (sd > 0.0)
-        discard;
-    float mask = 1.0 - smoothstep(-0.75, 0.0, sd);
+    // Interior fast path: a pixel more than one radius inside the pill's
+    // straight-sided box is inside the rounded shape with mask == 1, no
+    // matter which corner arc or flare is live. Skip the superellipse pow()
+    // there; large windows are mostly this case.
+    float maxRad = max(max(uRadii.x, uRadii.y), max(uRadii.z, uRadii.w));
+    float sd = -1.0;
+    float mask = 1.0;
+    if (abs(pp.x) > pillHalf.x - maxRad - 1.0 || abs(pp.y) > pillHalf.y - maxRad - 1.0) {
+        sd = sdSquircleBox4(pp, pillHalf, uRadii, uPower);
+        if (uFlare.x > 0.01 || uFlare.y > 0.01)
+            sd = min(sd, sdFlareOnly(pp, pillHalf, uFlare));
+        if (sd > 0.0)
+            discard;
+        mask = 1.0 - smoothstep(-0.75, 0.0, sd);
+    }
 
     vec2 uv = gl_FragCoord.xy / uScreen;
     vec4 wash = texture(uWash, uv);

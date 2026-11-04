@@ -36,6 +36,14 @@ windowWashSnapshot(PHLWINDOW window, PHLMONITOR monitor, const Render::SWindowRe
 
 std::vector<SWindowWashDraw> layerWashSnapshots(PHLLS surface, PHLMONITOR monitor);
 
+// Wash is queued during the scene pass and applied to the output framebuffer
+// after Hyprland's final copy, so the scene/work buffer used for glass
+// backdrops never contains the wash.
+void queueWindowWash(PHLWINDOW window, PHLMONITOR monitor, const Render::SWindowRenderPresentation& presentation);
+void queueLayerWash(PHLLS surface, PHLMONITOR monitor);
+void drawQueuedWash(PHLMONITOR monitor, const SP<Render::IFramebuffer>& target, const CRegion& damage, bool transformDamage);
+void clearQueuedWash(PHLMONITOR monitor);
+
 void windowWashDraw(const SWindowWashDraw& draw, const SP<Render::ITexture>& wash, Render::CRenderContext& ctx);
 } // namespace lg
 

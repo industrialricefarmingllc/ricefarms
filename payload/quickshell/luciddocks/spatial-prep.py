@@ -27,7 +27,10 @@ from pathlib import Path
 MODEL_URL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx"
 MODEL_SHA256 = "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
 MODEL_ID = "isnet-general-use"
-CONTRACT = "isnet-general-use-softmatte-solidcore-v16"
+# v17: keep frame-cropped subjects (v16 dropped any cutout that touched the
+# top/side edges, so cached depth-fallback mattes for those wallpapers are
+# stale and have to be rebuilt).
+CONTRACT = "isnet-general-use-softmatte-solidcore-v17"
 INPUT = 1024
 MAX_DIMENSION = 2560
 
@@ -110,7 +113,7 @@ def largest_component(mask, minimum_fraction: float, maximum_fraction: float,
     if count == 0:
         return np.zeros_like(mask, dtype=bool)
     total = mask.size
-    height, width = mask.shape
+    height = mask.shape[0]
     best = 0
     best_area = 0
     for index in range(1, count + 1):
@@ -118,10 +121,13 @@ def largest_component(mask, minimum_fraction: float, maximum_fraction: float,
         area = int(component.sum())
         if area < total * minimum_fraction or area > total * maximum_fraction:
             continue
-        ys, xs = np.where(component)
-        if xs.min() < 2 or ys.min() < 2 or xs.max() > width - 2:
-            continue
-        if not allow_bottom and ys.max() > height - 2:
+        # A subject cropped by the frame is still the subject. Rejecting any
+        # component that touches the top, left or right edge drops the whole
+        # model cutout for portraits and close-ups (the mains then survive only
+        # in the reconstructed background, so they look like they vanished).
+        # Only the bottom edge is filtered, and only for callers that are
+        # looking for a floating near field rather than a framed subject.
+        if not allow_bottom and np.where(component)[0].max() > height - 2:
             continue
         if area > best_area:
             best, best_area = index, area
@@ -182,7 +188,10 @@ def segment(photo):
         model_alpha = np.clip(np.asarray(Image.fromarray(normalized.astype(np.float32))
             .resize((photo.width, photo.height), Image.Resampling.BICUBIC)), 0, 255)
         proposed = model_alpha > 64
-        proposed = largest_component(proposed, 0.005, 0.60, allow_bottom=True)
+        # Close-up wallpapers put the subject well past the old 60% cap; a
+        # near-full-frame matte is still a usable cutout, only a mask that
+        # covers the whole picture has no background left to separate.
+        proposed = largest_component(proposed, 0.005, 0.92, allow_bottom=True)
         if proposed.any():
             alpha = model_alpha.astype(np.float32) / 255.0
             alpha = np.where(ndimage.binary_dilation(proposed, iterations=8), alpha, 0.0)
@@ -337,7 +346,7 @@ def prepare(image_path: Path, depth_path: Path) -> dict:
         subject = None
         if alpha is not None:
             subject = alpha > (32.0 / 255.0)
-            subject = largest_component(subject, 0.005, 0.60, allow_bottom=True)
+            subject = largest_component(subject, 0.005, 0.92, allow_bottom=True)
         if subject is None or not subject.any():
             subject = depth_mask(photo, depth)
             alpha = None

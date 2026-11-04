@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs
+import "../lucidbar" as LucidBar
 
 Variants {
     id: variants
@@ -74,6 +75,19 @@ Variants {
                 onTriggered: Hyprland.refreshToplevels()
             }
 
+            // Publish the cards to the compositor's liquid-glass plugin. The
+            // publisher is an invisible item; the plugin reads the JSON it
+            // writes and draws the glass behind this layer surface.
+            LucidBar.GlassLayout {
+                id: widgetsGlass
+                name: "widgets"
+                surfaceNamespace: "lucid-widgets"
+                targetScreen: layer.screen
+                surfaceW: layer.width
+                surfaceH: layer.height
+                pills: deck.glassPills
+            }
+
             Item {
                 id: deck
 
@@ -93,6 +107,54 @@ Variants {
                 readonly property bool panelUp: Widgets.panelScreen !== "" && Widgets.panelScreen === deck.screenName
                 readonly property bool panelLive: deck.panelUp || panel.shown
                 readonly property int frameCount: rep.count
+                // Liquid glass (liquid-glass-hypr): the compositor draws the
+                // glass behind each card, so publish the cards as pills on the
+                // lucid-widgets namespace (added to the plugin's namespace
+                // list in hyprland.lua). A bare card has no container to put
+                // glass behind, and a closing/blanked one has nothing to show.
+                //
+                // f.x/f.y are the *rendered* geometry, not the store position:
+                // while a card is in hand they read the live drag rect (and
+                // the res box while resizing), so the glass travels with the
+                // card instead of staying where it was picked up. Published
+                // from the frames the board actually shows, so a card crossing
+                // a seam is handled by each output's own publisher.
+                readonly property var glassPills: {
+                    var _ = deck.rev;
+                    if (!Prefs.loaded || !Prefs.liquidGlassEnabled || !layer.visible)
+                        return [];
+
+                    var out = [];
+                    for (var i = 0; i < rep.count; i++) {
+                        var f = rep.itemAt(i);
+                        if (!f || !f.visible || f.closing || f.blanked || f.bare)
+                            continue;
+
+                        var s = f.scale > 0 ? f.scale : 1;
+                        // Quantise the bridge payload to half a logical pixel.
+                        // The compositor snaps the card to pixels anyway, so
+                        // this is invisible, but it keeps the JSON short and
+                        // lets sub-half-pixel frames compare equal (the bridge
+                        // then skips the rewrite and the plugin skips the read).
+                        var w = Math.round(f.width * s * 2) / 2;
+                        var h = Math.round(f.height * s * 2) / 2;
+                        var r = Math.round(f.radius * s * 2) / 2;
+                        // map the card's own origin through its live transform:
+                        // the glass must sit on the rendered card, not on the
+                        // stored x/y or on a hand-rebuilt scale origin
+                        var _ = f.x + f.y + f.width + f.height + f.scale + f.radius;
+                        var at = f.mapToItem(deck, 0, 0);
+                        out.push({
+                            "x": Math.round(at.x * 2) / 2,
+                            "y": Math.round(at.y * 2) / 2,
+                            "w": w,
+                            "h": h,
+                            "r": [r, r, r, r],
+                            "sq": Prefs.squircleF
+                        });
+                    }
+                    return out;
+                }
                 readonly property bool editing: Widgets.editUid !== "" && deck.editFrame !== null
                 // only ask for keys at all once something you can type into is placed;
                 // on-demand hands focus back the moment a window is clicked, which
@@ -100,7 +162,7 @@ Variants {
                 readonly property bool wantsKeyboard: {
                     for (var i = 0; i < Widgets.model.count; i++) {
                         var e = Widgets.model.get(i);
-                        if (!e.closing && (e.wtype === "notes" || e.wtype === "todo" || e.wtype === "github" || e.wtype === "mesh"))
+                        if (!e.closing && (e.wtype === "notes" || e.wtype === "todo" || e.wtype === "github" || e.wtype === "mesh" || e.wtype === "social"))
                             return true;
 
                     }
@@ -169,6 +231,21 @@ Variants {
 
                 anchors.fill: parent
                 focus: true
+                Keys.onPressed: (event) => {
+                    if (event.key !== Qt.Key_PageUp && event.key !== Qt.Key_PageDown && event.key !== Qt.Key_Home && event.key !== Qt.Key_End)
+                        return ;
+
+                    for (var i = 0; i < rep.count; i++) {
+                        var f = rep.itemAt(i);
+                        if (!f || !f.visible || f.closing || f.hovered !== true)
+                            continue;
+
+                        if (f.handleScrollKey(event)) {
+                            event.accepted = true;
+                            return ;
+                        }
+                    }
+                }
                 Keys.onEscapePressed: {
                     var busy = Widgets.editUid !== "" || Widgets.menuUid !== "" || Object.keys(Widgets.selection).length > 0;
                     Widgets.editUid = "";
@@ -306,25 +383,36 @@ Variants {
                     onTriggered: {
                         var out = [];
                         var hovered = {};
+                        // Integer rects and a hand-built signature: the cutout
+                        // is a soft subject overlay, so 1px is invisible, and a
+                        // concatenation costs a fraction of JSON.stringify on
+                        // V4 (this timer runs 30x/s for the whole board).
+                        var sig = "";
+                        var hoverSig = "";
                         for (var i = 0; i < deck.frameCount; i++) {
                             var frame = deck.frameAt(i);
                             if (!frame || !frame.visible || frame.closing || frame.blanked)
                                 continue;
+                            var fx = Math.round(frame.x);
+                            var fy = Math.round(frame.y);
+                            var fw = Math.round(frame.width);
+                            var fh = Math.round(frame.height);
                             out.push({
                                 "uid": frame.uid,
-                                "x": frame.x,
-                                "y": frame.y,
-                                "w": frame.width,
-                                "h": frame.height
+                                "x": fx,
+                                "y": fy,
+                                "w": fw,
+                                "h": fh
                             });
-                            hovered[frame.uid] = frame.hovered === true;
+                            var hov = frame.hovered === true;
+                            hovered[frame.uid] = hov;
+                            sig += frame.uid + ":" + fx + "," + fy + "," + fw + "," + fh + ";";
+                            hoverSig += frame.uid + (hov ? "1" : "0") + ";";
                         }
-                        const sig = JSON.stringify(out);
                         if (sig !== deck.spatialSig) {
                             deck.spatialSig = sig;
                             SpatialWidgets.update(deck.screenName, out);
                         }
-                        const hoverSig = JSON.stringify(hovered);
                         if (hoverSig !== deck.spatialHoverSig) {
                             deck.spatialHoverSig = hoverSig;
                             SpatialWidgets.updateHovered(hovered);
@@ -337,8 +425,11 @@ Variants {
             mask: Region {
                 x: 0
                 y: 0
-                width: (deck.grabbing || deck.panelUp) ? layer.width : 0
-                height: (deck.grabbing || deck.panelUp) ? layer.height : 0
+                // a desktop selection box owns the pointer while it is out:
+                // keep the widget layer click-through so the box's layer below
+                // keeps receiving the drag instead of being cancelled
+                width: ((deck.grabbing || deck.panelUp) && Widgets.marquee === null) ? layer.width : 0
+                height: ((deck.grabbing || deck.panelUp) && Widgets.marquee === null) ? layer.height : 0
 
             WidgetRegion {
                 frame: deck.frameAt(0)
@@ -422,8 +513,11 @@ Variants {
 
             }
 
-            // the open panel frosts the whole screen behind its dim, cards and sheet alike
-            BackgroundEffect.blurRegion: Theme.blurAmount > 0 ? (deck.panelUp ? wholeBlur : widgetBlur) : null
+            // the open panel frosts the whole screen behind its dim, cards and
+            // sheet alike. With liquid glass on, the plugin frosts each card
+            // itself, so the card blur region steps aside (the panel keeps its
+            // own whole-screen frost).
+            BackgroundEffect.blurRegion: Theme.blurAmount > 0 ? (deck.panelUp ? wholeBlur : (Prefs.liquidGlassEnabled ? null : widgetBlur)) : null
 
             Region {
                 id: wholeBlur

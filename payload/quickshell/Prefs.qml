@@ -1221,7 +1221,7 @@ Singleton {
         "liquidGlassGlowBias": 0.0,
         "liquidGlassGlowEdge0": 0.5,
         "liquidGlassGlowEdge1": -0.5,
-        "liquidGlassOpacity": 0.82,
+        "liquidGlassOpacity": 0.23,
         "squircleF": 0.8,
         "clipboardEnabled": true,
         "widgetsEnabled": true,
@@ -2008,7 +2008,7 @@ Singleton {
             property real liquidGlassGlowBias: 0.0
             property real liquidGlassGlowEdge0: 0.5
             property real liquidGlassGlowEdge1: -0.5
-            property real liquidGlassOpacity: 0.82
+            property real liquidGlassOpacity: 0.23
             property real squircleF: 0.8
             property bool clipboardEnabled: true
             property bool widgetsEnabled: true

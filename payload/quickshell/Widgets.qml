@@ -1269,6 +1269,42 @@ Singleton {
             "type": "hidden",
             "def": "teddy bear, chair"
         }]
+    }, {
+        "id": "social",
+        "name": "Social",
+        "blurb": "Every source you follow, in one tweet-shaped feed.",
+        "variants": [{
+            "id": "feed",
+            "name": "Feed",
+            "blurb": "Posts, media, likes and comments from the sources this card chose.",
+            "w": 320,
+            "h": 320,
+            "resizable": true,
+            "resizeAxis": "vertical",
+            "minH": 240,
+            "maxH": 1800
+        }],
+        "options": [{
+            "key": "socialSourcesOff",
+            "label": "",
+            "type": "hidden",
+            "def": []
+        }, {
+            "key": "socialStreamsOff",
+            "label": "",
+            "type": "hidden",
+            "def": []
+        }, {
+            "key": "socialStreamsOn",
+            "label": "",
+            "type": "hidden",
+            "def": []
+        }, {
+            "key": "socialHidden",
+            "label": "",
+            "type": "hidden",
+            "def": []
+        }]
     }]
 
     // the full-width bars every preset stands on. listed first in each, so the cards
@@ -1479,8 +1515,35 @@ Singleton {
         });
     }
 
+    // Resize snapping for every resizable card. The step is half of the
+    // catalogue's shorter side (its 1:1 reference): 160 for the 320 square
+    // Social card, 70 for the 140-high visualiser, and so on. The grid is
+    // anchored to the catalogue size, not zero, so a new card sits exactly on
+    // a step. A variant may override it with `resizeStep`.
+    function resizeStep(typeId, variantId) {
+        var v = root.variantAt(typeId, variantId);
+        if (!v || v.resizable !== true)
+            return 0;
+
+        if (v.resizeStep !== undefined)
+            return Math.max(0, Number(v.resizeStep) || 0);
+
+        return Math.max(1, Math.round(Math.min(Number(v.w) || 0, Number(v.h) || 0) / 2));
+    }
+
     function sizeLimits(typeId, variantId) {
         var v = root.variantAt(typeId, variantId);
+        // A vertical-only card keeps the catalogue width, scaled the same way a
+        // fresh resizable card is. Its height is still the user's to drag.
+        if (v && v.resizeAxis === "vertical") {
+            var fixedW = Math.round((v.w || 320) * Prefs.interfaceScale);
+            return ({
+                "minW": fixedW,
+                "maxW": fixedW,
+                "minH": (v.minH) ? v.minH : 60,
+                "maxH": (v.maxH) ? v.maxH : 2160
+            });
+        }
         return ({
             "minW": (v && v.minW) ? v.minW : 120,
             "minH": (v && v.minH) ? v.minH : 60,
@@ -1940,6 +2003,11 @@ Singleton {
         if (i < 0)
             return ;
 
+        // a shared card has a place on every wallpaper, so it cannot be locked
+        // down on just one of them
+        if (v === true && instances.get(i).everywhere === true)
+            return ;
+
         instances.setProperty(i, "pinned", v);
         root.save();
     }
@@ -1964,6 +2032,9 @@ Singleton {
 
         instances.setProperty(i, "everywhere", on);
         if (on) {
+            // "on every wallpaper" and "locked in place" pull in opposite
+            // directions: a shared card still has to be movable on each one
+            instances.setProperty(i, "pinned", false);
             root.rememberEverywhere(instances.get(i));
         } else {
             root.forgetEverywhere(uid);
@@ -2222,7 +2293,7 @@ Singleton {
             "wy": e.wy,
             "bw": e.bw,
             "bh": e.bh,
-            "pinned": e.pinned,
+            "pinned": e.everywhere === true ? false : e.pinned,
             "everywhere": e.everywhere === true,
             "zoom": e.zoom,
             "zOrder": e.zOrder,
@@ -2259,7 +2330,9 @@ Singleton {
             "wy": typeof e.wy === "number" ? e.wy : 40,
             "bw": (v.resizable === true && e.bw) ? e.bw : v.w,
             "bh": (v.resizable === true && e.bh) ? e.bh : v.h,
-            "pinned": e.pinned === true,
+            // a shared card is positioned wallpaper by wallpaper, so a stale
+            // lock from before it was shared must not keep it stuck in place
+            "pinned": e.everywhere === true ? false : e.pinned === true,
             "everywhere": e.everywhere === true,
             "zoom": e.zoom || 1,
             "zOrder": e.zOrder || 1,
@@ -2303,6 +2376,7 @@ Singleton {
     function rememberEverywhere(e) {
         var card = root.entryOf(e);
         card.everywhere = true;
+        card.pinned = false;
         var list = root.everywhereCards.slice();
         var at = root.everywhereIndex(card.uid);
         if (at >= 0)

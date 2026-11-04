@@ -47,6 +47,7 @@ uniform float uLB;
 uniform float uLC;
 uniform float uLD;        // border-owned D (border_d, default 30)
 uniform float uLFPower;
+uniform float uLogCME;    // precomputed log(uLC * M_E), exp fast path
 uniform float uGlowW;     // angular glow: pill keys (one material)
 uniform float uGlowE0;
 uniform float uGlowE1;
@@ -58,6 +59,17 @@ uniform float uSeed;        // per-window hash 0..1 (fixed when seed_mode=0)
 uniform float uFrieze;      // -1 auto, 0 egg-and-dart, 1 key, 2 guilloche, 3 fluting
 uniform float uGilt;        // gilt strength: 0 carved stone .. 1 full gilt
 uniform float uRelief;      // emboss strength (refraction + bevel modulation)
+// Apple Liquid Glass edge light (window path). A crisp rim line just inside
+// the silhouette, lit by two opposite simulated sources (top-left key +
+// bottom-right fill), each fading along the edge away from its corner, plus
+// an inner rim shade. Colour is lifted from the backdrop (CoreAnimation's
+// vibrantColorMatrix), not a fixed white.
+uniform float uRimLight;    // 1 = replace the legacy bevel/glow trio
+uniform float uRimStrength; // master gain
+uniform float uRimWidth;    // rim line width, fb px
+uniform float uRimAngle;    // light direction, degrees (0 = right, 90 = up)
+uniform float uRimSplay;    // light wrap around the flanks, 0..1
+uniform float uRimShade;    // inner rim shadow strength, 0..1
 
 const float M_E = 2.718281828459045;
 
@@ -101,10 +113,12 @@ float sdSquircleBox4(vec2 p, vec2 b, vec4 r, float n) {
     return min(max(q2.x, q2.y), 0.0) + length(max(q2, 0.0)) - rad;
 }
 
-// Layer-pill box SDF honouring uSquircleF (must match glass.frag's
-// sdPillBox4 exactly, or the 1px ring sits off the glass edge leaving a
-// backdrop hairline — most visible along the notch fillets). Windows
-// (uUseRadii == 0) stay circular: Hyprland rounding is circular.
+// Box SDF honouring uSquircleF (must match glass.frag's sdPillBox4 exactly,
+// or the 1px ring sits off the glass edge leaving a backdrop hairline — most
+// visible along the notch fillets). Both paths use it: windows feed the same
+// superellipse exponent Hyprland clips their content with
+// (decoration:rounding_power), so the ring and the window edge share one
+// silhouette. uSquircleF = 0 falls back to the exact circular box.
 float sdPillBox4(vec2 p, vec2 b, vec4 r) {
     if (uSquircleF <= 0.0005)
         return sdRoundBox4(p, b, r);
@@ -143,11 +157,11 @@ float sminN(float a, float b, float k) {
 
 // Lens-field SDF at a window-space point, for the per-pixel glow normal.
 // Reads the same uniforms as main so the differences stay in window space.
-// Layer path honours uSquircleF (must match the glass body lens field).
+// Both paths honour uSquircleF (must match the glass body lens field).
 float sdLensAt(vec2 wpx) {
     vec2 sp = wpx * vec2(3.5) / vec2(max(uShape.x, 0.1), max(uShape.y, 0.1));
     return (uUseRadii > 0.5) ? sdPillBox4(sp, uWinSize * 0.5, uWinRadii)
-                             : sdRoundBox(sp, uWinSize * 0.5, uWinR);
+                             : sdPillBox4(sp, uWinSize * 0.5, vec4(uWinR));
 }
 
 // Notch flare fillet in window space (fb px, exact): same concave fillet as
@@ -157,24 +171,40 @@ float sdLensAt(vec2 wpx) {
 // squircle version collapses toward the tab, so the ring would hug a much
 // smaller arc than the circular hairline drawn on top. uSquircleF still
 // shapes the body corners in sdLensAt/sdPillBox4.
-float sdFlareWin(vec2 wpx, vec2 winSize, vec2 fl) {
+float sdFlareWinJoin(vec2 wpx, vec2 winSize, vec2 fl, float join) {
     vec2 halfW = winSize * 0.5;
     float sdFl = 1e9;
     if (fl.x > 0.01) {
         float f = fl.x;
-        vec2 bc = vec2(-halfW.x - f * 0.5, -halfW.y + f * 0.5);
+        vec2 bc = vec2(-halfW.x - f * 0.5 + join * 0.5, -halfW.y + f * 0.5);
         vec2 cc = vec2(-halfW.x - f, -halfW.y + f);
         float disc = f - length(wpx - cc);
-        sdFl = min(sdFl, max(sdBox2(wpx - bc, vec2(f * 0.5)), disc));
+        sdFl = min(sdFl, max(sdBox2(wpx - bc, vec2((f + join) * 0.5, f * 0.5)), disc));
     }
     if (fl.y > 0.01) {
         float f = fl.y;
-        vec2 bc = vec2(halfW.x + f * 0.5, -halfW.y + f * 0.5);
+        vec2 bc = vec2(halfW.x + f * 0.5 - join * 0.5, -halfW.y + f * 0.5);
         vec2 cc = vec2(halfW.x + f, -halfW.y + f);
         float disc = f - length(wpx - cc);
-        sdFl = min(sdFl, max(sdBox2(wpx - bc, vec2(f * 0.5)), disc));
+        sdFl = min(sdFl, max(sdBox2(wpx - bc, vec2((f + join) * 0.5, f * 0.5)), disc));
     }
     return sdFl;
+}
+
+// See glass.frag: the flare box overlaps the body so the shared edge is
+// inside the silhouette instead of being an SDF boundary. Otherwise the
+// ring, glow and shadow draw a seam along the joint. The lens keeps the
+// original box (see the dist call below) so it stays on the real arc.
+float flareWinJoin(vec2 winSize) {
+    return clamp(min(winSize.x, winSize.y) * 0.6, 8.0, 40.0);
+}
+
+float sdFlareWin(vec2 wpx, vec2 winSize, vec2 fl) {
+    return sdFlareWinJoin(wpx, winSize, fl, 0.0);
+}
+
+float sdFlareWinJoinU(vec2 wpx, vec2 winSize, vec2 fl) {
+    return sdFlareWinJoin(wpx, winSize, fl, flareWinJoin(winSize));
 }
 
 // Lens-space union of the pill lens and the flare (for glow normals/dist):
@@ -185,7 +215,7 @@ float sdLensUnionAt(vec2 wpx) {
     if (uFlare.x <= 0.01 && uFlare.y <= 0.01)
         return base;
     float lensScale = 3.5 / max((uShape.x + uShape.y) * 0.5, 0.1);
-    return min(base, sdFlareWin(wpx, uWinSize, uFlare) * lensScale);
+    return min(base, sdFlareWinJoinU(wpx, uWinSize, uFlare) * lensScale);
 }
 
 // Rounded lens union for glow normals: same field through sminN so the
@@ -196,7 +226,7 @@ float sdLensRoundAt(vec2 wpx, float k) {
     if (uFlare.x <= 0.01 && uFlare.y <= 0.01)
         return base;
     float lensScale = 3.5 / max((uShape.x + uShape.y) * 0.5, 0.1);
-    return sminN(base, sdFlareWin(wpx, uWinSize, uFlare) * lensScale, k);
+    return sminN(base, sdFlareWinJoinU(wpx, uWinSize, uFlare) * lensScale, k);
 }
 
 // Perimeter coordinate for the running motifs + corner rosette frame.
@@ -329,10 +359,9 @@ void main() {
 
     vec2 outerSize = uInner.zw + 2.0 * uThick;
     vec2 center = uInner.xy + uInner.zw * 0.5;
-    // Layer pills honour uSquircleF (must match the glass body exactly);
-    // windows stay circular (Hyprland rounding is circular).
+    // Both paths honour uSquircleF (must match the glass body exactly).
     float sd = (uUseRadii > 0.5) ? sdPillBox4(p - center, outerSize * 0.5, uRadii)
-                                 : sdRoundBox(p - center, outerSize * 0.5, uRound);
+                                 : sdPillBox4(p - center, outerSize * 0.5, vec4(uRound));
 
     // Outward push: windows sit the band on their own edge pixels (0.5 splits
     // the difference); layer pills have only backdrop underneath, so any push
@@ -345,7 +374,7 @@ void main() {
                                    : clamp(uFrieze, 0.0, 3.0);
     if (uThick < 14.0) frSel = 3.0; // thin-band LOD: fluting only
     float fsc = max(uFrameScale, 0.25);
-    float frameOn = (uFrameEnable > 0.5 && uThick >= 6.0) ? 1.0 : 0.0;
+    float frameOn = (uFrameEnable > 0.5 && uRimLight < 0.5 && uThick >= 6.0) ? 1.0 : 0.0;
     float fs = 0.0; vec2 fn = vec2(0.0); vec2 ft = vec2(1.0, 0.0);
     float fcm = 0.0; vec2 fcc = vec2(0.0); float frMid = 0.0;
     if (frameOn > 0.5) {
@@ -372,19 +401,20 @@ void main() {
     // the hairline drawn over it.
     {
         float sdFlR = 1e9;
+        float join = clamp(min(uInner.z, uInner.w) * 0.6, 8.0, 40.0);
         if (uFlare.x > 0.01) {
             float f = uFlare.x;
-            vec2 bc = vec2(uInner.x - f * 0.5, uInner.y + f * 0.5);
+            vec2 bc = vec2(uInner.x - f * 0.5 + join * 0.5, uInner.y + f * 0.5);
             vec2 cc = vec2(uInner.x - f, uInner.y + f);
             float disc = f - length(p - cc);
-            sdFlR = min(sdFlR, max(sdBox2(p - bc, vec2(f * 0.5)), disc));
+            sdFlR = min(sdFlR, max(sdBox2(p - bc, vec2((f + join) * 0.5, f * 0.5)), disc));
         }
         if (uFlare.y > 0.01) {
             float f = uFlare.y;
-            vec2 bc = vec2(uInner.x + uInner.z + f * 0.5, uInner.y + f * 0.5);
+            vec2 bc = vec2(uInner.x + uInner.z + f * 0.5 - join * 0.5, uInner.y + f * 0.5);
             vec2 cc = vec2(uInner.x + uInner.z + f, uInner.y + f);
             float disc = f - length(p - cc);
-            sdFlR = min(sdFlR, max(sdBox2(p - bc, vec2(f * 0.5)), disc));
+            sdFlR = min(sdFlR, max(sdBox2(p - bc, vec2((f + join) * 0.5, f * 0.5)), disc));
         }
         sd = min(sd, sdFlR);
     }
@@ -392,6 +422,13 @@ void main() {
     float inOuter = 1.0 - smoothstep(push - aa, push + aa, sd);
     float inInner = smoothstep(-uThick + push - aa, -uThick + push + aa, sd);
     float band = inOuter * inInner;
+
+    // Interior margin: no band and no shadow can exist here (the shadow is
+    // outside the outer silhouette and is masked by the same smoothstep).
+    // Skip the fade-axis math and the shadow SDF/exp for pixels the scissor
+    // still lets through near the inner corners.
+    if (band <= 0.001 && sd < push - aa)
+        discard;
 
     // Fade axis (shared by ring + shadow): rotated top -> mid -> bottom.
     vec2 wuv = (p - uInner.xy) / uWinSize;
@@ -407,11 +444,13 @@ void main() {
     // shape, cast by uShadowOff. Masked to outside-only so it never darkens
     // the window interior. uShadowA = 0 disables (layer rings: the glass
     // pass already shadows the pill).
-    // PERF: skip SDF+exp when shadow effectively off (alpha~0).
+    // PERF: skip SDF+exp when shadow effectively off (alpha~0), and when the
+    // pixel is inside the outer silhouette (the shadow is masked to zero
+    // there by the same smoothstep, so the SDF/exp cannot contribute).
     float shA = 0.0;
-    if (clamp(uShadowA, 0.0, 1.0) > 0.003) {
+    if (clamp(uShadowA, 0.0, 1.0) > 0.003 && sd > push - aa) {
     float sdSh = (uUseRadii > 0.5) ? sdPillBox4(p - center - uShadowOff, outerSize * 0.5, uRadii)
-                                   : sdRoundBox(p - center - uShadowOff, outerSize * 0.5, uRound);
+                                   : sdPillBox4(p - center - uShadowOff, outerSize * 0.5, vec4(uRound));
     shA = exp(-max(sdSh, 0.0) / max(uShadowBlur, 1.0)) * clamp(uShadowA, 0.0, 1.0);
     shA *= smoothstep(push - aa, push + aa, sd);
     }
@@ -429,7 +468,7 @@ void main() {
     vec2 sp = winPx * vec2(3.5) / vec2(max(uShape.x, 0.1), max(uShape.y, 0.1));
     float rMax = max(min(uWinSize.x, uWinSize.y) * 0.5, 1.0);
     float sdLens = (uUseRadii > 0.5) ? sdPillBox4(sp, uWinSize * 0.5, uWinRadii)
-                                     : sdRoundBox(sp, uWinSize * 0.5, uWinR);
+                                     : sdPillBox4(sp, uWinSize * 0.5, vec4(uWinR));
     float dist = clamp(-sdLens / rMax, 0.0, 1.0);
     // Per-pixel lens-field normal (finite differences — derivatives facet).
     // The lens field is smooth and outward throughout the band, unlike the
@@ -440,10 +479,12 @@ void main() {
     // Flare off -> sdLensUnionAt is sdLensAt exactly, pixel-identical.
     // Normals go through the ROUNDED union: the hard union's medial ridge
     // would still flip the light direction along a line into the tab.
-    // PERF: normals (4x SDF) only feed the glow below — skip when glow off.
+    // PERF: normals (4x SDF) only feed the legacy glow and the Apple rim
+    // line below — skip both when neither is enabled.
     vec2 glowN = vec2(0.0, -1.0);
     bool doGlow = (abs(uGlowW) > 0.001 || abs(uGlowBias) > 0.001);
-    if (doGlow) {
+    bool needN = doGlow || uRimLight > 0.5;
+    if (needN) {
     float lgx = sdLensRoundAt(winPx + vec2(1.0, 0.0), 3.0) - sdLensRoundAt(winPx - vec2(1.0, 0.0), 3.0);
     float lgy = sdLensRoundAt(winPx + vec2(0.0, 1.0), 3.0) - sdLensRoundAt(winPx - vec2(0.0, 1.0), 3.0);
     glowN = vec2(lgx, lgy) / max(length(vec2(lgx, lgy)), 1e-4);
@@ -452,7 +493,9 @@ void main() {
         float sdFlW = sdFlareWin(winPx, uWinSize, uFlare);
         dist = max(dist, clamp(-sdFlW / rMax, 0.0, 1.0));
     }
-    float fx = clamp(1.0 - uLB * pow(uLC * M_E, -uLD * dist - uLA), 0.0, 2.0);
+    float fx = clamp(uLogCME > 0.0001
+        ? 1.0 - uLB * exp((-uLD * dist - uLA) * uLogCME)
+        : 1.0 - uLB * pow(uLC * M_E, -uLD * dist - uLA), 0.0, 2.0);
     float refract = pow(max(fx, 0.0001), uLFPower);
     vec2 rvec = (wuv - vec2(0.5)) * 2.0 * (refract - 1.0) * 0.18;
     vec2 dispPx = rvec * uWinSize;
@@ -462,9 +505,9 @@ void main() {
     vec2 sampleUV = clamp((p + dispPx) / uQuadSize, vec2(0.001), vec2(0.999));
     vec3 refr = texture(uBlur, sampleUV).rgb;
 
-    // Pill-identical tint semantics (mix only, 0.28 factor).
+    // Pill-identical linear tint semantics (the opacity is the mix).
     vec3 tint = mix(uTint, uTint2, clamp(uLerp, 0.0, 1.0));
-    vec3 col = mix(refr, tint, clamp(uTintMix, 0.0, 1.0) * 0.28);
+    vec3 col = mix(refr, tint, clamp(uTintMix, 0.0, 1.0));
 
     // Glow is computed below, after d, so its mask hugs the frame bevel.
 
@@ -472,11 +515,81 @@ void main() {
     // boundary to 1 at the inner (both shifted by push, so the split travels
     // with the band). Same components, same blend, same order as the pills.
     float d = clamp((push - sd) / max(uThick, 1e-3), 0.0, 1.0);
+
+    // Apple Liquid Glass rim light. This is the "light line" from the iOS 26
+    // material, not a gradient border: two opposite simulated sources light
+    // the two facing edges, each source fades along the edge away from its
+    // corner, and the highlight is tinted by the backdrop rather than a fixed
+    // colour. The rim lives at d = 0 (outer silhouette) and falls off inward
+    // over uRimWidth.
+    if (uRimLight > 0.5) {
+        float ang = radians(uRimAngle);
+        // Screen y grows down; negate sin so 90° means "light from above".
+        vec2 Lxy = normalize(vec2(cos(ang), -sin(ang)));
+        vec2 Lxy2 = -Lxy; // second simulated source: opposite corner
+        vec2 n = normalize(glowN + vec2(1e-5));
+        float splay = clamp(uRimSplay, 0.0, 1.0);
+
+        // Apple lights glass from two opposite corners (top-left key +
+        // bottom-right fill), not one light with a weak far-side reflection.
+        // max() makes the two facing edges bright and leaves the other two
+        // flanks at splay, which is what the iOS material shows.
+        float lit1 = splay + (1.0 - splay) * pow(max(dot(n, Lxy), 0.0), 2.0);
+        float lit2 = splay + (1.0 - splay) * pow(max(dot(n, Lxy2), 0.0), 2.0);
+        // The light is local, not a uniform wash along the whole edge: fade
+        // each source with position along the edge, brightest at its corner.
+        vec2 pn = (wuv - vec2(0.5)) * 2.0;
+        float fade1 = smoothstep(-0.10, 1.10, dot(pn, Lxy));
+        float fade2 = smoothstep(-0.10, 1.10, dot(pn, Lxy2));
+        float dir  = max(lit1 * fade1, lit2 * fade2);
+
+        // Crisp hairline at the silhouette with a softer inner veil. d is
+        // 0 at the outer edge and 1 at the inner edge of the band, so the
+        // physical distance inward is d * uThick.
+        float insidePx = d * uThick;
+        float rimW = max(uRimWidth, 0.5);
+        float hair = exp(-insidePx / max(rimW * 0.45, 0.5));
+        float line = exp(-insidePx / rimW);
+        float veil = exp(-insidePx / max(rimW * 2.0, 1.0));
+
+        // Backdrop-derived highlight: saturation pop + luminance lift, the
+        // same job as CoreAnimation's vibrantColorMatrix.
+        float lum = dot(refr, vec3(0.3, 0.59, 0.11));
+        vec3 vivid = clamp(vec3(lum) + (refr - vec3(lum)) * 2.2, 0.0, 1.0);
+        // Keep a small white floor: on a dark terminal/wallpaper the backdrop
+        // copy alone would leave the rim invisible, which reads as "no rim".
+        vec3 hi = mix(vivid * 1.45 + vec3(0.05), vec3(0.96), 0.32);
+
+        float rimShape = hair * 0.62 + line * 0.24 + veil * 0.08;
+        float rim = clamp(rimShape * dir * uRimStrength * 1.5, 0.0, 1.0);
+        col = mix(col, hi, rim);
+
+        // Inner rim shadow: the lit face gets a hairline of depth, the
+        // shaded face a little more, like a real bevel.
+        float inner = smoothstep(0.35, 1.0, d);
+        float shade = inner * clamp(uRimShade, 0.0, 1.0)
+                    * (0.30 + 0.70 * (1.0 - clamp(dir, 0.0, 1.0)));
+        col *= 1.0 - shade;
+
+        // Keep a dark seam on the outside so the rim reads against light
+        // wallpapers instead of dissolving into them.
+        col *= mix(0.94, 1.0, smoothstep(0.0, 0.45, d));
+
+        // No rotated fade here: Apple's rim is uniform around the pane.
+        fragColor = vec4(col, band * uA);
+        return;
+    }
+
     // Bipolar diagonal frame glow: strongest at the outer rim, riding with
     // the bevel trio (d = 0 outer -> 1 inner), directional via the
     // lens-field normal. Two identical poles, true-zero nodes.
     // Layer 1 (multiplicative, kept) + layer 2 (plain white additive, 33%).
     // PERF: skip atan+sin entirely when glow off (doGlow from normals above).
+    // Keep these outside the branch: the frame-relief block below re-applies
+    // them after resampling the displaced backdrop.
+    float g = 0.0;
+    float edgeMask = 0.0;
+    float glow = 1.0 + uGlowBias;
     if (doGlow) {
     float graw = abs(sin(atan(glowN.y, glowN.x) - 0.5 - 0.4363323129));
     // Same bright-cap narrowing as glass.frag (one material): soft
@@ -484,9 +597,9 @@ void main() {
     float gcap = clamp((graw - uGlowT) / max(1.0 - uGlowT, 1e-3), 0.0, 1.0);
     gcap = gcap * gcap * (3.0 - 2.0 * gcap);
     float kdir = 1.0 - smoothstep(0.0, 1.0, d);
-    float g = mix(0.0, gcap, kdir);
-    float edgeMask = (1.0 - smoothstep(0.0, 1.0, d)) * 0.5;
-    float glow = g * uGlowW * edgeMask + 1.0 + uGlowBias;
+    g = mix(0.0, gcap, kdir);
+    edgeMask = (1.0 - smoothstep(0.0, 1.0, d)) * 0.5;
+    glow = g * uGlowW * edgeMask + 1.0 + uGlowBias;
     col *= glow;
     col += vec3(1.0) * (g * edgeMask) * 0.33;
     } // end glow early-out
@@ -519,7 +632,7 @@ void main() {
         if (m2 > uThrow) dispPx *= uThrow / max(m2, 1e-4);
         vec2 sampleUV2 = clamp((p + dispPx) / uQuadSize, vec2(0.001), vec2(0.999));
         refr = texture(uBlur, sampleUV2).rgb;
-        col = mix(refr, tint, clamp(uTintMix, 0.0, 1.0) * 0.28);
+        col = mix(refr, tint, clamp(uTintMix, 0.0, 1.0));
         col *= glow; // resample discards the glow above: re-apply, same order
         col += vec3(1.0) * (g * edgeMask) * 0.33; // additive layer, same
         // Bevel follows relief; recesses deepen.
@@ -539,11 +652,6 @@ void main() {
         col = mix(col, frameCol, crest * 0.7);
     }
     col = overlay(col, clamp(vec3(0.5) + vec3(hi - lo) * 0.5, 0.0, 1.0));
-
-    // Full opacity means fully opaque (solid border color, no glass left),
-    // same anchor as the pills: identical look at/below the default.
-    float fullness = smoothstep(0.82, 1.0, clamp(uTintMix, 0.0, 1.0));
-    col = mix(col, tint, fullness);
 
     // Ring alpha carries the shared rotated fade (vf computed above).
     // 1/1/1 = no fade. Only alpha fades — refraction/tint stay.

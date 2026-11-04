@@ -68,6 +68,7 @@ input-remapper-bin
 itstool
 iwd
 jq
+kdeconnect
 kitty
 kmscon
 koodo-reader-bin
@@ -203,7 +204,6 @@ xpadneo-dkms
 xterm
 yt-dlp
 zed
-zen-browser-bin
 zip
 zoxide
 zram-generator

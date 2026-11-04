@@ -129,10 +129,16 @@ PanelWindow {
     // to the expanded body crossed that head at t ~ 0.15 (two frames), which
     // read as "no mask". panelHeight is a binding, not a laid-out height, so a
     // direct-tab open still gets the full body on the first frame.
-    // It is also why typing during the reveal no longer snaps the mask off:
-    // bodyOpen grows panelHeight, revealMax follows, and the circle retargets
-    // and finishes over the expanded body before onFinished releases the layer.
     readonly property real revealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH + root.ring, Math.max(root.revealCenterY, root.panelHeight - root.revealCenterY)) + 8
+    // The fully open body, and the circle that covers it. Both are derived from
+    // openContentH instead of panelHeight/revealMax on purpose: onBodyOpenChanged
+    // runs in the same notification turn as bodyOpen, and reading revealMax there
+    // still yields the collapsed size (panelHeight's binding has not re-evaluated
+    // yet). That stale target was the bug behind "typing freezes the reveal": the
+    // circle retargeted to the 64 px head's radius, never covered the 604 px body,
+    // and the mask was cut off mid-way.
+    readonly property real openPanelH: root.openContentH * root.scaleFactor + root.padV * 2 + root.ring * 2
+    readonly property real bodyRevealMax: Math.hypot(face.width * root.scaleFactor / 2 + root.padH + root.ring, Math.max(root.revealCenterY, root.openPanelH - root.revealCenterY)) + 8
     readonly property real ring: Theme.dp(4)
     // Collapsed, the launcher is a search pill: a true stadium (radius half
     // the surface height, no smoothing). Opened, it uses the same squircle
@@ -153,13 +159,22 @@ PanelWindow {
 
     // Typing during the grow used to switch the mask off outright, which popped
     // the body in. If the body arrives mid-reveal the window gets taller, so
-    // grow the circle from where it is to the new target instead of cutting it.
+    // grow the circle from where it is to a target that covers the *open* body
+    // instead of cutting it. bodyRevealMax, not revealMax: see above.
     onBodyOpenChanged: {
-        if (!root.bodyOpen || root.closing || !openAnim.running)
+        if (!root.bodyOpen || root.closing || !root.maskActive)
             return;
+        const from = root.revealRadius;
+        const to = root.bodyRevealMax;
+        if (to <= from + 1) {
+            // the circle already covers the body; release the layer rather
+            // than run a retarget that cannot grow
+            root.finishOpen();
+            return;
+        }
         openAnim.stop();
-        retargetAnim.from = root.revealRadius;
-        retargetAnim.to = root.revealMax;
+        retargetAnim.from = from;
+        retargetAnim.to = to;
         retargetAnim.restart();
     }
 
@@ -274,9 +289,13 @@ PanelWindow {
         y: 0
         width: face.width * root.scaleFactor + root.padH * 2 + root.ring * 2
         height: face.height * root.scaleFactor + root.padV * 2 + root.ring * 2
-        fillColor: (root.glassOn && (!root.maskActive || root.maskedGlass)) ? "transparent" : root.panelFill
-        borderColor: root.panelBorder
-        borderWidth: root.activeBorderWidth
+        // The compositor glass + rim owns the edge when the transparent
+        // glass body is actually drawing. Keep the QML hairline only for the
+        // opaque fallback (glass not ready or mask unsupported).
+        readonly property bool glassSurface: root.glassOn && (!root.maskActive || root.maskedGlass)
+        fillColor: glassSurface ? "transparent" : root.panelFill
+        borderColor: glassSurface ? "transparent" : root.panelBorder
+        borderWidth: glassSurface ? 0 : root.activeBorderWidth
         radius: root.surfaceRadius
         smoothing: root.surfaceSmoothing
         z: -1
@@ -291,17 +310,22 @@ PanelWindow {
         // Shape is the live committed surface box while the launcher is open.
         // The layer surface stays mapped even when closed, so gate on the
         // actual open state, not on the always-mapped layer. `closing` is
-        // excluded so the wash does not linger through the close animation.
-        full: root.panelVisible && !root.closing
-        pills: (root.panelVisible && !root.closing) ? [{
+        // included: the mask circle is still shrinking over the body, and the
+        // same circle clips the glass, so dropping it here made the panel lose
+        // its backdrop for the whole close animation.
+        full: root.panelVisible
+        pills: root.panelVisible ? [{
             x: root.maskActive ? 0 : surface.x,
             y: root.maskActive ? 0 : surface.y,
             w: root.maskActive ? root.width : surface.width,
             h: root.maskActive ? root.height : surface.height,
-            r: root.maskActive ? [0, 0, 0, 0]
-                               : [root.surfaceRadius, root.surfaceRadius,
-                                  root.surfaceRadius, root.surfaceRadius],
-            sq: root.maskActive ? 0 : root.surfaceSmoothing
+            // The real radius/squircle even while masked: the mask discards
+            // outside the circle anyway, and sending zeros made the last
+            // frames of the iris reveal a square-cornered sheet until the
+            // mask was released and the next geometry write landed.
+            r: [root.surfaceRadius, root.surfaceRadius,
+                root.surfaceRadius, root.surfaceRadius],
+            sq: root.surfaceSmoothing
         }] : []
         // Same hard circle as LauncherMask.qsb: centre (width/2, revealCenterY),
         // radius revealRadius, in surface-local logical px.

@@ -1,4 +1,5 @@
 #include "WindowWash.hpp"
+#include "Config.hpp"
 #include "Shaders.hpp"
 
 #include <GLES3/gl32.h>
@@ -231,12 +232,91 @@ lg::windowWashSnapshot(PHLWINDOW window, PHLMONITOR monitor, const SWindowRender
 }
 
 namespace {
-std::string geoDir() {
-    if (const char* xdg = getenv("XDG_CACHE_HOME"); xdg && *xdg)
-        return std::string(xdg) + "/liquid-glass-hypr";
-    if (const char* home = getenv("HOME"); home && *home)
-        return std::string(home) + "/.cache/liquid-glass-hypr";
-    return {};
+const std::string& geoDir() {
+    static const std::string dir = [] {
+        if (const char* xdg = getenv("XDG_CACHE_HOME"); xdg && *xdg)
+            return std::string(xdg) + "/liquid-glass-hypr";
+        if (const char* home = getenv("HOME"); home && *home)
+            return std::string(home) + "/.cache/liquid-glass-hypr";
+        return std::string();
+    }();
+    return dir;
+}
+
+// Shared scan + parse cache for the wash geometry files. layerWashSnapshots
+// runs for every mapped layer after every render, and it used to re-open and
+// re-parse every publisher JSON each time. The bridge writes at most every
+// 16ms, so an 8ms shared scan is fresh enough; parsed JSON is kept until the
+// file's mtime changes. This turns N_layers * N_files parses per frame into
+// one scan per monitor per 8ms and one parse per actual file change.
+struct SWashScanEntry {
+    std::string path;
+    std::filesystem::file_time_type stamp{};
+};
+struct SWashScanCache {
+    std::chrono::steady_clock::time_point at{};
+    std::vector<SWashScanEntry> entries;
+    bool valid = false;
+};
+struct SWashJsonCache {
+    std::filesystem::file_time_type stamp{};
+    nlohmann::json json;
+    bool ok = false;
+};
+
+static const SWashScanCache& washScan(const std::string& dir, const std::string& mon) {
+    static std::map<std::string, std::map<std::string, SWashScanCache>> cache;
+    auto& c = cache[dir][mon];
+    const auto now = std::chrono::steady_clock::now();
+    if (c.valid && now - c.at < std::chrono::milliseconds(8))
+        return c;
+    c.entries.clear();
+    const std::string glassPrefix = "liquidglass-";
+    const std::string washPrefix  = "liquidwash-";
+    const std::string suffix      = "-" + mon + ".json";
+    std::error_code ec;
+    for (const auto& ent : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec)
+            break;
+        if (!ent.is_regular_file(ec))
+            continue;
+        const std::string name = ent.path().filename().string();
+        const bool glassBridge = name.size() > glassPrefix.size() + suffix.size() && name.compare(0, glassPrefix.size(), glassPrefix) == 0;
+        const bool washBridge  = name.size() > washPrefix.size() + suffix.size() && name.compare(0, washPrefix.size(), washPrefix) == 0;
+        if (!glassBridge && !washBridge)
+            continue;
+        if (name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+            continue;
+        std::error_code sec;
+        const auto stamp = std::filesystem::last_write_time(ent.path(), sec);
+        if (!sec)
+            c.entries.push_back({ent.path().string(), stamp});
+    }
+    std::sort(c.entries.begin(), c.entries.end(), [](const SWashScanEntry& a, const SWashScanEntry& b) {
+        return a.path < b.path;
+    });
+    c.at = now;
+    c.valid = true;
+    return c;
+}
+
+static const nlohmann::json* washJson(const std::string& path, std::filesystem::file_time_type stamp) {
+    static std::map<std::string, SWashJsonCache> cache;
+    auto& c = cache[path];
+    if (c.ok && c.stamp == stamp)
+        return &c.json;
+    c.stamp = stamp;
+    c.ok = false;
+    std::ifstream f(path);
+    if (!f)
+        return nullptr;
+    try {
+        f >> c.json;
+    } catch (const nlohmann::json::exception&) {
+        return nullptr;
+    }
+    c.ok = true;
+    return &c.json;
 }
 } // namespace
 
@@ -244,8 +324,13 @@ std::vector<SWindowWashDraw> lg::layerWashSnapshots(PHLLS surface, PHLMONITOR mo
     std::vector<SWindowWashDraw> out;
     if (!surface || !monitor || !surface->mapped())
         return out;
+    // The wash bridge only publishes for the glass namespaces (quickshell,
+    // lucid-launcher, lucid-widgets). Wallpaper/spatial/desktop/corner layers
+    // have no geometry files; skip the scan/iteration entirely.
+    if (!lg::namespaceAllowed(surface->m_namespace))
+        return out;
 
-    const auto dir = geoDir();
+    const auto& dir = geoDir();
     if (dir.empty())
         return out;
 
@@ -260,30 +345,13 @@ std::vector<SWindowWashDraw> lg::layerWashSnapshots(PHLLS surface, PHLMONITOR mo
     if (layerAlpha < 0.99F)
         return out;
 
-    const std::string suffix = "-" + monitor->m_name + ".json";
-    std::error_code ec;
-    for (const auto& ent : std::filesystem::directory_iterator(dir, ec)) {
-        if (ec)
-            break;
-        if (!ent.is_regular_file(ec))
+    const auto& scan = washScan(dir, monitor->m_name);
+    for (const auto& entry : scan.entries) {
+        const std::string& path = entry.path;
+        const auto* jp = washJson(path, entry.stamp);
+        if (!jp || !jp->is_object())
             continue;
-        const std::string name = ent.path().filename().string();
-        if (name.size() <= 12 || name.compare(0, 12, "liquidglass-") != 0)
-            continue;
-        if (name.size() <= suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
-            continue;
-
-        std::ifstream f(ent.path());
-        if (!f)
-            continue;
-        nlohmann::json j;
-        try {
-            f >> j;
-        } catch (const nlohmann::json::exception&) {
-            continue;
-        }
-        if (!j.is_object())
-            continue;
+        const auto& j = *jp;
 
         const auto ns = j.value("ns", std::string{});
         if (!ns.empty() && ns != surface->m_namespace)
@@ -298,6 +366,15 @@ std::vector<SWindowWashDraw> lg::layerWashSnapshots(PHLLS surface, PHLMONITOR mo
             continue;
         const bool full = j.value("full", false);
         const auto& pills = j["pills"];
+
+        // Same identity rule as the glass path (Glass.cpp loadGeometry): the
+        // bar, dock and OSD share the layer namespace "quickshell", so a file
+        // must also match the surface's committed logical size or its pills
+        // get washed onto every quickshell layer. `full` descriptors take the
+        // live box on purpose and skip the size check.
+        if (!full &&
+            (std::fabs(surfBox.w / monitor->m_scale - dw) > 2.0 || std::fabs(surfBox.h / monitor->m_scale - dh) > 2.0))
+            continue;
 
         auto addPill = [&](const nlohmann::json& p, const CBox& box, float scale) {
             std::array<float, 4> rad{0, 0, 0, 0};
@@ -364,6 +441,57 @@ std::vector<SWindowWashDraw> lg::layerWashSnapshots(PHLLS surface, PHLMONITOR mo
     return out;
 }
 
+namespace {
+struct SQueuedWash {
+    SWindowWashDraw      draw;
+    SP<ITexture>         wash;
+};
+std::unordered_map<MONITORID, std::vector<SQueuedWash>> g_queuedWash;
+} // namespace
+
+void lg::queueWindowWash(PHLWINDOW window, PHLMONITOR monitor, const SWindowRenderPresentation& presentation) {
+    auto wash = washTexture();
+    if (!wash)
+        return;
+    if (auto draw = windowWashSnapshot(window, monitor, presentation))
+        g_queuedWash[monitor->m_id].push_back(SQueuedWash{*draw, wash});
+}
+
+void lg::queueLayerWash(PHLLS surface, PHLMONITOR monitor) {
+    auto wash = washTexture();
+    if (!wash)
+        return;
+    for (const auto& draw : layerWashSnapshots(surface, monitor))
+        g_queuedWash[monitor->m_id].push_back(SQueuedWash{draw, wash});
+}
+
+void lg::drawQueuedWash(PHLMONITOR monitor, const SP<IFramebuffer>& target, const CRegion& damage, bool transformDamage) {
+    if (!monitor || !target)
+        return;
+    auto it = g_queuedWash.find(monitor->m_id);
+    if (it == g_queuedWash.end())
+        return;
+    if (!it->second.empty()) {
+        CRenderContext ctx;
+        ctx.m_data.pMonitor       = monitor;
+        ctx.m_data.currentFB      = target;
+        ctx.m_data.projectionType = Render::RPT_MONITOR;
+        ctx.m_data.fbSize         = target->m_size;
+        ctx.m_data.damage         = damage;
+        ctx.m_data.finalDamage    = damage;
+        ctx.m_data.transformDamage = transformDamage;
+        g_pHyprRenderer->bindFB(ctx, target);
+        for (const auto& q : it->second)
+            windowWashDraw(q.draw, q.wash, ctx);
+    }
+    g_queuedWash.erase(it);
+}
+
+void lg::clearQueuedWash(PHLMONITOR monitor) {
+    if (monitor)
+        g_queuedWash.erase(monitor->m_id);
+}
+
 void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, CRenderContext& ctx) {
     ensureShaders();
     auto* s = state();
@@ -380,6 +508,12 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
 
     const CBox damage = ctx.m_data.damage.getExtents();
     if (damage.w <= 0 || damage.h <= 0)
+        return;
+
+    // The quad only covers draw.box; if damage misses it entirely the draw
+    // would rasterize nothing. Skip the uniform setup and the draw call.
+    if (draw.box.x + draw.box.w <= damage.x || draw.box.y + draw.box.h <= damage.y ||
+        draw.box.x >= damage.x + damage.w || draw.box.y >= damage.y + damage.h)
         return;
 
     {

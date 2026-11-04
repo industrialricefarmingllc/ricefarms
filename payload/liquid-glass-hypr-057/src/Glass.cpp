@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -46,12 +47,15 @@ CGlassLayer::CGlassLayer(PHLLS surface) : m_surface(surface) {}
 
 // XDG_CACHE_HOME-aware, HOME fallback. Empty only when neither is set
 // (never happens under Hyprland) — callers then skip, never touch /tmp.
-static std::string geoDir() {
-    if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg)
-        return std::string(xdg) + "/liquid-glass-hypr";
-    if (const char* home = std::getenv("HOME"); home && *home)
-        return std::string(home) + "/.cache/liquid-glass-hypr";
-    return {};
+static const std::string& geoDir() {
+    static const std::string dir = [] {
+        if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg)
+            return std::string(xdg) + "/liquid-glass-hypr";
+        if (const char* home = std::getenv("HOME"); home && *home)
+            return std::string(home) + "/.cache/liquid-glass-hypr";
+        return std::string();
+    }();
+    return dir;
 }
 
 // Once per process: ensure the dir exists, and delete legacy /tmp bridge
@@ -61,7 +65,7 @@ static void ensureGeoDirOnce() {
     if (done)
         return;
     done = true;
-    const std::string dir = geoDir();
+    const auto& dir = geoDir();
     if (!dir.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
@@ -75,6 +79,69 @@ static void ensureGeoDirOnce() {
         }
         closedir(tmp);
     }
+}
+
+// Directory scan cache: every glassed layer used to opendir()+stat every
+// publisher file on every render. With bar + dock + OSD + launcher +
+// widgets that is N_layers * N_files syscalls per frame. The bridge only
+// writes at most every 16ms (GlassLayout coalesces), so a shared 8ms scan
+// is fresh enough for every consumer while collapsing those syscalls to
+// one scan per monitor per 8ms.
+struct SGeoScanEntry {
+    std::string path;
+    std::filesystem::file_time_type stamp{};
+};
+struct SGeoScanCache {
+    std::chrono::steady_clock::time_point at{};
+    std::vector<SGeoScanEntry> entries;
+    uint64_t generation = 0;
+    bool valid = false;
+};
+static const SGeoScanCache& geoScan(const std::string& dir, const std::string& mon) {
+    static std::map<std::string, std::map<std::string, SGeoScanCache>> cache;
+    static uint64_t genCounter = 0;
+    auto& c = cache[dir][mon];
+    const auto now = std::chrono::steady_clock::now();
+    if (c.valid && now - c.at < std::chrono::milliseconds(8))
+        return c;
+    std::vector<SGeoScanEntry> fresh;
+    const std::string prefix = "liquidglass-";
+    const std::string suffix = "-" + mon + ".json";
+    if (DIR* d = opendir(dir.c_str())) {
+        while (dirent* ent = readdir(d)) {
+            const std::string name = ent->d_name ? ent->d_name : "";
+            if (name.size() <= prefix.size() + suffix.size() || name.compare(0, prefix.size(), prefix) != 0
+                || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+                continue;
+            const std::string infix = name.substr(prefix.size(), name.size() - prefix.size() - suffix.size());
+            if (infix.empty() || infix.find('/') != std::string::npos)
+                continue;
+            const std::string path = dir + "/" + name;
+            std::error_code ec;
+            const auto stamp = std::filesystem::last_write_time(path, ec);
+            if (!ec)
+                fresh.push_back({path, stamp});
+        }
+        closedir(d);
+    }
+    std::sort(fresh.begin(), fresh.end(), [](const SGeoScanEntry& a, const SGeoScanEntry& b) {
+        return a.path < b.path;
+    });
+    bool changed = fresh.size() != c.entries.size();
+    if (!changed) {
+        for (size_t i = 0; i < fresh.size(); ++i) {
+            if (fresh[i].path != c.entries[i].path || fresh[i].stamp != c.entries[i].stamp) {
+                changed = true;
+                break;
+            }
+        }
+    }
+    if (changed)
+        c.generation = ++genCounter;
+    c.entries = std::move(fresh);
+    c.at = now;
+    c.valid = true;
+    return c;
 }
 
 static const char* jsSkip(const char* p, const char* end) {
@@ -218,29 +285,21 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const st
     (void)monitor;
 
     // Discover publisher files: <cache>/liquidglass-<name>-<MON>.json.
-    // One cheap dir scan per frame; files parsed only on change.
+    // One shared scan per monitor per 8ms; files parsed only on change.
     ensureGeoDirOnce();
-    const std::string dir = geoDir();
+    const auto& dir = geoDir();
     if (dir.empty())
         return false;
-    const std::string prefix = "liquidglass-";
-    const std::string suffix = "-" + mon + ".json";
-    std::vector<std::string> seen;
-    if (DIR* d = opendir(dir.c_str())) {
-        while (dirent* ent = readdir(d)) {
-            const std::string name = ent->d_name ? ent->d_name : "";
-            if (name.size() <= prefix.size() + suffix.size() || name.compare(0, prefix.size(), prefix) != 0
-                || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
-                continue;
-            const std::string infix = name.substr(prefix.size(), name.size() - prefix.size() - suffix.size());
-            if (infix.empty() || infix.find('/') != std::string::npos)
-                continue;
-            seen.push_back(dir + "/" + name);
-        }
-        closedir(d);
-    }
+    const auto& scan = geoScan(dir, mon);
     for (auto it = m_geoFiles.begin(); it != m_geoFiles.end();) {
-        if (std::find(seen.begin(), seen.end(), it->first) == seen.end())
+        bool found = false;
+        for (const auto& e : scan.entries) {
+            if (e.path == it->first) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
             it = m_geoFiles.erase(it);
         else
             ++it;
@@ -249,19 +308,30 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const st
     pills.clear();
     if (!forBorders)
         m_mask = {};
-    for (const auto& path : seen) {
+    for (const auto& entry : scan.entries) {
+        const auto& path = entry.path;
+        const auto stamp = entry.stamp;
         // Dock (and friends) keep glass body but never get border rings.
         const bool excluded = forBorders && fileExcludedForBorders(path);
-        std::error_code ec;
-        const auto stamp = std::filesystem::last_write_time(path, ec);
-        if (ec) {
-            m_geoFiles.erase(path);
-            continue;
-        }
         SGeoFile& cached = m_geoFiles[path]; // inserts empty on first sight
         if (cached.parsed && cached.stamp == stamp) {
             if (!cached.foreign && !excluded) {
-                pills.insert(pills.end(), cached.pills.begin(), cached.pills.end());
+                if (cached.full && !forBorders && !cached.pills.empty()) {
+                    // Full-surface descriptor: re-derive the box from the
+                    // surface as it is THIS frame. The cached pill only
+                    // carries radius/squircle, which change with the theme
+                    // (and are republished when they do); the size/position
+                    // must never lag the live surface, or a resize reveals a
+                    // frame of glass at the previous dimensions.
+                    SPill fp = cached.pills.front();
+                    fp.x = (float)surfBox.x;
+                    fp.y = (float)surfBox.y;
+                    fp.w = (float)surfBox.w;
+                    fp.h = (float)surfBox.h;
+                    pills.push_back(fp);
+                } else {
+                    pills.insert(pills.end(), cached.pills.begin(), cached.pills.end());
+                }
                 if (!forBorders && cached.hasMask) {
                     m_mask.on = true;
                     m_mask.cx = cached.maskX;
@@ -352,6 +422,24 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const st
             }
             if (sw <= 0 || sh <= 0)
                 break;
+            // Surface identity, not just namespace: the bar, dock and OSD all
+            // publish under the layer namespace "quickshell", so matching the
+            // namespace alone made every one of those surfaces adopt the bar's
+            // pills and paint them at its own origin (duplicate backgrounds
+            // all over the screen). The file names the publisher surface's
+            // logical size; only hand its pills to a surface of that size.
+            // Measured against the live box rather than used as the coordinate
+            // ratio, so the commit race that forced `monitor->m_scale` cannot
+            // reintroduce flicker. A `full` descriptor intentionally derives
+            // its shape from the live box and skips this check.
+            if (!fullSurface) {
+                const double liveW = surfBox.w / monitor->m_scale;
+                const double liveH = surfBox.h / monitor->m_scale;
+                if (std::fabs(liveW - sw) > 2.0 || std::fabs(liveH - sh) > 2.0) {
+                    foreign = true;
+                    break;
+                }
+            }
             // QML geometry is in the compositor's logical pixels. The only
             // correct logical -> framebuffer factor is the monitor scale.
             // Deriving it from the layer surface size was the race: that size
@@ -550,7 +638,13 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const st
                             k = t;
                             if (findKey(k, mEnd, "y") && jsNumber(k, mEnd, maskY)) {
                                 k = t;
-                                if (findKey(k, mEnd, "r") && jsNumber(k, mEnd, maskR) && maskR > 0) {
+                                // r == 0 is a legitimate end-of-close frame
+                                // (clip everything), not "no mask": the
+                                // publisher signals absence with an empty
+                                // object, so treating 0 as missing made the
+                                // last close frame repaint the whole panel
+                                // unmasked for a frame.
+                                if (findKey(k, mEnd, "r") && jsNumber(k, mEnd, maskR) && maskR >= 0.0) {
                                     const double avg = (ratioX + ratioY) * 0.5;
                                     maskFound = true;
                                     maskX *= ratioX;
@@ -588,6 +682,7 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const st
             cached.stamp = stamp;
             cached.parsed = true;
             cached.foreign = false;
+            cached.full = fullSurface && !forBorders;
             cached.ratioX = ratioX;
             cached.ratioY = ratioY;
             cached.hasMask = maskFound;
@@ -608,6 +703,7 @@ bool CGlassLayer::loadGeometry(PHLMONITOR monitor, const CBox& surfBox, const st
             cached.stamp = stamp;
             cached.parsed = true;
             cached.foreign = true;
+            cached.full = false;
             cached.pills.clear();
         }
         if (!cached.foreign && !(forBorders && fileExcludedForBorders(path)))
@@ -659,6 +755,7 @@ void CGlassLayer::ensureShaders() {
     m_gu.rimBlur = loc(gp, "uRimBlur");
     m_gu.capOrigin = loc(gp, "uCapOrigin");
     m_gu.capScale = loc(gp, "uCapScale");
+    m_gu.texel = loc(gp, "uTexel");
     m_gu.baseColor = loc(gp, "uBaseColor");
     m_gu.power = loc(gp, "uPower");
     m_gu.shape = loc(gp, "uShape");
@@ -699,6 +796,12 @@ void CGlassLayer::ensureShaders() {
     m_gu.maskOn = loc(gp, "uMaskOn");
     m_gu.maskCenter = loc(gp, "uMaskCenter");
     m_gu.maskRadius = loc(gp, "uMaskRadius");
+    m_gu.rimLight = loc(gp, "uRimLight");
+    m_gu.rimStrength = loc(gp, "uRimStrength");
+    m_gu.rimWidth = loc(gp, "uRimWidth");
+    m_gu.rimAngle = loc(gp, "uRimAngle");
+    m_gu.rimSplay = loc(gp, "uRimSplay");
+    m_gu.rimShade = loc(gp, "uRimShade");
 
     const GLuint kd = m_kawDown->program();
     m_kd.proj = loc(kd, "proj");
@@ -771,6 +874,7 @@ void CGlassLayer::ensureRing() {
     m_ru.lC = loc(rp, "uLC");
     m_ru.lD = loc(rp, "uLD");
     m_ru.lFPower = loc(rp, "uLFPower");
+    m_ru.logCME = loc(rp, "uLogCME");
     m_ru.glowW = loc(rp, "uGlowW");
     m_ru.glowE0 = loc(rp, "uGlowE0");
     m_ru.glowE1 = loc(rp, "uGlowE1");
@@ -915,8 +1019,32 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
     if (!std::isfinite(surfBox.x) || !std::isfinite(surfBox.y) || surfBox.w <= 0 || surfBox.h <= 0)
         return;
 
+    const uint64_t tuneGen = lg::tuneGeneration();
+    const auto& geoDirStr = geoDir();
+    const uint64_t geoGen = geoDirStr.empty() ? 0 : geoScan(geoDirStr, monitor->m_name).generation;
+    const bool surfSame = m_haveSurfBox && std::fabs(m_lastSurfBox.x - surfBox.x) < 1e-3 &&
+        std::fabs(m_lastSurfBox.y - surfBox.y) < 1e-3 && std::fabs(m_lastSurfBox.w - surfBox.w) < 1e-3 &&
+        std::fabs(m_lastSurfBox.h - surfBox.h) < 1e-3;
+    // Fast path: geometry, surface box and tune are unchanged, and this
+    // frame's damage misses the last glass union. loadGeometry() would
+    // rebuild identical pills and then take the same early exit below.
+    if (m_boundsOk && m_geoGen == geoGen && surfSame && m_tuneGen == tuneGen) {
+        const CBox dmgEarly = ctx.m_data.damage.getExtents();
+        if (dmgEarly.w <= 0 || dmgEarly.h <= 0)
+            return;
+        const double inv = 1.0 / (double)monitor->m_scale;
+        const CBox dmgLog{dmgEarly.x * inv, dmgEarly.y * inv, dmgEarly.w * inv, dmgEarly.h * inv};
+        if (m_boundsLog.x + m_boundsLog.w <= dmgLog.x || m_boundsLog.y + m_boundsLog.h <= dmgLog.y ||
+            m_boundsLog.x >= dmgLog.x + dmgLog.w || m_boundsLog.y >= dmgLog.y + dmgLog.h)
+            return;
+    }
+
     std::vector<SPill> pills;
-    if (!loadGeometry(monitor, surfBox, surf->m_namespace, pills) || pills.empty()) {
+    const bool havePills = loadGeometry(monitor, surfBox, surf->m_namespace, pills) && !pills.empty();
+    m_geoGen = geoGen;
+    m_lastSurfBox = surfBox;
+    m_haveSurfBox = true;
+    if (!havePills) {
         // Geometry gone (file deleted): repaint the last bounds once so no
         // stale glass lingers, then go quiet. glassBounds() keeps returning
         // the last union so the pass still culls this element correctly.
@@ -937,7 +1065,6 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
     //   - slider/theme edits bump the tune generation -> we damage;
     //   - nothing damaged anywhere -> no frame at all -> static glass is
     //     still correct on screen.
-    const uint64_t tuneGen = lg::tuneGeneration();
     // Softer-than-default drop shadow: the key still reads in old units.
     const float shBlurPad = lg::getFloat("plugin:liquidglass:shadow_blur", 57.0f) * 0.25f;
     const float shOffX = lg::getFloat("plugin:liquidglass:shadow_offset_x", 0.0f);
@@ -1057,7 +1184,7 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         lg::getFloat("plugin:liquidglass:glow_edge1", -0.5f),
         lg::getFloat("plugin:liquidglass:glow_threshold", 0.5f),
         (float)lg::getInt("plugin:liquidglass:use_pill", 1),
-        lg::getFloat("plugin:liquidglass:opacity", 0.82f),
+        lg::getFloat("plugin:liquidglass:opacity", 0.23f),
         lg::getFloat("plugin:liquidglass:ca", 0.5f),
         lg::getFloat("plugin:liquidglass:detail_preserve", 1.0f),
         lg::getFloat("plugin:liquidglass:shadow_offset_x", 0.0f),
@@ -1065,27 +1192,29 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         shBlurPad,
         lg::getFloat("plugin:liquidglass:bokeh", 0.0f),
     };
-    const double screenMinLog = std::min(monitor->m_size.x, monitor->m_size.y); // logical px
 
     // Layer borders: same ring.frag as windows, 1px, inactive tint only.
     // Border pills exclude dock (still gets glass body, never rings).
     std::vector<SPill> borderPills;
     const bool layerBordersOn = lg::getInt("plugin:liquidglass:layer_borders", 1) == 1;
     float ibR = 0.19f, ibG = 0.20f, ibB = 0.27f; // fallback #313244-ish
-    float tmpR = 0, tmpG = 0, tmpB = 0;
-    if (inactiveBorderRGB(tmpR, tmpG, tmpB)) {
-        ibR = tmpR;
-        ibG = tmpG;
-        ibB = tmpB;
-    }
-    const float layerBorW = lg::getFloat("plugin:liquidglass:layer_border_width", 1.0f);
-    const float fadeTop = lg::getFloat("plugin:liquidglass:border_fade_top", 1.0f);
-    const float fadeMid = lg::getFloat("plugin:liquidglass:border_fade_mid", 0.2f);
-    const float fadeBot = lg::getFloat("plugin:liquidglass:border_fade_bottom", 1.0f);
-    const float fadeAng = lg::getFloat("plugin:liquidglass:border_fade_angle", 33.0f);
-    const float borderD = lg::getFloat("plugin:liquidglass:border_d", 30.0f);
-    const float borderGlowB = lg::getFloat("plugin:liquidglass:border_glow_bias", 0.5f);
+    float layerBorW = 1.0f;
+    float fadeTop = 1.0f, fadeMid = 0.2f, fadeBot = 1.0f, fadeAng = 33.0f;
+    float borderD = 30.0f, borderGlowB = 0.5f;
     if (layerBordersOn) {
+        float tmpR = 0, tmpG = 0, tmpB = 0;
+        if (inactiveBorderRGB(tmpR, tmpG, tmpB)) {
+            ibR = tmpR;
+            ibG = tmpG;
+            ibB = tmpB;
+        }
+        layerBorW = lg::getFloat("plugin:liquidglass:layer_border_width", 1.0f);
+        fadeTop = lg::getFloat("plugin:liquidglass:border_fade_top", 1.0f);
+        fadeMid = lg::getFloat("plugin:liquidglass:border_fade_mid", 0.2f);
+        fadeBot = lg::getFloat("plugin:liquidglass:border_fade_bottom", 1.0f);
+        fadeAng = lg::getFloat("plugin:liquidglass:border_fade_angle", 33.0f);
+        borderD = lg::getFloat("plugin:liquidglass:border_d", 30.0f);
+        borderGlowB = lg::getFloat("plugin:liquidglass:border_glow_bias", 0.5f);
         (void)loadGeometry(monitor, surfBox, surf->m_namespace, borderPills, true);
         if (!borderPills.empty())
             ensureRing();
@@ -1120,25 +1249,23 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         if (px1 <= px0 || py1 <= py0)
             continue;
 
-        // Size-proportional blur: small pills stay sharp, large ones ramp up
-        // to the user setting, absolute max at screen size. Linear in the
-        // smaller dimension (the constraining one for pill glass).
-        // Radius is resolution-proportional (x monitor scale): a scale-blind
-        // framebuffer-px spread reads ~half as strong on a 2.4x 4K panel as
-        // on the 1.6x primary for same-size windows.
-        const double pillMinLog = (double)std::min(lp.w, lp.h) / (double)monitor->m_scale;
-        const float sizeK = (float)std::clamp(pillMinLog / screenMinLog, 0.0, 1.0);
-        const float radius = T.userRadius * sizeK;
+        // Blur radius is the user setting, full stop: a small pill gets the
+        // same spread as a large panel. (It used to scale with the smaller
+        // surface dimension, which kept tiny widgets sharp but made the
+        // control read differently on every surface.)
+        // Radius is still resolution-proportional (x monitor scale): a
+        // scale-blind framebuffer-px spread reads ~half as strong on a 2.4x
+        // 4K panel as on the 1.6x primary for same-size windows.
+        const float radius = T.userRadius;
         // Resolution-corrected: the chain spread is radius × base texel, so a
         // smaller base (capture_scale 4) would read 2x stronger. Divide back
         // to keep screen-space blur identical across scales (2 = old look).
         const float effR = radius * std::sqrt((float)T.userPasses) * 0.5f * (float)monitor->m_scale
             * (2.0f / (float)T.capDiv);
-        // Skip the chain when the effective radius is sub-visible: every
-        // current pill lands at effR 0.06-0.08 (wasted passes for no readable
-        // blur). Large surfaces still ramp up normally. Threshold in
-        // screen-space units (scales with capDiv like effR) so the skip
-        // behavior is identical at any capture_scale.
+        // Skip the chain when the effective radius is sub-visible (e.g. a
+        // zero user radius). Threshold in screen-space units (scales with
+        // capDiv like effR) so the skip behavior is identical at any
+        // capture_scale.
         const int passes = effR < 0.1f * (2.0f / (float)T.capDiv) ? 0 : T.userPasses;
         const bool bokehOn = T.bokeh > 0.01f;
 
@@ -1161,14 +1288,33 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         if (rw < 8 || rh < 8)
             continue;
 
-        // Never sample a partially-repainted region (see lg::damageCovers).
-        // Outside the damage the framebuffer still holds the previous frame —
-        // for a pill that is the old glass plus the old text — and sampling it
-        // ghosts those glyphs into the backdrop under the new text. Ask for a
-        // full repaint of the capture rect instead and skip this frame; the
-        // previous glass stays on screen for one frame, which is invisible
-        // behind a blurred backdrop, and the next frame captures clean.
-        if (!lg::damageCovers(ctx, rx0 + 1, ry0 + 1, rx1 - 1, ry1 - 1)) {
+        // Never sample a partially-repainted PILL. The pill is where this
+        // surface's own content (text, icons, the launcher's mask) lives; if
+        // that area was not repainted this frame, the capture still contains
+        // last frame's content/composited glass and would ghost it.
+        //
+        // The 32px capture bleed is deliberately NOT required. It lies
+        // outside the pill, so the glass does not cover it: those pixels hold
+        // the backdrop (or a neighbour), which is valid even when undamaged.
+        // Requiring it too made every small layer surface skip every other
+        // frame — the client only damages its own surface, never the bleed —
+        // so the pass requested the bleed, drew next frame, then failed again
+        // as soon as any content changed. That draw/skip alternation is the
+        // hover/iris flicker: the mask and moving pills advanced one frame,
+        // froze one frame. Requiring the pill alone keeps the ghost guard
+        // where it matters and lets the shape update every frame.
+        // The notch tabs bleed 2px past the surface edge (published x:-2 /
+        // x+w past the screen edge so no wallpaper hairline shows). Damage can
+        // never cover pixels outside the surface, so testing the raw pill rect
+        // made the two edge tabs fail the guard forever: they were skipped,
+        // damaged themselves, skipped again — no glass on the left/right notch
+        // while the centre clock (wholly inside) kept its glass. Test only the
+        // part of the pill that lies on the surface.
+        const int ix0 = std::max(px0 + 1, (int)std::floor(surfBox.x));
+        const int iy0 = std::max(py0 + 1, (int)std::floor(surfBox.y));
+        const int ix1 = std::min(px1 - 1, (int)std::ceil(surfBox.x + surfBox.w));
+        const int iy1 = std::min(py1 - 1, (int)std::ceil(surfBox.y + surfBox.h));
+        if (!lg::damageCovers(ctx, ix0, iy0, ix1, iy1)) {
             const double invS = 1.0 / (double)monitor->m_scale;
             g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + rx0 * invS, monitor->m_position.y + ry0 * invS,
                                             (rx1 - rx0) * invS, (ry1 - ry0) * invS});
@@ -1261,6 +1407,7 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             glUniform1f(m_gu.rimBlur, 0.0f); // pills: regular user-blur path
             glUniform2f(m_gu.capOrigin, ox, oy);
             glUniform2f(m_gu.capScale, sx, sy);
+            glUniform2f(m_gu.texel, 1.0f / (float)uBlurFb->m_size.x, 1.0f / (float)uBlurFb->m_size.y);
             glUniform3f(m_gu.baseColor, ((T.tint >> 24) & 0xFF) / 255.f, ((T.tint >> 16) & 0xFF) / 255.f,
                         ((T.tint >> 8) & 0xFF) / 255.f);
             glUniform1f(m_gu.power, T.power);
@@ -1276,6 +1423,14 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             glUniform1f(m_gu.glowE0, T.glowE0);
             glUniform1f(m_gu.glowE1, T.glowE1);
             glUniform1f(m_gu.glowT, T.glowT);
+            // Apple rim light on the glass body (shared material with the
+            // window-border ring). Width is logical px -> fb px here.
+            glUniform1f(m_gu.rimLight, (float)lg::getInt("plugin:liquidglass:glass_rim", 1));
+            glUniform1f(m_gu.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
+            glUniform1f(m_gu.rimWidth, std::max(0.75f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f) * (float)monitor->m_scale));
+            glUniform1f(m_gu.rimAngle, lg::getFloat("plugin:liquidglass:rim_angle", 135.0f));
+            glUniform1f(m_gu.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
+            glUniform1f(m_gu.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
             glUniform1f(m_gu.usePill, T.usePill);
             glUniform4f(m_gu.radii, lp.r[0], lp.r[1], lp.r[2], lp.r[3]);
             glUniform2f(m_gu.flare, lp.fl[0], lp.fl[1]);
@@ -1386,6 +1541,7 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
                 glUniform1f(m_ru.lC, T.c);
                 glUniform1f(m_ru.lD, borderD);
                 glUniform1f(m_ru.lFPower, T.fpower);
+                glUniform1f(m_ru.logCME, T.c > 0.001f ? std::log(T.c * 2.718281828459045f) : 0.0f);
                 glUniform1f(m_ru.glowW, T.glowW);
                 glUniform1f(m_ru.glowE0, T.glowE0);
                 glUniform1f(m_ru.glowE1, T.glowE1);

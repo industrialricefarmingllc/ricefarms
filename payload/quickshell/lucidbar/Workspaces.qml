@@ -55,7 +55,8 @@ Item {
     readonly property real notchGapRight: (!root.groupBackground && Prefs.barNotch && root.hostWindow && root.hostWindow.notchFlare) ? root.hostWindow.notchFlare(root, false) : 0
     // Full bar under liquid glass is one strip and traces its outline once
     // (shell.qml); the item must not outline itself there.
-    readonly property real windowBorderWidth: (Prefs.barFull && root.externalGlass) ? 0 : WindowBorder.size
+    // Glass rim owns the edge; no QML window hairline under external glass.
+    readonly property real windowBorderWidth: root.externalGlass ? 0 : WindowBorder.size
 
     implicitWidth: 200
     implicitHeight: Theme.dp(Prefs.barHeight)

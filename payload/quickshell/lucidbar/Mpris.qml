@@ -318,6 +318,13 @@ BarPill {
         root.expanded = true;
     }
 
+    // the identify shortcuts start listening too, so opening the page is not a
+    // required second tap
+    function identify() {
+        root.openPanel("shazam");
+        root.startListening();
+    }
+
     // the two pages push each other sideways, the way the System panel's views do
     function setPage(target) {
         if (root.page === target)
@@ -1517,7 +1524,7 @@ BarPill {
                     tintOverride: Theme.subtext
                     opacity: heroVol.open ? 0 : 1
                     visible: opacity > 0.01
-                    onClicked: root.openPanel("shazam")
+                    onClicked: root.identify()
 
                     Behavior on opacity {
                         NumberAnimation {
@@ -1778,7 +1785,7 @@ BarPill {
                     visible: root.player !== null
                     icon: root.identifyGlyph
                     tintOverride: Theme.subtext
-                    onClicked: root.openPanel("shazam")
+                    onClicked: root.identify()
                 }
 
                 // the player's own volume; its icon mutes and unmutes
@@ -2257,7 +2264,7 @@ BarPill {
                     anchors.centerIn: parent
                     text: "Identify what's playing"
                     icon: root.identifyGlyph
-                    onClicked: root.openPanel("shazam")
+                    onClicked: root.identify()
                 }
 
             }

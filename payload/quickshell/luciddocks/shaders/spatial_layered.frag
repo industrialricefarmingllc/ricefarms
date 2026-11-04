@@ -61,7 +61,14 @@ void main()
     float opacity = texture(matte, foregroundUv).r;
     vec3 foregroundColor = texture(source, foregroundUv).rgb;
     if (ubuf.foregroundOnly > 0.5) {
-        fragColor = vec4(foregroundColor * opacity, opacity) * ubuf.qt_Opacity * ubuf.fade;
+        // Cutout above the widget layer: fuse the subject with the
+        // reconstructed background and make coverage opaque from mid-matte
+        // outward. Otherwise the glass under the widget bleeds through the
+        // soft matte band and leaves a bright rim around the card.
+        vec3 oldBackground = texture(background, foregroundUv).rgb;
+        vec3 fused = foregroundColor * opacity + oldBackground * (1.0 - opacity);
+        float cover = smoothstep(0.25, 0.50, opacity);
+        fragColor = vec4(fused * cover, cover) * ubuf.qt_Opacity * ubuf.fade;
         return;
     }
     vec2 texel = 1.5 / vec2(textureSize(background, 0));

@@ -450,7 +450,9 @@ Item {
     readonly property real notchGapRight: (!pill.groupBackground && Prefs.barNotch && pill.hostWindow && pill.hostWindow.notchFlare) ? pill.hostWindow.notchFlare(pill, false) : 0
     // Full bar under liquid glass draws one strip and traces its outline once
     // (shell.qml), so the items must not outline themselves.
-    readonly property real windowBorderWidth: (Prefs.barFull && pill.externalGlass) ? 0 : WindowBorder.size
+    // Under the compositor glass the rim is the edge treatment; no QML
+    // window hairline on top of it (any bar style, not just full bar).
+    readonly property real windowBorderWidth: pill.externalGlass ? 0 : WindowBorder.size
 
     // how each corner meets a panel hanging below the bar, from shell.qml's hangPlan
     readonly property bool notchedPopup: pill.popupMode && Prefs.barPopupNotched

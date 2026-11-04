@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "nextId": 130,
+  "nextId": 157,
   "boardFull": true,
   "laidScale": 1,
   "current": "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-zpvrrj.jpg",
@@ -199,7 +199,82 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-qz8pwl.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1229,
+          "wy": 146,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w156",
+          "type": "thermal",
+          "variant": "detail",
+          "wx": 1229,
+          "wy": 642,
+          "bw": 320,
+          "bh": 236,
+          "pinned": false,
+          "everywhere": false,
+          "zoom": 1,
+          "zOrder": 117,
+          "screenName": "",
+          "opts": {
+            "showFans": true,
+            "showControls": true,
+            "interval": "2",
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -229,7 +304,43 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-vpej6m.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1166,
+          "wy": 300,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -264,13 +375,14 @@
           "uid": "w72",
           "type": "network",
           "variant": "compact",
-          "wx": 426,
-          "wy": 472,
+          "wx": 275,
+          "wy": 489,
           "bw": 200,
           "bh": 90,
           "pinned": false,
+          "everywhere": false,
           "zoom": 1,
-          "zOrder": 46,
+          "zOrder": 121,
           "screenName": "",
           "opts": {
             "units": "bytes",
@@ -280,55 +392,17 @@
           }
         },
         {
-          "uid": "w75",
-          "type": "system",
-          "variant": "graph",
-          "wx": 652,
-          "wy": 256,
-          "bw": 320,
-          "bh": 200,
-          "pinned": false,
-          "zoom": 1,
-          "zOrder": 31,
-          "screenName": "",
-          "opts": {
-            "showCpu": true,
-            "showRam": true,
-            "showDisk": true,
-            "showTemp": false,
-            "showGpu": false,
-            "interval": "2",
-            "tone": "auto"
-          }
-        },
-        {
-          "uid": "w76",
-          "type": "progress",
-          "variant": "dots",
-          "wx": 1140,
-          "wy": 580,
-          "bw": 320,
-          "bh": 212,
-          "pinned": false,
-          "zoom": 1,
-          "zOrder": 56,
-          "screenName": "",
-          "opts": {
-            "span": "day",
-            "tone": "auto"
-          }
-        },
-        {
           "uid": "w77",
           "type": "toggles",
           "variant": "shapes",
-          "wx": 426,
-          "wy": 256,
+          "wx": 275,
+          "wy": 273,
           "bw": 200,
           "bh": 200,
           "pinned": false,
+          "everywhere": false,
           "zoom": 1,
-          "zOrder": 45,
+          "zOrder": 107,
           "screenName": "",
           "opts": {
             "set": "connect",
@@ -339,13 +413,14 @@
           "uid": "w110",
           "type": "thermal",
           "variant": "detail",
-          "wx": 652,
-          "wy": 472,
+          "wx": 501,
+          "wy": 473,
           "bw": 320,
           "bh": 236,
           "pinned": false,
+          "everywhere": false,
           "zoom": 1,
-          "zOrder": 42,
+          "zOrder": 118,
           "screenName": "",
           "opts": {
             "showFans": true,
@@ -355,21 +430,72 @@
           }
         },
         {
-          "uid": "w111",
-          "type": "media",
-          "variant": "pill",
-          "wx": 1140,
-          "wy": 472,
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1161,
+          "wy": 367,
           "bw": 320,
-          "bh": 92,
+          "bh": 480,
           "pinned": false,
+          "everywhere": true,
           "zoom": 1,
-          "zOrder": 57,
+          "zOrder": 112,
           "screenName": "",
           "opts": {
-            "artTint": true,
-            "showProgress": true,
-            "scroll": true,
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522"
+            ],
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w153",
+          "type": "sun",
+          "variant": "arc",
+          "wx": 501,
+          "wy": 273,
+          "bw": 320,
+          "bh": 184,
+          "pinned": false,
+          "everywhere": false,
+          "zoom": 1,
+          "zOrder": 117,
+          "screenName": "",
+          "opts": {
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w154",
+          "type": "kdeconnect",
+          "variant": "compact",
+          "wx": 1497,
+          "wy": 767,
+          "bw": 200,
+          "bh": 80,
+          "pinned": false,
+          "everywhere": false,
+          "zoom": 1,
+          "zOrder": 120,
+          "screenName": "",
+          "opts": {
+            "showShare": true,
+            "showRing": true,
+            "showClipboard": true,
+            "showBrowse": true,
+            "deviceId": "",
             "tone": "auto"
           }
         }
@@ -408,13 +534,14 @@
           "uid": "w115",
           "type": "clock",
           "variant": "stack",
-          "wx": 452,
-          "wy": 103,
+          "wx": 402,
+          "wy": 118,
           "bw": 320,
           "bh": 236,
           "pinned": false,
+          "everywhere": false,
           "zoom": 0.75,
-          "zOrder": 15,
+          "zOrder": 42,
           "screenName": "",
           "opts": {
             "hourMode": "auto",
@@ -423,42 +550,83 @@
             "showDate": true,
             "shape": "cookie9",
             "zones": "eu",
-            "tone": "auto"
+            "tone": "surface"
           }
         },
         {
           "uid": "w116",
           "type": "mesh",
           "variant": "studio",
-          "wx": 1138,
-          "wy": 103,
-          "bw": 680,
-          "bh": 560,
+          "wx": 1524,
+          "wy": 118,
+          "bw": 320,
+          "bh": 300,
           "pinned": false,
+          "everywhere": false,
           "zoom": 1,
-          "zOrder": 17,
+          "zOrder": 45,
           "screenName": "",
           "opts": {
             "engine": "space",
-            "prompts": "person",
+            "prompts": "Person",
             "tone": "auto",
-            "last": "/home/nicerice/Downloads/ca8d67-019639cd-c584-757c-838e-065acf09ae7c.jpg"
+            "last": "/home/nicerice/src/image-to-3d/sam-3d-body/assets/qualitative_comparisons/sample1/camerahmr.png",
+            "view": "single"
           }
         },
         {
           "uid": "w117",
           "type": "calendar",
           "variant": "month",
-          "wx": 116,
-          "wy": 103,
+          "wx": 66,
+          "wy": 118,
           "bw": 320,
           "bh": 306,
           "pinned": false,
+          "everywhere": false,
           "zoom": 1,
-          "zOrder": 16,
+          "zOrder": 40,
           "screenName": "",
           "opts": {
             "showMonthName": true,
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w134",
+          "type": "thermal",
+          "variant": "detail",
+          "wx": 1188,
+          "wy": 118,
+          "bw": 320,
+          "bh": 236,
+          "pinned": false,
+          "everywhere": false,
+          "zoom": 1,
+          "zOrder": 44,
+          "screenName": "",
+          "opts": {
+            "showFans": true,
+            "showControls": true,
+            "interval": "2",
+            "tone": "auto"
+          }
+        },
+        {
+          "uid": "w135",
+          "type": "progress",
+          "variant": "dots",
+          "wx": 66,
+          "wy": 449,
+          "bw": 320,
+          "bh": 212,
+          "pinned": false,
+          "everywhere": false,
+          "zoom": 1,
+          "zOrder": 41,
+          "screenName": "",
+          "opts": {
+            "span": "day",
             "tone": "auto"
           }
         }
@@ -565,43 +733,44 @@
           }
         },
         {
-          "uid": "w119",
-          "type": "mesh",
-          "variant": "studio",
-          "wx": 1452,
-          "wy": 329,
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1456,
+          "wy": 272,
           "bw": 320,
-          "bh": 300,
+          "bh": 640,
           "pinned": false,
-          "everywhere": false,
+          "everywhere": true,
           "zoom": 1,
-          "zOrder": 89,
+          "zOrder": 114,
           "screenName": "",
           "opts": {
-            "engine": "local",
-            "prompts": "Boy",
-            "tone": "auto",
-            "last": "/run/media/veracrypt3/5f793d5a15cdf2.jpg",
-            "view": "list"
-          }
-        },
-        {
-          "uid": "w120",
-          "type": "thermal",
-          "variant": "detail",
-          "wx": 1452,
-          "wy": 645,
-          "bw": 320,
-          "bh": 236,
-          "pinned": false,
-          "everywhere": false,
-          "zoom": 1,
-          "zOrder": 88,
-          "screenName": "",
-          "opts": {
-            "showFans": true,
-            "showControls": true,
-            "interval": "2",
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575"
+            ],
             "tone": "auto"
           }
         }
@@ -623,7 +792,62 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-wempvr.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1124,
+          "wy": 167,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -635,7 +859,35 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/149346680_p0.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 216,
+          "wy": 109,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 112,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -659,7 +911,34 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-6l2jw6.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 283,
+          "wy": 109,
+          "bw": 320,
+          "bh": 800,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 11,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/new",
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -985,7 +1264,39 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/142326107_p0.png": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 120,
+          "wy": 300,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 112,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -1443,7 +1754,60 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-vp3m33.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 416,
+          "wy": 245,
+          "bw": 320,
+          "bh": 640,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -1467,7 +1831,58 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-vp3m23.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 416,
+          "wy": 245,
+          "bw": 320,
+          "bh": 640,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -1514,7 +1929,39 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/131564866_p0.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1161,
+          "wy": 367,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 112,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -1675,13 +2122,121 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-x62zgz.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1126,
+          "wy": 167,
+          "bw": 320,
+          "bh": 640,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-qzv2k5.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 800,
+          "wy": 158,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -1945,7 +2500,27 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-8gpox1.png": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -2263,7 +2838,43 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-og7vpm.png": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1166,
+          "wy": 300,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -2281,7 +2892,62 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-qrp87d.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 800,
+          "wy": 158,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -2389,7 +3055,27 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-9mekmw.png": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -2449,7 +3135,62 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-zpvrrj.jpg": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 237,
+          "wy": 236,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -2467,7 +3208,60 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-xekg7z.png": {
-      "instances": [],
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 800,
+          "wy": 83,
+          "bw": 320,
+          "bh": 320,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
@@ -2557,16 +3351,1188 @@
       "preset": ""
     },
     "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-w5wowr.png": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1456,
+          "wy": 272,
+          "bw": 320,
+          "bh": 640,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/.local/share/Steam/steamapps/workshop/content/431960/3718575091/furina-midnight-meadow-genshin-impact-moewalls-com.mp4": {
       "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:3796655628": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:3367988661": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:3832164353": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-j3jvxy.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:1183775066": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:2384920133": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:3379902886": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:3368379912": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/.local/share/Steam/steamapps/workshop/content/431960/3822770156/whale-fantasy-loop.mp4": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-6l7o6q.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-e8r75w.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-po5kej.png": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-8gpolj.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-21j87m.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-e8r7jw.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-gpxvp7.jpg": {
+      "instances": [],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-9okerw.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-d825k3.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-6l7ovl.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 28,
+          "wy": 68,
+          "bw": 320,
+          "bh": 320,
+          "pinned": true,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 2,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/140488175_p0.png": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1161,
+          "wy": 367,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 112,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-qr5dld.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 995,
+          "wy": 341,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 112,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [
+              "demo"
+            ],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-q2pgl7.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1456,
+          "wy": 272,
+          "bw": 320,
+          "bh": 640,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-rdeop7.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1456,
+          "wy": 272,
+          "bw": 320,
+          "bh": 640,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-yqkwg7.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 800,
+          "wy": 191,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-yqkwv7.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 800,
+          "wy": 191,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-yqwjek.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 800,
+          "wy": 191,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/Pictures/wallpapers/matugen/wallhaven-vp3g55.jpg": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1124,
+          "wy": 167,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 114,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:2726467893": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1229,
+          "wy": 146,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:2808795008": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1259,
+          "wy": 521,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:3293550315": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1218,
+          "wy": 220,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:2816556618": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1218,
+          "wy": 220,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "skwd:we:2818854772": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 1218,
+          "wy": 220,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
+      "stash": [],
+      "last": [],
+      "preset": ""
+    },
+    "/home/nicerice/.local/share/Steam/steamapps/workshop/content/431960/3804081492/Lappland riding on a bus.mp4": {
+      "instances": [
+        {
+          "uid": "w141",
+          "type": "social",
+          "variant": "feed",
+          "wx": 105,
+          "wy": 259,
+          "bw": 320,
+          "bh": 480,
+          "pinned": false,
+          "everywhere": true,
+          "zoom": 1,
+          "zOrder": 118,
+          "screenName": "",
+          "opts": {
+            "socialSourcesOff": [],
+            "socialStreamsOff": [
+              "hackernews/front_page",
+              "bluesky/discover",
+              "bluesky/user_bsky.app",
+              "hackernews/best"
+            ],
+            "socialStreamsOn": [
+              "discord/cherry/dm_1177122632991264848",
+              "discord/cherry/dm_1244362060641468427",
+              "discord/cherry/dm_1353773061358489655",
+              "discord/cherry/dm_1483552664011931783",
+              "discord/cherry/dm_1492859979210686593",
+              "discord/cherry/dm_1522609347568472205",
+              "discord/cherry/dm_1558618796338577482"
+            ],
+            "socialHidden": [
+              "hackernews/50366425",
+              "hackernews/50366250",
+              "hackernews/50366522",
+              "hackernews/50366923",
+              "hackernews/50366863",
+              "hackernews/50366860",
+              "hackernews/50366575",
+              "hackernews/50367125",
+              "hackernews/50367004",
+              "hackernews/50366999",
+              "hackernews/50366959",
+              "hackernews/50366919",
+              "hackernews/50366853",
+              "hackernews/50366971",
+              "hackernews/50366811",
+              "hackernews/50367653",
+              "hackernews/50366929",
+              "hackernews/50367148",
+              "hackernews/50366977"
+            ],
+            "tone": "auto"
+          }
+        }
+      ],
       "stash": [],
       "last": [],
       "preset": ""
     }
   },
-  "everywhere": [],
+  "everywhere": [
+    {
+      "uid": "w141",
+      "type": "social",
+      "variant": "feed",
+      "wx": 237,
+      "wy": 236,
+      "bw": 320,
+      "bh": 480,
+      "pinned": false,
+      "everywhere": true,
+      "zoom": 1,
+      "zOrder": 118,
+      "screenName": "",
+      "opts": {
+        "socialSourcesOff": [],
+        "socialStreamsOff": [
+          "hackernews/front_page",
+          "bluesky/discover",
+          "bluesky/user_bsky.app",
+          "hackernews/best"
+        ],
+        "socialStreamsOn": [
+          "discord/cherry/dm_1177122632991264848",
+          "discord/cherry/dm_1244362060641468427",
+          "discord/cherry/dm_1353773061358489655",
+          "discord/cherry/dm_1483552664011931783",
+          "discord/cherry/dm_1492859979210686593",
+          "discord/cherry/dm_1522609347568472205",
+          "discord/cherry/dm_1558618796338577482"
+        ],
+        "socialHidden": [
+          "hackernews/50366425",
+          "hackernews/50366250",
+          "hackernews/50366522",
+          "hackernews/50366923",
+          "hackernews/50366863",
+          "hackernews/50366860",
+          "hackernews/50366575",
+          "hackernews/50367125",
+          "hackernews/50367004",
+          "hackernews/50366999",
+          "hackernews/50366959",
+          "hackernews/50366919",
+          "hackernews/50366853",
+          "hackernews/50366971",
+          "hackernews/50366811",
+          "hackernews/50367653",
+          "hackernews/50366929",
+          "hackernews/50367148",
+          "hackernews/50366977"
+        ],
+        "tone": "auto"
+      }
+    }
+  ],
   "preset": "",
   "saved": [],
   "last": [],
   "stash": [],
-  "instances": []
+  "instances": [
+    {
+      "uid": "w141",
+      "type": "social",
+      "variant": "feed",
+      "wx": 237,
+      "wy": 236,
+      "bw": 320,
+      "bh": 480,
+      "pinned": false,
+      "everywhere": true,
+      "zoom": 1,
+      "zOrder": 118,
+      "screenName": "",
+      "opts": {
+        "socialSourcesOff": [],
+        "socialStreamsOff": [
+          "hackernews/front_page",
+          "bluesky/discover",
+          "bluesky/user_bsky.app",
+          "hackernews/best"
+        ],
+        "socialStreamsOn": [
+          "discord/cherry/dm_1177122632991264848",
+          "discord/cherry/dm_1244362060641468427",
+          "discord/cherry/dm_1353773061358489655",
+          "discord/cherry/dm_1483552664011931783",
+          "discord/cherry/dm_1492859979210686593",
+          "discord/cherry/dm_1522609347568472205",
+          "discord/cherry/dm_1558618796338577482"
+        ],
+        "socialHidden": [
+          "hackernews/50366425",
+          "hackernews/50366250",
+          "hackernews/50366522",
+          "hackernews/50366923",
+          "hackernews/50366863",
+          "hackernews/50366860",
+          "hackernews/50366575",
+          "hackernews/50367125",
+          "hackernews/50367004",
+          "hackernews/50366999",
+          "hackernews/50366959",
+          "hackernews/50366919",
+          "hackernews/50366853",
+          "hackernews/50366971",
+          "hackernews/50366811",
+          "hackernews/50367653",
+          "hackernews/50366929",
+          "hackernews/50367148",
+          "hackernews/50366977"
+        ],
+        "tone": "auto"
+      }
+    }
+  ]
 }

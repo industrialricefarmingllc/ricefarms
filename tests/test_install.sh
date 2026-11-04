@@ -407,10 +407,11 @@ assert_true "opencode openhooks plugin" test -f "$REPO_DIR/payload/config-openco
 assert_true "opencode-home commands" test -d "$REPO_DIR/payload/opencode-home/commands"
 assert_true "opencode-home perf command" test -f "$REPO_DIR/payload/opencode-home/commands/perf.md"
 assert_file_has "opencode key placeholder" "$REPO_DIR/payload/config-opencode/opencode.json" '${CONTEXT7_API_KEY}'
+assert_file_has "wallhaven key redacted" "$REPO_DIR/payload/quickshell/lucidprefs/prefs.json" '"wallhavenApiKey": ""'
 # STANDING RULE guards: no live keys, no ssh secrets — in payload...
 # (self-safe: pattern requires an alnum after the prefix; this file only
 # holds the bare prefix inside brackets, and payload/ is scanned, not tests/)
-_leak="$(rg -l --no-messages --glob '!node_modules' 'ctx7sk-[A-Za-z0-9]|sk-ant-[A-Za-z0-9]|BEGIN OPENSSH PRIVATE KEY|BEGIN RSA PRIVATE KEY' "$REPO_DIR/payload" || true)"
+_leak="$(rg -l --no-messages --glob '!node_modules' 'ctx7sk-[A-Za-z0-9]|sk-ant-[A-Za-z0-9]|"wallhavenApiKey"[[:space:]]*:[[:space:]]*"[A-Za-z0-9]|BEGIN OPENSSH PRIVATE KEY|BEGIN RSA PRIVATE KEY' "$REPO_DIR/payload" || true)"
 if [[ -z "$_leak" ]]; then PASS=$((PASS+1)); echo "ok - no secrets in payload tree";
 else FAIL=$((FAIL+1)); echo "NOT OK - secret leaked in payload: $_leak"; fi
 # ...and none in ssh-shaped paths at all
@@ -422,9 +423,11 @@ else PASS=$((PASS+1)); echo "ok - no ssh material in payload"; fi
 # NOTE: `| head` may SIGPIPE git under pipefail — neutralize with || true.
 # -S would still flag the redaction commits themselves (count changed), so
 # assert on blob content instead: grep all revisions, expect no hits.
+# Scan local branches/tags (what we push), not stale origin/* refs from the
+# pre-rewrite history; a force push replaces those.
 # (trailing-class required: the redaction regex text itself lives in
 # install.sh/tests, but only as a bare prefix inside brackets.)
-_hit="$(/usr/bin/git -C "$REPO_DIR" grep -l 'ctx7sk-[A-Za-z0-9]' $(/usr/bin/git -C "$REPO_DIR" rev-list --all 2>/dev/null) -- 2>/dev/null | head -n 1 || true)"
+_hit="$(/usr/bin/git -C "$REPO_DIR" grep -l -E 'ctx7sk-[A-Za-z0-9]|sk-ant-[A-Za-z0-9]|"wallhavenApiKey"[[:space:]]*:[[:space:]]*"[A-Za-z0-9]' $(/usr/bin/git -C "$REPO_DIR" rev-list --branches --tags 2>/dev/null) -- 2>/dev/null | head -n 1 || true)"
 if [[ -n "$_hit" ]]; then
   FAIL=$((FAIL+1)); echo "NOT OK - API key reachable in git history: $_hit"
 else PASS=$((PASS+1)); echo "ok - no API keys in git history"; fi

@@ -1210,24 +1210,7 @@ ShellRoot {
             }
 
             // full bar under liquid glass: the compositor plugin fills the
-            // strip, so trace its outline here (no fill, no QML shadow)
-            SquircleRect {
-                visible: Prefs.barFull && Prefs.liquidGlassEnabled && bar.anyModuleShown
-                x: 0
-                y: bar.hiddenOffset
-                z: -2
-                width: bar.width
-                height: Theme.dp(Prefs.barHeight)
-                fillColor: "transparent"
-                topLeftRadius: 0
-                topRightRadius: 0
-                bottomLeftRadius: Theme.dp(Prefs.barFullCorner)
-                bottomRightRadius: Theme.dp(Prefs.barFullCorner)
-                borderColor: WindowBorder.colour
-                borderWidth: WindowBorder.size
-                // the strip grows out of the screen edge
-                borderTop: 0
-            }
+            // strip and draws the rim; no QML hairline on top of it.
 
             // rounded corners hanging off the strip where it meets the screen sides
             BarFlare {
@@ -1651,7 +1634,9 @@ ShellRoot {
                         hovered: flares.modHovered
                         fillColor: flares.glassed ? "transparent" : Theme.bg
                         borderColor: WindowBorder.colour
-                        borderWidth: WindowBorder.size
+                        // Under external glass the plugin rim is the edge;
+                        // don't trace the QML hairline over the wedge.
+                        borderWidth: flares.glassed ? 0 : WindowBorder.size
                         // shoulder, not a rounded corner: a superellipse turned
                         // inside out hugs the tab side and reads as a straight
                         // seam. The circular sweep stays curved over its whole
@@ -1667,7 +1652,9 @@ ShellRoot {
                         mirrored: true
                         fillColor: flares.glassed ? "transparent" : Theme.bg
                         borderColor: WindowBorder.colour
-                        borderWidth: WindowBorder.size
+                        // Under external glass the plugin rim is the edge;
+                        // don't trace the QML hairline over the wedge.
+                        borderWidth: flares.glassed ? 0 : WindowBorder.size
                         smoothing: 0
                         size: flares.flareFor(false)
                         x: flares.modelData ? flares.modelData.x + flares.modelData.width - flares.bite : 0

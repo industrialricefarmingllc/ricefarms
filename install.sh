@@ -403,6 +403,11 @@ build_liquid_glass() {
     if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; continue; fi
     [[ -f "$d/Makefile" ]] || { warn "$(basename "$d") src missing — skipping build"; continue; }
     (run_cmd make -C "$d") || warn "$(basename "$d") build failed — install hyprland headers matching your compositor, then make -C $d"
+    # hyprland.lua loads a versioned 057 build name so a rebuild never rewrites
+    # a .so the running compositor has mapped. Keep the installer in step.
+    if [[ "$d" == *liquid-glass-hypr-057 && -f "$d/liquidglass.so" ]]; then
+      cp -f "$d/liquidglass.so" "$d/liquidglass-wash5.so" 2>/dev/null || true
+    fi
   done
   info "hypr-goo-workspaces standalone retired (merged into liquidglass) — not built"
 }
@@ -802,6 +807,11 @@ export_payload() {
   export_dir "$S/.config/lucid" "$P/lucid"
   prune_export_junk "$P/quickshell"
   prune_export_junk "$P/lucid"
+  # per-user API keys in prefs.json (Wallhaven search) must never land in git
+  if [[ -f "$P/quickshell/lucidprefs/prefs.json" ]]; then
+    sed -i -E 's/("wallhavenApiKey"[[:space:]]*:[[:space:]]*")[^"]*/\1/' \
+      "$P/quickshell/lucidprefs/prefs.json" 2>/dev/null || true
+  fi
   export_file "$S/.config/systemd/user/quickshell.service" "$P/systemd-user/quickshell.service"
   export_file "$S/.local/share/dbus-1/services/org.gnome.Nautilus.service" "$P/dbus-1/services/org.gnome.Nautilus.service"
   # skwd wallpaper daemon (skwd-deck/skwd-wall-v2 AUR packages) user config,
@@ -1035,6 +1045,7 @@ verify_install() {
   check "spatial mesh cache present" test -x "$TARGET_HOME/.local/bin/kos-mesh-cache"
   check "liquidglass.so built" test -f "$TARGET_HOME/src/liquid-glass-hypr/liquidglass.so"
   check "liquidglass.so (0.57) built" test -f "$TARGET_HOME/src/liquid-glass-hypr-057/liquidglass.so"
+  check "liquidglass-wash5.so (0.57 load name) present" test -f "$TARGET_HOME/src/liquid-glass-hypr-057/liquidglass-wash5.so"
   if [[ $fails -gt 0 ]]; then warn "verify: $fails checks failed"; return 1; fi
   info "verify: all checks passed"
 }

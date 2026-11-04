@@ -179,28 +179,39 @@ hl.on("hyprland.start", function()
   -- Dark: 5% screen wash. Light: GPU multiply at 10%.
   -- Do not hot-unload/reload this .so: it leaves the renderWindow hook broken
   -- (windows stop repainting). Rebuild, then restart Hyprland.
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-wash2.so")
+  -- Versioned build: never `cp` over a .so a running Hyprland may have
+  -- mapped (rewriting the mapped inode can crash it). Build to a new
+  -- filename, point this line at it, and restart. 2026-11-04 perf pass:
+  -- fast-path/shadow/SDF/wash/ring + shared-backdrop/geometry caches.
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-wash5.so")
   -- Standalone wash is intentionally not loaded; the integrated copy runs above.
   -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-wash || hyprctl plugin load /home/nicerice/src/lucid-wash/lucid-wash-adv.so")
   -- Layer-wide overlay blending is intentionally not loaded; the wash is
   -- drawn per window to avoid feedback.
   -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-overlay || hyprctl plugin load /home/nicerice/src/lucid-overlay/lucid-overlay.so")
   -- Machine-local glass preset (this box has VRAM to spare): full-res working
-  -- buffers + no CA. Applied BOTH here (fresh boot, after the plugin loads)
-  -- and on every config.reloaded below: ephemeral `hl.config` plugin keys are
-  -- wiped by every `hyprctl reload`, and the start handler does NOT re-fire
-  -- on reload (only top-level code + reloaded handlers do). Stays configurable
-  -- live via hyprctl eval (capture_scale 1 = full-res, 2 = half-res, 4 = quarter-res,
-  -- 4 = quarter-res/lean). No-ops harmlessly if the plugin isn't up yet.
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
+  -- buffers, chromatic aberration on (ca default 0.5), detail-preserving tint
+  -- off. Applied BOTH here (fresh boot, after the plugin loads) and on every
+  -- config.reloaded below: ephemeral `hl.config` plugin keys are wiped by
+  -- every `hyprctl reload`, and the start handler does NOT re-fire on reload
+  -- (only top-level code + reloaded handlers do). Stays configurable live via
+  -- hyprctl eval (capture_scale 1 = full-res, 2 = half-res, 4 = quarter-res).
+  -- No-ops harmlessly if the plugin isn't up yet.
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1 || true")
   -- Liquid glass + goo states are owned by liquid-glass-toggle (prefs.json:
-  -- liquidGlassEnabled + gooWorkspacesEnabled). Do NOT pin
-  -- windows/namespaces here: the toggle must control every glass surface
-  -- (bar, dock, OSD, windows) uniformly, and custom.lua re-applies both
-  -- effective states after every reload. hide_window_shadows IS pinned to 0
+  -- liquidGlassEnabled + gooWorkspacesEnabled). The namespace list only adds
+  -- lucid-widgets to the plugin's default quickshell,lucid-launcher so the
+  -- desktop widget cards are glassed too; the toggle still owns on/off for
+  -- every surface, and custom.lua re-applies both effective states after
+  -- every reload. hide_window_shadows IS pinned to 0
   -- (user preference, 2026-10-24): window drop shadows stay visible even
   -- under glass, instead of only appearing while a window is being damaged.
   hl.exec_cmd("sleep 0.5; hyprctl eval 'hl.config({plugin={liquidglass={hide_window_shadows=0}}})' >/dev/null 2>&1 || true")
+  -- Apple Liquid Glass rim light on every window border. window_borders
+  -- replaces Hyprland's flat border (and the old picture-frame relief) with
+  -- the backdrop-tinted rim; frame_enable=0 keeps the ornate frame off.
+  -- rim_width is logical px, rim_angle 135 = light from the top-left.
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0}}})' >/dev/null 2>&1 || true")
   -- Goo morph, applied only once the plugin is actually loaded (see the
   -- gooPreset comment below — a static hl.config() would abort the config).
   -- custom.lua re-applies the persisted gooWorkspacesEnabled afterwards.
@@ -236,7 +247,8 @@ end)
 -- hl.config sets runtime values without triggering another reload (same
 -- pattern as shader.lua's config.reloaded handler).
 hl.on("config.reloaded", function()
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0, hide_window_shadows=0, detail_preserve=0}}})' >/dev/null 2>&1 || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, hide_window_shadows=0, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1 || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0}}})' >/dev/null 2>&1 || true")
   applyGooPreset()
 end)
 
@@ -256,7 +268,10 @@ hl.config({
     -- bring the gallery back, set this to 8 again (~13fb px DP-1, ~19fb 4Ks).
     border_size = 1,
     col = {
-      active_border = { colors = { "rgba(89b4faee)", "rgba(cba6f7ee)" }, angle = 45 },
+      -- Focus is the liquid-glass rim light now (plugin window borders).
+      -- Keep active == inactive so hovering cannot paint the old 45° gradient
+      -- "fake light" again when the plugin is off or still loading.
+      active_border = "rgba(313244aa)",
       inactive_border = "rgba(313244aa)",
     },
     layout = "dwindle",
@@ -955,15 +970,12 @@ hl.layer_rule({ name = "lucid-snap-rec", match = { namespace = "quickshell-snap"
 -- src/liquid-glass-hypr/src/Config.cpp), and live tuning goes through
 -- ~/.config/quickshell/lucidprefs/prefs.json, so nothing is lost.
 
--- Matugen generated colors -- uniform palette from wallpaper, with a focus
--- ring that stays visible in both themes. liquid-glass's active glow is off
--- (prefs.json liquidGlassGlow=false), so the 1px border is the only focus
--- cue. Each accent is clamped to a relative luminance that reads against its
--- background (~0.32, roughly 3:1) so washed-out accents still mark the
--- focused window, then blended a short way into the inactive colour at full
--- opacity so it stays only a slight highlight. Runs on every (re)load;
--- wallpaper switches regenerate colors.lua and the matugen post_hook
--- reloads, so mode changes re-apply automatically.
+-- Matugen generated colors -- uniform palette from wallpaper. Focus is now
+-- the Apple-style rim light on the compositor border (plugin rim_light), so
+-- the native active border is kept identical to the inactive one: no hover
+-- gradient, no 45° "fake light", and a clean fallback when the plugin is off.
+-- Runs on every (re)load; wallpaper switches regenerate colors.lua and the
+-- matugen post_hook reloads, so mode changes re-apply automatically.
 pcall(function()
   local home = os.getenv("HOME")
   local f = io.open(home .. "/.config/hypr/colors.lua", "r")
@@ -1025,33 +1037,13 @@ pcall(function()
 
   local inactive = (colors.inactive or "41474d"):gsub("#", "")
 
-  -- Slight highlight, full opacity: pull the inactive colour a short way
-  -- toward the accent instead of making the accent translucent. Solid colours
-  -- avoid compositing against the wallpaper/glass, so the ring reads the same
-  -- over any window while staying barely lifted above the unfocused border.
-  local function mix(baseHex, tintHex, t)
-    local br, bg, bb = channels(baseHex)
-    local tr, tg, tb = channels(tintHex)
-    if not (br and tr) then return (baseHex or ""):gsub("#", "") end
-    return toHex(br + (tr - br) * t, bg + (tg - bg) * t, bb + (tb - bb) * t)
-  end
-
-  local accent = visible(colors.accent)
-  local accent2 = visible(colors.accent2 or colors.accent)
-  -- Dark needs a touch more lift because its surface_variant sits closer to
-  -- black; light needs less because it already contrasts with the surface.
-  local t = dark and 0.18 or 0.14
-
   hl.config({
     general = {
       col = {
-        active_border = {
-          colors = { "rgba(" .. mix(inactive, accent, t) .. "ff)",
-                     "rgba(" .. mix(inactive, accent2, t) .. "ff)" },
-          angle = 45,
-        },
-        -- Present but dim, so it never competes with the focus ring. Light
-        -- mode gets less alpha because its surface_variant is already pale.
+        -- Active == inactive: the rim light is the only edge treatment.
+        active_border = "rgba(" .. inactive .. (dark and "aa" or "77") .. ")",
+        -- Present but dim, so it never competes with the rim. Light mode gets
+        -- less alpha because its surface_variant is already pale.
         inactive_border = "rgba(" .. inactive .. (dark and "aa" or "77") .. ")",
       },
     },

@@ -190,10 +190,12 @@ bool workspaceAnimating(PHLMONITOR mon) {
 
 void onWindowStage(const Event::SRenderStageEvent& ev) {
     if (ev.stage == RENDER_POST) {
-        for (auto& [id, bd] : *WINDOW_BACKDROPS) {
-            if (bd)
-                bd->valid = false;
-        }
+        // Keep the shared backdrop valid across frames. It is invalidated
+        // below only when the pre-window scene can actually have changed
+        // (damage outside a glass pane, a transition, a disabled plugin).
+        // Re-capturing the whole monitor on every content-only frame was
+        // pure waste: typing/video damage lives inside the pane, while the
+        // wallpaper/bottom layers under it are static.
         WINDOW_BOXES->clear();
         return;
     }
@@ -206,8 +208,14 @@ void onWindowStage(const Event::SRenderStageEvent& ev) {
     if (!mon || mon->isMirror())
         return;
     (*WINDOW_BOXES)[mon->m_id].clear();
-    if (lg::getInt("plugin:liquidglass:enabled", 1) == 0)
+    auto invalidate = [&] {
+        if (auto it = WINDOW_BACKDROPS->find(mon->m_id); it != WINDOW_BACKDROPS->end() && it->second)
+            it->second->valid = false;
+    };
+    if (lg::getInt("plugin:liquidglass:enabled", 1) == 0) {
+        invalidate();
         return;
+    }
     const CBox dmg = ctx.m_data.damage.getExtents();
     if (dmg.w <= 0 || dmg.h <= 0)
         return;
@@ -218,14 +226,22 @@ void onWindowStage(const Event::SRenderStageEvent& ev) {
     // pane instead of paying N read-after-write blits per frame.
     // One consumer does not amortize a full-monitor capture; use the
     // per-window path (and its content cache) instead.
-    if (lg::windowGlassCount(mon) < 2)
+    if (lg::windowGlassCount(mon) < 2) {
+        invalidate();
         return;
+    }
     // If the damage only touches something else (cursor, another window),
     // every glass pass element will be culled; don't capture a backdrop.
     if (!lg::windowGlassNeedsFrame(mon, dmg))
         return;
     const int capDiv = std::clamp((int)std::round(lg::getFloat("plugin:liquidglass:capture_scale", 4.0f)), 1, 4);
     auto      bd = backdropFor(mon->m_id);
+    // Reuse the previous capture when the damage is confined to a glass pane
+    // and nothing that feeds the pre-window backdrop can have moved.
+    const bool keep = bd->valid && bd->capDiv == capDiv && !workspaceAnimating(mon) &&
+        !goo::transitioning(mon->m_id) && lg::windowGlassContentOnly(mon, dmg);
+    if (keep)
+        return;
     bd->begin(capDiv);
     ctx.m_pass.add(makeUnique<CWindowBackdropPassElement>(bd));
 }
@@ -419,6 +435,7 @@ void CWindowGlass::ensureShaders() {
     m_gu.rimBlur = loc(gp, "uRimBlur");
     m_gu.capOrigin = loc(gp, "uCapOrigin");
     m_gu.capScale = loc(gp, "uCapScale");
+    m_gu.texel = loc(gp, "uTexel");
     m_gu.baseColor = loc(gp, "uBaseColor");
     m_gu.power = loc(gp, "uPower");
     m_gu.shape = loc(gp, "uShape");
@@ -450,6 +467,12 @@ void CWindowGlass::ensureShaders() {
     m_gu.bevW = loc(gp, "uBevW");
     m_gu.edgePx = loc(gp, "uEdgePx");
     m_gu.logCME = loc(gp, "uLogCME");
+    m_gu.rimLight = loc(gp, "uRimLight");
+    m_gu.rimStrength = loc(gp, "uRimStrength");
+    m_gu.rimWidth = loc(gp, "uRimWidth");
+    m_gu.rimAngle = loc(gp, "uRimAngle");
+    m_gu.rimSplay = loc(gp, "uRimSplay");
+    m_gu.rimShade = loc(gp, "uRimShade");
 
     const GLuint kd = m_kawDown->program();
     m_kd.proj = loc(kd, "proj");
@@ -714,6 +737,20 @@ void CWindowGlass::damageLast() {
                                    m_boundsLog.h});
 }
 
+void CWindowGlass::noteBorderBox(const CBox& box, PHLMONITOR monitor) {
+    m_borderBox = box;
+    m_borderMon = monitor ? monitor->m_id : MONITOR_INVALID;
+    m_borderBoxOk = true;
+}
+
+bool CWindowGlass::borderBoxMatches(const CBox& box, PHLMONITOR monitor) const {
+    if (!m_borderBoxOk || !monitor || m_borderMon != monitor->m_id)
+        return false;
+    constexpr double TOL = 3.0; // renderModif / ceil-rounding slack
+    return std::abs(box.x - m_borderBox.x) <= TOL && std::abs(box.y - m_borderBox.y) <= TOL
+        && std::abs(box.w - m_borderBox.w) <= TOL && std::abs(box.h - m_borderBox.h) <= TOL;
+}
+
 std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor) {
     const auto win = m_window.lock();
     if (!win || !monitor)
@@ -735,7 +772,7 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor, const Render:
     // Skip-with-cleanup: unmapped/hidden/fullscreen/degenerate geometry
     // must repaint the last-known region instead of leaving a static ghost
     // (workspace switches, fullscreening, closes).
-    auto bail = [&] { damageLast(); };
+    auto bail = [&] { damageLast(); m_borderBoxOk = false; };
 
     const bool live = win->mapped() && win->isHidden() == false;
     if (!live) {
@@ -816,6 +853,9 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor, const Render:
         bail();
         return std::nullopt;
     }
+    // Actual window box for border-hook matching; the motion stretch below is
+    // a glass-only silhouette and must not change the border identity.
+    const CBox borderBox = winBox;
 
     // Liquid window motion: a short spring-driven bulge along the axis the
     // window is moving/growing on. Drag, resize and workspace-move all feed
@@ -949,14 +989,14 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor, const Render:
         }
     }
 
-    // Active-window glow boost (+window_active_glow, 0.2): the active window
+    // Active-window glow boost (window_active_glow, default 0): the active window
     // is signalled by glass glow now that the active border is gone (see
     // hyprland.lua). Ramped ~180ms: each snapshot steps toward the target
     // and damages while moving so the transition animates instead of
     // jumping. Bounded by construction (lands exactly via clamp).
     {
         const bool focused = (uintptr_t)win.get() == s_focusedAddr.load(std::memory_order_relaxed);
-        const float target = focused ? lg::getFloat("plugin:liquidglass:window_active_glow", 0.2f) : 0.0f;
+        const float target = focused ? lg::getFloat("plugin:liquidglass:window_active_glow", 0.0f) : 0.0f;
         const auto now = std::chrono::steady_clock::now();
         if (!m_glowInit) {
             m_glowAdd = target;
@@ -985,6 +1025,7 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor, const Render:
     SWinDraw out{winBox, rad, winTint, alphaMul, m_glowAdd};
     out.useShared = useShared;
     out.reuseCapture = reuse;
+    noteBorderBox(borderBox, monitor);
     return out;
 }
 
@@ -1062,14 +1103,13 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
         lg::getFloat("plugin:liquidglass:glow_edge0", 0.5f),
         lg::getFloat("plugin:liquidglass:glow_edge1", -0.5f),
         lg::getFloat("plugin:liquidglass:glow_threshold", 0.5f),
-        lg::getFloat("plugin:liquidglass:opacity", 0.82f),
+        lg::getFloat("plugin:liquidglass:opacity", 0.23f),
         lg::getFloat("plugin:liquidglass:ca", 0.5f),
         lg::getFloat("plugin:liquidglass:detail_preserve", 1.0f),
         lg::getFloat("plugin:liquidglass:shadow_offset_x", 0.0f),
         lg::getFloat("plugin:liquidglass:shadow_offset_y", 20.0f) * 0.5f,
         shBlurPad,
     };
-    const double screenMinLog = std::min(monitor->m_size.x, monitor->m_size.y);
 
     // PERF: no glGet* save/restore (pipeline stalls; was 5 gets per window
     // per frame). Hyprland re-sets blend per draw anyway.
@@ -1084,14 +1124,11 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
     const int px1 = (int)std::ceil(d.box.x + d.box.w);
     const int py1 = (int)std::ceil(d.box.y + d.box.h);
     if (px1 > px0 && py1 > py0) {
-        // Size-proportional blur, same rule as pills and rings: windows are
-        // large so they converge to the full user setting.
-        // Radius is resolution-proportional (x monitor scale): a scale-blind
-        // framebuffer-px spread reads ~half as strong on a 2.4x 4K panel as
-        // on the 1.6x primary for same-size windows.
-        const double winMinLog = (double)std::min(d.box.w, d.box.h) / (double)monitor->m_scale;
-        const float sizeK = (float)std::clamp(winMinLog / screenMinLog, 0.0, 1.0);
-        const float radius = T.userRadius * sizeK * (overRim ? 2.0f : 1.0f);
+        // Blur radius is the user setting regardless of window size, same as
+        // pills and rings. Radius is still resolution-proportional (x monitor
+        // scale): a scale-blind framebuffer-px spread reads ~half as strong
+        // on a 2.4x 4K panel as on the 1.6x primary for same-size windows.
+        const float radius = T.userRadius * (overRim ? 2.0f : 1.0f);
         // Resolution-corrected like layers (see Glass.cpp): identical look
         // at any capture_scale (2 = old).
         const float effR = radius * std::sqrt((float)T.userPasses) * 0.5f * (float)monitor->m_scale
@@ -1287,6 +1324,7 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                         glUniform1f(m_gu.rimBlur, overRim ? 1.0f : 0.0f);
                         glUniform2f(m_gu.capOrigin, ox, oy);
                         glUniform2f(m_gu.capScale, sx, sy);
+                        glUniform2f(m_gu.texel, 1.0f / (float)uBlurFb->m_size.x, 1.0f / (float)uBlurFb->m_size.y);
                         glUniform3f(m_gu.baseColor, ((d.tint >> 24) & 0xFF) / 255.f, ((d.tint >> 16) & 0xFF) / 255.f,
                                    ((d.tint >> 8) & 0xFF) / 255.f);
                         glUniform1f(m_gu.power, T.power);
@@ -1302,6 +1340,14 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                         glUniform1f(m_gu.glowE0, T.glowE0);
                         glUniform1f(m_gu.glowE1, T.glowE1);
                         glUniform1f(m_gu.glowT, T.glowT);
+                        // Apple rim light on the window glass pane (same
+                        // material/knobs as the border ring and Lucid pills).
+                        glUniform1f(m_gu.rimLight, (float)lg::getInt("plugin:liquidglass:glass_rim", 1));
+                        glUniform1f(m_gu.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
+                        glUniform1f(m_gu.rimWidth, std::max(0.75f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f) * (float)monitor->m_scale));
+                        glUniform1f(m_gu.rimAngle, lg::getFloat("plugin:liquidglass:rim_angle", 135.0f));
+                        glUniform1f(m_gu.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
+                        glUniform1f(m_gu.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
                         glUniform1f(m_gu.usePill, 1.0f);
                         // Window glass follows the same squircle exponent as
                         // the shell/window content (Hyprland's rounding_power

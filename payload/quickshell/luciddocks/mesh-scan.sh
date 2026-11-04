@@ -15,10 +15,15 @@ for f in "$D"/active-*.json; do
     else
         alive=false
     fi
-    jq -c --argjson alive "$alive" --arg file "$f" \
-        '. + {alive: $alive, file: $file}' "$f" 2>/dev/null || true
+    if [ -e "$D/cancelled-$p" ]; then
+        cancelled=true
+    else
+        cancelled=false
+    fi
+    jq -c --argjson alive "$alive" --argjson cancelled "$cancelled" --arg file "$f" \
+        '. + {alive: $alive, cancelled: $cancelled, file: $file}' "$f" 2>/dev/null || true
 done
 if [ -f "$D/last.json" ]; then
-    jq -c '. + {alive: false, file: "last.json"}' "$D/last.json" 2>/dev/null || true
+    jq -c '. + {alive: false, cancelled: false, file: "last.json"}' "$D/last.json" 2>/dev/null || true
 fi
 

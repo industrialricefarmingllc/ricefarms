@@ -32,8 +32,9 @@ to disk. Ever.
   resolution per level over 3 scratch buffers, up accumulates back. Smooth
   at any radius by construction — the 9-tap gaussian this replaced
   fragmented into sharp-edged blocks once the radius outgrew its tap
-  spread. Blur radius is resolution-proportional (x monitor scale), so a
-  window reads the same on 1440p and 4K.
+  spread. Blur radius is resolution-proportional (x monitor scale) but no
+  longer surface-size-proportional: a small pill and a full window use the
+  same radius, so a window reads the same on 1440p and 4K.
 - `shaders/bokeh.frag` — optional bright-pass scatter (golden-angle disc
   taps) composited over the Kawase base. Off by default (`bokeh` 0).
 - `src/main.cpp` — init/exit, `renderLayer` + `renderWindow` hooks,
@@ -98,7 +99,7 @@ All `plugin:liquidglass:*`, all live (`hyprctl keyword ...`):
 | `blur_radius` / `blur_iters` | 2.0 / 1 | `liquidGlassBlurRadius/Iters` |
 | `capture_scale` | 4.0 | — (working-res divisor for capture + Kawase chain: 4 = quarter-res, ~4x less scratch and ~3-4x less chain traffic for a near-identical blurred backdrop; blur strength auto-corrected so the look matches; 2 = old half-res) |
 | `glow_weight,bias,edge0,edge1` | 0.25/0/0.5/-0.5 | `liquidGlassGlow*` |
-| `opacity` | 0.82 | `liquidGlassOpacity` |
+| `opacity` | 0.23 | `liquidGlassOpacity` (linear: 0 = clear, 1 = solid) |
 | `tint` | `0x191113ff` | `Theme.bgOpaque` (tuner pushes live later) |
 | `use_pill` | 1 | pill vs superellipse shape mode |
 | `shadow_color` | `0x1a1a1a66` | `Theme.hyprShadow` (rgb + alpha) |
@@ -116,6 +117,15 @@ All `plugin:liquidglass:*`, all live (`hyprctl keyword ...`):
 | `frame_frieze` | `-1` | — (-1 = per-window pick, 0 = egg-and-dart, 1 = greek key, 2 = guilloche, 3 = fluting) |
 | `frame_gilt` | `1.0` | — (0 = carved stone, 1 = full gilt crests; inactive windows go stone) |
 | `frame_relief` | `1.0` | — (emboss strength: refraction steer + bevel modulation) |
+| `window_borders` | `0` | — (replace Hyprland window borders with the ring shader; Lucid turns this on) |
+| `rim_light` | `1` | — (Apple Liquid Glass rim light on window borders; replaces the legacy bevel/glow when `window_borders=1`) |
+| `rim_strength` | `1.0` | — (rim light gain; 0 disables the edge light) |
+| `rim_width` | `1.75` | — (rim band width, logical px; the actual Hyprland border can stay 1px) |
+| `rim_angle` | `135` | — (virtual light direction, degrees: 0 = right, 90 = up, 135 = top-left) |
+| `rim_splay` | `0.22` | — (how far the light wraps around the flanks) |
+| `rim_shade` | `0.009` | — (inner rim shade / bevel depth) |
+| `glass_rim` | `1` | — (same Apple rim light inside every glass surface: Lucid pills + kitty/zen panes) |
+| `glass_rim_width` | `1.1` | — (glass-body hairline width, logical px) |
 
 Corner radii are per-pill from geometry (no global needed). `box/corner`
 derivations (`menuWidth`, notch square corners) live in QML, as before.
@@ -144,6 +154,49 @@ the window slid out on switches. Requirements and behavior:
   Nothing is ever drawn over regular window edges or contents.
 - Glass tracks moves/resizes exactly: geometry is read live from the
   compositor, no bridge files, no polling.
+
+## Window rim light
+
+`window_borders=1` replaces every Hyprland window border with the ring shader.
+With `rim_light=1` (the default when borders are on) the ring draws Apple's
+Liquid Glass **edge light** instead of the old 45° gradient / picture-frame
+relief:
+
+- a crisp hairline at the silhouette, coloured by a saturated, brightened
+  copy of the captured backdrop (CoreAnimation's `vibrantColorMatrix`);
+- two opposite simulated sources (top-left key + bottom-right fill) light
+  the facing edges; each source **fades along the edge** away from its corner
+  instead of running uniformly down the whole side;
+- `rim_angle` sets the diagonal (135 = top-left/bottom-right), `rim_splay`
+  wraps light around the flanks, `rim_shade` adds the inner bevel shadow.
+
+The band is `rim_width` logical px wide and is drawn outside the window (the
+same band the native border occupied), so window content is not covered. A
+broken ring shader still falls back to the flat border; `rim_light=0` restores
+the legacy ring material, and `window_borders=0` restores Hyprland's border.
+
+The same rim light is implemented in `glass.frag` (`glass_rim=1`), so it also
+lives inside the glass itself: every Lucid pill (bar, dock, OSD, popups) and
+every kitty/zen glass pane gets the same backdrop-tinted two-source edge
+light. `glass_rim_width` is the glass-body hairline width in logical px;
+it shares `rim_strength`, `rim_angle`, `rim_splay` and `rim_shade` with the
+border ring. A window whose glass pane already draws the rim automatically
+skips the outside border ring (no double rim); opaque windows keep the border
+ring. Set `rim_light=0` to remove the outside ring entirely, or `glass_rim=0`
+to keep only the border ring.
+
+Lucid applies the machine preset from `hyprland.lua` on boot and on every
+config reload:
+
+```lua
+hl.config({plugin={liquidglass={
+  window_borders=1, frame_enable=0, rim_light=1,
+  rim_strength=1.0, rim_width=1.75, rim_angle=135,
+  rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1,
+}}})
+```
+
+Tune live with `hyprctl keyword plugin:liquidglass:rim_strength 1.2` etc.
 
 ## Quickshell wiring
 
@@ -180,7 +233,8 @@ side of things stays — that's app stats, unrelated).
 
 ## Deliberate non-goals (v1)
 
-- Chromatic aberration: 2 extra taps, unlocked after the look matches.
+- ~~Chromatic aberration: 2 extra taps, unlocked after the look matches.~~
+  Done: `ca` defaults to 0.5 and runs in the slow path.
 - Tint tracking matugen automatically: the tuner (Prefs -> keyword)
   does this next; default is a static dark neutral.
 - ~~Windows: layers only. Window glass is upstream hyprglass territory.~~

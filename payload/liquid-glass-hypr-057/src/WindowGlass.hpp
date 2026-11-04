@@ -84,6 +84,13 @@ int windowGlassCount(PHLMONITOR monitor);
 // glass window's last painted bounds. Avoids a full-monitor capture when a
 // cursor or another window is the only thing repainting.
 bool windowGlassNeedsFrame(PHLMONITOR monitor, const CBox& damage);
+// True if every damaged pixel is inside one glass window's last painted
+// bounds: the shared pre-window backdrop cannot have changed.
+bool windowGlassContentOnly(PHLMONITOR monitor, const CBox& damage);
+// True if a glassed window's last snapshot matches this border box (the
+// renderBorder hook has no window pointer). Used to skip the outside border
+// rim on windows whose glass pane already draws the Apple rim.
+bool glassWindowBorderAt(const CBox& box, PHLMONITOR monitor);
 } // namespace lg
 
 class CWindowGlass {
@@ -122,6 +129,13 @@ class CWindowGlass {
     // after workspace switches, fullscreening or closes. No-op when clean.
     void damageLast();
 
+    // Border-ring coordination: a glassed window already carries the Apple
+    // rim inside its glass pane, so the outside border ring should not draw a
+    // second one. The renderBorder hook has no window pointer, only the box;
+    // remember the last successfully glassed box and compare.
+    void noteBorderBox(const CBox& box, PHLMONITOR monitor);
+    [[nodiscard]] bool borderBoxMatches(const CBox& box, PHLMONITOR monitor) const;
+
   private:
     static constexpr int PAD_PX = 32; // refraction bleed around the window
 
@@ -158,6 +172,11 @@ class CWindowGlass {
 
     CBox m_boundsLog{0, 0, 0, 0};
     bool m_boundsOk = false;
+    // Last successfully glassed window box (monitor-local fb px) + monitor,
+    // checked by the border hook to avoid a second rim outside the pane.
+    CBox m_borderBox{0, 0, 0, 0};
+    MONITORID m_borderMon = MONITOR_INVALID;
+    bool m_borderBoxOk = false;
     Vector2D m_lastMonPos{0, 0};
     std::string m_lastCls;
     uint64_t m_tuneGen = 0;

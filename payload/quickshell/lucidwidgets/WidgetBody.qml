@@ -24,7 +24,7 @@ Item {
     // true while a grip is held, for bodies that would rather not rebuild mid-drag
     readonly property bool resizing: body.host ? body.host.resizing === true : false
     readonly property real pad: Theme.dp(20)
-    readonly property real corner: body.host ? body.host.bodyRadius : Theme.radiusXl
+    readonly property real corner: body.host ? body.host.bodyRadius : Theme.windowRadius
     readonly property bool editing: body.uid !== "" && Widgets.editUid === body.uid
     // the card's m3 container, and the ink that reads on it. "auto" is the
     // widget's own default: the ones that are mostly one big reading go tonal

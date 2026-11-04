@@ -69,7 +69,7 @@ Item {
         width: pv.natW
         height: pv.natH
         scale: pv.fit
-        radius: card.item !== null && card.item.pill === true ? Math.min(pv.natW, pv.natH) / 2 : Theme.radiusXl
+        radius: card.item !== null && card.item.pill === true ? Math.min(pv.natW, pv.natH) / 2 : Theme.windowRadius
         fillColor: pv.bare ? "transparent" : (card.item && card.item.fill !== undefined ? Theme.alpha(card.item.fill, 1) : Theme.bgOpaque)
         smoothing: Prefs.squircleF
         enabled: false

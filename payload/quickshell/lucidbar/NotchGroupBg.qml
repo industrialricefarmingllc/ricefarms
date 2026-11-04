@@ -71,7 +71,9 @@ Item {
         // the hairline a window that is not focused wears, so the group reads
         // as the same kind of surface as an app window at rest
         borderColor: WindowBorder.colour
-        borderWidth: WindowBorder.size
+        // borderOnly = external glass: the plugin rim is the edge, so the
+        // group must not trace a second regular hairline over it.
+        borderWidth: root.borderOnly ? 0 : WindowBorder.size
         // the tab grows out of the screen edge: no top edge to outline
         borderTop: 0
         // the overhang above the screen adds to the shoulder's drop, so the

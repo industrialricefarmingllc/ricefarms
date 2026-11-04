@@ -38,6 +38,7 @@ WidgetBody {
     property string curLabel: ""
     property string curCrop: ""
     property string curGlb: ""
+    property string curPreview: ""
     property real curProgress: 0
     property string curState: "queued"
 
@@ -77,6 +78,8 @@ WidgetBody {
     property bool showViewer: false
     property string viewGlb: ""
     property string viewLabel: ""
+    property string viewPreview: ""
+    property string viewCrop: ""
 
     ListModel {
         id: objects
@@ -147,8 +150,13 @@ WidgetBody {
         w.curLabel = "";
         w.curCrop = "";
         w.curGlb = "";
+        w.curPreview = "";
         w.curProgress = 0;
         w.curState = "ready";
+        w.showViewer = false;
+        // A staged image has no object rows yet; staying in list view left
+        // both panels hidden and the card looking blank.
+        w.setView("single");
         w.setOpts({
             "last": file,
             "prompts": w.prompts,
@@ -171,6 +179,7 @@ WidgetBody {
         w.curLabel = "";
         w.curCrop = "";
         w.curGlb = "";
+        w.curPreview = "";
         w.curProgress = 0;
         w.curState = "queued";
         w.jobId = w.newJobId();
@@ -233,6 +242,7 @@ WidgetBody {
         w.curLabel = o.label;
         w.curCrop = o.crop;
         w.curGlb = o.glb;
+        w.curPreview = o.preview || "";
         w.curProgress = o.progress;
         w.curState = o.state;
     }
@@ -272,8 +282,9 @@ WidgetBody {
             else if (/^\d+\s+meshes?\b/i.test(text))
                 text = "meshes placed";
             w.statusText = text;
-            if (e.state === "done")
+            if (e.state === "done") {
                 w.phase = "done";
+            }
         } else if (e.t === "object") {
             var patch = {};
             ["label", "crop", "kind", "state", "progress", "preview", "note", "glb"].forEach(function (k) {
@@ -345,6 +356,7 @@ WidgetBody {
         w.curLabel = "";
         w.curCrop = "";
         w.curGlb = "";
+        w.curPreview = "";
         w.curProgress = 0;
         w.curState = "queued";
         // back to the drop surface, not a preview of the image that just ran
@@ -558,7 +570,13 @@ WidgetBody {
                 visible: w.phase === "running"
                 onClicked: {
                     if (w.watching && w.adoptedPid > 0) {
-                        canceller.cancel(w.adoptedPid);
+                        var stopped = w.jobPid > 0 ? w.jobPid : w.adoptedPid;
+                        w.ignoredJob = w.jobId;
+                        w.ignoredPid = stopped;
+                        canceller.cancel(stopped, null);
+                        w.jobId = "";
+                        w.jobPid = 0;
+                        w.tracking = false;
                         w.watching = false;
                         w.phase = "idle";
                         w.statusText = "cancelled";
@@ -729,23 +747,16 @@ WidgetBody {
                                 to: w.phase === "running" ? "cookie9" : ""
                                 morph: w.maskMorph
                                 fillMode: Image.PreserveAspectCrop
-                                source: w.curCrop !== "" ? "file://" + w.curCrop : (w.sourceImage !== "" ? "file://" + w.sourceImage : "")
+                                source: {
+                                    if (w.curState === "done" && w.curPreview !== "")
+                                        return "file://" + w.curPreview;
+                                    return w.curCrop !== "" ? "file://" + w.curCrop : (w.sourceImage !== "" ? "file://" + w.sourceImage : "");
+                                }
                                 fallbackColor: Theme.surfaceHighest
                                 fallbackVisible: true
                                 // Hovering a finished piece pulls the picture
                                 // inside the shape; the mask itself stays put.
                                 contentScale: (w.curState === "done" && previewHit.containsMouse) ? 0.85 : 1.0
-                            }
-
-                            // the mesh, drawn over its own crop
-                            MeshView {
-                                anchors.fill: parent
-                                active: w.curState === "done"
-                                visible: w.curGlb !== "" && w.curState === "done"
-                                source: w.curGlb !== "" ? "file://" + w.curGlb : ""
-                                background: "transparent"
-                                fill: 0.72
-                                spinning: w.curState === "done" && w.curId === w.objectsDoneId()
                             }
 
                             // before any row exists, say what is happening on top of the photo
@@ -1077,6 +1088,8 @@ WidgetBody {
                                             onClicked: {
                                                 w.viewGlb = row.glb;
                                                 w.viewLabel = row.label;
+                                                w.viewPreview = row.preview;
+                                                w.viewCrop = row.crop;
                                                 w.showViewer = true;
                                             }
                                         }
@@ -1123,13 +1136,11 @@ WidgetBody {
                                 color: Theme.surfaceHighest
                                 clip: true
 
-                                MeshView {
+                                Image {
                                     anchors.fill: parent
-                                    active: w.phase === "done" && w.viewMode === "list"
-                                    visible: w.sceneGlb !== ""
-                                    source: w.sceneGlb !== "" ? "file://" + w.sceneGlb : ""
-                                    background: "transparent"
-                                    fill: 0.55
+                                    source: w.scenePreview !== "" ? "file://" + w.scenePreview : ""
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
                                 }
                             }
 
@@ -1174,14 +1185,23 @@ WidgetBody {
             radius: Theme.rad(28)
             color: Theme.alpha(Theme.bg, 0.94)
 
-            MeshView {
+            Image {
                 anchors.fill: parent
                 anchors.margins: Theme.dp(6)
-                active: w.showViewer
-                source: w.viewGlb !== "" ? "file://" + w.viewGlb : ""
-                background: "transparent"
-                fill: 0.6
-                spinning: w.phase !== "running" && !w.watching
+                source: {
+                    if (w.viewPreview !== "")
+                        return "file://" + w.viewPreview;
+                    return w.viewCrop !== "" ? "file://" + w.viewCrop : "";
+                }
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: w.viewGlb !== ""
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: w.reveal(w.viewGlb)
             }
 
             LText {
@@ -1267,6 +1287,8 @@ WidgetBody {
                 var lastDone = null;
                 for (var j = 0; j < out.length; j++) {
                     var e = out[j];
+                    if (e.cancelled)
+                        continue;
                     if (w.ignoredPid > 0 && e.pid === w.ignoredPid)
                         continue;
                     if (w.ignoredJob !== "" && e.job_id === w.ignoredJob)
@@ -1398,9 +1420,12 @@ WidgetBody {
         function cancel(pid, id) {
             if (!pid || pid <= 0)
                 return ;
-            var name = (id === undefined || id === null) ? "all" : String(id);
-            command = ["bash", "-lc", "touch \"$0/cancel-" + pid + "-" + name + "\"",
-                w.home + "/.cache/lucid-mesh"];
+            var all = (id === undefined || id === null);
+            var name = all ? "all" : String(id);
+            var script = "touch \"$0/cancel-" + pid + "-" + name + "\"";
+            if (all)
+                script += " && touch \"$0/cancelled-" + pid + "\"";
+            command = ["bash", "-lc", script, w.home + "/.cache/lucid-mesh"];
             running = true;
         }
     }

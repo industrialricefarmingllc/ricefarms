@@ -41,6 +41,7 @@ Item {
     readonly property var variantInfo: Widgets.variantAt(frame.wtype, frame.wvariant)
     // a variant that carries its own size: drag any edge instead of picking S/M/L/XL
     readonly property bool resizable: frame.variantInfo !== null && frame.variantInfo.resizable === true
+    readonly property bool verticalOnly: frame.variantInfo !== null && frame.variantInfo.resizeAxis === "vertical"
     readonly property real safeZoom: frame.zoom > 0 ? frame.zoom : 1
     // a catalogue size is drawn at the interface size; a hand-sized card keeps its own
     readonly property real sizeScale: frame.resizable ? 1 : Theme.uiScale
@@ -49,7 +50,9 @@ Item {
     readonly property real bodyH: frame.resizing ? frame.resH / frame.safeZoom : Math.round(frame.bh * frame.sizeScale)
     readonly property real cardW: Math.round(frame.bodyW * frame.zoom)
     readonly property real cardH: Math.round(frame.bodyH * frame.zoom)
-    readonly property int radius: Math.round(Math.min(body.item !== null && body.item.pill === true ? frame.cardH : Theme.radiusXl * frame.zoom, frame.cardH / 2, frame.cardW / 2))
+    // the same corner geometry the compositor gives a window, so cards and the
+    // windows around them read as one surface language
+    readonly property int radius: Math.round(Math.min(body.item !== null && body.item.pill === true ? frame.cardH : Theme.windowRadius, frame.cardH / 2, frame.cardW / 2))
     // the same corner expressed in the body's own unscaled coordinates
     readonly property real bodyRadius: frame.zoom > 0 ? frame.radius / frame.zoom : frame.radius
     readonly property bool active: frame.hovered || frame.dragging || frame.carried || frame.menuOpen
@@ -58,18 +61,23 @@ Item {
     readonly property bool lifting: frame.hovered && !frame.locked && !frame.dragging && !frame.resizing && !frame.closing
     // a variant can ask for no container at all and draw straight onto the wallpaper
     readonly property bool bare: body.item !== null && body.item.bare === true
+    // Liquid glass (liquid-glass-hypr): the compositor draws the card's glass
+    // behind it, so the QML container goes transparent. Bare variants have no
+    // container either way.
+    readonly property bool externalGlass: Prefs.liquidGlassEnabled && !frame.bare
     // ... or for nothing at all. never while you are working on the card, and the
     // fade to zero takes it out of the mask on its own, since visible follows opacity
     readonly property bool blanked: body.item !== null && body.item.hidden === true && !frame.dragging && !frame.carried && !frame.resizing && !frame.menuOpen && !frame.selected
-    // the desktop's box is over this card right now; a pinned or unseen card never counts
+    // the desktop's box is over this card right now; an unseen card never counts.
+    // a locked card can still be caught by the box, it just cannot be dragged
     readonly property bool marked: {
         var m = Widgets.marquee;
-        if (!m || frame.locked || frame.closing || !frame.visible || !frame.board || m.screen !== frame.board.screenName)
+        if (!m || frame.closing || !frame.visible || !frame.board || m.screen !== frame.board.screenName)
             return false;
 
         return m.x < frame.x + frame.width && m.x + m.w > frame.x && m.y < frame.y + frame.height && m.y + m.h > frame.y;
     }
-    readonly property bool selected: !frame.locked && Widgets.selection[frame.uid] === true
+    readonly property bool selected: Widgets.selection[frame.uid] === true
     // the widget panel is pointing at this card from its list
     readonly property bool spotted: Widgets.spotUid !== "" && Widgets.spotUid === frame.uid
     // dropped here from the panel: it settles where the ghost was rather than popping in
@@ -234,7 +242,7 @@ Item {
         if (frame.selected) {
             for (var i = 0; frame.board && i < frame.board.frameCount; i++) {
                 var f = frame.board.frameAt(i);
-                if (f && f !== frame && f.selected && f.visible && !f.closing)
+                if (f && f !== frame && f.selected && f.visible && !f.closing && !f.locked)
                     crew.push(f);
 
             }
@@ -435,7 +443,7 @@ Item {
         if (frame.locked || !frame.resizable)
             return ;
 
-        frame.gripH = hx;
+        frame.gripH = frame.verticalOnly ? 0 : hx;
         frame.gripV = vy;
         frame.pressBX = px;
         frame.pressBY = py;
@@ -466,9 +474,17 @@ Item {
         var ny = frame.startY;
         var nw = frame.startW;
         var nh = frame.startH;
-        if (frame.gripH > 0) {
+        // Snap the face being dragged to half-steps of the catalogue's 1:1
+        // reference. The grid is anchored on the catalogue size so a fresh
+        // card already sits on it.
+        var k = Prefs.interfaceScale;
+        var step = Widgets.resizeStep(frame.wtype, frame.wvariant) * k * z;
+        var variant = Widgets.variantAt(frame.wtype, frame.wvariant);
+        var baseW = variant ? (Number(variant.w) || 0) * k * z : frame.startW;
+        var baseH = variant ? (Number(variant.h) || 0) * k * z : frame.startH;
+        if (!frame.verticalOnly && frame.gripH > 0) {
             nw = Math.min(lim.maxW * z, Math.min(boardW - nx, frame.startW + dx));
-        } else if (frame.gripH < 0) {
+        } else if (!frame.verticalOnly && frame.gripH < 0) {
             var right = frame.startX + frame.startW;
             nw = Math.min(lim.maxW * z, Math.min(right, frame.startW - dx));
         }
@@ -478,10 +494,23 @@ Item {
             var bottom = frame.startY + frame.startH;
             nh = Math.min(lim.maxH * z, Math.min(bottom, frame.startH - dy));
         }
-        nw = Math.max(lim.minW * z, nw);
-        nh = Math.max(lim.minH * z, nh);
-        if (frame.gripH < 0)
-            nx = frame.startX + frame.startW - nw;
+        if (step > 0) {
+            if (!frame.verticalOnly && frame.gripH !== 0)
+                nw = baseW + Math.round((nw - baseW) / step) * step;
+
+            if (frame.gripV !== 0)
+                nh = baseH + Math.round((nh - baseH) / step) * step;
+
+        }
+        if (frame.verticalOnly) {
+            nw = frame.startW;
+            nx = frame.startX;
+        } else {
+            nw = Math.max(lim.minW * z, Math.min(lim.maxW * z, nw));
+            if (frame.gripH < 0)
+                nx = frame.startX + frame.startW - nw;
+        }
+        nh = Math.max(lim.minH * z, Math.min(lim.maxH * z, nh));
 
         if (frame.gripV < 0)
             ny = frame.startY + frame.startH - nh;
@@ -511,6 +540,14 @@ Item {
 
         Widgets.setSize(frame.uid, frame.board.width / frame.safeZoom, frame.bh);
         Widgets.setPos(frame.uid, 0, frame.wy);
+    }
+
+    // Let a body opt into keyboard scrolling while the pointer is over it.
+    function handleScrollKey(event) {
+        if (body.item && typeof body.item.handleScrollKey === "function")
+            return body.item.handleScrollKey(event) === true;
+
+        return false;
     }
 
     function toggleMenu(px, py) {
@@ -682,7 +719,7 @@ Item {
 
         anchors.fill: parent
         radius: frame.radius
-        fillColor: frame.bare ? "transparent" : (body.item && body.item.fill !== undefined ? body.item.fill : Theme.bg)
+        fillColor: (frame.bare || frame.externalGlass) ? "transparent" : (body.item && body.item.fill !== undefined ? body.item.fill : Theme.bg)
         smoothing: Prefs.squircleF
 
         Behavior on fillColor {
@@ -857,34 +894,12 @@ Item {
 
         }
 
-        Repeater {
-            model: frame.gripSpecs
-
-            Rectangle {
-                id: dot
-
-                required property var modelData
-
-                readonly property bool corner: dot.modelData.h !== 0 && dot.modelData.v !== 0
-
-                width: Theme.dp(6)
-                height: Theme.dp(6)
-                radius: Theme.dp(3)
-                color: Theme.accent
-                opacity: outline.opacity
-                visible: dot.corner
-                x: dot.modelData.h < 0 ? -Theme.dp(3) : frame.width - Theme.dp(3)
-                y: dot.modelData.v < 0 ? -Theme.dp(3) : frame.height - Theme.dp(3)
-            }
-
-        }
-
     }
 
     // eight handles over everything else, left button only so a right press still
     // reaches the menu underneath
     Repeater {
-        model: (frame.resizable && !frame.locked) ? frame.gripSpecs : []
+        model: (frame.resizable && !frame.locked) ? (frame.verticalOnly ? [frame.gripSpecs[1], frame.gripSpecs[5]] : frame.gripSpecs) : []
 
         MouseArea {
             id: grip

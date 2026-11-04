@@ -13,8 +13,8 @@ QtObject {
     readonly property string uid: ""
     readonly property bool preview: true
     readonly property real zoom: 1
-    readonly property real bodyRadius: Theme.radiusXl
-    readonly property int radius: Theme.radiusXl
+    readonly property real bodyRadius: Theme.windowRadius
+    readonly property int radius: Theme.windowRadius
     readonly property bool pinned: false
     // stand-ins so a tile shows a filled-in widget rather than an empty one
     readonly property var samples: ({

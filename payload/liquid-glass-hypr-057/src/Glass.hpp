@@ -56,6 +56,7 @@ struct SGlassUniforms {
     GLint sharp = -1;   // over-rim sharp capture (unit 1)
     GLint rimBlur = -1; // 0 regular, 1 over-rim sharp->r3 ramp
     GLint capOrigin = -1, capScale = -1;
+    GLint texel = -1; // 1 / uBlur size
     GLint baseColor = -1;
     GLint power = -1, shape = -1;
     GLint a = -1, b = -1, c = -1, d = -1, fpower = -1;
@@ -74,6 +75,7 @@ struct SGlassUniforms {
     GLint logCME = -1;  // precomputed log(uC*M_E) for f_func exp fast path
     GLint unionOn = -1, unionA = -1, unionAR = -1, unionB = -1, unionBR = -1, unionK = -1;
     GLint maskOn = -1, maskCenter = -1, maskRadius = -1;
+    GLint rimLight = -1, rimStrength = -1, rimWidth = -1, rimAngle = -1, rimSplay = -1, rimShade = -1;
 };
 
 struct SKawaseU {
@@ -91,6 +93,7 @@ struct SLayerRingU {
     GLint tint = -1, tint2 = -1, lerp = -1, tintMix = -1, a = -1;
     GLint throwMax = -1, winSize = -1, winR = -1, shape = -1;
     GLint lA = -1, lB = -1, lC = -1, lD = -1, lFPower = -1;
+    GLint logCME = -1;
     GLint glowW = -1, glowE0 = -1, glowE1 = -1, glowT = -1, glowBias = -1;
     GLint radii = -1, useRadii = -1, winRadii = -1, fadeTop = -1, fadeMid = -1, fadeBottom = -1, fadeAng = -1;
     GLint frameEnable = -1, frameScale = -1, seed = -1, frieze = -1, gilt = -1, relief = -1;
@@ -176,6 +179,13 @@ class CGlassLayer {
     // Last rendered pill union (logical, padded). See glassBounds().
     CBox m_boundsLog{0, 0, 0, 0};
     bool m_boundsOk = false;
+    // Cached geometry state: if the shared scan generation, the surface box
+    // and the tune generation are unchanged, the pills from last frame are
+    // still exact. Lets render() skip loadGeometry entirely on frames whose
+    // damage misses the glass bounds.
+    uint64_t m_geoGen = 0;
+    CBox m_lastSurfBox{0, 0, 0, 0};
+    bool m_haveSurfBox = false;
     // Tune generation at last damage: prefs/matugen edits repaint via
     // damage-on-change instead of a damage-every-frame loop.
     uint64_t m_tuneGen = 0;
@@ -191,6 +201,13 @@ class CGlassLayer {
         // decision isn't re-parsed every frame; also drops any pills cached
         // from a pre-"ns" version of the same file.
         bool foreign = false;
+        // The publisher asked for full-surface glass: x/y/w/h come from the
+        // live layer-surface box (computed every frame below), not from the
+        // cached parse. Only radius/squircle are kept from the file, so a
+        // surface resize is reflected on the very same frame instead of
+        // waiting for the next geometry write (and never freezes if no write
+        // lands at all).
+        bool full = false;
         // Last good surfaceBox/declaredSize ratio. A layer surface commits its
         // new size a frame or two after QML has already laid out and published
         // the new pill geometry (and vice versa on shrink), which makes the

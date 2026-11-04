@@ -38,6 +38,7 @@ Item {
         return o.type !== "bool";
     })
     readonly property bool resizable: menu.frame !== null && menu.frame.resizable
+    readonly property bool verticalOnly: menu.frame !== null && menu.frame.verticalOnly === true
     readonly property var screens: Quickshell.screens
     readonly property string tone: {
         var t = menu.frame ? menu.frame.opt("tone") : "auto";
@@ -216,6 +217,9 @@ Item {
                             variant: "tonal"
                             checkable: true
                             checked: menu.frame ? menu.frame.pinned : false
+                            // a card on every wallpaper keeps a place on each one,
+                            // so it cannot also be locked down in one place
+                            visible: menu.frame ? menu.frame.everywhere !== true : true
                             size: "xs"
                             icon: "keep"
                             iconFill: checked ? 1 : 0
@@ -478,7 +482,7 @@ Item {
                         leftPadding: Theme.dp(4)
                         role: "bodySmall"
                         color: Theme.subtext
-                        text: menu.frame ? Math.round(menu.frame.bodyW) + " × " + Math.round(menu.frame.bodyH) + "  ·  drag any edge" : ""
+                        text: menu.frame ? Math.round(menu.frame.bodyW) + " × " + Math.round(menu.frame.bodyH) + (menu.verticalOnly ? "  ·  drag the top or bottom edge" : "  ·  drag any edge") : ""
                     }
 
                     Row {
@@ -490,6 +494,7 @@ Item {
                             size: "xs"
                             icon: "width_full"
                             text: "Full width"
+                            visible: !menu.verticalOnly
                             onClicked: {
                                 if (menu.frame)
                                     menu.frame.fillWidth();

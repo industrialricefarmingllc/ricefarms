@@ -48,6 +48,8 @@ Item {
         running: view.active && !view.ready && !view.failed && view.source !== ""
         onTriggered: {
             view.ticks += 1;
+            if (view.ticks % 10 === 0)
+                console.log("[meshview] tick", view.ticks, view.source, JSON.stringify(model.bounds));
             if (view.frame())
                 return ;
             if (view.ticks > 80)
@@ -56,6 +58,7 @@ Item {
     }
 
     onSourceChanged: {
+        console.log("[meshview] source", view.source);
         view.ready = false;
         view.failed = false;
         view.ticks = 0;

@@ -811,7 +811,7 @@ Column {
 
         SettingRow {
             title: "Opacity — independent of Surfaces > Glass"
-            description: "Tint strength only — the glass effects themselves always render full-strength. 0 = untinted, 1 = full tint. Default 0.82."
+            description: "Tint coverage only — the glass effects themselves always render full-strength. Linear: 0 = clear glass, 1 = fully opaque tint. Default 0.23."
             stacked: true
 
             M3Slider {

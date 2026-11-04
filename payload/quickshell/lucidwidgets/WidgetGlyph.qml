@@ -8,6 +8,7 @@ Item {
     // widget glyph names, as the material symbols they draw
     readonly property var symbols: ({
         "clock": "schedule",
+        "social": "hub",
         "calendar": "calendar_month",
         "system": "speed",
         "battery": "battery_full",

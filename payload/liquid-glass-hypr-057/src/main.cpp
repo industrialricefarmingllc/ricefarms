@@ -24,6 +24,7 @@
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/render/Context.hpp>
+#include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/types.hpp>
 
@@ -46,6 +47,7 @@ CFunctionHook* G_HOOK_WIN = nullptr;
 CFunctionHook* G_HOOK_RB1 = nullptr;
 CFunctionHook* G_HOOK_RB2 = nullptr;
 CFunctionHook* G_HOOK_SH = nullptr;
+CFunctionHook* G_HOOK_END = nullptr;
 // Intentionally leaked (never freed, not even on unload): destroying GL
 // objects (framebuffers, programs) outside a frame — which is exactly when
 // PLUGIN_EXIT and dlclose static destructors run — SEGVs in the driver.
@@ -67,6 +69,30 @@ void pruneDeadWindows() {
             ++it;
         }
     }
+}
+
+using EndFn = void (*)(Render::GL::CHyprOpenGLImpl*);
+EndFn g_originalEnd = nullptr;
+
+void hkEnd(Render::GL::CHyprOpenGLImpl* self) {
+    auto& rctx = g_pHyprRenderer->context();
+    auto& rd   = rctx.m_data;
+    auto  out  = rd.outFB;
+    auto  main = rd.mainFB;
+    auto  mon  = rd.pMonitor.lock();
+    auto  damage = rd.finalDamage;
+    const bool td = rd.transformDamage;
+    const bool normal = rctx.m_mode == Render::RENDER_MODE_NORMAL;
+
+    g_originalEnd(self);
+
+    // The scene/work buffer was copied to the output above. Apply the wash
+    // only to the output, so the work buffer used by glass backdrop capture
+    // never contains the wash (no cross-framebuffer feedback).
+    if (normal && out && mon && out.get() != main.get())
+        lg::drawQueuedWash(mon, out, damage, td);
+    else if (mon)
+        lg::clearQueuedWash(mon);
 }
 
 using RenderLayerFn = void (*)(Render::IHyprRenderer*, Render::CRenderContext&, PHLLS, PHLMONITOR, const Time::steady_tp&, bool, bool, bool);
@@ -102,8 +128,7 @@ void hkRenderLayer(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHL
 
     if (!popups && !lockscreen && surface && surface->mapped()) {
         if (auto wash = lg::washTexture()) {
-            for (const auto& draw : lg::layerWashSnapshots(surface, monitor))
-                ctx.m_pass.add(makeUnique<CWindowWashPassElement>(CWindowWashPassElement::SData{draw, wash}));
+            lg::queueLayerWash(surface, monitor);
         }
     }
 }
@@ -192,10 +217,7 @@ void hkRenderWindow(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PH
     g_originalRenderWindow(self, ctx, window, monitor, presentation, now, decorate, passMode, ignorePosition, standalone);
 
     if (mainPass && !ctx.m_renderingSnapshot && window && window->mapped() && !window->isHidden()) {
-        if (auto wash = lg::washTexture()) {
-            if (auto draw = lg::windowWashSnapshot(window, monitor, presentation))
-                ctx.m_pass.add(makeUnique<CWindowWashPassElement>(CWindowWashPassElement::SData{*draw, wash}));
-        }
+        lg::queueWindowWash(window, monitor, presentation);
     }
 
     if (cropShrink)
@@ -206,6 +228,19 @@ void hkRenderWindow(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PH
 } // namespace
 
 namespace lg {
+bool glassWindowBorderAt(const CBox& box, PHLMONITOR monitor) {
+    for (const auto& [_, glass] : *WINDOWS) {
+        if (!glass)
+            continue;
+        const auto win = glass->get();
+        if (!win || !win->mapped() || win->isHidden() || !windowAllowed(win->metadata().appID()))
+            continue;
+        if (glass->borderBoxMatches(box, monitor))
+            return true;
+    }
+    return false;
+}
+
 // A window belongs to the frame if its workspace is the active/special one,
 // or if it is being force-rendered / slid / morphed. During a goo transition
 // the outgoing workspace has m_forceRendering set; those windows still draw
@@ -252,6 +287,36 @@ bool windowGlassNeedsFrame(PHLMONITOR monitor, const CBox& damage) {
         if (!lg::windowAllowed(win->metadata().appID()) || win->presentation().opaque())
             continue;
         if (const auto bounds = glass->glassBounds(); bounds && !bounds->intersection(dmgLogical).empty())
+            return true;
+    }
+    return false;
+}
+
+// True when every damaged pixel lies inside one glass window's last painted
+// bounds. The shared pre-window backdrop is the wallpaper/bottom layers, not
+// window content, so damage confined to a glass pane (typing, video, cursor
+// inside the terminal) cannot change it. The caller can then reuse the
+// previous full-monitor capture instead of blitting the whole monitor again.
+bool windowGlassContentOnly(PHLMONITOR monitor, const CBox& damage) {
+    if (!monitor || damage.w <= 0 || damage.h <= 0)
+        return false;
+    const float scale = monitor->m_scale > 0.0f ? monitor->m_scale : 1.0f;
+    const CBox dmgLogical{damage.x / scale, damage.y / scale, damage.w / scale, damage.h / scale};
+    for (const auto& [key, glass] : *WINDOWS) {
+        const auto win = glass ? glass->get() : nullptr;
+        if (!win || !win->mapped() || win->isHidden() || win->monitorID() != monitor->m_id)
+            continue;
+        if (!(win->m_state & Desktop::View::WINDOW_STATE_PINNED) &&
+            !workspaceRenders(win->m_workspace, monitor->m_activeWorkspace, monitor->m_activeSpecialWorkspace))
+            continue;
+        if (!lg::windowAllowed(win->metadata().appID()) || win->presentation().opaque())
+            continue;
+        const auto bounds = glass->glassBounds();
+        if (!bounds)
+            continue;
+        if (dmgLogical.x >= bounds->x - 1.0 && dmgLogical.y >= bounds->y - 1.0 &&
+            dmgLogical.x + dmgLogical.w <= bounds->x + bounds->w + 1.0 &&
+            dmgLogical.y + dmgLogical.h <= bounds->y + bounds->h + 1.0)
             return true;
     }
     return false;
@@ -356,6 +421,20 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addNotification(PHANDLE, "[liquidglass] drop-shadow hook failed — window shadows stay on",
                                      CHyprColor{1, 0.2, 0.2, 1}, 5000);
 
+    for (const auto& match : HyprlandAPI::findFunctionsByName(PHANDLE, "end")) {
+        if (!match.demangled.contains("CHyprOpenGLImpl::end"))
+            continue;
+        G_HOOK_END = HyprlandAPI::createFunctionHook(PHANDLE, match.address, (void*)hkEnd);
+        if (G_HOOK_END && G_HOOK_END->hook()) {
+            g_originalEnd = reinterpret_cast<EndFn>(G_HOOK_END->m_original);
+            break;
+        }
+        G_HOOK_END = nullptr;
+    }
+    if (!g_originalEnd)
+        HyprlandAPI::addNotification(PHANDLE, "[liquidglass] end hook failed — wash overlay disabled",
+                                     CHyprColor{1, 0.2, 0.2, 1}, 5000);
+
     return {LG_NAME, LG_DESC, LG_AUTHOR, LG_VERSION};
 }
 
@@ -387,6 +466,10 @@ APICALL EXPORT void PLUGIN_EXIT() {
     if (G_HOOK_SH) {
         HyprlandAPI::removeFunctionHook(PHANDLE, G_HOOK_SH);
         G_HOOK_SH = nullptr;
+    }
+    if (G_HOOK_END) {
+        HyprlandAPI::removeFunctionHook(PHANDLE, G_HOOK_END);
+        G_HOOK_END = nullptr;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
