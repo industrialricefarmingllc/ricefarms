@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """Lucid touch right-click.
 
 The Surface panel (IPTS touchscreen) has no right button: Hyprland hands the
