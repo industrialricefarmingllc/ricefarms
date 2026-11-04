@@ -6,11 +6,22 @@ All notable changes to Lucid are recorded here, newest first.
 
 ### New
 
-- **Recordings leave the capture toolbar out.** Recording now goes through
-  Hyprland's workspace capture instead of screencopy, so the LucidShot toolbar
-  can stay on screen while the video only shows what is behind it. A take
-  follows the workspace you switch to, and `qs ipc call snap record` starts or
-  stops one without opening the toolbar.
+- **Touch scrolling in the launcher.** The apps and emoji walls page with a
+  sideways swipe and walk their rows up and down; the wallpaper strip, pills
+  and bento card stacks follow the finger card by card; and the Tiles picker,
+  widget catalogue and result list keep their flick on the panel. Mouse drags
+  take the same paths, so the launcher behaves the same with either pointer.
+- **skwd-wall can own the desktop wallpaper.** When the skwd suite is
+  installed, *Settings → Theme → skwd-wall engine* hands images, videos and
+  Wallpaper Engine scenes to `skwd-walld` and its GPU renderers. Lucid's
+  picker reads skwd's library, applies a scene by its workshop key, and keeps
+  doing the palette work from a still. With the switch off, awww and Lucid's
+  own live player come back exactly as before.
+- **Live previews in the wallpaper picker.** A video or Wallpaper Engine card
+  plays skwd's short animated WebP preview while it is selected or under the
+  pointer, in the strip, pills, bento and tiles styles. Settings → Theme plays
+  the same preview on hover, and videos in a plain folder get a preview cut by
+  ffmpeg in the background.
 - **Widgets are kept per wallpaper.** Each wallpaper has its own board: the
   widgets you put out, and where they sit, come back when that wallpaper does,
   and a wallpaper you have not used yet starts empty. Presets you saved are
@@ -29,12 +40,30 @@ All notable changes to Lucid are recorded here, newest first.
 - **Beta updates.** A switch under *Settings → About*, with a warning that
   things may break, offers the newest commit on `main` before it becomes a
   release. It installs the same way and needs the password too.
+- **The bar wears the window border.** Every bar surface, the notch tabs and
+  the islands alike, takes its width and colour from Hyprland's unfocused
+  window border (`general:border_size` and `general:col.inactive_border`), read
+  back from the compositor, so the bar reads as one more window at rest. A
+  notch tab keeps its top edge bare, since it grows out of the screen edge,
+  and the concave shoulders carry the line on their arc only, so the shoulder
+  stays part of the tab instead of looking stuck onto it. With the liquid
+  glass plugin drawing the bodies, the same hairline is traced over them, so
+  turning glass on does not lose it.
 
 ### Fixed
 
+- **Notch shoulders sweep as a fillet again.** The concave shoulder reused the
+  convex corner's smoothing, and that superellipse turned inside out hugs the
+  tab's side so closely that at the shipped smoothing the shoulder's arc was a
+  near-straight line down the tab, reading as a seam between the notch and its
+  inverted corner. Notch shoulders now take the classic quarter-arc, which
+  spreads the bend over the whole shoulder; every convex corner keeps the
+  squircle smoothing.
 - **The notch bar keeps one shape per side with liquid glass off.** The left
   and right groups draw as a single continuous tab, as they already did when
   the glass compositor plugin was on, instead of a separate notch per module.
+  Its shoulders use the same pixel-accurate edge as the screen corners, and
+  the tab no longer leaves a 1px translucent rim along the screen edge.
 
 ## v1.20.1 — 2026-10-15
 

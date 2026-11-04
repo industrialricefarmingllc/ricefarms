@@ -51,10 +51,21 @@ Item {
 
         sourceItem: subject
         hideSource: true
-        live: true
+        // A frozen subject is a static texture inside SpatialSurface; keeping
+        // this live would copy the same pixels every frame for no reason.
+        live: !subject.frozen
         smooth: true
         textureSize: root.textureSize
         visible: false
+    }
+
+    Connections {
+        target: subject
+
+        function onFrozenChanged() {
+            if (subject.frozen)
+                subjectTexture.scheduleUpdate();
+        }
     }
 
     IpcHandler {

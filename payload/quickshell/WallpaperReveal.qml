@@ -85,10 +85,11 @@ PanelWindow {
     property double begunAt: 0
     // Nothing may hold the screen under the iris forever. A wedged or killed
     // apply script, a heartbeat left writing by an older run, or a lost
-    // "conceal" IPC used to leave the circle up with no way back. 45 s is
+    // "conceal" IPC used to leave the circle up with no way back. 90 s is
     // longer than the slowest cold apply (depth + matte + two meshes on a 4K
-    // still); after that the iris closes whatever the script is doing.
-    readonly property int maxRevealMs: 60000
+    // still, while the machine is busy); after that the iris closes whatever
+    // the script is doing.
+    readonly property int maxRevealMs: 90000
 
     // The circle travels from beyond the bottom-right corner to the centre.
     readonly property real startX: root.sw * 1.35
@@ -166,6 +167,18 @@ PanelWindow {
         // some wallpapers depending on timing.
         if (root.active && root.lastId === id)
             return;
+        // Stop the previous run's animators. A still-running "out" would
+        // finish later and set active=false, tearing down the new reveal
+        // halfway through; a still-running "in" would fight the new one.
+        inAnim.stop();
+        outAnim.stop();
+        holdTimer.stop();
+        // A new pick that lands while the circle already covers the screen
+        // must not reset it to zero: the desktop would flash before the new
+        // circle grows. Keep the cover, swap the picture inside it, and let
+        // the apply continue under it.
+        const wasCovered = root.active && !root.leaving && !root.pendingIn
+            && root.cover >= 1;
         root.lastId = id;
         Theme.revealActive = true;
         root.wallpaper = path || "";
@@ -175,8 +188,10 @@ PanelWindow {
         root.heartbeatAt = Date.now();
         root.begunAt = Date.now();
         root.leaving = false;
-        root.cover = 0;
-        root.outT = 0;
+        if (!wasCovered) {
+            root.cover = 0;
+            root.outT = 0;
+        }
         Quickshell.execDetached(["sh", "-c", "rm -f \"$0\" \"$1\"", root.readyPath, root.coveredPath]);
         // Force the Image through Null/Loading so a Ready status from the
         // previous wallpaper cannot start the new animation early. The decode
@@ -184,16 +199,26 @@ PanelWindow {
         // texture exists.
         root.revealSource = "";
         root.revealSource = "file://" + encodeURI(root.wallpaper);
+        if (wasCovered) {
+            // There is no grow left to wait for. Mark both phases done so the
+            // new apply proceeds under the cover; the new picture replaces
+            // the old one inside the circle when its decode finishes.
+            root.pendingIn = false;
+            Quickshell.execDetached(["sh", "-c", "touch \"$0\" \"$1\"", root.readyPath, root.coveredPath]);
+        }
         if (image.status === Image.Ready)
             Qt.callLater(root.imageReady);
     }
 
     function imageReady() {
-        if (!root.pendingIn || image.status !== Image.Ready)
+        if (image.status !== Image.Ready)
             return;
         // Render the wallpaper into its FBO once; it is static for the whole
-        // reveal, so there is no reason to re-render it every frame.
+        // reveal, so there is no reason to re-render it every frame. This
+        // also runs for the already-covered handover, which has no animation.
         wallpaperSource.scheduleUpdate();
+        if (!root.pendingIn)
+            return;
         Qt.callLater(root.startIn);
     }
 

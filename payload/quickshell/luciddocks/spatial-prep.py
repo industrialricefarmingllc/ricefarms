@@ -14,15 +14,15 @@ needed by NextKde; this is Lucid's CPU implementation of the same contract.
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
 import sys
-import tempfile
 import time
-import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import spatial_cache  # noqa: E402
 
 MODEL_URL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx"
 MODEL_SHA256 = "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
@@ -52,6 +52,8 @@ def sha256_file(path: Path) -> str:
 
 
 def save_png(image, path: Path) -> None:
+    import tempfile
+
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     os.close(fd)
     try:
@@ -65,6 +67,8 @@ def save_png(image, path: Path) -> None:
 
 
 def write_json(path: Path, value: dict) -> None:
+    import tempfile
+
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
@@ -79,6 +83,8 @@ def write_json(path: Path, value: dict) -> None:
 
 
 def ensure_model() -> Path:
+    import urllib.request
+
     models = cache_root() / "models"
     models.mkdir(parents=True, exist_ok=True)
     model = models / "isnet-general-use.onnx"
@@ -271,28 +277,25 @@ def hand_influence(depth, subject):
 
 
 def prepare(image_path: Path, depth_path: Path) -> dict:
-    from PIL import Image
-    import numpy as np
-
     if not image_path.is_file() or not depth_path.is_file():
         raise FileNotFoundError("image or depth map is missing")
 
-    source = Image.open(image_path).convert("RGB")
-    with Image.open(depth_path) as opened_depth:
-        depth_image = opened_depth.convert("I")
-
-    scale = min(1.0, MAX_DIMENSION / max(source.width, source.height))
-    width = max(1, round(source.width * scale))
-    height = max(1, round(source.height * scale))
-    if (source.width, source.height) != (width, height):
-        source = source.resize((width, height), Image.Resampling.LANCZOS)
-        depth_image = depth_image.resize((width, height), Image.Resampling.LANCZOS)
+    # The stat index makes a cache hit independent of the source size: no
+    # 4K decode, no numpy/scipy import, no hash of the whole wallpaper.
+    source_hash, source_width, source_height = spatial_cache.source_info(
+        image_path, with_size=True)
+    if source_width <= 0 or source_height <= 0:
+        from PIL import Image
+        with Image.open(image_path) as image:
+            source_width, source_height = image.width, image.height
+    scale = min(1.0, MAX_DIMENSION / max(source_width, source_height))
+    width = max(1, round(source_width * scale))
+    height = max(1, round(source_height * scale))
 
     # The matte and the reconstructed background depend only on the picture,
     # not on which depth model produced depth.png. Share them by source hash so
     # switching models does not re-run IS-Net; only the influence map, which
     # uses depth, stays per model.
-    source_hash = sha256_file(image_path)
     shared_dir = cache_root() / "wallpapers" / source_hash / "spatial-v4"
     model_dir = depth_path.parent / "spatial-v4"
     background_path = shared_dir / "background.png"
@@ -309,9 +312,8 @@ def prepare(image_path: Path, depth_path: Path) -> dict:
                     or metadata.get("height") != height):
                 return None
             for path in paths:
-                with Image.open(path) as image:
-                    if image.size != (width, height):
-                        return None
+                if spatial_cache.png_size(path) != (width, height):
+                    return None
             return metadata
         except (OSError, ValueError):
             return None
@@ -330,6 +332,18 @@ def prepare(image_path: Path, depth_path: Path) -> dict:
             "contract": CONTRACT,
             "cached": True,
         }
+
+    # Cold path only: the cache above already returned for a fully prepared
+    # wallpaper, so the expensive decoders and numpy/scipy imports stay here.
+    from PIL import Image
+    import numpy as np
+
+    source = Image.open(image_path).convert("RGB")
+    with Image.open(depth_path) as opened_depth:
+        depth_image = opened_depth.convert("I")
+    if (source.width, source.height) != (width, height):
+        source = source.resize((width, height), Image.Resampling.LANCZOS)
+        depth_image = depth_image.resize((width, height), Image.Resampling.LANCZOS)
 
     photo = np.asarray(source, dtype=np.uint8)
     depth = np.asarray(depth_image, dtype=np.float32) / 65535.0
@@ -407,12 +421,29 @@ def prepare(image_path: Path, depth_path: Path) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--image", required=True)
-    parser.add_argument("--depth", required=True)
-    args = parser.parse_args()
+    values = sys.argv[1:]
+    image = ""
+    depth = ""
+    index = 0
+    while index < len(values):
+        flag = values[index]
+        if flag in ("-h", "--help"):
+            print("usage: spatial-prep.py --image PATH --depth PATH")
+            return 0
+        if flag in ("--image", "--depth") and index + 1 < len(values):
+            if flag == "--image":
+                image = values[index + 1]
+            else:
+                depth = values[index + 1]
+            index += 2
+            continue
+        print(json.dumps({"ok": False, "error": "unknown argument: " + flag}))
+        return 0
+    if image == "" or depth == "":
+        print(json.dumps({"ok": False, "error": "--image and --depth are required"}))
+        return 0
     try:
-        result = prepare(Path(args.image), Path(args.depth))
+        result = prepare(Path(image), Path(depth))
     except Exception as error:  # noqa: BLE001
         print(json.dumps({"ok": False, "error": str(error)}))
         return 0

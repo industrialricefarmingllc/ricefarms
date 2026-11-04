@@ -90,6 +90,13 @@ Item {
     }
     // The renderer's own eased coordinate, not the cursor service's 30 Hz grid,
     // is what the shader sees. This keeps small movement smooth.
+    // A focused client window means nobody can see the parallax response.
+    // Freeze the last rendered frame and stop every animation source, but keep
+    // the Loader, meshes and textures resident so returning to the desktop is
+    // instant (and no expensive mesh rebuild is triggered).
+    readonly property bool windowFocused: SpatialWall.screenHasFocusedWindow(surface.screen)
+    property bool frozen: false
+    property bool freezePending: false
     // Cross-fade the whole 3D visual over the flat wallpaper. Applied to the
     // outputs rather than the surface itself: animating the layer window's
     // root opacity crashes Quickshell here.
@@ -112,8 +119,19 @@ Item {
     Behavior on pointerY {
         NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
     }
-    onRawPointerXChanged: surface.pointerX = surface.rawPointerX
-    onRawPointerYChanged: surface.pointerY = surface.rawPointerY
+    onRawPointerXChanged: if (!surface.windowFocused) surface.pointerX = surface.rawPointerX
+    onRawPointerYChanged: if (!surface.windowFocused) surface.pointerY = surface.rawPointerY
+    onWindowFocusedChanged: {
+        if (surface.windowFocused)
+            surface.beginFreeze();
+        else
+            surface.endFreeze();
+        if (!surface.windowFocused) {
+            surface.pointerX = surface.rawPointerX;
+            surface.pointerY = surface.rawPointerY;
+        }
+        surface.syncVideo();
+    }
     Component.onCompleted: {
         surface.pointerX = surface.rawPointerX;
         surface.pointerY = surface.rawPointerY;
@@ -123,12 +141,20 @@ Item {
     }
 
     function syncVideo() {
-        if (mesh3d.item)
+        if (mesh3d.item) {
             surface.syncMesh();
+            mesh3d.item.animationPaused = surface.windowFocused;
+        }
         if (SpatialWall.motionKind === "video" && SpatialWall.motionPath !== "" && SpatialWall.hasVisual) {
             if (player.source.toString() !== SpatialWall.motionUrl)
                 player.source = SpatialWall.motionUrl;
-            player.play();
+            // Do not clear the source while frozen: the freeze texture already
+            // holds the last frame, and keeping the demuxer avoids a reload on
+            // the first gesture after focus returns.
+            if (surface.windowFocused)
+                player.pause();
+            else
+                player.play();
         } else {
             player.pause();
             player.source = "";
@@ -191,6 +217,7 @@ Item {
             asynchronous: true
             cache: false
             playing: SpatialWall.hasVisual && SpatialWall.motionKind === "gif"
+                && !surface.windowFocused
             visible: SpatialWall.motionKind === "gif"
         }
 
@@ -220,8 +247,9 @@ Item {
 
         sourceItem: media
         hideSource: true
-        // animated sources repaint continuously; a still is captured once
-        live: surface.wantGif || surface.wantVideo
+        // animated sources repaint continuously; a still is captured once.
+        // The frozen surface keeps its last texture, so live can be off too.
+        live: (surface.wantGif || surface.wantVideo) && !surface.windowFocused
         smooth: true
         textureSize: surface.textureSize
         visible: false
@@ -281,6 +309,9 @@ Item {
         id: mesh3d
 
         anchors.fill: parent
+        // Hidden only after the freeze texture has been captured; the Loader
+        // stays active, so the scene graph and mesh cache remain resident.
+        visible: !surface.frozen
         active: surface.renderingEnabled && SpatialWall.layeredVisual
             && (!surface.foregroundOnly || SpatialWall.sourceKind !== "video")
         source: "DepthWallpaper3D.qml"
@@ -288,6 +319,7 @@ Item {
             surface.meshFailed = false;
             surface.meshRetries = 0;
             surface.syncMesh();
+            mesh3d.item.animationPaused = surface.windowFocused;
         }
         onStatusChanged: {
             if (status === Loader.Error) {
@@ -301,6 +333,66 @@ Item {
                 }
             }
         }
+    }
+
+    // A single static copy of the last 3D frame. ShaderEffectSource with
+    // live:false keeps the texture after its visible source is hidden, so the
+    // paused wallpaper still looks like the 3D scene instead of falling back
+    // to the flat wallpaper. Nothing animates or re-renders here.
+    Item {
+        id: freezeLayer
+
+        anchors.fill: parent
+        // Keep the previous frame while a new wallpaper's mesh is rebuilding;
+        // meshReady going false must not expose the flat wallpaper.
+        visible: surface.frozen
+
+        ShaderEffectSource {
+            id: freezeTexture
+
+            anchors.fill: parent
+            sourceItem: mesh3d
+            hideSource: false
+            live: false
+            recursive: false
+            smooth: true
+            textureSize: surface.textureSize
+            visible: freezeLayer.visible
+        }
+    }
+
+    Timer {
+        id: freezeSettle
+
+        // Two frames: enough for the capture to land before the View3D is
+        // hidden, without a visible flash or a long extra render window.
+        interval: 34
+        repeat: false
+        onTriggered: {
+            surface.freezePending = false;
+            surface.frozen = true;
+        }
+    }
+
+    function beginFreeze() {
+        if (!surface.meshReady)
+            return ;
+        // Also used to refresh a previously frozen frame after a wallpaper
+        // change: let the new mesh paint once while the capture lands.
+        surface.frozen = false;
+        surface.freezePending = true;
+        freezeTexture.scheduleUpdate();
+        freezeSettle.restart();
+    }
+
+    function endFreeze() {
+        freezeSettle.stop();
+        surface.freezePending = false;
+        surface.frozen = false;
+        if (mesh3d.item)
+            mesh3d.item.animationPaused = false;
+        motionTexture.scheduleUpdate();
+        surface.syncPointer();
     }
 
     Timer {
@@ -335,9 +427,19 @@ Item {
         mesh3d.item.mattePath = SpatialWall.matteUrl;
         mesh3d.item.depthPath = SpatialWall.depthUrl;
         mesh3d.item.textureSize = surface.textureSize;
+        mesh3d.item.animationPaused = surface.windowFocused;
+        surface.syncPointer();
+    }
+
+    // Pointer motion at 30 Hz only changes two uniforms/camera values. Doing
+    // the full path/material assignment for it was unnecessary QML work.
+    function syncPointer() {
+        if (!mesh3d.item || surface.windowFocused)
+            return ;
         mesh3d.item.pointerX = surface.pointerX;
         mesh3d.item.pointerY = surface.pointerY;
     }
+
     onVisualReadyChanged: {
         if (!surface.foregroundOnly && surface.screen)
             SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
@@ -345,6 +447,10 @@ Item {
     onMeshReadyChanged: {
         if (!surface.foregroundOnly && surface.screen)
             SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+        // A wallpaper committed while a window is focused still needs one
+        // fresh freeze frame; otherwise the old wallpaper would stay visible.
+        if (surface.windowFocused && surface.meshReady)
+            surface.beginFreeze();
     }
     onSourceReadyChanged: {
         if (!surface.foregroundOnly && surface.screen)
@@ -352,9 +458,8 @@ Item {
     }
     onWidthChanged: surface.syncMesh()
     onHeightChanged: surface.syncMesh()
-    onVisualFadeChanged: surface.syncMesh()
-    onPointerXChanged: surface.syncMesh()
-    onPointerYChanged: surface.syncMesh()
+    onPointerXChanged: surface.syncPointer()
+    onPointerYChanged: surface.syncPointer()
 
     ShaderEffect {
         anchors.fill: parent
@@ -432,25 +537,6 @@ Item {
         target: "spatial-wall-" + (surface.screen ? surface.screen.name : "unknown")
             + (surface.foregroundOnly ? "-fg" : "")
 
-        // test/support hook: warm a wallpaper's spatial cache from the picker
-        function prewarm(path: string): string {
-            SpatialWall.prewarm(path);
-            return JSON.stringify({
-                "path": path,
-                "busy": SpatialWall.prewarmBusy,
-                "target": SpatialWall.prewarmPath
-            });
-        }
-
-        function prewarmState(): string {
-            return JSON.stringify({
-                "busy": SpatialWall.prewarmBusy,
-                "target": SpatialWall.prewarmPath,
-                "next": SpatialWall.prewarmNext,
-                "done": Object.keys(SpatialWall.prewarmDone).length
-            });
-        }
-
         // test hook: is this screen-local point over a client window?
         function covered(px: real, py: real): string {
             return JSON.stringify({
@@ -490,6 +576,8 @@ Item {
                 lookY: SpatialShake.lookY,
                 shake: [SpatialShake.x, SpatialShake.y, SpatialShake.z],
                 pointerHere: surface.pointerHere,
+                frozen: surface.frozen,
+                windowFocused: surface.windowFocused,
                 pointer: [SpatialPointer.x, SpatialPointer.y],
                 monName: Hyprland.monitorFor(surface.screen) ? Hyprland.monitorFor(surface.screen).name : "",
                 monWs: Hyprland.monitorFor(surface.screen) && Hyprland.monitorFor(surface.screen).activeWorkspace
@@ -505,36 +593,6 @@ Item {
         }
     }
 
-    // hyprctl keeps toplevel geometry until something asks for a refresh; the
-    // underlay and the active-window widget already do this, but the pointer
-    // gate above must not lag behind a window being opened or moved.
-    Connections {
-        target: Hyprland
-        enabled: !surface.foregroundOnly
-
-        function onRawEvent(event) {
-            switch (event.name) {
-            case "openwindow":
-            case "closewindow":
-            case "movewindow":
-            case "movewindowv2":
-            case "workspace":
-            case "workspacev2":
-            case "activespecial":
-            case "activespecialv2":
-            case "fullscreen":
-            case "changefloatingmode":
-                windowRefresh.restart();
-                break;
-            }
-        }
-    }
-
-    Timer {
-        id: windowRefresh
-
-        interval: 16
-        repeat: false
-        onTriggered: Hyprland.refreshToplevels()
-    }
+    // Toplevel geometry is refreshed once by SpatialWall for every output.
+    // Doing it here as well multiplied the hyprctl calls by the screen count.
 }

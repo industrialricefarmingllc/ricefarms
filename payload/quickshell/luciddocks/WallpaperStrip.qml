@@ -10,9 +10,6 @@ Item {
     id: strip
 
     property var model: null
-    // model.get() is invisible to QML bindings; bump this whenever the copies
-    // are rebuilt so the caption cannot keep the previous wallpaper's name.
-    property int modelRevision: 0
     property int heroW: Theme.dp(340)
     property int heroH: Theme.dp(211)
     property int midW: Theme.dp(238)
@@ -94,10 +91,6 @@ Item {
     // a drag writes it directly so the strip follows the finger frame for
     // frame, then eases to whatever whole card the release commits to.
     property real animIndex: strip.currentIndex
-    // setIndexImmediate() before the model has arrived (the picker asks for the
-    // active wallpaper while the copies are still being rebuilt) has nothing to
-    // clamp against, so it waits here and applies when the count lands.
-    property int pendingIndex: -1
     property bool dragging: false
     property bool jumping: false
     property real dragStartAnim: 0
@@ -182,45 +175,19 @@ Item {
     }
 
     function setIndexImmediate(i) {
-        if (strip.count <= 0) {
-            strip.pendingIndex = i;
+        if (strip.count <= 0)
             return;
-        }
 
-        strip.pendingIndex = -1;
         strip.jumping = true;
         strip.animIndex = strip.clampIndex(i);
         strip.currentIndex = strip.clampIndex(i);
         restoreAnim.restart();
     }
 
-    // The picker model is cleared and refilled whenever the folder is rescanned,
-    // so the count briefly drops to zero. Forgetting the selection there is what
-    // sent the strip back to the first card right after it was placed on the
-    // active wallpaper; with the index kept, the refill leaves it where it was.
-    onModelChanged: strip.modelRevision++
-    onCurrentIndexChanged: strip.hoveredIndex = -1
-    // A row can be replaced in place (a remote result that finished loading, a
-    // file rescanned with a new name). model.get() is not a binding dependency,
-    // so tell the caption to read the row again.
-    Connections {
-        target: strip.model
-        ignoreUnknownSignals: true
-        function onDataChanged() { strip.modelRevision++; }
-        function onRowsInserted() { strip.modelRevision++; }
-        function onRowsRemoved() { strip.modelRevision++; }
-        function onRowsMoved() { strip.modelRevision++; }
-        function onModelReset() { strip.modelRevision++; }
-    }
     onCountChanged: {
-        strip.modelRevision++;
         if (strip.count <= 0)
-            return ;
-        if (strip.pendingIndex >= 0) {
-            strip.setIndexImmediate(strip.pendingIndex);
-            return ;
-        }
-        if (strip.currentIndex >= strip.count)
+            strip.currentIndex = 0;
+        else if (strip.currentIndex >= strip.count)
             strip.currentIndex = strip.count - 1;
     }
 
@@ -247,14 +214,20 @@ Item {
             xAxis.enabled: true
             yAxis.enabled: false
             enabled: strip.count > 1
+            // the panel is a touchscreen first: a finger drag walks the cards
+            // exactly like a mouse drag does
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.TouchScreen
+            // last motion point; on release centroid.position can already be
+            // back at the press position
+            property real lastX: 0
 
             onActiveChanged: {
                 if (active) {
                     strip.dragging = true;
                     strip.dragStartAnim = strip.animIndex;
-                    strip.dragGrabX = centroid.position.x;
+                    drag.lastX = strip.dragGrabX = centroid.position.x;
                 } else {
-                    var dx = centroid.position.x - strip.dragGrabX;
+                    var dx = drag.lastX - strip.dragGrabX;
                     var carried = Math.abs(dx) + Math.abs(centroid.velocity.x) * 0.28;
                     var dir = dx < 0 ? 1 : -1;
                     var steps = carried >= 24 ? Math.max(1, Math.round(carried / strip.slotSpacing)) : 0;
@@ -266,7 +239,8 @@ Item {
 
             onCentroidChanged: {
                 if (active) {
-                    var dx = centroid.position.x - strip.dragGrabX;
+                    drag.lastX = centroid.position.x;
+                    var dx = drag.lastX - strip.dragGrabX;
                     strip.animIndex = Math.max(-0.25, Math.min(strip.count - 1 + 0.25, strip.dragStartAnim - dx / strip.slotSpacing));
                 }
             }
@@ -412,7 +386,6 @@ Item {
                             preview: cell.preview
                             kind: cell.kind
                             active: cell.isCurrent || cell.hovered
-                            current: cell.isCurrent
                             overscan: strip.parallaxOverscan
                             parallax: cell.parallaxShift
                             sourceSizeWidth: strip.decodeSize.width
@@ -526,11 +499,7 @@ Item {
             id: capRow
 
             readonly property int at: strip.hoveredIndex >= 0 ? strip.hoveredIndex : strip.currentIndex
-            readonly property var entry: {
-                strip.modelRevision;
-                return strip.model && capRow.at >= 0 && capRow.at < strip.model.count
-                    ? strip.model.get(capRow.at) : null;
-            }
+            readonly property var entry: strip.model && capRow.at >= 0 && capRow.at < strip.model.count ? strip.model.get(capRow.at) : null
 
             anchors.centerIn: parent
             spacing: Theme.dp(10)
@@ -613,17 +582,13 @@ Item {
         LText {
             anchors.horizontalCenter: parent.horizontalCenter
             role: "titleMedium"
-            text: strip.filterText !== "" ? (strip.live ? "No live wallpapers found" : "No wallpapers found") : (strip.live ? "No videos in this folder" : "No wallpapers in this folder")
+            text: strip.live ? "No videos in this folder" : "No wallpapers in this folder"
             color: Theme.text
         }
 
         LText {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: strip.filterText !== ""
-                ? ((RemoteWall.enabled && RemoteWall.query !== "" && RemoteWall.query === strip.filterText.toLowerCase())
-                    ? "Nothing in your library, Wallhaven, or the Workshop matches \"" + strip.filterText + "\"."
-                    : "No local wallpaper matches \"" + strip.filterText + "\".")
-                : (strip.live ? "Drop mp4, webm or mkv files into the theme's wallpaper folder and they show up here." : "Drop images into the theme's wallpaper folder and they show up here.")
+            text: strip.filterText !== "" ? "No wallpapers match \"" + strip.filterText + "\"" : (strip.live ? "Drop mp4, webm or mkv files into the theme's wallpaper folder and they show up here." : "Drop images into the theme's wallpaper folder and they show up here.")
             role: "bodyMedium"
             color: Theme.subtextDim
         }

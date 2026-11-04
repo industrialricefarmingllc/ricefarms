@@ -29,8 +29,9 @@ one click rice. Entirely slopped up because lazy. Most likely won't work flawles
   native Wayland apps) + custom audio stack (PipeWire/Wireplumber/VAC/Carla),
   neovim (split `lua/config` + `lua/plugins` tree), **zed custom build**
   (pinned commit, whole `/usr/lib/zed` copied), all `~/*.sh` HOME scripts +
-  `~/.local/bin` helpers (including `lucid-auto-brightness`, `steam-hidpi`,
-  `zed-x11`, `zed-soft`, `neoread`) + the `bulk` cgroup runner
+  `~/.local/bin` helpers (including `lucid-auto-brightness`,
+  `lucid-touch-rightclick` (hold the IPTS panel for a right click),
+  `steam-hidpi`, `zed-x11`, `zed-soft`, `neoread`) + the `bulk` cgroup runner
 - **d)** all dotfiles (zsh + **oh-my-zsh** pinned stock clone, theme
   `afowler`, `plugins=(git)` — same `.zshrc`, verified identical;
   **opencode local config** (`~/.config/opencode` + `~/.opencode`,

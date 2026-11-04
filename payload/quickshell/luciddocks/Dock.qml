@@ -751,33 +751,6 @@ PanelWindow {
         }
     }
 
-    // The picker knows the next wallpaper before it is applied. Warming its
-    // depth/matte while the user is still looking turns the 8-9 s first-use
-    // generation into a cache hit at click time. 450 ms so sweeping the
-    // pointer across the strip does not spawn a run for every card.
-    readonly property string pickerHoverPath: {
-        const face = dockWindow.launcherItem;
-        if (!face || !dockWindow.pickerMode)
-            return "";
-        const path = face.hoveredWallpaperPath;
-        return path === undefined || path === null ? "" : String(path);
-    }
-    onPickerHoverPathChanged: {
-        if (dockWindow.pickerHoverPath !== "")
-            pickerWarm.restart();
-    }
-
-    Timer {
-        id: pickerWarm
-
-        interval: 450
-        repeat: false
-        onTriggered: {
-            if (dockWindow.pickerMode)
-                SpatialWall.prewarm(dockWindow.pickerHoverPath);
-        }
-    }
-
     readonly property var allCommands: [{
         "id": "wallpaper",
         "name": "Choose Wallpaper",

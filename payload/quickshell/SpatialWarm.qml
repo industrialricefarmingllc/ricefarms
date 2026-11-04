@@ -10,7 +10,7 @@ pragma Singleton
 // The depth map, the shared matte/background and the per-model influence map
 // are generated here one wallpaper at a time at nice 19, so a picker pick or a
 // wallpaper switch finds them ready. On battery it does nothing, and while a
-// real wallpaper (or a picker prewarm) is generating it steps aside.
+// real wallpaper is generating it steps aside.
 Singleton {
     id: root
 
@@ -20,9 +20,8 @@ Singleton {
     readonly property bool allowed: Prefs.spatialWallpapers && !UPower.onBattery
     readonly property string model: Prefs.spatialDepthModel
     readonly property string folder: Prefs.wallpaperDir
-    // A real apply, or the picker's hover prewarm, owns the CPU.
-    readonly property bool busy: SpatialWall.status !== "" || SpatialWall.prewarmBusy
-        || Theme.revealActive
+    // A real apply owns the CPU.
+    readonly property bool busy: SpatialWall.status !== "" || Theme.revealActive
     readonly property bool running: warm.running
     // One mesh per distinct screen shape; the plugin builds background and
     // subject for each.

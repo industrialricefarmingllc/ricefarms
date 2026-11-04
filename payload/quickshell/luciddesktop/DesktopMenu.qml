@@ -1,4 +1,5 @@
 import "../luciddocks"
+import "../squircle"
 import QtQuick
 import Quickshell.Hyprland
 import qs
@@ -357,7 +358,7 @@ Item {
 
         model: cardModel
 
-        Rectangle {
+        SquircleRect {
             id: card
 
             required property int index
@@ -440,9 +441,12 @@ Item {
             }
             // m3 expressive: the card in focus rounds out, the one it came from squares off a little
             radius: card.focused && menu.levels.length > 1 ? Theme.radiusLg : Theme.radiusMd
-            color: Theme.bg
-            border.width: Theme.blurAmount > 0 ? 0 : 1
-            border.color: Theme.alpha(Theme.text, 0.06)
+            fillColor: Theme.bg
+            borderWidth: Theme.blurAmount > 0 ? 0 : 1
+            borderColor: Theme.alpha(Theme.text, 0.06)
+            smoothing: Prefs.squircleF
+            opacity: menu.open ? 1 : 0
+            scale: card.index === 0 ? (menu.open ? 1 : 0.8) : 1
             transformOrigin: card.flipX ? (card.flipY ? Item.BottomRight : Item.TopRight) : (card.flipY ? Item.BottomLeft : Item.TopLeft)
             onRowsChanged: measureSoon.restart()
             Component.onCompleted: {

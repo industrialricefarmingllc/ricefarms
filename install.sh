@@ -151,7 +151,7 @@ RICE_PACKAGES=(
   foot dunst awww pipewire wireplumber carla
   iptsd
   noto-fonts ttf-jetbrains-mono
-  git base-devel rustup python-pipx evtest inotify-tools
+  git base-devel rustup python-pipx python-evdev evtest inotify-tools
   ffmpeg mpv socat jq wl-clipboard hyprshot
 )
 # skwd-* are AUR (wallpaper daemon + matugen template set); helium is the

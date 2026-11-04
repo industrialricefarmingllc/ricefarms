@@ -28,7 +28,11 @@ Singleton {
     readonly property real orbitPeriod: 20
     // fraction of the pointer range the circle covers
     readonly property real orbitRadius: 0.2125
+    // A focused client window covers the wallpaper the user is looking at.
+    // Every surface is paused in that state, so the only timer that would
+    // still wake the renderer is this one; stop it when no screen is free.
     readonly property bool running: Prefs.spatialWallpapers && SpatialWall.hasVisual
+        && !SpatialWall.allScreensFocused
 
     signal tick()
 

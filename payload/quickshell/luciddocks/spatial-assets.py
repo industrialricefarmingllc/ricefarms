@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -58,7 +59,77 @@ def ffprobe_size(path: str) -> tuple[int, int]:
         return 0, 0
 
 
+def _jpeg_size(path: str) -> tuple[int, int] | None:
+    try:
+        with open(path, "rb") as handle:
+            if handle.read(2) != b"\xff\xd8":
+                return None
+            while True:
+                byte = handle.read(1)
+                while byte and byte != b"\xff":
+                    byte = handle.read(1)
+                while byte == b"\xff":
+                    byte = handle.read(1)
+                if not byte:
+                    return None
+                marker = byte[0]
+                if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                    continue
+                length_bytes = handle.read(2)
+                if len(length_bytes) < 2:
+                    return None
+                length = struct.unpack(">H", length_bytes)[0]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6,
+                              0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    data = handle.read(5)
+                    if len(data) < 5:
+                        return None
+                    height = struct.unpack(">H", data[1:3])[0]
+                    width = struct.unpack(">H", data[3:5])[0]
+                    return (width, height) if width and height else None
+                handle.seek(max(0, length - 2), os.SEEK_CUR)
+    except OSError:
+        return None
+
+
+def _header_size(path: str) -> tuple[int, int] | None:
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(64)
+    except OSError:
+        return None
+    if len(head) < 16:
+        return None
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+        width, height = struct.unpack(">II", head[16:24])
+        return (width, height) if width and height else None
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        width, height = struct.unpack("<HH", head[6:10])
+        return (width, height) if width and height else None
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        chunk = head[12:16]
+        if chunk == b"VP8X":
+            width = int.from_bytes(head[24:27], "little") + 1
+            height = int.from_bytes(head[27:30], "little") + 1
+            return (width, height) if width and height else None
+        if chunk == b"VP8L" and head[20] == 0x2F:
+            bits = int.from_bytes(head[21:25], "little")
+            return (1 + (bits & 0x3FFF), 1 + ((bits >> 14) & 0x3FFF))
+        if chunk == b"VP8 ":
+            width = int.from_bytes(head[26:28], "little") & 0x3FFF
+            height = int.from_bytes(head[28:30], "little") & 0x3FFF
+            return (width, height) if width and height else None
+    if head[:2] == b"\xff\xd8":
+        return _jpeg_size(path)
+    return None
+
+
 def image_size(path: str) -> tuple[int, int]:
+    size = _header_size(path)
+    if size:
+        return size
+    # AVIF/HEIF and anything exotic: let Pillow identify it rather than
+    # dropping the wallpaper. This path is rare and only pays on a cold apply.
     try:
         from PIL import Image
         with Image.open(path) as image:

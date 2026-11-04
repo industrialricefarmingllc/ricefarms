@@ -14,7 +14,11 @@ Singleton {
     property real x: 0
     property real y: 0
     property bool valid: false
-    readonly property bool wanted: Prefs.spatialWallpapers
+    // While every output has a focused client window the wallpaper is frozen,
+    // so polling Hyprland's cursor IPC would only burn CPU for coordinates no
+    // shader or camera reads. Start again as soon as a surface can move.
+    readonly property bool wanted: Prefs.spatialWallpapers && SpatialWall.hasVisual
+        && !SpatialWall.allScreensFocused
 
     onWantedChanged: {
         if (!root.wanted) {
@@ -49,7 +53,10 @@ Singleton {
     Timer {
         id: retry
 
-        interval: 1200
+        // Short because this also restarts the tracker when a window stops
+        // covering the wallpaper; a long delay would look like a frozen
+        // parallax for the first gesture after focus returns to the desktop.
+        interval: 180
         repeat: false
         onTriggered: {
             if (root.wanted && !tracker.running)

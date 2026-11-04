@@ -5,3 +5,7 @@
 payload/**/hyprlandCrashReport*.txt
 # OS dreck
 .DS_Store
+
+# python bytecode from payload helpers (export prunes these)
+__pycache__/
+*.pyc

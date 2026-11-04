@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""Lucid touch right-click.
+
+The Surface panel (IPTS touchscreen) has no right button: Hyprland hands the
+touch to the client as wl_touch and a hold means whatever that app decides.
+This daemon gives the panel the missing button. When one finger stays down
+without travelling, it warps the pointer to the finger and emits a real
+BTN_RIGHT from an absolute uinput pointer, so Hyprland and the client see an
+ordinary mouse right click. Lucid's desktop menu, the dock menu and app
+context menus all open from the same event.
+
+  * 500 ms without moving more than 12 logical px -> right click
+  * any real movement, or a second finger, cancels the hold
+  * one click per touch; the finger must lift before another can fire
+  * the stylus device is left alone (it has its own buttons)
+
+LUCID_TOUCH_HOLD_MS and LUCID_TOUCH_SLOP_PX tune the two thresholds without
+editing this file.
+
+The virtual pointer exposes a 0..65535 absolute grid and the click position is
+mapped onto Hyprland's whole monitor layout, so it stays correct when the
+internal panel is docked beside DP outputs. The touch panel itself is mapped
+with its own evdev ranges, the same way libinput maps it to eDP-1.
+"""
+
+import json
+import os
+import select
+import shutil
+import socket
+import subprocess
+import sys
+import time
+
+import evdev
+from evdev import AbsInfo, UInput, ecodes
+
+HOLD_S = float(os.getenv("LUCID_TOUCH_HOLD_MS", "500")) / 1000.0
+SLOP_DP = float(os.getenv("LUCID_TOUCH_SLOP_PX", "12"))
+ABS_GRID = 65535
+HYPRCTL = shutil.which("hyprctl") or "/usr/local/bin/hyprctl"
+
+VERBOSE = "-v" in sys.argv[1:] or "--verbose" in sys.argv[1:]
+
+
+def log(msg):
+    if VERBOSE:
+        print(f"lucid-touch-rightclick: {msg}", file=sys.stderr, flush=True)
+
+
+# ---------------------------------------------------------------- Hyprland ---
+
+def socket_live(path):
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(0.2)
+    try:
+        sock.connect(path)
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def hypr_env():
+    """Env for hyprctl. Hyprland passes its own signature down to autostarts;
+    a manual run may inherit a stale one from a previous session, so verify the
+    socket actually answers and otherwise take the newest live instance."""
+    env = os.environ.copy()
+    base = f"/run/user/{os.getuid()}/hypr"
+    sig = env.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if sig and socket_live(os.path.join(base, sig, ".socket.sock")):
+        return env
+    try:
+        dirs = [os.path.join(base, d, ".socket.sock") for d in os.listdir(base)]
+        live = [d for d in dirs if os.path.exists(d) and socket_live(d)]
+        if live:
+            env["HYPRLAND_INSTANCE_SIGNATURE"] = os.path.basename(os.path.dirname(
+                max(live, key=os.path.getmtime)))
+    except OSError:
+        pass
+    return env
+
+
+def hypr_json(what):
+    try:
+        out = subprocess.run([HYPRCTL, "-j", what], env=hypr_env(),
+                             capture_output=True, text=True, timeout=2)
+        if out.returncode != 0:
+            return None
+        return json.loads(out.stdout)
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return None
+
+
+def layout():
+    """The logical layout box plus the monitor the touch panel is on.
+
+    The panel is the internal eDP output; Hyprland keeps touch on the monitor
+    under the finger, and this machine's touchscreen is physically eDP-1.
+    Dock/undock only moves that monitor inside the layout, which the box below
+    tracks."""
+    mons = [m for m in (hypr_json("monitors") or [])
+            if not m.get("disabled") and m.get("width") and m.get("height")]
+    if not mons:
+        return None
+
+    def logical_size(m):
+        scale = float(m.get("scale") or 1.0)
+        return float(m["width"]) / scale, float(m["height"]) / scale
+
+    mon = next((m for m in mons if m["name"].startswith("eDP-")), mons[0])
+    left = min(float(m["x"]) for m in mons)
+    top = min(float(m["y"]) for m in mons)
+    right = max(float(m["x"]) + logical_size(m)[0] for m in mons)
+    bottom = max(float(m["y"]) + logical_size(m)[1] for m in mons)
+    return mon, (left, top, right - left, bottom - top)
+
+
+# ------------------------------------------------------------------ pointer ---
+
+def make_pointer():
+    """Absolute pointer used only for the synthetic right click. BTN_LEFT is
+    advertised so libinput classifies it as a pointer; only BTN_RIGHT is ever
+    sent."""
+    caps = {
+        ecodes.EV_KEY: [ecodes.BTN_LEFT, ecodes.BTN_RIGHT, ecodes.BTN_MIDDLE],
+        ecodes.EV_ABS: [
+            (ecodes.ABS_X, AbsInfo(0, 0, ABS_GRID, 0, 0, 0)),
+            (ecodes.ABS_Y, AbsInfo(0, 0, ABS_GRID, 0, 0, 0)),
+        ],
+    }
+    return UInput(caps, name="lucid-touch-rightclick", version=1)
+
+
+def click_at(ui, mon, box, x_raw, y_raw, ranges):
+    """Warp to the finger and right click there."""
+    x_min, x_max, y_min, y_max, mon_w, mon_h = ranges
+    left, top, box_w, box_h = box
+    if x_max <= x_min or y_max <= y_min or box_w <= 0 or box_h <= 0:
+        return False
+
+    gx = float(mon["x"]) + (x_raw - x_min) / (x_max - x_min) * mon_w
+    gy = float(mon["y"]) + (y_raw - y_min) / (y_max - y_min) * mon_h
+    ax = max(0, min(ABS_GRID, round((gx - left) / box_w * ABS_GRID)))
+    ay = max(0, min(ABS_GRID, round((gy - top) / box_h * ABS_GRID)))
+
+    ui.write(ecodes.EV_ABS, ecodes.ABS_X, ax)
+    ui.write(ecodes.EV_ABS, ecodes.ABS_Y, ay)
+    ui.write(ecodes.EV_SYN, ecodes.SYN_REPORT, 0)
+    # let Hyprland move pointer focus to the surface under the finger first
+    time.sleep(0.02)
+    ui.write(ecodes.EV_KEY, ecodes.BTN_RIGHT, 1)
+    ui.write(ecodes.EV_SYN, ecodes.SYN_REPORT, 0)
+    time.sleep(0.01)
+    ui.write(ecodes.EV_KEY, ecodes.BTN_RIGHT, 0)
+    ui.write(ecodes.EV_SYN, ecodes.SYN_REPORT, 0)
+    log(f"right click at {gx:.0f},{gy:.0f} (abs {ax},{ay})")
+    return True
+
+
+# -------------------------------------------------------------------- touch ---
+
+class Hold:
+    """Turns a touch stream into at most one long-press per contact.
+
+    Feed it raw evdev type/code/value triples plus a monotonic clock; `due()`
+    returns the raw touch position once the finger has been still for HOLD_S.
+    It deliberately knows nothing about pointers or Hyprland, so the state
+    machine can be tested without any device."""
+
+    def __init__(self, absinfo, mon_w=None, mon_h=None):
+        self.x_min = absinfo[ecodes.ABS_MT_POSITION_X].min
+        self.x_max = absinfo[ecodes.ABS_MT_POSITION_X].max
+        self.y_min = absinfo[ecodes.ABS_MT_POSITION_Y].min
+        self.y_max = absinfo[ecodes.ABS_MT_POSITION_Y].max
+        self.has_mt = ecodes.ABS_MT_TRACKING_ID in absinfo
+        self.mon_w, self.mon_h = mon_w, mon_h
+
+        self.contacts = {}     # protocol B slot -> (raw x, raw y)
+        self.slot = 0
+        self.cur_x = self.x_min + (self.x_max - self.x_min) // 2
+        self.cur_y = self.y_min + (self.y_max - self.y_min) // 2
+
+        self.candidate = False
+        self.blocked = False   # a hold was used or ruined; wait for a clean lift
+        self.fired = False
+        self.start_t = 0.0
+        self.start_x = self.start_y = 0.0
+
+    def set_monitor_size(self, w, h):
+        self.mon_w, self.mon_h = w, h
+
+    def timeout(self, now):
+        if not self.candidate:
+            return None
+        return max(0.001, HOLD_S - (now - self.start_t))
+
+    def _moved_too_far(self, x, y):
+        if not self.mon_w or not self.mon_h:
+            return False
+        dx = (x - self.start_x) / max(1, self.x_max - self.x_min) * self.mon_w
+        dy = (y - self.start_y) / max(1, self.y_max - self.y_min) * self.mon_h
+        return (dx * dx + dy * dy) ** 0.5 > SLOP_DP
+
+    def _cancel(self, reason, log_it=True):
+        if self.candidate and log_it:
+            log(f"hold cancelled: {reason}")
+        self.candidate = False
+
+    def feed(self, etype, code, value):
+        if etype == ecodes.EV_ABS:
+            if code == ecodes.ABS_MT_SLOT:
+                self.slot = value
+            elif code == ecodes.ABS_MT_TRACKING_ID:
+                if value == -1:
+                    self.contacts.pop(self.slot, None)
+                else:
+                    # the position follows in the same report; don't start the
+                    # hold from a coordinate left over from another contact
+                    self.contacts[self.slot] = [self.cur_x, self.cur_y, False]
+                    log(f"contact {value} down")
+            elif code in (ecodes.ABS_MT_POSITION_X, ecodes.ABS_X):
+                self.cur_x = value
+                contact = self.contacts.get(self.slot)
+                if contact is not None:
+                    contact[0], contact[2] = value, True
+                if self.candidate and self._moved_too_far(self.cur_x, self.cur_y):
+                    self._cancel("moved")
+                    self.blocked = True
+            elif code in (ecodes.ABS_MT_POSITION_Y, ecodes.ABS_Y):
+                self.cur_y = value
+                contact = self.contacts.get(self.slot)
+                if contact is not None:
+                    contact[1], contact[2] = value, True
+                if self.candidate and self._moved_too_far(self.cur_x, self.cur_y):
+                    self._cancel("moved")
+                    self.blocked = True
+        elif etype == ecodes.EV_KEY and code == ecodes.BTN_TOUCH and not self.has_mt:
+            if value == 0:
+                self._lift()
+            else:
+                self.contacts[self.slot] = [self.cur_x, self.cur_y, True]
+
+    def sync(self, now=None):
+        """Run the once-per-frame decisions on SYN_REPORT: a contact is only
+        complete after both axes of its down frame have arrived."""
+        if now is None:
+            now = time.monotonic()
+        if not self.contacts:
+            self._lift()
+        elif len(self.contacts) > 1:
+            self._cancel("second finger")
+            self.blocked = True
+        elif not self.blocked and not self.fired and not self.candidate:
+            contact = next(iter(self.contacts.values()))
+            if contact[2]:
+                self.candidate = True
+                self.start_t = now
+                self.start_x, self.start_y = contact[0], contact[1]
+                log("hold candidate")
+
+    def _lift(self):
+        self.contacts.clear()
+        self.candidate = False
+        self.blocked = False
+        self.fired = False
+
+    def due(self, now):
+        """The raw touch position when the hold has matured, else None."""
+        if not (self.candidate and now - self.start_t >= HOLD_S):
+            return None
+        self.candidate = False
+        self.blocked = True
+        self.fired = True
+        contact = next(iter(self.contacts.values()), None)
+        return (contact[0], contact[1]) if contact else (self.cur_x, self.cur_y)
+
+
+def find_touchscreen():
+    """Prefer iptsd's virtual touchscreen over the grabbed raw IPTS node, and
+    never pick the pointer this daemon creates."""
+    best = None
+    best_score = -1
+    for path in evdev.list_devices():
+        try:
+            dev = evdev.InputDevice(path)
+        except OSError:
+            continue
+        name = dev.name.lower()
+        if "lucid-touch-rightclick" in name:
+            dev.close()
+            continue
+        caps = dev.capabilities()
+        abs_codes = {code for code, _ in caps.get(ecodes.EV_ABS, [])}
+        keys = set(caps.get(ecodes.EV_KEY, []))
+        if ecodes.ABS_MT_POSITION_X not in abs_codes or ecodes.BTN_TOUCH not in keys:
+            dev.close()
+            continue
+        score = 3 if "virtual touchscreen" in name else (2 if "touchscreen" in name else 1)
+        if score > best_score:
+            if best is not None:
+                best.close()
+            best, best_score = dev, score
+        else:
+            dev.close()
+    return best
+
+
+def monitor_size(mon):
+    scale = float(mon.get("scale") or 1.0)
+    return float(mon["width"]) / scale, float(mon["height"]) / scale
+
+
+def run(dev, ui):
+    caps = dev.capabilities(absinfo=True)
+    absinfo = dict(caps[ecodes.EV_ABS])
+    hold = Hold(absinfo)
+
+    found = layout()
+    if found:
+        hold.set_monitor_size(*monitor_size(found[0]))
+    else:
+        log("no Hyprland monitor layout yet; will resolve on the first hold")
+
+    log(f"watching {dev.name} at {dev.path}")
+
+    while True:
+        now = time.monotonic()
+        ready, _, _ = select.select([dev], [], [], hold.timeout(now))
+        if ready:
+            for event in dev.read():
+                if event.type == ecodes.EV_SYN and event.code == ecodes.SYN_REPORT:
+                    hold.sync()
+                else:
+                    hold.feed(event.type, event.code, event.value)
+
+        pos = hold.due(time.monotonic())
+        if pos is None:
+            continue
+        found = layout()
+        if found is None:
+            log("hold fired without a monitor layout; skipped")
+            continue
+        mon, box = found
+        mon_w, mon_h = monitor_size(mon)
+        hold.set_monitor_size(mon_w, mon_h)
+        click_at(ui, mon, box, pos[0], pos[1],
+                 (hold.x_min, hold.x_max, hold.y_min, hold.y_max, mon_w, mon_h))
+
+
+def main():
+    try:
+        ui = make_pointer()
+    except (OSError, evdev.UInputError) as err:
+        print(f"lucid-touch-rightclick: cannot create the virtual pointer: {err}",
+              file=sys.stderr)
+        return 1
+    try:
+        while True:
+            dev = find_touchscreen()
+            if dev is None:
+                log("no touchscreen found; retrying")
+                time.sleep(2)
+                continue
+            try:
+                run(dev, ui)
+            except (OSError, evdev.UInputError):
+                log("touchscreen went away; reopening")
+                time.sleep(1)
+            finally:
+                try:
+                    dev.close()
+                except OSError:
+                    pass
+    except KeyboardInterrupt:
+        pass
+    finally:
+        ui.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

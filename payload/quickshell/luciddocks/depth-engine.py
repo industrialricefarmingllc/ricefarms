@@ -17,15 +17,20 @@ needs a short message for Settings.
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
 import sys
-import tempfile
 import time
-import urllib.request
 from pathlib import Path
+
+# urllib.request and tempfile are only needed for a cold model download or a
+# cache write. Importing them here made a 30 ms cache hit take almost a second.
+
+# Keep the cache helpers next to the script when the worker is launched by
+# path (spatial-warm.py imports this module the same way).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import spatial_cache  # noqa: E402
 
 MODELS = {
     # The original pinned contract: dynamic aspect, ViT-S, disparity output.
@@ -114,6 +119,8 @@ def cache_root() -> Path:
 
 
 def write_json(path: Path, value: dict) -> None:
+    import tempfile
+
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
@@ -158,6 +165,9 @@ def sha256_file(path: Path) -> str:
 
 def fetch(url: str, dest: Path, digest: str, progress_file: str) -> None:
     """Download one model file, verify it and install it atomically."""
+    import tempfile
+    import urllib.request
+
     dest.parent.mkdir(parents=True, exist_ok=True)
     for stale in dest.parent.glob(dest.name + ".*.part"):
         stale.unlink(missing_ok=True)
@@ -193,17 +203,38 @@ def ensure_model(name: str, progress_file: str) -> tuple[Path, dict]:
     models = cache_root() / "models"
     models.mkdir(parents=True, exist_ok=True)
     model = models / config["file"]
-    if not (model.is_file() and sha256_file(model) == config["sha256"]):
-        progress(progress_file, "downloading-model", 0, 0)
-        fetch(config["url"], model, config["sha256"], progress_file)
-    # Some exports keep their weights in a sibling .data file that the graph
-    # loads itself; it has to sit next to the .onnx.
-    for extra in config.get("extras", ()):
-        path = models / extra["file"]
-        if path.is_file() and sha256_file(path) == extra["sha256"]:
-            continue
-        progress(progress_file, "downloading-model", 0, 0)
-        fetch(extra["url"], path, extra["sha256"], progress_file)
+    extras = [models / extra["file"] for extra in config.get("extras", ())]
+
+    def complete() -> bool:
+        if not (model.is_file() and sha256_file(model) == config["sha256"]):
+            return False
+        return all(path.is_file() and sha256_file(path) == extra["sha256"]
+                   for path, extra in zip(extras, config.get("extras", ())))
+
+    if complete():
+        return model, config
+
+    # Only the download path needs a lock. Holding it for the whole inference
+    # made a second wallpaper apply wait behind a background warm-up; the
+    # atomic temp-file install already makes concurrent fetches safe.
+    lock_path = cache_root() / ".model.lock"
+    lock = lock_path.open("w")
+    try:
+        try:
+            import fcntl
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            pass
+        if not complete():
+            progress(progress_file, "downloading-model", 0, 0)
+            fetch(config["url"], model, config["sha256"], progress_file)
+            # Some exports keep their weights in a sibling .data file that the
+            # graph loads itself; it has to sit next to the .onnx.
+            for path, extra in zip(extras, config.get("extras", ())):
+                progress(progress_file, "downloading-model", 0, 0)
+                fetch(extra["url"], path, extra["sha256"], progress_file)
+    finally:
+        lock.close()
     return model, config
 
 
@@ -276,8 +307,6 @@ def guided_refine(depth, guide, radius=8, eps=1e-4):
 
 
 def generate(source: Path, progress_file: str, model_name: str = DEFAULT_MODEL) -> dict:
-    from PIL import Image
-
     if model_name not in MODELS:
         raise ValueError(f"unknown depth model: {model_name}")
     config = MODELS[model_name]
@@ -295,7 +324,9 @@ def generate(source: Path, progress_file: str, model_name: str = DEFAULT_MODEL) 
         raise ValueError("image is empty or too large")
 
     progress(progress_file, "hashing", 0, 0)
-    source_hash = sha256_file(source)
+    # A stat identity hit avoids rereading a 4K wallpaper just to find the
+    # cache directory. The hash is still computed whenever the file changes.
+    source_hash, _, _ = spatial_cache.source_info(source)
     key_input = f"{source_hash}\n{model_sha}\n{contract}".encode()
     key = hashlib.sha256(key_input).hexdigest()
     directory = cache_root() / "wallpapers" / key
@@ -306,23 +337,26 @@ def generate(source: Path, progress_file: str, model_name: str = DEFAULT_MODEL) 
     if depth_path.is_file():
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            with Image.open(depth_path) as cached:
-                if (cached.mode in ("I;16", "I", "I;16B")
-                        and metadata.get("model_sha256") == model_sha
-                        and metadata.get("contract") == contract
-                        and metadata.get("source_sha256") == source_hash):
-                    return {
-                        "ok": True,
-                        "depth": str(depth_path),
-                        "width": cached.width,
-                        "height": cached.height,
-                        "cached": True,
-                        "model": model_id,
-                        "contract": contract,
-                    }
+            # The cache contract is a 16-bit grayscale PNG. Checking the IHDR
+            # is enough; decoding the whole image here was most of a cache hit.
+            info = spatial_cache.png_ihdr(depth_path)
+            if (info is not None and info[2] == 16 and info[3] == 0
+                    and metadata.get("model_sha256") == model_sha
+                    and metadata.get("contract") == contract
+                    and metadata.get("source_sha256") == source_hash):
+                return {
+                    "ok": True,
+                    "depth": str(depth_path),
+                    "width": info[0],
+                    "height": info[1],
+                    "cached": True,
+                    "model": model_id,
+                    "contract": contract,
+                }
         except (OSError, ValueError):
             pass
 
+    from PIL import Image
     import numpy as np
     import onnxruntime as ort
 
@@ -444,6 +478,8 @@ def generate(source: Path, progress_file: str, model_name: str = DEFAULT_MODEL) 
     depth = np.rint(np.clip(normalized, 0.0, 1.0) * 65535.0).astype(np.uint16)
 
     progress(progress_file, "writing", 0, 0)
+    import tempfile
+
     fd, tmp = tempfile.mkstemp(prefix=".depth.", dir=directory)
     os.close(fd)
     tmp_path = Path(tmp)
@@ -476,25 +512,38 @@ def generate(source: Path, progress_file: str, model_name: str = DEFAULT_MODEL) 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--image", required=True)
-    parser.add_argument("--progress", default="")
-    parser.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODELS))
-    args = parser.parse_args()
+    # argparse imports dataclasses/colorize on this Python build, which cost
+    # more than the rest of a cache hit. The contract is three flags, so a
+    # tiny parser is both faster and easier to keep stable.
+    values = sys.argv[1:]
+    image = ""
+    progress_file = ""
+    model = DEFAULT_MODEL
+    index = 0
+    while index < len(values):
+        flag = values[index]
+        if flag in ("-h", "--help"):
+            print("usage: depth-engine.py --image PATH [--progress FILE] "
+                  "[--model " + "|".join(sorted(MODELS)) + "]")
+            return 0
+        if flag in ("--image", "--progress", "--model") and index + 1 < len(values):
+            value = values[index + 1]
+            if flag == "--image":
+                image = value
+            elif flag == "--progress":
+                progress_file = value
+            else:
+                model = value
+            index += 2
+            continue
+        return fail("unknown argument: " + flag, "bad-argument")
+    if image == "":
+        return fail("--image is required", "bad-argument")
+    if model not in MODELS:
+        return fail("unknown depth model: " + model, "bad-argument")
 
-    # The first model download is large; serialise writers so two picker
-    # actions cannot leave two half-written copies.
-    lock_path = cache_root() / ".depth.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock = lock_path.open("w")
     try:
-        import fcntl
-        fcntl.flock(lock, fcntl.LOCK_EX)
-    except (ImportError, OSError):
-        pass
-
-    try:
-        result = generate(Path(args.image).expanduser(), args.progress, args.model)
+        result = generate(Path(image).expanduser(), progress_file, model)
     except ModuleNotFoundError as error:
         return fail(
             "Depth engine is missing a runtime package ("

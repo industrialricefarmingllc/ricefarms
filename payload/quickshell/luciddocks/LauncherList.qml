@@ -63,9 +63,7 @@ Item {
         return view.indexAt(view.width / 2, y);
     }
 
-    // newInstance is true when Shift or Ctrl was held: the caller must not
-    // focus an existing window for this activation
-    signal activated(int index, bool newInstance)
+    signal activated(int index)
     signal deleteRequested(int index)
     signal hideRequested(int index)
     signal prefixChosen(string prefix)
@@ -104,20 +102,6 @@ Item {
             return Prefs.launcherRowCalc;
 
         return r.subtitle !== "" ? Prefs.launcherRowTwo : Prefs.launcherRowOne;
-    }
-
-    // the leading slot of a result, for the launch animation's origin
-    function iconItemFor(index) {
-        var item = view.itemAtIndex(index);
-        if (item && item.iconItem)
-            return item.iconItem;
-
-        var kids = view.contentItem ? view.contentItem.children : [];
-        for (var i = 0; i < kids.length; i++) {
-            if (kids[i] && kids[i].index === index && kids[i].iconItem)
-                return kids[i].iconItem;
-        }
-        return null;
     }
 
     // the m3 trailing supporting text: what Return will do with this row
@@ -223,9 +207,9 @@ Item {
         scrollAnim.start();
     }
 
-    function activateCurrent(newInstance) {
+    function activateCurrent() {
         if (list.isSelectable(list.currentIndex))
-            list.activated(list.currentIndex, newInstance === true);
+            list.activated(list.currentIndex);
 
     }
 
@@ -296,6 +280,7 @@ Item {
         onCountChanged: list.ensureSelectable()
         highlightFollowsCurrentItem: false
         interactive: true
+        flickableDirection: Flickable.VerticalFlick
         boundsBehavior: Flickable.StopAtBounds
         z: 1
 
@@ -453,8 +438,6 @@ Item {
             // an application the pointer is on can be sent out of the launcher
             readonly property bool showsHide: rowItem.kind === "app" && rowItem.hovering
             readonly property bool showsHint: Prefs.launcherActionHints && rowItem.lit > 0 && !rowItem.isHeader && !rowItem.isCalc && rowItem.trailing === ""
-            // the leading slot, for the launch animation's origin
-            property Item iconItem: lead
 
             function askThumb() {
                 if (rowItem.thumb !== "")
@@ -611,12 +594,13 @@ Item {
                     source: rowItem.iconName === "" ? "" : (IconTheme.generation >= 0 && IconTheme.pathFor(rowItem.iconName) !== "" ? IconTheme.pathFor(rowItem.iconName) : Quickshell.iconPath(rowItem.iconName, true))
                 }
 
-                Twemoji {
+                Text {
                     anchors.centerIn: parent
                     visible: rowItem.emoji !== ""
-                    emoji: rowItem.emoji
-                    size: Math.round(list.leadSlot * 0.6)
-                    fallbackColor: Theme.text
+                    text: rowItem.emoji
+                    font.pixelSize: Math.round(list.leadSlot * 0.6)
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                 }
 
                 Rectangle {
@@ -904,9 +888,9 @@ Item {
                 id: rowTap
 
                 enabled: rowItem.selectable && !rowItem.disabled
-                onTapped: (point) => {
+                onTapped: {
                     list.currentIndex = rowItem.index;
-                    list.activated(rowItem.index, (point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0);
+                    list.activated(rowItem.index);
                 }
             }
 

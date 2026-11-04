@@ -255,8 +255,6 @@ reveal_heartbeat_stop() {
     kill "$HEARTBEAT_PID" 2>/dev/null || true
     HEARTBEAT_PID=""
 }
-trap 'reveal_heartbeat_stop' EXIT
-trap 'reveal_heartbeat_stop; exit 143' TERM INT HUP
 wait_reveal_ready() {
     local i
     for i in {1..150}; do
@@ -284,6 +282,24 @@ reveal_write() { # $1 = in|out
         ( timeout 2 qs ipc call wallpaper-reveal conceal "$TOKEN" >/dev/null 2>&1 & ) 2>/dev/null || true
     fi
 }
+
+# Close the iris on any exit that this apply still owns. Without this, one
+# failing step (a matugen template, skwd, a killed helper) used to leave the
+# reveal to the shell's heartbeat watchdog: the circle stayed up for another
+# 2.5 s and then vanished wherever the wallpaper/spatial pipeline happened to
+# be. The token guard in the shell means a stale apply cannot close a newer
+# reveal, so only close when this selection is still the current one.
+reveal_cleanup() {
+    if [[ "${REVEALING:-0}" == "1" && -n "${TOKEN:-}" ]] && is_current; then
+        REVEALING=0
+        reveal_write out
+        printf '0' >"$REVEAL_FLAG"
+    fi
+    reveal_heartbeat_stop
+}
+trap 'reveal_cleanup' EXIT
+trap 'reveal_cleanup; exit 143' TERM INT HUP
+
 write_restore_state() {
     # two lines, the same file LiveWall reads: the real moving target (a video
     # path or skwd:we:<id>) and the still that stands in for it in the palette.
@@ -420,14 +436,25 @@ TOKEN="$(date +%s%N)-$$"
 printf '%s|%s|%s' "$TOKEN" "$WALLPAPER" "$MODE" >"$REQ_FILE.tmp"
 mv -f "$REQ_FILE.tmp" "$REQ_FILE"
 
-# Tell the shell which wallpaper this token belongs to before the first pixel
-# is applied, so depth/matte/mesh generation can start under the reveal circle
-# instead of waiting for skwd's output state to catch up.
-if [[ "${THEME_ONLY:-0}" != "1" ]] && command -v jq >/dev/null 2>&1; then
-    SPATIAL_REQ="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lucid-spatial-request.json"
-    jq -n --arg p "$TARGET_LABEL" --arg t "$TOKEN"         --argjson c "$(date +%s%3N)"         '{path:$p, token:$t, created:$c}' >"$SPATIAL_REQ.tmp" \
-        && mv -f "$SPATIAL_REQ.tmp" "$SPATIAL_REQ"
+# Tell the shell which wallpaper this token belongs to, so depth/matte/mesh
+# generation starts for this selection instead of waiting for skwd's output
+# state to catch up. When a reveal is coming, the request is deferred until
+# the circle has covered the screen (below): accepting it earlier makes the
+# old 3D layer fade out while the iris is still growing, which is visible.
+write_spatial_request() {
+    [[ "${THEME_ONLY:-0}" != "1" ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    local req="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lucid-spatial-request.json"
+    jq -n --arg p "$TARGET_LABEL" --arg t "$TOKEN" --argjson c "$(date +%s%3N)" \
+        '{path:$p, token:$t, created:$c}' >"$req.tmp" \
+        && mv -f "$req.tmp" "$req" || true
+}
+WILL_REVEAL=0
+if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
+        && "${LUCID_SYNC_COMMIT:-1}" != "0" ]]; then
+    WILL_REVEAL=1
 fi
+[[ "$WILL_REVEAL" == "1" ]] || write_spatial_request
 
 # ── synchronized commit gate ────────────────────────────────────────────────
 # If this image already has a cached source colour, we can align every visible
@@ -496,6 +523,10 @@ if [[ "$CURRENT_THEME" == "matugen" && "${THEME_ONLY:-0}" != "1" \
     # the growing circle, and every colour change happens under full cover.
     wait_reveal_covered
     is_current || exit 0
+    # Only now hand the new path to the spatial layer. Accepting it before the
+    # cover made the old 3D wallpaper fade out under the growing circle, where
+    # it could still be seen.
+    write_spatial_request
 fi
 
 # Themes other than matugen skip the block above but still tag the mode files.
@@ -576,6 +607,21 @@ wait_wallpaper() {
         wait "$WP_PID" 2>/dev/null || true
         WP_PID=""
     fi
+}
+
+wait_fanout() {
+    # The palette files are written before this; the fanout is what tells the
+    # apps (kitty, hypr borders, opencode, discord) to read them. Keep the iris
+    # up until that has actually happened, but cap the wait so a wedged fanout
+    # cannot hold the screen hostage.
+    [[ -n "${FANOUT_PID:-}" ]] || return 0
+    local i
+    for i in {1..50}; do
+        kill -0 "$FANOUT_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    wait "$FANOUT_PID" 2>/dev/null || true
+    FANOUT_PID=""
 }
 if [[ "${THEME_ONLY:-0}" != "1" ]]; then
     if [[ "$SKWD" == 1 ]]; then
@@ -749,8 +795,11 @@ matugen)
             else
                 rm -f "$tmp"
                 # fall back to matugen's normal path so a cache write failure can
-                # never leave colours unchanged
-                matugen image "$WALLPAPER" -m "$MODE" -t "$MATUGEN_SCHEME" --contrast "$MATUGEN_CONTRAST"
+                # never leave colours unchanged. A broken template must not take
+                # the whole apply (and the reveal) down with it.
+                if ! matugen image "$WALLPAPER" -m "$MODE" -t "$MATUGEN_SCHEME" --contrast "$MATUGEN_CONTRAST"; then
+                    echo "warning: matugen could not render the palette; colours may be stale" >&2
+                fi
                 "$LUCID_DIR/app-surface-sync.sh" >/dev/null 2>&1 || true
                 "$LUCID_DIR/opencode-theme-notify.sh" >/dev/null 2>&1 || true
                 SCHEME_FILE=""
@@ -775,7 +824,13 @@ matugen)
         # matugen json renders every configured template in one process and is
         # byte-identical to `image` for the same scheme. No post_hooks: the
         # fanout below is the single delivery point.
-        matugen -c "$MATUGEN_CFG" json "$SCHEME_FILE" -m "$MODE" -q
+        # A single unwritable template (e.g. a root-owned app config) must not
+        # abort the apply: that used to leave the iris to the heartbeat
+        # watchdog, which opened the circle before the wallpaper and spatial
+        # layer had finished. Keep going with whatever templates did render.
+        if ! matugen -c "$MATUGEN_CFG" json "$SCHEME_FILE" -m "$MODE" -q; then
+            echo "warning: matugen could not render every template; colours may be partly stale" >&2
+        fi
 
         # Finish the shared app surface now, before the fanout's settle window.
         # The later fanout call is a fast no-op.
@@ -803,23 +858,29 @@ matugen)
         FANOUT_PID=$!
         wait_wallpaper
         wait_spatial_ready
-        # Open the iris as soon as the wallpaper is actually on screen. The
-        # shrink exposes the top-left corner last, so a fanout still running
-        # finishes while the circle retracts instead of holding the whole
-        # screen covered for another 300 ms.
+        # The apps are told about the new palette here, still under the circle.
+        # It used to be waited for after "out", so kitty/hypr/opencode could
+        # visibly recolour after the iris had already opened.
+        wait_fanout
+        # Only the selection that still owns the screen may open it. A newer
+        # pick is already staging its own reveal; closing this one would flash
+        # the desktop before the new circle grows.
         if [[ "$REVEALING" == "1" ]]; then
-            reveal_write out
-            printf '0' >"$REVEAL_FLAG"
+            if is_current; then
+                reveal_write out
+                printf '0' >"$REVEAL_FLAG"
+            fi
             reveal_heartbeat_stop
+            REVEALING=0
         fi
-        wait "$FANOUT_PID" 2>/dev/null || true
-        FANOUT_PID=""
     else
         # The scheme-cache write path failed but matugen's direct fallback
         # succeeded; still deliver the side effects once.
         printf '%s' "$SIG" >"$SIG_FILE.tmp" && mv -f "$SIG_FILE.tmp" "$SIG_FILE"
         wait_wallpaper
+        wait_spatial_ready
         ( setsid "$LUCID_DIR/theme-fanout.sh" --request >/dev/null 2>&1 < /dev/null & ) 2>/dev/null || true
+        # The exit trap closes the iris for this fallback path.
     fi
     ;;
 pywal)

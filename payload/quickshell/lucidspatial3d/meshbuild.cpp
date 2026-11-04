@@ -27,7 +27,10 @@
 namespace {
 constexpr int columns = 321;
 constexpr int rows = 181;
-constexpr int edgeRefinement = 8;
+// 4 subdivisions still put a vertex every ~1.3 px on a 1080p output and every
+// ~2.7 px on a 4K output. 8 was visually identical, but every refined cell
+// carried four times the triangles and the cache files reached 30-80 MB.
+constexpr int edgeRefinement = 4;
 constexpr int fineColumns = (columns - 1) * edgeRefinement + 1;
 constexpr int fineRows = (rows - 1) * edgeRefinement + 1;
 constexpr double farDistance = 3.3;
@@ -39,7 +42,10 @@ constexpr double refinementThreshold = 0.08;
 
 struct Vertex { float x, y, z, u, v; };
 
-constexpr char diskMagic[8] = {'L', 'U', 'C', 'I', 'D', 'M', '1', '\0'};
+// Bumped with the geometry constants. A reader that sees an older magic or
+// version rebuilds instead of loading a mesh from the previous refinement.
+constexpr char diskMagic[8] = {'L', 'U', 'C', 'I', 'D', 'M', '2', '\0'};
+constexpr quint32 diskVersion = 2;
 
 struct DiskHeader {
     char magic[8];
@@ -112,7 +118,7 @@ bool readMeshCache(const QString &cacheKey, MeshBuildResult *result)
     if (file.read(reinterpret_cast<char *>(&header), sizeof(header)) != qint64(sizeof(header)))
         return false;
     if (std::memcmp(header.magic, diskMagic, sizeof(diskMagic)) != 0
-            || header.version != 1 || header.stride != sizeof(Vertex)
+            || header.version != diskVersion || header.stride != sizeof(Vertex)
             || header.vertices == 0)
         return false;
     const qint64 expected = qint64(header.vertices) * qint64(sizeof(Vertex));
@@ -167,7 +173,7 @@ bool writeMeshCache(const QString &cacheKey, const MeshBuildResult &result)
         return false;
     DiskHeader header{};
     std::memcpy(header.magic, diskMagic, sizeof(diskMagic));
-    header.version = 1;
+    header.version = diskVersion;
     header.stride = sizeof(Vertex);
     header.vertices = quint64(result.vertices.size() / sizeof(Vertex));
     header.minX = result.minimum.x();

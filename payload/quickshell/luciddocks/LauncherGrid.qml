@@ -79,9 +79,7 @@ Item {
     // the height the drawer actually takes once the panel has had its say
     readonly property real laidOutHeight: gridH + 2 * padY
 
-    // newInstance is true when Shift or Ctrl was held: the caller must not
-    // focus an existing window for this activation
-    signal activated(int index, bool newInstance)
+    signal activated(int index)
 
     implicitHeight: naturalHeight
 
@@ -106,8 +104,64 @@ Item {
         }
     }
 
+    // A finger swipe pages the wall: sideways turns a page (PageUp/PageDown)
+    // and up/down walks a row (the wheel's step). The wall is paged cells with
+    // pibble's slot rebinding rather than a Flickable, so the touch path is
+    // here instead of the view's own flick. A mouse drag follows the same path.
+    DragHandler {
+        id: swipe
+
+        target: null
+        enabled: root.count > 1
+
+        property real grabX: 0
+        property real grabY: 0
+        // the last point seen while dragging: on release the centroid can
+        // already be back at the press position, so the release delta must
+        // come from the last motion, not from centroid.position
+        property real lastX: 0
+        property real lastY: 0
+
+        onCentroidChanged: {
+            if (swipe.active) {
+                swipe.lastX = centroid.position.x;
+                swipe.lastY = centroid.position.y;
+            }
+        }
+
+        onActiveChanged: {
+            if (swipe.active) {
+                swipe.grabX = swipe.lastX = centroid.position.x;
+                swipe.grabY = swipe.lastY = centroid.position.y;
+                return ;
+            }
+
+            // include the release velocity so a quick flick carries further
+            var dx = swipe.lastX - swipe.grabX + centroid.velocity.x * 0.12;
+            var dy = swipe.lastY - swipe.grabY + centroid.velocity.y * 0.12;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) < Theme.dp(30))
+                return ;
+
+            if (Math.abs(dx) >= Math.abs(dy)) {
+                if (root.pageCount > 1)
+                    root.pageMove(dx < 0 ? 1 : -1);
+                else
+                    root.stepHorizontal(dx < 0 ? 1 : -1);
+                return ;
+            }
+
+            // one page at most: a long throw should not skip the wall
+            var rows = Math.max(1, Math.min(root.rows, Math.round(Math.abs(dy) / Math.max(Theme.dp(44), root.tileH + root.rowGap))));
+            for (var i = 0; i < rows; i++)
+                root.stepVertical(dy < 0 ? 1 : -1);
+        }
+    }
+
     onCountChanged: {
-        if (currentIndex >= count)
+        // while a model rebuilds it briefly reports zero items; keep the
+        // selection there instead of dropping the page the user just swiped
+        // to (a real query change calls resetSelection explicitly)
+        if (count > 0 && currentIndex >= count)
             currentIndex = Math.max(0, count - 1);
     }
     onActiveChanged: {
@@ -205,9 +259,9 @@ Item {
         currentIndex = Math.min(count - 1, next * pageSize + w);
     }
 
-    function activateCurrent(newInstance) {
+    function activateCurrent() {
         if (currentIndex >= 0 && currentIndex < count)
-            activated(currentIndex, newInstance === true);
+            activated(currentIndex);
 
     }
 
@@ -387,10 +441,6 @@ Item {
                                 id: appIcon
 
                                 anchors.fill: parent
-                                // 5px breathing room inside the plate, so the
-                                // artwork itself sits a little smaller than
-                                // the antialiased circle it is masked to
-                                anchors.margins: Theme.dp(5)
                                 asynchronous: true
                                 cache: true
                                 // Decode above the drawn size so the surface's
@@ -426,12 +476,15 @@ Item {
                                 }
                             }
 
-                            Twemoji {
+                            Text {
                                 anchors.centerIn: parent
                                 visible: root.emojiMode
-                                emoji: cell.shownEntry ? cell.shownEntry.emoji : ""
-                                size: Math.round(root.iconBox * 0.58)
-                                fallbackColor: Theme.text
+                                text: cell.shownEntry ? cell.shownEntry.emoji : ""
+                                color: Theme.text
+                                font.family: "Noto Color Emoji"
+                                font.pixelSize: Math.round(root.iconBox * 0.58)
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
 
                             LText {
@@ -446,9 +499,9 @@ Item {
 
                             TapHandler {
                                 enabled: cell.filled
-                                onTapped: (point) => {
+                                onTapped: {
                                     root.currentIndex = cell.appIndex;
-                                    root.activated(cell.appIndex, (point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0);
+                                    root.activated(cell.appIndex);
                                 }
                             }
 

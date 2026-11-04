@@ -13,6 +13,9 @@ Item {
     property size textureSize: Qt.size(Math.max(1, width), Math.max(1, height))
     property real pointerX: 0
     property real pointerY: 0
+    // Set while a focused client window freezes this surface. The mesh stays
+    // loaded; only camera work and the view's paint pass stop.
+    property bool animationPaused: false
     // set by SpatialSurface while the wallpaper under it changes
     property real fadeOpacity: 1
     property real outputAspect: width > 0 && height > 0 ? width / height : 16 / 9
@@ -244,15 +247,35 @@ Item {
                 + SpatialShake.z * root.shakeScale)
         camera.lookAt(Qt.vector3d(0, 0, root.focusZ))
     }
-    onBoundedPointerChanged: updateCamera()
-    onOutputAspectChanged: updateCamera()
+    function requestCamera() {
+        if (!root.animationPaused)
+            cameraSettle.restart();
+    }
+
+    // The pointer, the idle circle and the shake all land in the same event
+    // loop turn. Coalescing them means one matrix rebuild per tick instead of
+    // two or three; it is the same camera pose either way.
+    Timer {
+        id: cameraSettle
+
+        interval: 0
+        repeat: false
+        onTriggered: root.updateCamera()
+    }
+
+    onBoundedPointerChanged: root.requestCamera()
+    onOutputAspectChanged: root.requestCamera()
+    onAnimationPausedChanged: {
+        if (!root.animationPaused)
+            root.requestCamera();
+    }
     Connections {
         target: depthGeometry
-        function onFocusDistanceChanged() { root.updateCamera() }
+        function onFocusDistanceChanged() { root.requestCamera() }
     }
     Connections {
         target: SpatialShake
-        function onTick() { root.updateCamera() }
+        function onTick() { root.requestCamera() }
     }
     Component.onCompleted: updateCamera()
 }

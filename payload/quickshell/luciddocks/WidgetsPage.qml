@@ -129,6 +129,10 @@ Item {
         cellHeight: Math.min(Theme.dp(184), root.cellW * 1.06)
         clip: true
         cacheBuffer: 180
+        // explicit, so a touch flick keeps working when the catalogue grows
+        // past the page after the view has already been laid out
+        interactive: true
+        flickableDirection: Flickable.VerticalFlick
         boundsBehavior: Flickable.StopAtBounds
         model: root.entries
         currentIndex: root.currentIndex

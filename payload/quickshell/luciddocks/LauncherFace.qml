@@ -354,21 +354,6 @@ Item {
     }
 
     readonly property int wallpaperCurrentIndex: wallStrip ? wallStrip.currentIndex : -1
-    // The card the pointer is on, else the keyboard selection. The dock warms
-    // its spatial cache while the picker is open, so the click does not pay for
-    // the first-use depth/matte generation.
-    readonly property string hoveredWallpaperPath: {
-        const strip = wallStrip;
-        if (!strip || !face.pickerMode)
-            return "";
-        let at = typeof strip.hoveredIndex === "number" ? strip.hoveredIndex : -1;
-        if (at < 0 && typeof strip.currentIndex === "number")
-            at = strip.currentIndex;
-        if (at < 0 || !strip.model || at >= strip.model.count)
-            return "";
-        const item = strip.model.get(at);
-        return item && item.path ? String(item.path) : "";
-    }
 
     function resetSelection() {
         resultList.resetSelection();

@@ -137,6 +137,9 @@ hl.on("hyprland.start", function()
   -- anchored match skips other `qs -p ...` instances.
   hl.exec_cmd("pgrep -f '^/usr/bin/qs$' >/dev/null || systemctl --user start quickshell")
   hl.exec_cmd("hypridle")
+  -- Touchscreen: a held finger becomes a right click at that point (the
+  -- panel has no right button). See ~/.local/bin/lucid-touch-rightclick.
+  hl.exec_cmd("pgrep -f '[l]ucid-touch-rightclick' >/dev/null || ~/.local/bin/lucid-touch-rightclick")
   -- Lucid shell (quickshell NotificationServer in lucidbar/Notifications.qml)
   -- owns org.freedesktop.Notifications. Do NOT autostart dunst/mako/swaync:
   -- whichever holds the bus name first wins and the other silently never

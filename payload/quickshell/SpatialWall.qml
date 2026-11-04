@@ -99,22 +99,20 @@ Singleton {
     property bool meshBusy: false
     property bool backendPaused: false
     property string lastPath: ""
-    // Picker prewarm: the card under the pointer is the only wallpaper known
-    // before it is applied, so its depth/matte are generated while the user is
-    // still browsing. One path at a time; the newest request wins.
-    property string prewarmPath: ""
-    property string prewarmNext: ""
-    property string prewarmPoster: ""
-    property string prewarmDepth: ""
-    property bool prewarmBusy: false
-    property int prewarmGen: 0
-    property var prewarmDone: ({})
-    property int depthGateTicks: 0
+    // Bumped by compositor focus/window events. Surfaces use it to pause their
+    // animation when a real client window is on top of them, while the mesh
+    // and its textures stay resident.
+    property int focusRevision: 0
     // screen name -> first usable frame is on screen; the reveal waits for
     // every output, not just the one the pointer happened to be on
     property var surfaceReady: ({})
     property int surfaceRevision: 0
     property int surfaceReportCount: 0
+    // Latch the first "usable frame on every output" for this request. The
+    // live revealReady flag can flicker false for a frame when a mesh is
+    // rebuilt, and the apply only samples the published file once: without a
+    // latch it can miss the ready window and open the iris too early.
+    property bool readyLatched: false
 
     readonly property bool hasVisual: root.motionPath !== "" && root.depthPath !== ""
     // The 3D layer only covers the wallpaper it was built for. While the next
@@ -162,6 +160,42 @@ Singleton {
         return "file://" + value.split("/").map(encodeURIComponent).join("/");
     }
 
+    // True when the compositor's focused client window is visible on this
+    // screen. A layer-shell surface (launcher, dock, widgets) does not become
+    // activeToplevel, so opening those never unpauses the wallpaper.
+    function screenHasFocusedWindow(screen) {
+        root.focusRevision;
+        if (!screen || !Hyprland.activeToplevel)
+            return false;
+        const info = Hyprland.activeToplevel.lastIpcObject || ({});
+        if (!info.size || info.size[0] <= 0 || info.mapped === false || info.hidden)
+            return false;
+        const monitor = Hyprland.monitorFor(screen);
+        if (!monitor)
+            return false;
+        if (info.monitor !== undefined && info.monitor !== monitor.id)
+            return false;
+        const workspace = Hyprland.activeToplevel.workspace || info.workspace;
+        if (!workspace)
+            return false;
+        if (monitor.activeWorkspace && workspace.id === monitor.activeWorkspace.id)
+            return true;
+        const special = monitor.lastIpcObject && monitor.lastIpcObject.specialWorkspace;
+        return special && String(workspace.name || "") === String(special.name || "");
+    }
+
+    readonly property bool allScreensFocused: {
+        root.focusRevision;
+        const screens = Quickshell.screens;
+        if (!screens || screens.length === 0)
+            return false;
+        for (let i = 0; i < screens.length; i++) {
+            if (!root.screenHasFocusedWindow(screens[i]))
+                return false;
+        }
+        return true;
+    }
+
     function reportSurface(name, ready) {
         if (!name || root.renderPath !== root.sourcePath)
             return ;
@@ -199,6 +233,7 @@ Singleton {
         root.lastPath = "";
         root.surfaceReady = ({});
         root.surfaceRevision++;
+        root.readyLatched = false;
         root.reload(true);
         readyPublish.restart();
     }
@@ -207,7 +242,12 @@ Singleton {
         const payload = JSON.stringify({
             "path": root.sourcePath,
             "token": root.requestedToken,
-            "ready": true,
+            // The reveal waits on this flag. It used to be written as `true` as
+            // soon as the request was accepted, so the iris opened while depth,
+            // matte and the first mesh were still being built. Only claim ready
+            // once every output has a usable frame; when spatial is off (or the
+            // wallpaper is a scene) there is nothing to wait for.
+            "ready": !root.enabled || root.readyLatched || root.revealReady,
             "mesh": root.layeredReady && root.surfaceRevision > 0,
             "error": root.error,
             "seq": Date.now()
@@ -218,7 +258,6 @@ Singleton {
     function clear() {
         assetsProc.running = false;
         depthProc.running = false;
-        root.abortPrewarm();
         root.assets = ({});
         root.motionPath = "";
         root.posterPath = "";
@@ -244,6 +283,7 @@ Singleton {
         root.renderPath = "";
         root.surfaceReady = ({});
         root.surfaceRevision++;
+        root.readyLatched = false;
         root.sourceWidth = 0;
         root.sourceHeight = 0;
         root.status = "";
@@ -257,11 +297,6 @@ Singleton {
         }
         if (force !== true && root.sourcePath === root.lastPath && (root.assets && root.assets.ok))
             return ;
-        // A real apply for another wallpaper owns the CPU; the warm run is
-        // only speculation. A warm run for this very wallpaper is kept: the
-        // depth stage waits for it instead of repeating the inference.
-        if (root.prewarmBusy && root.prewarmPath !== root.sourcePath)
-            root.abortPrewarm();
         if (root.sourcePath !== root.lastPath) {
             // Keep the committed visual alive; stage the next one separately.
             root.nextAssets = ({});
@@ -292,7 +327,6 @@ Singleton {
         if (!root.enabled || root.nextPosterPath === "")
             return ;
         root.depthGeneration++;
-        root.depthGateTicks = 0;
         depthProc.running = false;
         prepProc.running = false;
         depthProc.image = root.nextPosterPath;
@@ -415,129 +449,6 @@ Singleton {
         root.commitVisual();
     }
 
-    // ── picker prewarm ──────────────────────────────────────────────────────
-    // The picker knows which wallpaper is about to be picked. Running the same
-    // cached pipeline in the background turns the 8-9 s first-use depth + matte
-    // inference into work that has already finished when the card is clicked.
-    function prewarm(path) {
-        if (!root.enabled || path === "")
-            return ;
-        const target = String(path);
-        // "more:remote"/"status:remote" and web thumbs have no local source
-        if (target.charAt(0) !== "/" && target.indexOf("skwd:we:") !== 0)
-            return ;
-        if (target === root.sourcePath)
-            return ;
-        if (root.prewarmDone[target] === true)
-            return ;
-        // never compete with a real apply that is still generating
-        if (root.status !== "")
-            return ;
-        if (root.prewarmBusy) {
-            root.prewarmNext = target;
-            return ;
-        }
-        root.prewarmGen++;
-        root.prewarmPath = target;
-        root.prewarmPoster = "";
-        root.prewarmDepth = "";
-        root.prewarmBusy = true;
-        prewarmAssets.path = target;
-        prewarmAssets.gen = root.prewarmGen;
-        prewarmAssets.running = false;
-        prewarmAssets.running = true;
-    }
-
-    function finishPrewarm() {
-        const done = {};
-        for (const key in root.prewarmDone)
-            done[key] = root.prewarmDone[key];
-        if (root.prewarmPath !== "")
-            done[root.prewarmPath] = true;
-        root.prewarmDone = done;
-        root.prewarmBusy = false;
-        root.prewarmPath = "";
-        root.prewarmPoster = "";
-        root.prewarmDepth = "";
-        const next = root.prewarmNext;
-        root.prewarmNext = "";
-        if (next !== "" && next !== root.sourcePath)
-            root.prewarm(next);
-    }
-
-    function abortPrewarm() {
-        root.prewarmGen++;
-        prewarmAssets.running = false;
-        prewarmDepth.running = false;
-        prewarmPrep.running = false;
-        root.prewarmBusy = false;
-        root.prewarmPath = "";
-        root.prewarmPoster = "";
-        root.prewarmDepth = "";
-        root.prewarmNext = "";
-    }
-
-    function acceptPrewarmAssets(text, gen) {
-        if (gen !== root.prewarmGen || !root.prewarmBusy)
-            return ;
-        var data = null;
-        try {
-            data = JSON.parse(text);
-        } catch (e) {
-            root.abortPrewarm();
-            return ;
-        }
-        if (!data || !data.ok || !data.poster) {
-            root.abortPrewarm();
-            return ;
-        }
-        root.prewarmPoster = String(data.poster || "");
-        if (root.prewarmPoster === "") {
-            root.abortPrewarm();
-            return ;
-        }
-        prewarmDepth.image = root.prewarmPoster;
-        prewarmDepth.gen = gen;
-        prewarmDepth.running = true;
-    }
-
-    function acceptPrewarmDepth(text, gen) {
-        if (gen !== root.prewarmGen || !root.prewarmBusy)
-            return ;
-        var data = null;
-        try {
-            data = JSON.parse(text);
-        } catch (e) {
-            root.abortPrewarm();
-            return ;
-        }
-        if (!data || !data.ok || !data.depth) {
-            root.abortPrewarm();
-            return ;
-        }
-        root.prewarmDepth = String(data.depth || "");
-        prewarmPrep.image = root.prewarmPoster;
-        prewarmPrep.depth = root.prewarmDepth;
-        prewarmPrep.gen = gen;
-        prewarmPrep.running = true;
-    }
-
-    function acceptPrewarmPrep(text, gen) {
-        if (gen !== root.prewarmGen || !root.prewarmBusy)
-            return ;
-        var data = null;
-        try {
-            data = JSON.parse(text);
-        } catch (e) {
-            root.abortPrewarm();
-            return ;
-        }
-        if (!data || !data.ok)
-            root.abortPrewarm();
-        else
-            root.finishPrewarm();
-    }
-
     function syncBackend() {
         if (!SkwdWall.enabled)
             return ;
@@ -637,9 +548,30 @@ Singleton {
         target: Hyprland
 
         function onRawEvent(event) {
-            if (event.name === "configreloaded" && root.enabled && !layerOrder.running)
+            const name = event.name;
+            if (name === "configreloaded" && root.enabled && !layerOrder.running)
                 root.ensureLayerOrder();
+            // One refresh for every spatial surface instead of one per screen.
+            // Focus changes also decide whether the mesh animation runs.
+            if (name === "activewindow" || name === "activewindowv2"
+                    || name === "openwindow" || name === "closewindow"
+                    || name === "movewindow" || name === "movewindowv2"
+                    || name === "workspace" || name === "workspacev2"
+                    || name === "activespecial" || name === "activespecialv2"
+                    || name === "fullscreen" || name === "changefloatingmode") {
+                root.focusRevision++;
+                if (!windowRefresh.running)
+                    windowRefresh.restart();
+            }
         }
+    }
+
+    Timer {
+        id: windowRefresh
+
+        interval: 16
+        repeat: false
+        onTriggered: Hyprland.refreshToplevels()
     }
 
     FileView {
@@ -679,8 +611,15 @@ Singleton {
         onTriggered: root.publishReady()
     }
 
-    onRevealReadyChanged: readyPublish.restart()
+    onRevealReadyChanged: {
+        if (root.revealReady)
+            root.readyLatched = true;
+        readyPublish.restart();
+    }
     onSurfaceRevisionChanged: readyPublish.restart()
+    // A generation that failed never becomes revealReady; publish the error
+    // under the request token so the apply stops waiting for it.
+    onErrorChanged: readyPublish.restart()
 
     Timer {
         id: assetsStart
@@ -701,17 +640,6 @@ Singleton {
         onTriggered: {
             if (!root.enabled || depthProc.image !== root.nextPosterPath)
                 return ;
-            // If the picker already warmed this exact wallpaper, let it finish
-            // rather than starting a second inference beside it: the cache it
-            // fills turns this stage into a 0.1 s hit. Capped so a stuck warm
-            // run can never hold the reveal closed.
-            if (root.prewarmBusy && root.prewarmPath === root.sourcePath
-                    && root.depthGateTicks < 750) {
-                root.depthGateTicks++;
-                depthStart.restart();
-                return ;
-            }
-            root.depthGateTicks = 0;
             depthProc.running = true;
         }
     }
@@ -793,69 +721,6 @@ Singleton {
             if (code !== 0 && code !== 15 && code !== 143
                     && prepProc.gen === root.generation)
                 root.status = "Spatial prep exited " + code;
-        }
-    }
-
-    // The picker's background pipeline. Same scripts and cache as the live
-    // one, never the same target twice, and abandoned the moment a real apply
-    // needs the CPU for a different wallpaper.
-    Process {
-        id: prewarmAssets
-
-        property string path: ""
-        property int gen: 0
-
-        command: ["/usr/bin/python3", root.assetsScript, "--path", prewarmAssets.path]
-        running: false
-        stdout: StdioCollector {
-            onStreamFinished: root.acceptPrewarmAssets(text, prewarmAssets.gen)
-        }
-        onExited: (code) => {
-            if (code !== 0 && code !== 15 && code !== 143
-                    && prewarmAssets.gen === root.prewarmGen)
-                root.abortPrewarm();
-        }
-    }
-
-    Process {
-        id: prewarmDepth
-
-        property string image: ""
-        property int gen: 0
-
-        command: ["/usr/bin/nice", "-n", "19", "/usr/bin/python3", root.depthScript,
-            "--image", prewarmDepth.image, "--model", Prefs.spatialDepthModel]
-        environment: ({
-            "OMP_NUM_THREADS": "4"
-        })
-        running: false
-        stdout: StdioCollector {
-            onStreamFinished: root.acceptPrewarmDepth(text, prewarmDepth.gen)
-        }
-        onExited: (code) => {
-            if (code !== 0 && code !== 15 && code !== 143
-                    && prewarmDepth.gen === root.prewarmGen)
-                root.abortPrewarm();
-        }
-    }
-
-    Process {
-        id: prewarmPrep
-
-        property string image: ""
-        property string depth: ""
-        property int gen: 0
-
-        command: ["/usr/bin/nice", "-n", "19", "/usr/bin/python3", root.prepScript,
-            "--image", prewarmPrep.image, "--depth", prewarmPrep.depth]
-        running: false
-        stdout: StdioCollector {
-            onStreamFinished: root.acceptPrewarmPrep(text, prewarmPrep.gen)
-        }
-        onExited: (code) => {
-            if (code !== 0 && code !== 15 && code !== 143
-                    && prewarmPrep.gen === root.prewarmGen)
-                root.abortPrewarm();
         }
     }
 
