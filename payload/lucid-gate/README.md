@@ -153,6 +153,24 @@ Dark/light is read at shell start. Changing the system mode needs
 new scheme. The debug taps are `gate-duo probe`, `gate-duo evalJs "<js>"`,
 `gate-duo lastEval`, and `gate-duo reload`.
 
+## Progress from the account
+
+Lessons done outside the gate still count. `GateProgress.qml` keeps a
+background view on the shared profile and every 60 s reads the account's
+`totalXp` from `duolingo.com/2017-06-30/users/<id>`:
+
+- the first total it ever sees is the **baseline** — nothing from before is
+  credited retroactively,
+- each later increase that looks like a lesson (`delta / 20`, at least one)
+  pays the normal 160 through `gate credit … --ref duolingo-xp-<xp>-<n>`, so a
+  repeated poll can never pay twice,
+- a lesson finished inside the gate stamps `internalAt` in
+  `~/.local/state/lucid-gate/duolingo-progress.json`; XP arriving within ten
+  minutes of that stamp is ignored so the same lesson is not paid twice.
+
+`gate-core duo <xp>` reports a total by hand for debugging, `gate-core duo ""`
+shows the stored checkpoint, and `gate-progress state` shows the poller.
+
 ## Configuration
 
 `~/.config/lucid-gate/config.json` (created on install):

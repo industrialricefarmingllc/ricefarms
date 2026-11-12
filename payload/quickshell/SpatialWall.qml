@@ -13,10 +13,10 @@ pragma Singleton
 // request at a time, and publishes the paths to the background renderer.
 //
 // Moving wallpapers use the same depth map as their poster frame. Video keeps
-// playing in the renderer; Workshop scenes use Lucid's 10s background-only
-// recording when it exists, otherwise the author's animated preview. Widgets
-// stay above this Background-layer surface, so their glass blurs the parallax
-// without any extra clipping path.
+// playing in the renderer. Workshop scenes get their static layers depth-warped
+// inside skwd (see we-scene.py and the patched renderer), so this QML surface
+// stays off for them. Widgets stay above this Background-layer surface, so
+// their glass blurs the parallax without any extra clipping path.
 Singleton {
     id: root
 
@@ -29,9 +29,8 @@ Singleton {
     readonly property string pauseMarker: runtimeDir + "/lucid-spatial-paused"
     readonly property string readyFile: runtimeDir + "/lucid-spatial-ready.json"
     readonly property string requestFile: runtimeDir + "/lucid-spatial-request.json"
-    // Wallpaper Engine scenes stay on skwd's own live renderer. Their motion
-    // needs per-frame depth to follow it, which cannot run at 60 fps here, and
-    // a static depth over the recording was worse than the scene itself.
+    // Wallpaper Engine scenes are depth-rendered inside skwd itself, so the
+    // QML spatial surface stays off for them.
     readonly property bool isScene: root.sourcePath.indexOf("skwd:we:") === 0
         || root.sourcePath.indexOf("/431960/") !== -1
         || (root.entry && String(root.entry.kind || "") === "we")
@@ -573,6 +572,7 @@ Singleton {
             root.lastPath = "";
             root.reload(true);
         }
+
     }
 
     Connections {

@@ -204,8 +204,7 @@ PanelWindow {
         retargetAnim.restart();
     }
 
-    onMaskActiveChanged: if (root.dock)
-        root.dock.launcherAnimating = root.maskActive
+    // (launcherAnimating was removed from Dock; nothing reads it.)
 
     // Freeze the idle 3D wallpaper drift while the launcher is up. It is
     // invisible behind the panel and its 30 Hz fullscreen repaint on every

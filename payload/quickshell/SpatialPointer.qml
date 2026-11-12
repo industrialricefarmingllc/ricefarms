@@ -11,13 +11,15 @@ Singleton {
     id: root
 
     readonly property string script: Quickshell.env("HOME") + "/.config/quickshell/luciddocks/spatial-pointer.py"
+    readonly property string pointerFile: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/lucid-scene-pointer"
     property real x: 0
     property real y: 0
     property bool valid: false
     // While every output has a focused client window the wallpaper is frozen,
     // so polling Hyprland's cursor IPC would only burn CPU for coordinates no
     // shader or camera reads. Start again as soon as a surface can move.
-    readonly property bool wanted: Prefs.spatialWallpapers && SpatialWall.hasVisual
+    readonly property bool wanted: Prefs.spatialWallpapers
+        && (SpatialWall.hasVisual || SpatialWall.isScene)
         && SpatialWall.displaysAwake
         && !SpatialWall.allScreensFocused
 
@@ -32,7 +34,7 @@ Singleton {
     Process {
         id: tracker
 
-        command: ["/usr/bin/python3", root.script]
+        command: ["/usr/bin/python3", root.script, "--write", root.pointerFile]
         running: false
         stdout: SplitParser {
             onRead: (line) => {

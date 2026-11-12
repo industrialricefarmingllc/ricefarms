@@ -827,9 +827,11 @@ Item {
         // the card still clips its contents to the bounding rectangle (the
         // rounded edge itself is drawn by the squircle, as a Rectangle's
         // radius never cut children either)
-        Item {
+        SquircleClip {
             anchors.fill: parent
-            clip: true
+            radius: frame.radius
+            smoothing: Prefs.squircleF
+            color: "transparent"
 
             // the body lays out at its natural size and the whole thing is scaled, so a
             // variant never has to know what zoom it is being drawn at

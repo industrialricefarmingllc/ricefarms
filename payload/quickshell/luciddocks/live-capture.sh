@@ -186,11 +186,12 @@ fi
 # a selection that changed while recording is not this wallpaper's preview
 still_current || exit 0
 
-# card loop: a 3s excerpt at 1280px, 10fps. The 10s recording is the mp4; a
+# card loop: a 3s excerpt at 1280px, 30fps. The 10s recording is the mp4; a
 # full-length GIF of a complex scene can be tens of MB, so the card loops a
-# short, high-resolution window instead.
+# short, high-resolution window instead. 30fps gives smooth motion; GIF's
+# centisecond delays round it to ~33fps, as close as the format allows.
 ffmpeg -v error -y -t 3 -i "$record" \
-    -vf "fps=10,scale=1280:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=256:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a" \
+    -vf "fps=30,scale=1280:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=256:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a" \
     "$tmp_gif" </dev/null || exit 0
 
 # iris source: a full-resolution frame, not the library thumbnail

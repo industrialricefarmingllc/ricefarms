@@ -903,7 +903,7 @@ Column {
 
         SettingRow {
             title: Tr.t("Depth parallax")
-            description: Tr.t("A local depth model gives stills, videos and Wallpaper Engine previews a slow pointer-driven parallax. The depth map is cached; the model runs on the CPU and only when a wallpaper changes.")
+            description: Tr.t("A local depth model gives stills and videos a slow pointer-driven parallax. Static Wallpaper Engine scenes get a fixed-depth parallax inside skwd, with their particles and animations still on top; scenes with real motion keep skwd's normal renderer. The depth map is cached; the model runs on the CPU and only when a wallpaper changes.")
 
             M3Switch {
                 checked: Prefs.spatialWallpapers

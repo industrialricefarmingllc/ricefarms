@@ -17,6 +17,7 @@ Singleton {
     readonly property string browserPath: Quickshell.env("LUCID_GATE_BROWSER") || "helium-browser"
     readonly property string assetsPath: Quickshell.env("LUCID_GATE_ASSETS") || (root.home + "/src/lucid-gate/qml/assets")
     readonly property string lessonUrlPath: root.home + "/.local/state/lucid-gate/duolingo-url"
+    readonly property string duoProgressPath: root.home + "/.local/state/lucid-gate/duolingo-progress.json"
 
     property var state: root.blankState()
     property bool loaded: false
@@ -40,6 +41,19 @@ Singleton {
     property var launchRect: null
     // bumped whenever a lesson should be loaded (new session, resume, reopen)
     property int lessonRequest: 0
+    // the output the current lesson belongs on; each warm view compares against it
+    property string lessonTargetScreen: ""
+    // the active view has finished loading; the launch tile waits for this
+    property bool lessonPageReady: false
+    // Duolingo account XP, polled in the background. The first value seen is
+    // the baseline: nothing before it is credited.
+    property int duoLastXp: -1
+    property int duoBaselineXp: -1
+    // unix time of the last lesson finished *inside* the gate; XP gained right
+    // after that must not be paid out twice in the background poll
+    property real duoInternalAt: 0
+    property bool duoProgressLoaded: false
+    property string duoError: ""
 
     readonly property var tasks: root.state.tasks || []
     readonly property var gates: root.state.gates || ({})
@@ -203,12 +217,97 @@ Singleton {
 
         if (task !== null && task.kind === "duolingo") {
             root.lessonOpen = true;
+            root.lessonPageReady = false;
             root.lessonRequest++;
             root.pillWanted = false;
         } else {
             root.pillWanted = true;
         }
         refreshTimer.restart();
+    }
+
+    function readDuoProgress(raw) {
+        try {
+            const progress = JSON.parse(raw);
+            root.duoLastXp = Number(progress.lastXp || -1);
+            root.duoBaselineXp = Number(progress.baselineXp || -1);
+            root.duoInternalAt = Number(progress.internalAt || 0);
+        } catch (e) {
+            root.duoLastXp = -1;
+            root.duoBaselineXp = -1;
+            root.duoInternalAt = 0;
+        }
+        root.duoProgressLoaded = true;
+    }
+
+    function saveDuoProgress() {
+        // coalesce: a completion stamps internalAt and then the report moves
+        // lastXp in the same turn, and two immediate FileView writes can race
+        duoSave.restart();
+    }
+
+    function reportDuoProgress(xp) {
+        xp = Number(xp) || 0;
+        if (xp <= 0)
+            return ;
+        if (!root.duoProgressLoaded)
+            return ;
+        // start from now: the first observed total is the baseline
+        if (root.duoLastXp <= 0) {
+            root.duoLastXp = xp;
+            root.duoBaselineXp = xp;
+            root.saveDuoProgress();
+            return ;
+        }
+        if (xp < root.duoLastXp) {
+            root.duoLastXp = xp;
+            root.saveDuoProgress();
+            return ;
+        }
+        if (xp === root.duoLastXp)
+            return ;
+
+        const now = Date.now() / 1000;
+        // a lesson finished here shows up as XP a little later; the stamp is
+        // written when it completes, so the poll can recognise it even if the
+        // ledger has not been re-read yet
+        let internal = root.duoInternalAt > 0 && now - root.duoInternalAt < 600;
+        if (!internal) {
+            const sessions = root.state.sessions || ({});
+            for (const key in sessions) {
+                const session = sessions[key];
+                if (session.task === "duolingo" && session.state === "done"
+                    && Number(session.finished || 0) > now - 600) {
+                    internal = true;
+                    break;
+                }
+            }
+        }
+
+        const delta = xp - root.duoLastXp;
+        if (!internal) {
+            // one reward per lesson-shaped XP step; a poll usually spans one
+            const lessons = Math.max(1, Math.round(delta / 20));
+            for (let i = 0; i < lessons; i++) {
+                root.run([root.binPath, "credit", "160",
+                    "--ref", "duolingo-xp-" + xp + "-" + i,
+                    "--label", "Duolingo lesson"]);
+            }
+        }
+        root.duoLastXp = xp;
+        root.saveDuoProgress();
+    }
+
+    function markInternalDuo() {
+        root.duoInternalAt = Date.now() / 1000;
+        if (root.duoProgressLoaded)
+            root.saveDuoProgress();
+    }
+
+    function completeManualDuolingo() {
+        root.markInternalDuo();
+        root.run([root.binPath, "start", "duolingo"]);
+        root.run([root.binPath, "complete", "duolingo"]);
     }
 
     function rememberLessonUrl(url) {
@@ -236,6 +335,8 @@ Singleton {
     }
 
     function completeTask(taskId) {
+        if (taskId === "duolingo")
+            root.markInternalDuo();
         root.run([root.binPath, "complete", taskId]);
         refreshTimer.restart();
     }
@@ -276,6 +377,31 @@ Singleton {
 
     function refresh() {
         stateFile.reload();
+    }
+
+    Timer {
+        id: duoSave
+
+        interval: 150
+        onTriggered: duoProgressFile.setText(JSON.stringify({
+            "lastXp": root.duoLastXp,
+            "baselineXp": root.duoBaselineXp,
+            "internalAt": root.duoInternalAt,
+            "updated": Date.now() / 1000
+        }) + "\n")
+    }
+
+    FileView {
+        id: duoProgressFile
+
+        path: root.duoProgressPath
+        blockLoading: true
+        printErrors: false
+        onLoaded: root.readDuoProgress(text())
+        onLoadFailed: {
+            root.duoProgressLoaded = true;
+            root.duoLastXp = -1;
+        }
     }
 
     FileView {
@@ -328,6 +454,7 @@ Singleton {
                     ? root.savedDuolingoUrl
                     : "https://www.duolingo.com/learn";
                 root.lessonOpen = true;
+                root.lessonPageReady = false;
                 root.lessonRequest++;
             }
         }
@@ -393,6 +520,21 @@ Singleton {
         function complete(task: string): string {
             GateCore.completeTask(task);
             return "completing " + task;
+        }
+
+        // debug/inspection hook: report an XP total by hand, or just read the
+        // baseline state
+        function duo(xp: string, internal: string): string {
+            if (String(internal) !== "")
+                GateCore.markInternalDuo();
+            if (String(xp) !== "")
+                GateCore.reportDuoProgress(Number(xp));
+
+            return JSON.stringify({
+                lastXp: root.duoLastXp,
+                baselineXp: root.duoBaselineXp,
+                loaded: root.duoProgressLoaded
+            });
         }
 
         function pill(on: bool): string {

@@ -31,6 +31,10 @@ Singleton {
     readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
     readonly property string requestDir: root.runtimeDir + "/lucid-launch"
     readonly property string helper: Qt.resolvedUrl("scripts/launch-detached.sh").toString().replace("file://", "")
+    // a URL opens in the default browser; these let a placeholder match a new
+    // window even when the browser process is already running and carries no
+    // fresh launch token
+    readonly property var browserClasses: ["helium", "zen", "zen-browser", "firefox", "librewolf", "chromium", "brave-browser", "google-chrome", "vivaldi", "opera", "qutebrowser", "floorp"]
     // a launch that cannot get a tile by then is started without one
     readonly property int waitMs: 2000
 
@@ -120,6 +124,84 @@ Singleton {
         return title.indexOf("lucid-launch-placeholder") === 0
             || title.indexOf("lucid-launch-ghost") === 0
             || title.indexOf("Launching ") === 0;
+    }
+
+    function classesMatch(cls, want) {
+        if (!cls || !want)
+            return false;
+        var c = String(cls).toLowerCase();
+        var w = String(want).toLowerCase();
+        if (c === w)
+            return true;
+        var cn = c.replace(/[-_. ]/g, "");
+        var wn = w.replace(/[-_. ]/g, "");
+        if (cn === wn)
+            return true;
+        if (c.endsWith("." + w) || w.endsWith("." + c))
+            return true;
+        var cf = c.split(/[-_.]/)[0];
+        var wf = w.split(/[-_.]/)[0];
+        return cf.length >= 3 && cf === wf;
+    }
+
+    // the browser window a link should go to, best first: focused, then the
+    // current workspace, then the most recently used
+    function browserWindow(classes) {
+        Hyprland.refreshToplevels();
+        var focus = Hyprland.activeToplevel && Hyprland.activeToplevel.lastIpcObject
+            ? String(Hyprland.activeToplevel.lastIpcObject.address || "") : "";
+        var ws = Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1;
+        var best = null;
+        var bestScore = -1;
+        var list = Hyprland.toplevels.values;
+        for (var i = 0; i < list.length; i++) {
+            var o = list[i].lastIpcObject;
+            if (!o || !o.address || !o.class || root.isGhostWindow(o))
+                continue;
+
+            var hit = false;
+            for (var j = 0; j < classes.length; j++) {
+                if (root.classesMatch(o.class, classes[j])) {
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit)
+                continue;
+
+            var score = 0;
+            if (o.address === focus)
+                score += 1000;
+            if (o.workspace && Number(o.workspace.id) === Number(ws))
+                score += 500;
+            var fh = Number(o.focusHistoryID);
+            if (isFinite(fh))
+                score += Math.max(0, 200 - fh);
+            if (score > bestScore) {
+                bestScore = score;
+                best = o;
+            }
+        }
+        return best;
+    }
+
+    property string focusAddress: ""
+
+    function focusWindow(addr) {
+        if (!addr)
+            return;
+        root.focusAddress = addr;
+        focusHold.restart();
+    }
+
+    Timer {
+        id: focusHold
+
+        interval: 120
+        onTriggered: {
+            if (root.focusAddress !== "")
+                Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + root.focusAddress + "\" })");
+        }
     }
 
     function claimWindow(addr, ghost) {
@@ -371,10 +453,13 @@ Singleton {
             "iconSource": root.iconSource(opts.icon),
             "iconRect": origin.rect,
             "wmClass": opts.wmClass || "",
+            "wmClasses": opts.wmClasses || [],
             "base": opts.base || "",
             "screen": origin.screen,
             "workspace": opts.workspace || "",
-            "timeoutMs": opts.timeoutMs > 0 ? Number(opts.timeoutMs) : 10000
+            "timeoutMs": opts.timeoutMs > 0 ? Number(opts.timeoutMs) : 10000,
+            "rehome": opts.rehome !== false,
+            "pin": opts.pin !== false
         };
 
         if (opts.strict === true && !root.availableGhost())
@@ -392,6 +477,42 @@ Singleton {
         if (!argv || argv.length === 0)
             return false;
         return root.launch(root.argvLine(argv), opts);
+    }
+
+    // a link opened from anywhere: hold a tile for the browser that follows,
+    // with a short timeout because a browser already running may just add a
+    // tab instead of mapping a new window.
+    function openUrl(url, opts) {
+        if (!url)
+            return false;
+
+        opts = opts || {};
+        var command = opts.command || ("xdg-open " + root.shQuote(String(url)));
+        var classes = opts.wmClasses && opts.wmClasses.length > 0 ? opts.wmClasses : root.browserClasses;
+        var existing = opts.focusExisting === false ? null : root.browserWindow(classes);
+
+        // the browser is already open: hand it the URL and raise its window,
+        // exactly like an app launcher press on a running app. No tile is held
+        // for a window that already exists.
+        if (existing) {
+            root.execNow({ "command": command });
+            root.focusWindow(existing.address);
+            return true;
+        }
+
+        return root.launch(command, {
+            "title": opts.title || "Browser",
+            "icon": opts.icon || "web-browser",
+            "rect": opts.rect || null,
+            "screen": opts.screen || null,
+            "wmClass": opts.wmClass || "",
+            "wmClasses": classes,
+            "timeoutMs": opts.timeoutMs > 0 ? opts.timeoutMs : 2500,
+            // a browser already on another workspace keeps its place; the
+            // placeholder fades there instead of dragging the window over
+            "rehome": false,
+            "pin": false
+        });
     }
 
     // ---- the queue -------------------------------------------------------

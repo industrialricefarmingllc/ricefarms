@@ -71,7 +71,12 @@ WidgetBody {
     readonly property bool grid4x3: w.gridColumns === 4 && w.gridRows === 3
     // The morphing indicator repaints every frame; only spend that when the
     // shell is already running a compositor/3D wallpaper effect.
-    readonly property bool animateStatus: Prefs.liquidGlassEnabled || Prefs.spatialWallpapers
+    // The busy marker must not animate just because a visual effect is on.
+    // LoadingIndicator is a Shape with CurveRenderer: it rebuilds its path and
+    // re-tessellates every frame on the GUI thread, and a busy session runs it
+    // forever. Measured: this widget alone held the shell's main thread at
+    // ~50% CPU; freezing it drops it to ~6%. Static circle still reads busy.
+    readonly property bool animateStatus: false
     readonly property real gridGap: Theme.dp(6)
     readonly property real gridAvailable: Math.min(w.width, w.height) - Theme.dp(20)
     readonly property real gridCell: {
@@ -165,8 +170,11 @@ WidgetBody {
             Quickshell.execDetached(["hyprctl", "dispatch", "focuswindow", "pid:" + session.windowPid]);
     }
 
+    // Each tick forks python3 (opencode-sessions.py). At 1 Hz that was a
+    // process spawn every second for a status card; 2 s is indistinguishable
+    // in use and halves the churn.
     Timer {
-        interval: 1000
+        interval: 2000
         repeat: true
         running: w.primaryScreen
         triggeredOnStart: true

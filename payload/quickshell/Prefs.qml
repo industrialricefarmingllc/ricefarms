@@ -813,6 +813,14 @@ Singleton {
     property alias desktopIconSpacing: s.desktopIconSpacing
     property alias shotPreview: s.shotPreview
     property alias shotPreviewSeconds: s.shotPreviewSeconds
+    // LucidShot's recordings: frame rate, encoder, countdown and folder.
+    // without these the Capture page wrote nowhere and the recorder never
+    // saw a choice, so every take was 30 fps on x264.
+    property alias recordFps: s.recordFps
+    property alias recordEncoder: s.recordEncoder
+    property alias recordCountdown: s.recordCountdown
+    property alias recordFolder: s.recordFolder
+    property alias recordAudio: s.recordAudio
     property alias osdCapsLock: s.osdCapsLock
     property alias osdNumLock: s.osdNumLock
 
@@ -2084,6 +2092,16 @@ Singleton {
             property string desktopIconSpacing: "normal"
             property string shotPreview: "preview"
             property int shotPreviewSeconds: 6
+            // LucidShot's recordings. "auto" takes the first hardware encoder
+            // that opens (Vulkan, then VA-API) and x264 if none does;
+            // "hardware" probes them but still falls back; "software" uses
+            // x264 on the processor, which is the slowest but always works.
+            // 0 is treated as 30 by the recorder.
+            property int recordFps: 30
+            property string recordEncoder: "auto"
+            property int recordCountdown: 3
+            property string recordFolder: ""
+            property bool recordAudio: true
             // the osd's card as caps lock or num lock goes on or off
             property bool osdCapsLock: true
             property bool osdNumLock: true

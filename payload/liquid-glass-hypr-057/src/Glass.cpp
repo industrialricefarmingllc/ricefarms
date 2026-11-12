@@ -906,6 +906,8 @@ void CGlassLayer::ensureRing() {
     m_ru.rimAngle = loc(rp, "uRimAngle");
     m_ru.rimSplay = loc(rp, "uRimSplay");
     m_ru.rimShade = loc(rp, "uRimShade");
+    m_ru.rimAtInner = loc(rp, "uRimAtInner");
+    m_ru.rimShift = loc(rp, "uRimShift");
     m_ringOk = true;
 }
 
@@ -917,6 +919,47 @@ void CGlassLayer::ensureRing() {
 
 static GLuint fbId(const SP<Render::IFramebuffer>& fb) {
     return dynamic_cast<Render::GL::CGLFramebuffer*>(fb.get())->getFBID();
+}
+
+static void ensureFbInto(SP<Render::IFramebuffer>& fb, const char* name, int w, int h, unsigned int format) {
+    if (!fb)
+        fb = g_pHyprRenderer->createFB(name);
+    if (!fb)
+        return;
+    if (fb->m_size.x != w || fb->m_size.y != h)
+        fb->alloc(w, h, format);
+}
+
+void CGlassLayer::ensurePillCap(lg::SPillCapture& cap, int hw, int hh, int passes, bool bokeh, unsigned int format) {
+    ensureFbInto(cap.a, "liquidglass-pill-a", hw, hh, format);
+    if (passes > 0) {
+        const int qw = std::max(1, hw / 2), qh = std::max(1, hh / 2);
+        const int ew = std::max(1, qw / 2), eh = std::max(1, qh / 2);
+        ensureFbInto(cap.b, "liquidglass-pill-b", qw, qh, format);
+        ensureFbInto(cap.c, "liquidglass-pill-c", ew, eh, format);
+    }
+    if (bokeh)
+        ensureFbInto(cap.t, "liquidglass-pill-t", std::max(1, hw / 2), std::max(1, hh / 2), format);
+}
+
+void CGlassLayer::bokehPassTo(const SP<Render::IFramebuffer>& src, const SP<Render::IFramebuffer>& dst, float radius,
+                              float strength) {
+    const int dw = (int)dst->m_size.x, dh = (int)dst->m_size.y;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbId(dst));
+    g_pHyprRenderer->setViewport(0, 0, dw, dh);
+    glActiveTexture(GL_TEXTURE0);
+    src->getTexture()->bind();
+    src->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    src->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    g_pHyprOpenGL->useShader(m_bokeh);
+    glUniformMatrix3fv(m_bo.proj, 1, GL_FALSE, FULLSCREEN_PROJECTION.data());
+    glUniform1i(m_bo.tex, 0);
+    glUniform1f(m_bo.radius, radius);
+    glUniform2f(m_bo.halfpixel, 0.5f / (int)src->m_size.x, 0.5f / (int)src->m_size.y);
+    glUniform1f(m_bo.bokeh, strength);
+    glBindVertexArray(m_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
 }
 
 void CGlassLayer::ensureKawase(int hw, int hh, unsigned int format) {
@@ -956,22 +999,7 @@ void CGlassLayer::ensureBokeh(int hw, int hh, unsigned int format) {
 
 void CGlassLayer::bokehPass(float radius, float strength) {
     // L0-size scatter into the temp (same UV contract as L0).
-    const int dw = (int)m_halfT->m_size.x, dh = (int)m_halfT->m_size.y;
-    glBindFramebuffer(GL_FRAMEBUFFER, fbId(m_halfT));
-    g_pHyprRenderer->setViewport(0, 0, dw, dh);
-    glActiveTexture(GL_TEXTURE0);
-    m_halfA->getTexture()->bind();
-    m_halfA->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    m_halfA->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    auto shader = g_pHyprOpenGL->useShader(m_bokeh);
-    glUniformMatrix3fv(m_bo.proj, 1, GL_FALSE, FULLSCREEN_PROJECTION.data());
-    glUniform1i(m_bo.tex, 0);
-    glUniform1f(m_bo.radius, radius);
-    glUniform2f(m_bo.halfpixel, 0.5f / (int)m_halfA->m_size.x, 0.5f / (int)m_halfA->m_size.y);
-    glUniform1f(m_bo.bokeh, strength);
-    glBindVertexArray(m_vao);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glBindVertexArray(0);
+    bokehPassTo(m_halfA, m_halfT, radius, strength);
 }
 
 void CGlassLayer::kawaseDown(const SP<Render::IFramebuffer>& src, const SP<Render::IFramebuffer>& dst, float radius) {
@@ -1008,6 +1036,23 @@ void CGlassLayer::kawaseUp(const SP<Render::IFramebuffer>& src, const SP<Render:
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
+}
+
+void lg::damageEdgeBands(PHLMONITOR monitor, const CBox& fbBox, double padFb) {
+    if (!monitor || fbBox.w <= 0 || fbBox.h <= 0)
+        return;
+    const double inv = 1.0 / (double)std::max(monitor->m_scale, 0.01f);
+    // Monitor-global logical coordinates (damageBox takes global logical px,
+    // same convention as the per-window/pill damage calls elsewhere).
+    const double x = (double)monitor->m_position.x + fbBox.x * inv;
+    const double y = (double)monitor->m_position.y + fbBox.y * inv;
+    const double w = fbBox.w * inv;
+    const double h = fbBox.h * inv;
+    const double p = std::clamp(padFb * inv, 1.0, std::min(w, h) * 0.5);
+    g_pHyprRenderer->damageBox(CBox{x, y, w, p});
+    g_pHyprRenderer->damageBox(CBox{x, y + h - p, w, p});
+    g_pHyprRenderer->damageBox(CBox{x, y, p, h});
+    g_pHyprRenderer->damageBox(CBox{x + w - p, y, p, h});
 }
 
 void CGlassLayer::damageRim() {
@@ -1288,13 +1333,18 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         // Resolution-corrected: the chain spread is radius × base texel, so a
         // smaller base (capture_scale 4) would read 2x stronger. Divide back
         // to keep screen-space blur identical across scales (2 = old look).
+        // The divisor is derived from the requested blur (see
+        // lg::effectiveCapDiv): a 2 px blur cannot use 1:1 texels, and the
+        // capture/chain/bokeh fill then drops 4x with <1/255 output change.
+        const int capDiv = lg::effectiveCapDiv(T.userRadius, T.userPasses, (float)monitor->m_scale, T.capDiv);
         const float effR = radius * std::sqrt((float)T.userPasses) * 0.5f * (float)monitor->m_scale
-            * (2.0f / (float)T.capDiv);
-        // Skip the chain when the effective radius is sub-visible (e.g. a
-        // zero user radius). Threshold in screen-space units (scales with
-        // capDiv like effR) so the skip behavior is identical at any
-        // capture_scale.
-        const int passes = effR < 0.1f * (2.0f / (float)T.capDiv) ? 0 : T.userPasses;
+            * (2.0f / (float)capDiv);
+        // Skip the chain only when its taps are a quarter of a working texel
+        // (effectively a no-op). 1-texel taps are NOT dropped: at the live
+        // 0.8 radius a 2:1 capture already blurs ~1 px, but the chain still
+        // adds the rest of the requested radius (checkerboard A/B: 51 dB at
+        // 4 passes vs 25 dB without).
+        const int passes = effR < 0.25f ? 0 : T.userPasses;
         const bool bokehOn = T.bokeh > 0.01f;
 
         // Damage gate on the DRAW quad (pill + shadow margin E, same extent
@@ -1315,6 +1365,47 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         const int rw = rx1 - rx0, rh = ry1 - ry0;
         if (rw < 8 || rh < 8)
             continue;
+
+        if (m_pillCap.size() <= pillIdx)
+            m_pillCap.resize(pillIdx + 1);
+        lg::SPillCapture& cap = m_pillCap[pillIdx];
+
+        // Content-only damage (inside the pill, not the 32 px bleed) cannot
+        // change the backdrop this pill samples: the pill's own content is
+        // drawn *after* this pass. Reuse the previous full-pill blurred
+        // capture and skip blit + Kawase + bokeh. This is the common case for
+        // clocks, progress bars and hover animations, which otherwise re-ran
+        // the whole capture pipeline at monitor rate.
+        const bool contentOnly = dmgExt.w > 0 && dmgExt.h > 0 && dmgExt.x >= lp.x - 1 && dmgExt.y >= lp.y - 1 &&
+            dmgExt.x + dmgExt.w <= lp.x + lp.w + 1 && dmgExt.y + dmgExt.h <= lp.y + lp.h + 1;
+        // A window below the overlay could repaint inside the pill without
+        // extending damage outside it. Conservatively refuse the cache when
+        // any main-pass window overlaps the capture region.
+        const bool winOverlap =
+            lg::windowOverlapsRegion(monitor->m_id, CBox{(double)rx0, (double)ry0, (double)rw, (double)rh});
+        const bool keyOk = cap.valid && cap.rx0 == rx0 && cap.ry0 == ry0 && cap.rw == rw && cap.rh == rh &&
+            cap.px0 == px0 && cap.py0 == py0 && cap.px1 == px1 && cap.py1 == py1 &&
+            std::fabs(cap.bx - lp.x) < 1e-3 && std::fabs(cap.by - lp.y) < 1e-3 &&
+            std::fabs(cap.bw - lp.w) < 1e-3 && std::fabs(cap.bh - lp.h) < 1e-3 &&
+            cap.r0 == lp.r[0] && cap.r1 == lp.r[1] && cap.r2 == lp.r[2] && cap.r3 == lp.r[3] &&
+            cap.fl0 == lp.fl[0] && cap.fl1 == lp.fl[1] && std::fabs(cap.sq - lp.sq) < 1e-4 &&
+            cap.unionOn == lp.unionOn && cap.hw == std::max(1, rw / capDiv) && cap.hh == std::max(1, rh / capDiv) &&
+            cap.capDiv == capDiv && cap.passes == passes && cap.bokehOn == bokehOn &&
+            std::fabs(cap.bokeh - T.bokeh) < 1e-4 && std::fabs(cap.effR - effR) < 1e-4 &&
+            cap.tuneGen == tuneGen && cap.srcW == srcW && cap.srcH == srcH && cap.a && cap.a->getTexture() &&
+            (passes == 0 || (cap.b && cap.c && cap.b->getTexture() && cap.c->getTexture())) &&
+            (!bokehOn || (cap.t && cap.t->getTexture()));
+        // Escape hatch: LIQUIDGLASS_NO_PILL_CACHE=1 disables the reuse path
+        // without a rebuild (validated once).
+        static const bool noPillCache = std::getenv("LIQUIDGLASS_NO_PILL_CACHE") != nullptr;
+        static const bool cacheAny = std::getenv("LIQUIDGLASS_PILL_CACHE_ANY") != nullptr;
+        // Small damage under a window is allowed to reuse for a bounded run:
+        // a caret/cursor blink under tint+blur is invisible, while the next
+        // large change (video, move, resize) exceeds contentOnly and forces a
+        // full capture anyway. 8 frames caps staleness at ~133 ms @60 Hz.
+        const bool smallChange = (double)dmgExt.w * (double)dmgExt.h <= 16384.0;
+        const bool windowOk = !winOverlap || cacheAny || (smallChange && cap.reuseCount < 8);
+        const bool reuse = keyOk && contentOnly && !lp.unionOn && windowOk && !m_mask.on && !noPillCache;
 
         // Never sample a partially-repainted PILL. The pill is where this
         // surface's own content (text, icons, the launcher's mask) lives; if
@@ -1342,7 +1433,7 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         const int iy0 = std::max(py0 + 1, (int)std::floor(surfBox.y));
         const int ix1 = std::min(px1 - 1, (int)std::ceil(surfBox.x + surfBox.w));
         const int iy1 = std::min(py1 - 1, (int)std::ceil(surfBox.y + surfBox.h));
-        if (!lg::damageCovers(ctx, ix0, iy0, ix1, iy1)) {
+        if (!reuse && !lg::damageCovers(ctx, ix0, iy0, ix1, iy1)) {
             const double invS = 1.0 / (double)monitor->m_scale;
             g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + rx0 * invS, monitor->m_position.y + ry0 * invS,
                                             (rx1 - rx0) * invS, (ry1 - ry0) * invS});
@@ -1350,46 +1441,62 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         }
         // Working res: capture_scale divisor (4 = quarter-res chain; the
         // output is blurred anyway, so it upscales back nearly identically).
-        const int hw = std::max(1, rw / T.capDiv), hh = std::max(1, rh / T.capDiv);
+        const int hw = std::max(1, rw / capDiv), hh = std::max(1, rh / capDiv);
 
-        ensureKawase(hw, hh, source->m_drmFormat);
-        if (passes > 0)
-            ensureChain(hw, hh, source->m_drmFormat);
-        if (bokehOn)
-            ensureBokeh(std::max(1, hw / 2), std::max(1, hh / 2), source->m_drmFormat);
-        if (!m_halfA || !m_halfA->getTexture()
-            || (passes > 0 && (!m_halfB || !m_halfC || !m_halfB->getTexture() || !m_halfC->getTexture()))
-            || (bokehOn && (!m_halfT || !m_halfT->getTexture())))
-            continue;
+        if (!reuse) {
+            cap.valid = false;
+            ensurePillCap(cap, hw, hh, passes, bokehOn, source->m_drmFormat);
+            if (!cap.a || !cap.a->getTexture()
+                || (passes > 0 && (!cap.b || !cap.c || !cap.b->getTexture() || !cap.c->getTexture()))
+                || (bokehOn && (!cap.t || !cap.t->getTexture())))
+                continue;
 
-        g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
+            g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
 
-        // 1. Downsample blit straight into halfA (free 2x downsample).
-        // PERF: no glClear (blit overwrites every pixel; clear was a full
-        // half-res fullscreen fill per pill per frame for nothing).
-        glBindFramebuffer(GL_FRAMEBUFFER, fbId(m_halfA));
-        g_pHyprRenderer->setViewport(0, 0, hw, hh);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(source));
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_halfA));
-        glBlitFramebuffer(rx0, ry0, rx1, ry1, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            // 1. Downsample blit straight into L0 (free 2x downsample).
+            // PERF: no glClear (blit overwrites every pixel; clear was a full
+            // half-res fullscreen fill per pill per frame for nothing).
+            glBindFramebuffer(GL_FRAMEBUFFER, fbId(cap.a));
+            g_pHyprRenderer->setViewport(0, 0, hw, hh);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(source));
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(cap.a));
+            glBlitFramebuffer(rx0, ry0, rx1, ry1, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
-        // 2. Dual-Kawase chain in halfA -> halfB -> halfC and back.
-        // iters>=3 runs the depth-2 cycle twice (extra smoothing round).
-        // Skipped entirely when passes==0 (sharp capture, same as before).
-        if (passes > 0) {
-            const int rounds = T.userPasses >= 3 ? 2 : 1;
-            for (int k = 0; k < rounds; k++) {
-                kawaseDown(m_halfA, m_halfB, effR);
-                if (T.userPasses >= 2) {
-                    kawaseDown(m_halfB, m_halfC, effR);
-                    kawaseUp(m_halfC, m_halfB, effR);
+            // 2. Dual-Kawase chain in L0 -> L1 -> L2 and back.
+            if (passes > 0) {
+                const int rounds = T.userPasses >= 3 ? 2 : 1;
+                for (int k = 0; k < rounds; k++) {
+                    kawaseDown(cap.a, cap.b, effR);
+                    if (T.userPasses >= 2) {
+                        kawaseDown(cap.b, cap.c, effR);
+                        kawaseUp(cap.c, cap.b, effR);
+                    }
+                    kawaseUp(cap.b, cap.a, effR);
                 }
-                kawaseUp(m_halfB, m_halfA, effR);
             }
+            // 2b. Bokeh scatter into the L0-size temp (independent of chain).
+            if (bokehOn)
+                bokehPassTo(cap.a, cap.t, effR, T.bokeh);
+
+            cap.valid = true;
+            cap.rx0 = rx0; cap.ry0 = ry0; cap.rw = rw; cap.rh = rh;
+            cap.px0 = px0; cap.py0 = py0; cap.px1 = px1; cap.py1 = py1;
+            cap.bx = lp.x; cap.by = lp.y; cap.bw = lp.w; cap.bh = lp.h;
+            cap.r0 = lp.r[0]; cap.r1 = lp.r[1]; cap.r2 = lp.r[2]; cap.r3 = lp.r[3];
+            cap.fl0 = lp.fl[0]; cap.fl1 = lp.fl[1]; cap.sq = lp.sq;
+            cap.unionOn = lp.unionOn;
+            cap.hw = hw; cap.hh = hh; cap.capDiv = capDiv; cap.passes = passes;
+            cap.bokehOn = bokehOn; cap.bokeh = T.bokeh; cap.effR = effR;
+            cap.tuneGen = tuneGen; cap.srcW = srcW; cap.srcH = srcH;
+            cap.reuseCount = 0;
+        } else {
+            cap.reuseCount++;
         }
-        // 2b. Bokeh scatter into the L0-size temp (independent of the chain).
-        if (bokehOn)
-            bokehPass(effR, T.bokeh);
+
+        // Reused captures skip the blit (and its scissor reset); make sure a
+        // scissor left by an earlier pass cannot clip the glass draw. The
+        // per-damage-rect draw below sets its own rects and disables at end.
+        g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
 
         // 3. Glass quad over the pill rect. UV mapping is normalized against
         // the captured region, so half-res and full-res agree exactly.
@@ -1414,8 +1521,8 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             glActiveTexture(GL_TEXTURE0);
             // Bokeh output shares L0's size and UV contract: sample it directly.
             // Falls back to L0 when bokeh alloc failed.
-            const bool useBokeh = bokehOn && m_halfT && m_halfT->getTexture();
-            const auto& uBlurFb = useBokeh ? m_halfT : m_halfA;
+            const bool useBokeh = bokehOn && cap.t && cap.t->getTexture();
+            const auto& uBlurFb = useBokeh ? cap.t : cap.a;
             uBlurFb->getTexture()->bind();
             uBlurFb->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             uBlurFb->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -1439,7 +1546,7 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             // texture is half-res, or enabling bokeh would double the grain
             // and CA tap spacing (bokeh shares L0's UV contract, not its
             // texel density).
-            glUniform2f(m_gu.texel, 1.0f / (float)m_halfA->m_size.x, 1.0f / (float)m_halfA->m_size.y);
+            glUniform2f(m_gu.texel, 1.0f / (float)cap.a->m_size.x, 1.0f / (float)cap.a->m_size.y);
             glUniform3f(m_gu.baseColor, ((T.tint >> 24) & 0xFF) / 255.f, ((T.tint >> 16) & 0xFF) / 255.f,
                         ((T.tint >> 8) & 0xFF) / 255.f);
             glUniform1f(m_gu.power, T.power);
@@ -1464,11 +1571,10 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             if (rimOn) {
                 rimAngle = lg::rimAngleFor(CBox{lp.x, lp.y, lp.w, lp.h}, lg::cursorLocal(monitor), rimAngle, m_rimFollow[pillIdx]);
                 if (m_rimFollow[pillIdx].init && std::isfinite(rimPrev) && std::abs(rimAngle - rimPrev) > 0.01f) {
-                    const float inv = 1.0f / monitor->m_scale;
-                    const float pad = 10.0f;
-                    g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + (lp.x - pad) * inv,
-                                                    monitor->m_position.y + (lp.y - pad) * inv,
-                                                    (lp.w + pad * 2.0f) * inv, (lp.h + pad * 2.0f) * inv});
+                    // Only the rim band can change; damage it, not the pill.
+                    const float rimWpx = std::max(0.75f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f) * (float)monitor->m_scale);
+                    const float bevWpx = std::max((7.0f + 3.5f * std::log(1.0f + std::min(lp.w, lp.h) / 30.0f)) * 1.5f, 4.0f);
+                    lg::damageEdgeBands(monitor, CBox{lp.x, lp.y, lp.w, lp.h}, (double)std::max(bevWpx, rimWpx * 8.0f) + 2.0);
                 }
             }
             glUniform1f(m_gu.rimLight, rimOn ? 1.0f : 0.0f);
@@ -1562,8 +1668,8 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
                 glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
                 g_pHyprRenderer->setViewport(0, 0, (int)callerSize.x, (int)callerSize.y);
                 glActiveTexture(GL_TEXTURE0);
-                const bool useRBokeh = bokehOn && m_halfT && m_halfT->getTexture();
-                const auto& rBlurFb = useRBokeh ? m_halfT : m_halfA;
+                const bool useRBokeh = bokehOn && cap.t && cap.t->getTexture();
+                const auto& rBlurFb = useRBokeh ? cap.t : cap.a;
                 rBlurFb->getTexture()->bind();
                 rBlurFb->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 rBlurFb->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -1871,6 +1977,8 @@ void CGlassLayer::drawRim(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         glUniform1f(m_ru.rimAngle, rimAngle);
         glUniform1f(m_ru.rimSplay, rimSplay);
         glUniform1f(m_ru.rimShade, rimShade);
+        glUniform1f(m_ru.rimAtInner, 0.0f);
+        glUniform1f(m_ru.rimShift, 0.0f);
 
         glBindVertexArray(m_vao);
         lg::drawPerDamageRect(ctx, m_rimCapBox, [] { glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); });

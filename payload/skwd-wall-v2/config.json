@@ -33,5 +33,8 @@
     "enabled": false,
     "shader": "fade",
     "durationMs": 400
+  },
+  "weRender": {
+    "fps": 60
   }
 }

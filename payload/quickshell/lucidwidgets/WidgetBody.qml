@@ -14,6 +14,43 @@ Item {
     // the card drawn as a full pill rather than a rounded rectangle
     property bool pill: false
 
+    // Open a link with the launch placeholder growing out of `item`, the
+    // element that was pressed. `board` is the full-output widget deck, so
+    // its coordinates plus the screen origin are screen coordinates.
+    function openExternalUrl(url, item, opts) {
+        if (!url)
+            return false;
+
+        opts = opts || {};
+        var board = body.host ? body.host.board : null;
+        var screenName = board ? String(board.screenName || "") : (body.host ? String(body.host.screenName || "") : "");
+        var screen = Widgets.screenNamed(screenName);
+        if (!screen && Quickshell.screens.length > 0)
+            screen = Quickshell.screens[0];
+
+        var rect = null;
+        if (item && board && screen) {
+            var p = item.mapToItem(board, 0, 0);
+            rect = {
+                "x": screen.x + p.x,
+                "y": screen.y + p.y,
+                "width": Math.max(1, item.width),
+                "height": Math.max(1, item.height)
+            };
+        }
+
+        return Launch.openUrl(url, {
+            "command": opts.command || "",
+            "title": opts.title || "Browser",
+            "icon": opts.icon || "web-browser",
+            "rect": rect,
+            "screen": screen,
+            "wmClass": opts.wmClass || "",
+            "wmClasses": opts.wmClasses || [],
+            "timeoutMs": opts.timeoutMs > 0 ? opts.timeoutMs : 2500
+        });
+    }
+
     readonly property string variant: body.host ? body.host.wvariant : ""
     readonly property string uid: body.host ? body.host.uid : ""
     readonly property bool hovered: body.host ? body.host.hovered : false

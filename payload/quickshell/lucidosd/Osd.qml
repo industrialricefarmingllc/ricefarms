@@ -570,7 +570,7 @@ PanelWindow {
     }
 
     Timer {
-        interval: 400
+        interval: 1200
         running: osdWindow.ready && ledFiles.instances.length > 0
         repeat: true
         triggeredOnStart: true

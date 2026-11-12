@@ -11,10 +11,12 @@
 ?? liquidglass-perf-20261104-1733.so
 ?? liquidglass-perf-20261104-1736.so
 ?? liquidglass-perf-20261106.so
+?? liquidglass-perf-20261112.so
 ?? liquidglass-rimlight-20261111.so
 ?? liquidglass-rimlight-20261112.so
 ?? liquidglass-rimwidgets-20261112.so
 ?? liquidglass-rimwidgets-20261112b.so
+?? liquidglass-rimwidgets-20261112c.so
 ?? liquidglass-rimwidgets-washmul-20261112.so
 ?? liquidglass-rimwidgets-washmul-diag-20261112.so
 ?? liquidglass-wash.so

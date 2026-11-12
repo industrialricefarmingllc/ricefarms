@@ -17,10 +17,15 @@ Item {
     id: root
 
     property var probe: ({})
+    property string lastEval: ""
     property string status: "Opening Duolingo…"
     property bool completed: false
     property bool pageLoaded: false
     property bool manualHome: false
+    // which output this warm view belongs to
+    property string screenName: ""
+    // only the view on the current lesson output may probe or complete
+    readonly property bool currentLesson: root.screenName === "" || root.screenName === GateCore.lessonTargetScreen
     property string evalResult: ""
     readonly property string placeUrl: "https://www.duolingo.com/learn"
     readonly property string loginUrl: "https://www.duolingo.com/login"
@@ -30,7 +35,9 @@ Item {
     Component.onCompleted: {
         view.profile = GateWeb.profile;
         view.settings.showScrollBars = false;
-        root.open(GateCore.lessonUrl);
+        view.settings.scrollAnimatorEnabled = true;
+        if (root.screenName === "" || root.screenName === GateCore.lessonTargetScreen)
+            root.open(GateCore.lessonUrl);
         console.log("lucid-gate: lesson created");
     }
     Component.onDestruction: {
@@ -42,7 +49,7 @@ Item {
         target: GateCore
 
         function onLessonRequestChanged() {
-            if (GateCore.lessonOpen)
+            if (GateCore.lessonOpen && root.currentLesson)
                 root.open(GateCore.lessonUrl);
         }
     }
@@ -53,6 +60,9 @@ Item {
         root.manualHome = false;
         root.probe = ({});
         root.status = "Opening Duolingo…";
+        if (root.currentLesson)
+            GateCore.lessonPageReady = false;
+
         const target = (url && String(url) !== "") ? String(url) : root.placeUrl;
         if (String(view.url) === target)
             view.reload();
@@ -63,7 +73,7 @@ Item {
     }
 
     function installProbe() {
-        if (root.completed || !GateCore.lessonOpen)
+        if (root.completed || !GateCore.lessonOpen || !root.currentLesson)
             return ;
 
         view.runJavaScript(probeInstall, (result) => {
@@ -76,7 +86,7 @@ Item {
     }
 
     function readProbe() {
-        if (view.loading || root.completed || !GateCore.lessonOpen)
+        if (view.loading || root.completed || !GateCore.lessonOpen || !root.currentLesson)
             return ;
 
         // drive the page-side tick from QML instead of trusting the page's
@@ -102,7 +112,11 @@ Item {
                 probeTimer.stop();
                 // the task is finished now; the extra two seconds are only
                 // for reading Duolingo's own summary before the card closes
-                GateCore.completeTask("duolingo");
+                if (GateCore.sessionFor("duolingo") !== null)
+                    GateCore.completeTask("duolingo");
+                else
+                    GateCore.completeManualDuolingo();
+
                 GateCore.lingerLesson(2000);
                 return ;
             }
@@ -129,59 +143,21 @@ Item {
         root.closeRequested();
     }
 
-    Item {
-        id: header
+    function goHome() {
+        root.manualHome = true;
+        view.runJavaScript("window.__lucidGate && (window.__lucidGate.pauseAuto = true)");
+        if (String(view.url) === root.placeUrl)
+            view.reload();
+        else
+            view.url = root.placeUrl;
+    }
 
-        z: 2
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: Theme.dp(52)
+    function goLogin() {
+        view.url = root.loginUrl;
+    }
 
-        Row {
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.dp(10)
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.dp(2)
-
-            IconButton {
-                icon: "home"
-                size: "s"
-                tooltip: "Duolingo home"
-                onClicked: {
-                    root.manualHome = true;
-                    view.runJavaScript("window.__lucidGate && (window.__lucidGate.pauseAuto = true)");
-                    if (String(view.url) === root.placeUrl)
-                        view.reload();
-                    else
-                        view.url = root.placeUrl;
-                }
-            }
-
-            IconButton {
-                icon: "person"
-                size: "s"
-                tooltip: "Log in to Duolingo"
-                onClicked: view.url = root.loginUrl
-            }
-
-            IconButton {
-                icon: "refresh"
-                size: "s"
-                tooltip: "Reload"
-                onClicked: view.reload()
-            }
-
-            IconButton {
-                icon: "close"
-                size: "s"
-                disabled: root.completed
-                tooltip: "Give up on this lesson"
-                onClicked: root.close()
-            }
-
-        }
-
+    function reloadView() {
+        view.reload();
     }
 
     SquircleClip {
@@ -212,6 +188,8 @@ Item {
             onLoadingChanged: (request) => {
                 if (request.status === WebEngineView.LoadSucceededStatus) {
                     root.pageLoaded = true;
+                    if (root.currentLesson)
+                        GateCore.lessonPageReady = true;
                     view.forceActiveFocus();
                     root.installProbe();
                 }
@@ -283,7 +261,7 @@ Item {
 
         interval: 750
         repeat: true
-        running: !root.completed && GateCore.lessonOpen && root.pageLoaded
+        running: !root.completed && GateCore.lessonOpen && root.pageLoaded && root.currentLesson
         triggeredOnStart: true
         onTriggered: root.readProbe()
     }
@@ -455,20 +433,20 @@ Item {
             return view.url;
         }
 
-        function reload(): string {
-            view.reload();
-            return "reloading";
-        }
-
-        function evalJs(script: string): string {
-            view.runJavaScript(script, (result) => {
-                root.evalResult = typeof result === "string" ? result : JSON.stringify(result);
+        function evalJs(code: string): string {
+            view.runJavaScript(code, (result) => {
+                root.lastEval = String(result);
             });
-            return "running";
+            return "ok";
         }
 
         function lastEval(): string {
-            return root.evalResult;
+            return root.lastEval;
+        }
+
+        function reload(): string {
+            view.reload();
+            return "reloading";
         }
 
         function login(): string {

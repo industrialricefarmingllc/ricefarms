@@ -83,9 +83,12 @@ WidgetBody {
         fetcher.running = true;
     }
 
-    function openProfile() {
+    function openProfile(item) {
         if (!w.preview && w.user !== "")
-            Quickshell.execDetached(["xdg-open", "https://github.com/" + w.user]);
+            w.openExternalUrl("https://github.com/" + w.user, item, {
+                "title": "GitHub",
+                "icon": "github"
+            });
 
     }
 
@@ -433,7 +436,7 @@ WidgetBody {
                             else if (w.hoverDay === cellBox.day)
                                 w.hoverDay = null;
                         }
-                        onClicked: w.openProfile()
+                        onClicked: w.openProfile(parent)
                     }
 
                 }
@@ -556,7 +559,7 @@ WidgetBody {
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: w.openProfile()
+                        onClicked: w.openProfile(parent)
                     }
 
                 }

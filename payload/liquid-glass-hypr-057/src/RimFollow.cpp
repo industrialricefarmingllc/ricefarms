@@ -92,7 +92,16 @@ float rimAngleFor(const CBox& fbBox, const Vector2D& cursor, float baseAngle, SR
 
     const float tau = std::max(getFloat("plugin:liquidglass:rim_follow_smoothing", 0.3f), 0.05f);
     const float alpha = 1.0f - std::exp(-dt / tau);
-    state.angle = wrap360(state.angle + shortest360(state.angle, target) * alpha);
+    const float diff = shortest360(state.angle, target);
+    // Snap once the remaining error is sub-visible. Without this the
+    // exponential never reaches the target, and the caller's "angle changed"
+    // damage gate keeps repainting the rim for seconds after the pointer
+    // stops. 0.5 deg changes the lit-edge dot product by <2e-3: invisible on a
+    // 1-2 px hairline, but it terminates the damage chain exactly.
+    if (std::abs(diff) < 0.5f)
+        state.angle = target;
+    else
+        state.angle = wrap360(state.angle + diff * alpha);
     return state.angle;
 }
 

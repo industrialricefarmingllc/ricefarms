@@ -136,6 +136,14 @@ WidgetBody {
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     smooth: true
+                    scale: w.hovered ? 1.06 : 1
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: Math.round(Theme.durShort * 1.5)
+                            easing.type: Theme.easeStandard
+                        }
+                    }
                 }
 
                 Icon {
@@ -144,6 +152,14 @@ WidgetBody {
                     name: modelData.icon || "developer_board"
                     size: Theme.dp(44)
                     color: Theme.primary
+                    scale: w.hovered ? 1.06 : 1
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: Math.round(Theme.durShort * 1.5)
+                            easing.type: Theme.easeStandard
+                        }
+                    }
                 }
 
                 function engage() {
@@ -179,7 +195,7 @@ WidgetBody {
         width: rewardRow.implicitWidth + Theme.dp(16)
         height: Theme.dp(22)
         radius: height / 2
-        fillColor: Theme.secondaryContainer
+        fillColor: Theme.primary
 
         Row {
             id: rewardRow
@@ -191,7 +207,7 @@ WidgetBody {
                 anchors.verticalCenter: parent.verticalCenter
                 name: "memory"
                 size: Theme.dp(12)
-                color: Theme.fgSecondaryContainer
+                color: Theme.fgPrimary
             }
 
             LText {
@@ -200,7 +216,7 @@ WidgetBody {
                 anchors.verticalCenter: parent.verticalCenter
                 text: w.current !== null ? String(w.current.reward || 0) : ""
                 role: "labelMedium"
-                color: Theme.fgSecondaryContainer
+                color: Theme.fgPrimary
                 tabular: true
             }
 

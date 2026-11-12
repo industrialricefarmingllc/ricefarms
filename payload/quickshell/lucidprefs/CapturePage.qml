@@ -357,14 +357,14 @@ Column {
         SettingRow {
             title: Tr.t("Frame rate")
             resetKey: "recordFps"
-            description: Prefs.recordFps > 0 ? Tr.t("A steady ") + Prefs.recordFps + Tr.t(" frames a second, which video editors like best.") : Tr.t("Frames are taken as the screen changes, which keeps files small. Some video editors prefer a steady rate.")
+            description: Tr.t("A steady ") + Prefs.recordFps + Tr.t(" frames a second. A lower rate is lighter on the machine; 30 suits most recordings.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(260), fitWidth)
                 current: String(Prefs.recordFps)
                 options: [{
-                    "key": "0",
-                    "label": "Adaptive"
+                    "key": "24",
+                    "label": "24"
                 }, {
                     "key": "30",
                     "label": "30"
@@ -382,7 +382,7 @@ Column {
         SettingRow {
             title: Tr.t("Encoder")
             resetKey: "recordEncoder"
-            description: Prefs.recordEncoder === "software" ? Tr.t("x264 on the processor: works everywhere, uses more power.") : (Prefs.recordEncoder === "hardware" ? Tr.t("The graphics card's own encoder, and nothing else: if it cannot start, the recording fails.") : Tr.t("The graphics card's own encoder (VA-API), and x264 on the processor if that cannot start."))
+            description: Prefs.recordEncoder === "software" ? Tr.t("x264 on the processor: works everywhere, uses more power.") : Tr.t("The graphics card's own encoder (Vulkan or VA-API), and x264 on the processor if it cannot start.")
             showDivider: false
 
             M3Segmented {

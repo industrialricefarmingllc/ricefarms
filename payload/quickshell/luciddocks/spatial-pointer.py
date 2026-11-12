@@ -63,14 +63,28 @@ def main() -> int:
     if not PATH or not os.path.exists(os.path.dirname(PATH)):
         return 1
 
+    write_to = ""
+    for index, arg in enumerate(sys.argv):
+        if arg == "--write" and index + 1 < len(sys.argv):
+            write_to = sys.argv[index + 1]
+
     last = None
     while True:
         now = position()
         if now is not None and now != last:
             last = now
-            sys.stdout.write(f"{now[0]} {now[1]}\n")
+            line = f"{now[0]} {now[1]}\n"
+            sys.stdout.write(line)
             sys.stdout.flush()
-        time.sleep(1.0 / 30.0)
+            if write_to:
+                temporary = write_to + ".tmp"
+                try:
+                    with open(temporary, "w", encoding="utf-8") as handle:
+                        handle.write(line)
+                    os.replace(temporary, write_to)
+                except OSError:
+                    pass
+        time.sleep(1.0 / 60.0)
 
 
 if __name__ == "__main__":

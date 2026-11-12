@@ -586,6 +586,27 @@ detect_mode
 # most one transition and then becomes the one left on screen.
 WP_PID=""
 
+# Lucid's own depth engine can give a scene's static background a fixed
+# parallax. unpack + classify the scene, then write the sidecar the patched
+# skwd renderer reads when it starts. The result is cached beside the depth
+# map, so this is instant after the first apply. Non-static scenes get no
+# sidecar and keep skwd's normal renderer.
+prepare_scene_depth() {
+    [[ "$SKWD" == 1 && "$SKWD_TARGET" == we:* ]] || return 0
+    local scene="${SKWD_TARGET#we:}"
+    local dir="$CACHE_DIR/liquid-shell/we-depth"
+    local script="$HOME/.config/quickshell/luciddocks/we-scene.py"
+    [[ -n "$scene" && -x "$script" ]] || return 0
+    local spatial
+    spatial=$(jq -r '.spatialWallpapers // true' "$PREFS" 2>/dev/null || echo true)
+    if [[ "$spatial" != "true" ]]; then
+        rm -f "$dir/$scene.json"
+        return 0
+    fi
+    # A cold depth model can take a while; never wedge the iris on it.
+    timeout 70 /usr/bin/python3 "$script" --scene "$scene" --prepare-depth >/dev/null 2>&1 || true
+}
+
 # A freshly installed Workshop scene exists on disk before skwd's library has
 # scanned it. `skwd-helm apply we:<id>` then says "not found" and the first
 # click leaves the old wallpaper up (the second click works). Wait for the key
@@ -684,6 +705,7 @@ if [[ "${THEME_ONLY:-0}" != "1" ]]; then
             exec 8>"$CACHE_DIR/lucid/wallpaper.lock"
             flock 8
             if is_current; then
+                prepare_scene_depth
                 # A scene-to-scene swap reuses skwd's shared scene renderer,
                 # and that renderer keeps the first scene's canvas size. Going
                 # from a 320x200 pixel-art scene to a 4K one then shows the 4K

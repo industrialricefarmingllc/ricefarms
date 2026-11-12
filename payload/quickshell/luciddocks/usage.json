@@ -1,24 +1,25 @@
 {
     "counts": {
-        "an anime game launcher": 3,
+        "an anime game launcher": 5,
         "discord": 5,
-        "discord 2": 12,
-        "helium browser": 28,
+        "discord 2": 24,
+        "discord 3": 3,
+        "helium browser": 47,
         "mod organizer 2": 6,
         "portmaster": 7,
         "retroarch": 1,
         "spotify (launcher)": 3,
         "steam": 9,
         "veracrypt": 3,
-        "youtube music": 6
+        "youtube music": 20
     },
     "emojiCounts": {
         "emoji-106": 1,
-        "emoji-225": 1,
+        "emoji-225": 2,
         "emoji-86": 1,
         "server-1046982663707312228": 2,
         "server-1151170108115402792": 1,
-        "server-1167797407875088475": 2,
+        "server-1167797407875088475": 3,
         "server-1186490688683126936": 1,
         "server-1203742071505158166": 1,
         "server-1286900542043324427": 1,
@@ -28,10 +29,10 @@
         "server-1420080734697295884": 3,
         "server-1451101208113578024": 1,
         "server-1551840651564425257": 4,
-        "server-625238129372299275": 1,
+        "server-625238129372299275": 2,
         "server-690359908063117352": 1,
         "server-700837446719504454": 1,
-        "server-816667598292910081": 2,
+        "server-816667598292910081": 3,
         "server-936485141684051979": 1
     }
 }

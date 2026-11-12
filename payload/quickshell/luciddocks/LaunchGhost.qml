@@ -1244,8 +1244,9 @@ Item {
         root.pinToken = root.token;
         root.pinClass = "";
         root.pinned = ({});
-        root.pinning = root.pinWs !== "";
-        pinTimer.restart();
+        root.pinning = root.req.pin !== false && root.pinWs !== "";
+        if (root.pinning)
+            pinTimer.restart();
 
         root.stats.exec = Date.now();
         root.traceLog("exec " + root.req.command);
@@ -1449,6 +1450,12 @@ Item {
             return true;
         if (root.req.base && root.classesMatch(cls, root.req.base))
             return true;
+        if (root.req.wmClasses) {
+            for (var i = 0; i < root.req.wmClasses.length; i++) {
+                if (root.classesMatch(cls, root.req.wmClasses[i]))
+                    return true;
+            }
+        }
         return false;
     }
 
@@ -1714,20 +1721,25 @@ Item {
         root.pinWs = root.targetWs;
         root.pinToken = root.token;
         root.pinClass = String(cls || "");
-        root.pinning = root.pinWs !== "";
+        root.pinning = root.req.pin !== false && root.pinWs !== "";
         root.pinned[addr] = true;
-        if (!pinTimer.running)
+        if (root.pinning && !pinTimer.running)
             pinTimer.restart();
 
         // an app can override the focused workspace (its own rule, a stale
         // rule, or a slow map that lands after the press). pin it to the one
         // the launch belongs to before the tile is released.
         if (root.targetWs !== "" && ws !== "" && ws !== root.targetWs) {
-            root.traceLog("rehome " + addr + " " + ws + " -> " + root.targetWs);
-            root.stats.rehomed = [ws, root.targetWs];
-            // never drag the user back if they already left the launch
-            // workspace while the app was starting
-            root.send("dispatch hl.dsp.window.move({ workspace = \"" + root.targetWs + "\", window = \"address:" + addr + "\", follow = " + (root.launchWorkspaceShown ? "true" : "false") + " })");
+            if (root.req.rehome === false) {
+                root.traceLog("no-rehome " + addr + " " + ws);
+                root.stats.rehomed = false;
+            } else {
+                root.traceLog("rehome " + addr + " " + ws + " -> " + root.targetWs);
+                root.stats.rehomed = [ws, root.targetWs];
+                // never drag the user back if they already left the launch
+                // workspace while the app was starting
+                root.send("dispatch hl.dsp.window.move({ workspace = \"" + root.targetWs + "\", window = \"address:" + addr + "\", follow = " + (root.launchWorkspaceShown ? "true" : "false") + " })");
+            }
         }
 
         if (root.launchWorkspaceShown)

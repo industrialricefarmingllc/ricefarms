@@ -94,6 +94,15 @@ class GateTest(unittest.TestCase):
         self.gate("complete", "focus")
         self.assertEqual(self.balance(), 50)
 
+    def test_credit_is_deduped_by_ref(self):
+        self.gate("credit", "40", "--ref", "duolingo-xp-1")
+        self.assertEqual(self.balance(), 40)
+        # a repeated poll for the same XP step must not pay twice
+        self.gate("credit", "40", "--ref", "duolingo-xp-1")
+        self.assertEqual(self.balance(), 40)
+        self.gate("credit", "10", "--ref", "duolingo-xp-2")
+        self.assertEqual(self.balance(), 50)
+
     def test_spending_unlocks_without_a_task(self):
         self.gate("start", "focus")
         self.gate("complete", "focus")

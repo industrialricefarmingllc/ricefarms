@@ -21,6 +21,12 @@ then the original `renderLayer` draws text/icons crisply on top.
 Total ≈ **1ms/frame** at 1440p. Nothing is read back, encoded, or written
 to disk. Ever.
 
+> **2026-11-12 audit (v0.8.36):** every material instance, its measured
+> per-occurrence cost, and the frequency model are in
+> [`PERFORMANCE-20261112.md`](PERFORMANCE-20261112.md). This pass adds a
+> blur-derived capture resolution, a per-pill content-only capture cache,
+> a pill interior fast path, and edge-band-only cursor-rim damage.
+
 ## Layout
 
 - `shaders/glass.frag` — the look. Ported 1:1 from the Quickshell

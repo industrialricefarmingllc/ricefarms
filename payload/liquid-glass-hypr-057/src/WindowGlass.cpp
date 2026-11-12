@@ -93,7 +93,7 @@ struct SWindowBackdrop {
         if (sw <= 0 || sh <= 0)
             return;
         // capDiv MUST be the divisor actually used below: the window path
-        // reads this texture with source coords divided by T.capDiv (same
+        // reads this texture with source coords divided by the same divisor (see
         // value), so a mismatch scales the whole backdrop. This used to
         // clamp to 2 while still reporting capDiv=1: with capture_scale=1
         // every shared-path pane sampled a 2x-larger region and showed a
@@ -234,7 +234,13 @@ void onWindowStage(const Event::SRenderStageEvent& ev) {
     // every glass pass element will be culled; don't capture a backdrop.
     if (!lg::windowGlassNeedsFrame(mon, dmg))
         return;
-    const int capDiv = std::clamp((int)std::round(lg::getFloat("plugin:liquidglass:capture_scale", 4.0f)), 1, 4);
+    // Same divisor the window draw will pick for this monitor (blur-derived);
+    // the shared texture's UV contract must match exactly.
+    const int capDiv = lg::effectiveCapDiv(
+        lg::getFloat("plugin:liquidglass:blur_radius", 2.0f),
+        std::max(1, std::min(3, (int)std::round(lg::getFloat("plugin:liquidglass:blur_iters", 2.0f)))),
+        mon->m_scale,
+        std::clamp((int)std::round(lg::getFloat("plugin:liquidglass:capture_scale", 4.0f)), 1, 4));
     auto      bd = backdropFor(mon->m_id);
     // Reuse the previous capture when the damage is confined to a glass pane
     // and nothing that feeds the pre-window backdrop can have moved.
@@ -708,6 +714,19 @@ static bool boxEqual(const CBox& a, const CBox& b) {
         std::fabs(a.h - b.h) < 1e-3;
 }
 
+bool lg::windowOverlapsRegion(MONITORID mon, const CBox& fbRegion) {
+    if (fbRegion.w <= 0 || fbRegion.h <= 0)
+        return false;
+    auto it = WINDOW_BOXES->find(mon);
+    if (it == WINDOW_BOXES->end())
+        return false;
+    for (const auto& box : it->second) {
+        if (!box.intersection(fbRegion).empty())
+            return true;
+    }
+    return false;
+}
+
 void lg::noteWindowBox(PHLWINDOW win, PHLMONITOR mon) {
     if (!win || !mon || !win->mapped() || win->isHidden())
         return;
@@ -1165,12 +1184,15 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
         // on a 2.4x 4K panel as on the 1.6x primary for same-size windows.
         const float radius = T.userRadius * (overRim ? 2.0f : 1.0f);
         // Resolution-corrected like layers (see Glass.cpp): identical look
-        // at any capture_scale (2 = old).
+        // at any capture_scale (2 = old). The divisor follows the requested
+        // blur (lg::effectiveCapDiv): capture/chain/bokeh drop 4x at the live
+        // radius with <1/255 output change.
+        const int capDiv = lg::effectiveCapDiv(T.userRadius, T.userPasses, (float)monitor->m_scale, T.capDiv);
         const float effR = radius * std::sqrt((float)T.userPasses) * 0.5f * (float)monitor->m_scale
-            * (2.0f / (float)T.capDiv);
-        // (Skip threshold in screen-space units like layers, so behavior is
-        // identical at any capture_scale.)
-        const int passes = effR < 0.1f * (2.0f / (float)T.capDiv) ? 0 : T.userPasses;
+            * (2.0f / (float)capDiv);
+        // Sub-working-texel taps: the down/up blit is the blur. Skip the chain
+        // (4 passes of driver/FBO overhead) entirely.
+        const int passes = effR < 0.25f ? 0 : T.userPasses;
         const float bokeh = lg::getFloat("plugin:liquidglass:bokeh", 0.0f);
         const bool bokehOn = bokeh > 0.01f;
 
@@ -1184,7 +1206,7 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
             const int rw = rx1 - rx0, rh = ry1 - ry0;
             if (rw >= 8 && rh >= 8) {
                 // Working res: capture_scale divisor (see Glass.cpp).
-                const int hw = std::max(1, rw / T.capDiv), hh = std::max(1, rh / T.capDiv);
+                const int hw = std::max(1, rw / capDiv), hh = std::max(1, rh / capDiv);
                 ensureKawase(hw, hh, caller->m_drmFormat);
                 // Chain scratch lazy: only when the chain below runs
                 // (over-rim fixed chain, or passes>0). Small sharp-capture
@@ -1225,7 +1247,7 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                         m_cacheMon == monitor->m_id && std::fabs(m_cacheMonScale - monitor->m_scale) < 1e-4 &&
                         m_cacheMonSize.x == monitor->m_transformedSize.x &&
                         m_cacheMonSize.y == monitor->m_transformedSize.y && boxEqual(m_cacheBox, d.box) &&
-                        m_cacheCapDiv == T.capDiv && m_cachePasses == passes && m_cacheHw == hw && m_cacheHh == hh &&
+                        m_cacheCapDiv == capDiv && m_cachePasses == passes && m_cacheHw == hw && m_cacheHh == hh &&
                         m_cacheBokehOn == bokehOn && (!bokehOn || std::fabs(m_cacheBokeh - bokeh) < 1e-4) &&
                         m_cacheTuneGen == lg::tuneGeneration();
 
@@ -1238,9 +1260,9 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                         // the per-window read-after-write pipeline drain.
                         if (d.useShared) {
                             auto bd = backdropFor(monitor->m_id);
-                            if (bd && bd->valid && bd->capDiv == T.capDiv && bd->capture && bd->capture->getTexture()) {
-                                const int sx0 = rx0 / T.capDiv, sy0 = ry0 / T.capDiv;
-                                const int sw = std::max(1, rw / T.capDiv), sh = std::max(1, rh / T.capDiv);
+                            if (bd && bd->valid && bd->capDiv == capDiv && bd->capture && bd->capture->getTexture()) {
+                                const int sx0 = rx0 / capDiv, sy0 = ry0 / capDiv;
+                                const int sw = std::max(1, rw / capDiv), sh = std::max(1, rh / capDiv);
                                 if (sx0 >= 0 && sy0 >= 0 && sx0 + sw <= bd->capW && sy0 + sh <= bd->capH) {
                                     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(bd->capture));
                                     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_halfA));
@@ -1306,7 +1328,7 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                             m_cacheMon = monitor->m_id;
                             m_cacheMonScale = monitor->m_scale;
                             m_cacheMonSize = monitor->m_transformedSize;
-                            m_cacheCapDiv = T.capDiv;
+                            m_cacheCapDiv = capDiv;
                             m_cachePasses = passes;
                             m_cacheHw = hw;
                             m_cacheHh = hh;
@@ -1389,11 +1411,12 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                         if (rimOn) {
                             rimAngle = lg::rimAngleFor(d.box, lg::cursorLocal(monitor), rimAngle, m_rimFollow);
                             if (m_rimFollow.init && std::isfinite(rimPrev) && std::abs(rimAngle - rimPrev) > 0.01f) {
-                                const float inv = 1.0f / monitor->m_scale;
-                                const float pad = 10.0f;
-                                g_pHyprRenderer->damageBox(
-                                    CBox{monitor->m_position.x + d.box.x * inv - pad, monitor->m_position.y + d.box.y * inv - pad,
-                                         d.box.w * inv + pad * 2.0f, d.box.h * inv + pad * 2.0f});
+                                // Only the rim band changes with the light angle:
+                                // damage four strips, not the whole 4K pane (the
+                                // filter runs for ~0.3 s after each pointer move).
+                                const float rimWpx = std::max(0.75f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f) * (float)monitor->m_scale);
+                                const float bevWpx = std::max((7.0f + 3.5f * std::log(1.0f + std::min((float)d.box.w, (float)d.box.h) / 30.0f)) * 1.5f, 4.0f);
+                                lg::damageEdgeBands(monitor, d.box, (double)std::max(bevWpx, rimWpx * 8.0f) + 2.0);
                             }
                         }
                         glUniform1f(m_gu.rimLight, rimOn ? 1.0f : 0.0f);

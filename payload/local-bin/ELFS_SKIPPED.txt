@@ -3,6 +3,7 @@ ELFS_SKIPPED.txt ELF-skip
 kos-mesh-cache ELF-skip
 loupe ELF-skip
 lucidcap ELF-skip
+skwd-wall-vk-lucid ELF-skip
 stacktest ELF-skip
 steamie ELF-skip
 steamie.old ELF-skip

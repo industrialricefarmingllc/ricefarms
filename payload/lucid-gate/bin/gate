@@ -153,6 +153,7 @@ def empty_state(cfg: dict) -> dict:
         "balance": int(cfg.get("starting_balance", 0)),
         "gates": {},
         "sessions": {},
+        "awards": {},
         "history": [],
         "stats": {"earned": 0, "spent": 0, "completed": 0},
     }
@@ -167,7 +168,7 @@ def load_state(cfg: dict) -> dict:
         return empty_state(cfg)
     state = empty_state(cfg)
     state.update(data)
-    for key in ("gates", "sessions"):
+    for key in ("gates", "sessions", "awards"):
         if not isinstance(state.get(key), dict):
             state[key] = {}
     if not isinstance(state.get("history"), list):
@@ -195,6 +196,16 @@ def save_state(state: dict, cfg: dict) -> None:
             if entry.get("state") in ("granted", "cancelled", "done", "abandoned") and stamp:
                 if now - float(stamp) > ttl:
                     del bucket[key]
+    # keep the award dedupe table bounded; refs older than a month cannot
+    # arrive again from a live XP poll
+    awards = state.get("awards") or ({})
+    for key in list(awards.keys()):
+        stamp = float((awards[key] or {}).get("at", 0))
+        if now - stamp > 60 * 60 * 24 * 30:
+            del awards[key]
+    if len(awards) > 1000:
+        for key in sorted(awards, key=lambda k: awards[k].get("at", 0))[:len(awards) - 1000]:
+            del awards[key]
     state["tasks"] = resolved_tasks(cfg)
     state["place_costs"] = cfg["place_costs"]
     state["default_cost"] = cfg["default_cost"]
@@ -337,6 +348,19 @@ def cancel_gate(state: dict, gate_id: str) -> dict:
     return {"gate": gate}
 
 
+def credit_account(state: dict, amount: int, ref: str, label: str) -> dict:
+    amount = max(0, int(amount))
+    awards = state.setdefault("awards", {})
+    if ref and ref in awards:
+        return {"award": awards[ref], "balance": state["balance"], "duplicate": True}
+    award = {"amount": amount, "at": time.time(), "label": label or "award"}
+    if ref:
+        awards[ref] = award
+    state["balance"] = int(state["balance"]) + amount
+    state["stats"]["earned"] = int(state["stats"].get("earned", 0)) + amount
+    return {"award": award, "balance": state["balance"], "duplicate": False}
+
+
 def abandon_session(state: dict, session_id: str) -> dict:
     session = state["sessions"].get(session_id)
     if session is None:
@@ -410,6 +434,16 @@ class Daemon:
 
             if cmd == "abandon":
                 result = abandon_session(self.state, str(req.get("session") or ""))
+                save_state(self.state, self.cfg)
+                return {"ok": True, **result}
+
+            if cmd == "credit":
+                result = credit_account(
+                    self.state,
+                    int(req.get("amount") or 0),
+                    str(req.get("ref") or ""),
+                    str(req.get("label") or ""),
+                )
                 save_state(self.state, self.cfg)
                 return {"ok": True, **result}
 
@@ -720,6 +754,15 @@ def cmd_cancel(args) -> int:
     return 0
 
 
+def cmd_credit(args) -> int:
+    resp = call({"cmd": "credit", "amount": args.amount, "ref": args.ref, "label": args.label})
+    if resp.get("duplicate"):
+        print(f"already credited ({resp['balance']} Compute)")
+    else:
+        print(f"+{resp['award']['amount']} Compute  (balance {resp['balance']})")
+    return 0
+
+
 def cmd_abandon(args) -> int:
     resp = call({"cmd": "abandon", "session": args.session})
     print(f"abandoned {resp['session']['task']}")
@@ -788,6 +831,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("cancel", help="give up on a gate")
     p.add_argument("gate")
     p.set_defaults(func=cmd_cancel)
+
+    p = sub.add_parser("credit", help="add Compute directly (deduped by --ref)")
+    p.add_argument("amount", type=int)
+    p.add_argument("--ref", default="")
+    p.add_argument("--label", default="award")
+    p.set_defaults(func=cmd_credit)
 
     p = sub.add_parser("abandon", help="stop a running task without credit")
     p.add_argument("session")

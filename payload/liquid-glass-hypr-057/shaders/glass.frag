@@ -456,6 +456,45 @@ void main() {
         }
     }
 #endif // LG_WINDOW
+#ifndef LG_WINDOW
+    // Pill interior fast path: same proof as the window one. Beyond `edgePx`
+    // the lens is numerically identity (dist > 0.35 * rMax makes the
+    // refraction offset sub-texel), the rim/glow are edge-masked to zero, the
+    // shadow is gated by pillA, and the bevel trio has saturated. Only the
+    // blurred backdrop, tint, dither and the top sheen remain. Large widget
+    // cards are ~30% interior; this cuts their per-pixel cost ~2.3x there.
+    {
+        float rMaxFast = max(min(uBox.x, uBox.y) * 0.5, 1.0);
+        if (sdPx < -max(edgePx, rMaxFast * 0.35)) {
+            vec2 ditherFast = vec2(hash(gl_FragCoord.xy * 0.009) - 0.5,
+                                   hash(gl_FragCoord.xy * 0.011 + vec2(7.0, 13.0)) - 0.5)
+                            * 0.6 * uTexel;
+            vec4 bg = texture(uBlur, clamp(uCapOrigin + uv * uCapScale + ditherFast, vec2(0.001), vec2(0.999)));
+            if (bg.a < 0.01) {
+                bg = vec4(uBaseColor, 1.0);
+            } else {
+                float tint = clamp(uOpacity, 0.0, 1.0);
+                bg.rgb = mix(bg.rgb, uBaseColor, tint);
+                bg.a = 1.0;
+            }
+            if (uNoise > 0.0005) {
+                vec3 n = vec3(hash12(gl_FragCoord.xy * 0.009) - 0.5,
+                              hash12(gl_FragCoord.xy * 0.013 + vec2(17.0, 31.0)) - 0.5,
+                              hash12(gl_FragCoord.xy * 0.011 + vec2(43.0, 7.0)) - 0.5);
+                bg.rgb += n * uNoise * 3.5;
+            }
+            float nDitherFast = (hash(gl_FragCoord.xy * 0.007) - 0.5) * 0.015;
+            bg.rgb += vec3(nDitherFast);
+            if (abs(uGlowB) > 0.001)
+                bg.rgb *= 1.0 + uGlowB;
+            float top = 1.0 - smoothstep(0.0, 0.60, uv.y);
+            bg.rgb = overlay(bg.rgb, clamp(vec3(0.5) + vec3(top * 0.20) * 0.5, 0.0, 1.0));
+            bg.rgb = clamp(bg.rgb, 0.0, 1.0);
+            fragColor = vec4(bg.rgb, 1.0);
+            return;
+        }
+    }
+#endif // LG_WINDOW
     float pillA = 1.0 - smoothstep(-1.0, 1.0, sdPx);
 #ifndef LG_WINDOW
     // PERF (over-rim): interior pixels have rimA~0 (transparent) but would
@@ -686,14 +725,14 @@ void main() {
         // Screen y grows down; negate sin so 90° means "light from above".
         vec2 Lxy = normalize(vec2(cos(ang), -sin(ang)));
         vec2 Lxy2 = -Lxy; // second simulated source: opposite corner
-        vec2 rn = normalize(glowN + vec2(1e-5));
+        vec2 rn = glowN;
         float splay = clamp(uRimSplay, 0.0, 1.0);
 
         // Apple lights glass from two opposite corners (top-left key +
         // bottom-right fill). max() lights both facing edges and leaves the
         // top-right / bottom-left flanks at the splay level.
-        float lit1 = splay + (1.0 - splay) * pow(max(dot(rn, Lxy), 0.0), 2.0);
-        float lit2 = splay + (1.0 - splay) * pow(max(dot(rn, Lxy2), 0.0), 2.0);
+        float lit1 = splay + (1.0 - splay) * max(dot(rn, Lxy), 0.0) * max(dot(rn, Lxy), 0.0);
+        float lit2 = splay + (1.0 - splay) * max(dot(rn, Lxy2), 0.0) * max(dot(rn, Lxy2), 0.0);
         // Local sources: the highlight fades along each edge away from its
         // lit corner instead of running uniformly down the whole side.
         vec2 pn = (uv - vec2(0.5)) * 2.0;

@@ -33,7 +33,8 @@ PanelWindow {
     property int recordSeconds: 0
     property bool micOn: true
     property bool headphoneOn: true
-    property string recordSaveDir: Quickshell.env("HOME") + "/Videos"
+    // Settings > Capture's folder, ~/Videos when it is left empty
+    property string recordSaveDir: Prefs.recordFolder !== "" ? Prefs.recordFolder : Quickshell.env("HOME") + "/Videos"
     property string recordPidFile: "/tmp/quickshell-wfrecorder.pid"
     property string lastRecordingFile: ""
     property var segmentFiles: []
@@ -373,26 +374,35 @@ function stopRecordingBackend() {
     }
 
     function recorderLaunchCmd(segFile, withAudio) {
-        // a render node existing does not mean VAAPI works: on this box
+        // A render node existing does not mean VAAPI works: on this box
         // opening it fails, and the recorder used to die right after Start
-        // while the bar kept counting up. probe the device first, then fall
+        // while the bar kept counting up. Probe an encoder first, then fall
         // back to libx264 rather than launching a recorder that exits at once.
+        // Vulkan comes first: it is the only hardware path that opens on this
+        // NVIDIA card, and it leaves the processor to the compositor.
         var cap = "'" + snapWindow.capBin + "'";
-        var args = " --monitor '" + snapWindow.outputName() + "' --fps 30 --quiet --output '" + segFile + "'";
+        var fps = Prefs.recordFps > 0 ? Math.round(Prefs.recordFps) : 30;
+        var args = " --monitor '" + snapWindow.outputName() + "' --fps " + fps + " --quiet --output '" + segFile + "'";
         // crop while recording, not after: lucidcap crops the physical frame
         // using the logical box and the monitor's logical size
         if (snapWindow.currentCrop !== "")
             args += " --crop '" + snapWindow.currentCrop + "' --logical " + Math.round(snapWindow.width) + "x" + Math.round(snapWindow.height);
         if (withAudio)
             args += " --audio wfrec_combined.monitor";
-        return "DRI=$(ls /dev/dri/renderD* 2>/dev/null | head -1); " +
-            "VAAPI=0; " +
-            "if [ -n \"$DRI\" ] && ffmpeg -hide_banner -loglevel error " +
+        var probe = "ffmpeg -hide_banner -loglevel error ";
+        var hardware = Prefs.recordEncoder !== "software" ? "if " + probe +
+            "-init_hw_device vulkan=vk -f lavfi -i color=black:s=64x64:d=0.1 " +
+            "-vf format=nv12,hwupload -c:v h264_vulkan -frames:v 1 -f null - >/dev/null 2>&1; then VK=1; fi; " +
+            "if [ \"$VK\" = 0 ] && [ -n \"$DRI\" ] && " + probe +
             "-init_hw_device \"vaapi=va:$DRI\" -f lavfi -i color=black:s=64x64:d=0.1 " +
-            "-frames:v 1 -f null - >/dev/null 2>&1; then VAAPI=1; fi; " +
+            "-frames:v 1 -f null - >/dev/null 2>&1; then VAAPI=1; fi; " : "";
+        return "DRI=$(ls /dev/dri/renderD* 2>/dev/null | head -1); VK=0; VAAPI=0; " +
+            hardware +
             // only now: the colour picker keeps working until frames flow
             snapWindow.snapRuleCmd(true) + "; " +
-            "if [ \"$VAAPI\" = 1 ]; then " +
+            "if [ \"$VK\" = 1 ]; then " +
+            cap + args + " --encoder h264_vulkan & " +
+            "elif [ \"$VAAPI\" = 1 ]; then " +
             cap + args + " --encoder h264_vaapi --device \"$DRI\" & " +
             "else " +
             cap + args + " & " +

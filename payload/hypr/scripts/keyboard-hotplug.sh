@@ -4,6 +4,14 @@
 set -e
 
 LOG="/tmp/keyboard-hotplug.log"
+# one watcher only: Hyprland start handlers and manual runs can otherwise
+# stack copies that each reload and act on the same hotplug event
+LOCK="/tmp/keyboard-hotplug.lock"
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  echo "[$(date '+%F %T')] another watcher holds $LOCK, exiting (pid $$)" | tee -a "$LOG"
+  exit 0
+fi
 echo "[$(date '+%F %T')] keyboard-hotplug watcher started (pid $$)" | tee -a "$LOG"
 
 # Ensure initial state is correct
@@ -24,9 +32,18 @@ fi
 
 # Also watch via inotify if available as fallback (for manual trigger)
 # Main loop: udev monitor
+last_action=0
 eval $UDEV_CMD 2>/dev/null | while read -r line; do
   # udevadm lines contain "add" or "remove" for input devices
   if echo "$line" | grep -qE "add|remove"; then
+    now=$(date +%s)
+    # one physical replug emits an event per interface and per device node
+    # (kbd, consumer control, ...). Settle on one reload instead of running
+    # the whole block once per event.
+    if [ $((now - last_action)) -lt 3 ]; then
+      continue
+    fi
+    last_action=$now
     echo "[$(date '+%F %T')] input hotplug: $line" | tee -a "$LOG"
     sleep 0.7
     # Refresh Hyprland - re-apply binds (super left/right, F15) for new device
@@ -36,15 +53,18 @@ eval $UDEV_CMD 2>/dev/null | while read -r line; do
     export XDG_RUNTIME_DIR=/run/user/1000
     hyprctl reload >/dev/null 2>&1 || echo "hyprctl reload failed" | tee -a "$LOG"
     echo "[$(date '+%F %T')] hyprctl reload done after hotplug" | tee -a "$LOG"
-    # Also ensure qs is still running (quickshell workspace pill)
-    # Use the same anchored check as the hyprland.lua watchdog: the service
-    # runs /usr/bin/qs, while a raw `qs` fallback does not match, which used
-    # to leave two shells (and two BlueZ adapters) alive at once.
-    if ! pgrep -f '^/usr/bin/qs$' >/dev/null 2>&1; then
-      if ! systemctl --user restart quickshell.service >/dev/null 2>&1; then
-        nohup /usr/bin/qs >/tmp/qs_hotplug.log 2>&1 &
+    # Also ensure qs is still running (quickshell workspace pill).
+    # The shell runs from qs-web, so its process is /usr/local/bin/quickshell;
+    # the old '^/usr/bin/qs$' check never matched and this block used to
+    # restart (SIGKILL) a perfectly healthy shell on every hotplug event,
+    # because Quickshell handles input hotplug itself. Only start it when it
+    # is really gone -- never restart it here.
+    if ! systemctl --user is-active --quiet quickshell.service \
+       && ! pgrep -f '^(/usr/local/bin/(qs|quickshell)|/usr/bin/qs)$' >/dev/null 2>&1; then
+      if ! systemctl --user start quickshell.service >/dev/null 2>&1; then
+        nohup /usr/local/bin/qs >/tmp/qs_hotplug.log 2>&1 &
       fi
-      echo "[$(date '+%F %T')] qs restarted" | tee -a "$LOG"
+      echo "[$(date '+%F %T')] qs started (was not running)" | tee -a "$LOG"
     fi
   fi
 done

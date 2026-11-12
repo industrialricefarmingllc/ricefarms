@@ -21,6 +21,8 @@ namespace Render {
     class CRenderContext;
 }
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -49,6 +51,66 @@ struct SPill {
     float ubr[4] = {0, 0, 0, 0};
     float uk = 0;
 };
+
+namespace lg {
+
+// Damage only the edge bands where a cursor-following rim can change. The
+// rim is exp-decayed and confined to `pad` px inside the silhouette; damaging
+// the whole surface on every filter step made a 4K window repaint 8.3 Mpx per
+// frame for ~2 s after each pointer move. Four strips are exactly equivalent
+// and scale with perimeter, not area.
+void damageEdgeBands(PHLMONITOR monitor, const CBox& fbBox, double padFb);
+
+// True when a main-pass window box on this monitor intersects `fbRegion`
+// (monitor-local fb px). Layer glass uses it to refuse a cached backdrop when
+// a window below the layer could have changed underneath the pill.
+bool windowOverlapsRegion(MONITORID mon, const CBox& fbRegion);
+
+// Per-pill capture cache: identical blurred backdrop reused across frames
+// whose damage is confined to the pill's own content (typing, progress bars,
+// clocks). The capture itself must be full-pill (see damageCovers), so one
+// full capture primes the cache; subsequent content-only frames reuse it and
+// skip the blit + Kawase + bokeh entirely.
+struct SPillCapture {
+    SP<Render::IFramebuffer> a, b, c, t;
+    bool valid = false;
+    int  rx0 = 0, ry0 = 0, rw = 0, rh = 0; // capture region (fb px)
+    int  px0 = 0, py0 = 0, px1 = 0, py1 = 0; // pill pixel rect
+    float bx = 0, by = 0, bw = 0, bh = 0;    // true fractional pill rect
+    float r0 = 0, r1 = 0, r2 = 0, r3 = 0;    // corner radii
+    float fl0 = 0, fl1 = 0, sq = -1;          // flare + smoothing
+    bool unionOn = false;
+    int  hw = 0, hh = 0, capDiv = 0, passes = 0;
+    bool bokehOn = false;
+    float bokeh = 0, effR = 0;
+    uint64_t tuneGen = 0;
+    int  srcW = 0, srcH = 0;
+    // Consecutive reuses since the last full capture. Bounds staleness when
+    // a lower window changes a small area under the pill (see Glass.cpp).
+    int  reuseCount = 0;
+};
+
+// Pick the working-resolution divisor from the blur the user actually asked
+// for. The capture is downsampled by this divisor before the glass shader
+// samples it; a working texel larger than ~2x the realized blur radius would
+// become the dominant blur (and alias high-frequency backdrops). Measured
+// against capture_scale=1 + the full chain: PSNR 62-69 dB on smooth backdrops
+// at 2R, max 1/255. Capped at 2: a 4:1 GL_LINEAR glBlit is not a proper box
+// filter (it skips source texels) and aliases detail; 2:1 is an exact box.
+// The user's capture_scale remains an upper bound (lower = sharper).
+inline int effectiveCapDiv(float userRadius, int userPasses, float monitorScale, int userCapDiv) {
+    const float r = std::max(0.0f, userRadius);
+    const int   p = std::max(1, userPasses);
+    const float s = std::max(monitorScale, 0.01f);
+    // Screen-space blur radius realized by the Kawase chain (fb px):
+    //   R = radius * sqrt(iters) * monitorScale.
+    const float R = r * std::sqrt((float)p) * s;
+    int         div = (int)std::floor(2.0f * R);
+    div = std::clamp(div, 1, 2);
+    return std::clamp(div, 1, std::max(1, userCapDiv));
+}
+
+} // namespace lg
 
 struct SGlassUniforms {
     GLint proj = -1;
@@ -103,6 +165,7 @@ struct SLayerRingU {
     // Apple rim light (same ring.frag branch as window borders). Layer
     // borders defaulted to the legacy bevel before rim-only widgets needed it.
     GLint rimLight = -1, rimStrength = -1, rimWidth = -1, rimAngle = -1, rimSplay = -1, rimShade = -1;
+    GLint rimAtInner = -1, rimShift = -1;
 };
 
 class CGlassLayer {
@@ -157,6 +220,8 @@ class CGlassLayer {
     void ensureKawase(int hw, int hh, unsigned int format);
     void ensureChain(int hw, int hh, unsigned int format); // lazy: only when passes>0
     void ensureBokeh(int hw, int hh, unsigned int format); // lazy: only when bokeh on
+    void ensurePillCap(lg::SPillCapture& cap, int hw, int hh, int passes, bool bokeh, unsigned int format);
+    void bokehPassTo(const SP<Render::IFramebuffer>& src, const SP<Render::IFramebuffer>& dst, float radius, float strength);
     void kawaseDown(const SP<Render::IFramebuffer>& src, const SP<Render::IFramebuffer>& dst, float radius);
     void kawaseUp(const SP<Render::IFramebuffer>& src, const SP<Render::IFramebuffer>& dst, float radius);
     void bokehPass(float radius, float strength);
@@ -203,6 +268,9 @@ class CGlassLayer {
     // One smoothed cursor-follow state per pill (the bar's pills reorder only
     // on layout changes; a state follows its slot).
     std::vector<lg::SRimFollowState> m_rimFollow;
+    // Per-pill blurred-backdrop cache (content-only frames skip the capture,
+    // Kawase chain and bokeh). Indexed by pill slot.
+    std::vector<lg::SPillCapture> m_pillCap;
     // Cached geometry state: if the shared scan generation, the surface box
     // and the tune generation are unchanged, the pills from last frame are
     // still exact. Lets render() skip loadGeometry entirely on frames whose

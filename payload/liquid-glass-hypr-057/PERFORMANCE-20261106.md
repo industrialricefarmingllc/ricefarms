@@ -1,5 +1,9 @@
 # Liquid glass — 2026-11-06 performance audit and pass
 
+> **2026-11-12:** superseded by `PERFORMANCE-20261112.md` (blur-derived
+> capture resolution, per-pill content cache, edge-band rim damage). The
+> per-occurrence numbers below are still useful; the live preset changed.
+
 Measured + theoretical cost model for `liquid-glass-hypr` on the live
 machine. Supersedes the relevant numbers in `PERFORMANCE.md` (2026-11-04);
 the earlier document's fast-path condition and bokeh state no longer match

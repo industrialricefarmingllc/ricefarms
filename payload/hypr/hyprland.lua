@@ -206,7 +206,10 @@ hl.on("hyprland.start", function()
   -- as a flat gray hairline). Rim-only also overlays widgets (bar/dock/OSD/
   -- desktop cards) after their QML fallback background, and window borders
   -- keep the rim on the native outer edge (no half-pixel float).
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-rimwidgets-washmul-diag-20261112.so")
+  -- 2026-11-12 (later): rim line moved onto the window CONTENT edge; the
+  -- layer overlay still carries the rim for widgets. Built on the current
+  -- washmul-diag source tree.
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-perf-20261112.so")
   -- Standalone wash is intentionally not loaded; the integrated copy runs above.
   -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-wash || hyprctl plugin load /home/nicerice/src/lucid-wash/lucid-wash-adv.so")
   -- Layer-wide overlay blending is intentionally not loaded; the wash is

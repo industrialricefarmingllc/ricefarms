@@ -25,6 +25,9 @@ Singleton {
     // Renderer multiplies this by the mesh focus distance. Slower sines read
     // as less motion at the same travel, so this is up from the old 0.0032.
     readonly property real amplitude: 0.0046
+    // z is the camera dolly axis (the apparent zoom in/out). Halve it without
+    // changing the lateral x/y tremble.
+    readonly property real zoomScale: 0.5
     readonly property real orbitPeriod: 20
     // fraction of the pointer range the circle covers
     readonly property real orbitRadius: 0.2125
@@ -72,7 +75,7 @@ Singleton {
             + 0.15 * Math.sin(p * 4.35 + 0.2);
         root.x = root.shape(fastX);
         root.y = root.shape(fastY);
-        root.z = root.shape(fastZ);
+        root.z = root.shape(fastZ) * root.zoomScale;
         // The view angle follows the right half of the circle, swept back and
         // forth: x stays on the right, y travels from top to bottom and back.
         // At the ends the sweep eases out, so the turn-around is soft.

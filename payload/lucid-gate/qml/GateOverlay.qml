@@ -29,9 +29,12 @@ Scope {
     // the WebEngine view is expensive and QtWebEngine does not like being torn
     // down while a JavaScript callback is in flight: once created, keep it
     // warm for the shell's lifetime and hide it between lessons
-    property bool lessonWarm: false
+    // one warm WebEngine per output: switching outputs must not tear the old
+    // one down (that was the crash), and a widget on another output opens there
+    property var warmScreens: ({})
+    readonly property bool lessonWarm: Object.keys(root.warmScreens).length > 0
     property string lessonScreen: ""
-    property bool lessonAtFinal: false
+    property int lessonSerial: 0
 
     function measure() {
         const toplevel = Hyprland.activeToplevel;
@@ -89,29 +92,27 @@ Scope {
         if (!root.lessonUp)
             return ;
 
-        root.lessonWarm = true;
         const names = Quickshell.screens.map((screen) => screen.name);
         let target = "";
         const rect = GateCore.launchRect;
+        // the widget that was clicked wins: open on its output, even if the
+        // warm view currently lives on another one
         if (rect && rect.screen && names.indexOf(rect.screen) >= 0)
             target = rect.screen;
+        else if (root.gate !== null && root.targetName && names.indexOf(root.targetName) >= 0)
+            target = root.targetName;
         if (target === "") {
             const monitor = Hyprland.focusedMonitor;
             target = (monitor && monitor.name) ? monitor.name : (names.length > 0 ? names[0] : "");
         }
-        if (root.lessonScreen === "" || names.indexOf(root.lessonScreen) < 0)
-            root.lessonScreen = target;
-        root.targetName = root.lessonScreen;
+
+        root.lessonScreen = target;
+        root.warmScreens = Object.assign({}, root.warmScreens, { [target]: true });
+        GateCore.lessonTargetScreen = target;
+        root.targetName = target;
         root.frozen = root.measure();
-        root.lessonAtFinal = false;
-        lessonLand.restart();
-    }
-
-    Timer {
-        id: lessonLand
-
-        interval: 20
-        onTriggered: root.lessonAtFinal = true
+        GateCore.lessonPageReady = false;
+        root.lessonSerial++;
     }
 
     IpcHandler {
@@ -149,10 +150,41 @@ Scope {
             return JSON.stringify({
                 "lessonWarm": root.lessonWarm,
                 "lessonScreen": root.lessonScreen,
-                "lessonAtFinal": root.lessonAtFinal,
                 "targetName": root.targetName,
                 "lessonUp": root.lessonUp
             });
+        }
+
+    }
+
+    // A 1x1 background engine for the Duolingo account XP poll. It stays
+    // mapped and click-through; the page never draws anything visible.
+    PanelWindow {
+        id: progressWindow
+
+        screen: Monitors.mainScreen
+        visible: true
+        width: 400
+        height: 300
+        color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.layer: WlrLayer.Background
+        WlrLayershell.namespace: "lucid-gate-progress"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        mask: Region {}
+
+        anchors {
+            top: true
+            left: true
+        }
+
+        margins {
+            top: -500
+            left: -600
+        }
+
+        GateProgress {
+            anchors.fill: parent
         }
 
     }
@@ -173,7 +205,10 @@ Scope {
                 readonly property var target: (root.frozen !== null && root.frozen.screen === String(unit.modelData.name)) ? root.frozen : null
 
                 screen: unit.modelData
-                visible: win.live
+                // keep the layer mapped: mapping it on demand delays the first
+                // launch frame until the compositor has shown the surface, which
+                // made the morph invisible. The input mask is empty while idle.
+                visible: true
                 color: "transparent"
                 exclusionMode: ExclusionMode.Ignore
                 WlrLayershell.layer: WlrLayer.Overlay
@@ -181,6 +216,10 @@ Scope {
                 // the gate owns the keyboard while it is up, so nothing leaks
                 // into the window underneath
                 WlrLayershell.keyboardFocus: win.live ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+                mask: Region {
+                    width: win.live ? win.width : 0
+                    height: win.live ? win.height : 0
+                }
 
                 anchors {
                     top: true
@@ -192,11 +231,13 @@ Scope {
                 // swallow everything that is not the card
                 Rectangle {
                     anchors.fill: parent
+                    visible: root.overlayUp
                     color: Qt.rgba(0, 0, 0, 0.30)
                 }
 
                 MouseArea {
                     anchors.fill: parent
+                    enabled: root.overlayUp
                 }
 
                 // the window that asked, dimmed again so the card has a subject
@@ -267,70 +308,28 @@ Scope {
                     }
                 }
 
-                // the lesson gets the whole stage: the web engine renders in
-                // this card, not in a browser window of its own
+                // the lesson card is at its final rect from the start; the
+                // GateLaunch inside GateLesson holds the placeholder tile and
+                // performs the same morph/iris a normal app launch does
                 SquircleRect {
                     id: lessonCard
 
                     readonly property real margin: Theme.dp(40)
                     readonly property real finalW: Math.min(Theme.dp(1180), win.width - margin * 2)
                     readonly property real finalH: Math.min(Theme.dp(820), win.height - margin * 2)
-                    // the logo rect passed by the widget; only when it belongs
-                    // to this output
-                    readonly property var origin: (GateCore.launchRect
-                        && (!GateCore.launchRect.screen || GateCore.launchRect.screen === String(unit.modelData.name)))
-                        ? GateCore.launchRect : null
-                    readonly property bool atFinal: root.lessonAtFinal
 
                     visible: root.lessonUp
-                    clip: true
-                    width: (atFinal || origin === null) ? finalW : Math.max(1, origin.w)
-                    height: (atFinal || origin === null) ? finalH : Math.max(1, origin.h)
-                    x: (atFinal || origin === null) ? (win.width - finalW) / 2 : origin.x
-                    y: (atFinal || origin === null) ? (win.height - finalH) / 2 : origin.y
-                    // borderless: the page is the window. The controls live in
-                    // the transparent strip above it.
-                    radius: (atFinal || origin === null) ? 0 : Math.min(width, height) / 2
+                    clip: false
+                    width: finalW
+                    height: finalH
+                    x: (win.width - finalW) / 2
+                    y: (win.height - finalH) / 2
+                    radius: 0
                     fillColor: "transparent"
                     borderWidth: 0
                     borderColor: "transparent"
                     opacity: root.lessonUp ? 1 : 0
 
-                    Behavior on width {
-                        enabled: lessonCard.atFinal
-                        NumberAnimation {
-                            duration: Theme.durFastSpatial
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                    Behavior on height {
-                        enabled: lessonCard.atFinal
-                        NumberAnimation {
-                            duration: Theme.durFastSpatial
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                    Behavior on x {
-                        enabled: lessonCard.atFinal
-                        NumberAnimation {
-                            duration: Theme.durFastSpatial
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                    Behavior on y {
-                        enabled: lessonCard.atFinal
-                        NumberAnimation {
-                            duration: Theme.durFastSpatial
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                    Behavior on radius {
-                        enabled: lessonCard.atFinal
-                        NumberAnimation {
-                            duration: Theme.durFastSpatial
-                            easing.type: Easing.OutCubic
-                        }
-                    }
                     Behavior on opacity {
                         NumberAnimation {
                             duration: Theme.durFastSpatial
@@ -338,27 +337,83 @@ Scope {
                         }
                     }
 
-                    Item {
-                        id: launchMark
+                    GateLaunch {
+                        id: cardLauncher
 
-                        readonly property real markSize: Math.min(parent.width, parent.height) * 0.56
+                        readonly property var origin: GateCore.launchRect
+                        readonly property bool hasOrigin: origin !== null && origin.w > 1
+                            && (!origin.screen || origin.screen === String(unit.modelData.name))
 
                         anchors.fill: parent
-                        visible: !lessonCard.atFinal
+                        z: 1
+                        fromRect: hasOrigin
+                            ? Qt.rect(origin.x - lessonCard.x, origin.y - lessonCard.y, origin.w, origin.h)
+                            : Qt.rect(0, 0, 1, 1)
+                        toRect: Qt.rect(0, 0, parent.width, parent.height)
+                        pageReady: GateCore.lessonPageReady
+                    }
 
-                        LoadingIndicator {
-                            anchors.centerIn: parent
-                            width: launchMark.markSize * 1.66 / 0.84
-                            height: width
+                    Connections {
+                        target: root
+
+                        function onLessonSerialChanged() {
+                            if (!root.lessonUp || !win.live)
+                                return ;
+
+                            if (cardLauncher.hasOrigin)
+                                cardLauncher.start();
+                            else
+                                cardLauncher.reset();
+                        }
+                    }
+
+                    Row {
+                        z: 2
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        anchors.topMargin: Theme.dp(8)
+                        anchors.rightMargin: Theme.dp(10)
+                        spacing: Theme.dp(2)
+                        visible: root.lessonUp
+
+                        IconButton {
+                            icon: "home"
+                            size: "s"
+                            tooltip: "Duolingo home"
+                            onClicked: {
+                                if (lessonLoader.item)
+                                    lessonLoader.item.goHome();
+
+                            }
                         }
 
-                        Image {
-                            anchors.centerIn: parent
-                            width: launchMark.markSize
-                            height: width
-                            source: GateCore.assetsPath + "/duolingo-owl.png"
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true
+                        IconButton {
+                            icon: "person"
+                            size: "s"
+                            tooltip: "Log in to Duolingo"
+                            onClicked: {
+                                if (lessonLoader.item)
+                                    lessonLoader.item.goLogin();
+
+                            }
+                        }
+
+                        IconButton {
+                            icon: "refresh"
+                            size: "s"
+                            tooltip: "Reload"
+                            onClicked: {
+                                if (lessonLoader.item)
+                                    lessonLoader.item.reloadView();
+
+                            }
+                        }
+
+                        IconButton {
+                            icon: "close"
+                            size: "s"
+                            tooltip: "Give up on this lesson"
+                            onClicked: GateCore.closeLesson()
                         }
 
                     }
@@ -367,8 +422,8 @@ Scope {
                         id: lessonLoader
 
                         anchors.fill: parent
-                        active: root.lessonWarm && String(unit.modelData.name) === root.lessonScreen
-                        opacity: lessonCard.atFinal ? 1 : 0
+                        z: 0
+                        active: root.warmScreens[String(unit.modelData.name)] === true
                         source: "GateLesson.qml"
                         asynchronous: false
                         onLoaded: {
@@ -376,13 +431,13 @@ Scope {
                                 item.closeRequested.connect(GateCore.closeLesson);
 
                         }
+                    }
 
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: Theme.durMedium
-                                easing.type: Easing.OutCubic
-                            }
-                        }
+                    Binding {
+                        target: lessonLoader.item
+                        property: "screenName"
+                        when: lessonLoader.item !== null
+                        value: String(unit.modelData.name)
                     }
 
                     LText {

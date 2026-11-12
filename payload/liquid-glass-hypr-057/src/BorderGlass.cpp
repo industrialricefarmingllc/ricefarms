@@ -51,6 +51,7 @@ struct SRingU {
     GLint squircleF = -1;
     GLint frameEnable = -1, frameScale = -1, seed = -1, frieze = -1, gilt = -1, relief = -1;
     GLint rimLight = -1, rimStrength = -1, rimWidth = -1, rimAngle = -1, rimSplay = -1, rimShade = -1;
+    GLint rimAtInner = -1, rimShift = -1;
     GLint shCol = -1, shA = -1, shOff = -1, shBlur = -1;
     GLint flare = -1, push = -1;
 } s_ru;
@@ -163,6 +164,8 @@ void ensure() {
     s_ru.rimAngle = loc(rp, "uRimAngle");
     s_ru.rimSplay = loc(rp, "uRimSplay");
     s_ru.rimShade = loc(rp, "uRimShade");
+    s_ru.rimAtInner = loc(rp, "uRimAtInner");
+    s_ru.rimShift = loc(rp, "uRimShift");
     s_ru.shCol = loc(rp, "uShadowColor");
     s_ru.shA = loc(rp, "uShadowA");
     s_ru.shOff = loc(rp, "uShadowOff");
@@ -334,16 +337,13 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
         const float rimPx = rimLogical * (float)monitor->m_scale * ctx.m_data.renderModif.combinedScale();
         if (rimPx > (float)scaledBorder)
             bandThick = (int)std::ceil(rimPx);
-    }
-
-    if (rimOnly) {
-        // Keep the OUTER edge on the native border and grow the band inward
-        // into the content. The old path grew outward, which floated the rim
-        // 1-2 px outside the window once the glass body was gone.
-        innerInset = std::max(0, bandThick - nativeBorder);
-        scaledBorder = nativeBorder;
-    } else {
+        // Extend the band one physical pixel past the content edge so the rim
+        // line can sit ON that edge (see uRimAtInner/uRimShift). Without it
+        // the line lives on the border's outer edge and leaves a hairline gap.
+        innerInset = 1;
         scaledBorder = bandThick;
+    } else {
+        scaledBorder = nativeBorder;
     }
 
     newBox.x -= scaledBorder;
@@ -363,11 +363,21 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
         const float prev = st.angle;
         rimAngle = lg::rimAngleFor(box, lg::cursorLocal(monitor), rimAngle, st);
         if (st.init && std::isfinite(prev) && std::abs(rimAngle - prev) > 0.01f) {
-            const float inv = 1.0f / monitor->m_scale;
-            const float pad = 12.0f;
-            g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + (newBox.x - pad) * inv,
-                                            monitor->m_position.y + (newBox.y - pad) * inv,
-                                            (newBox.w + pad * 2.0f) * inv, (newBox.h + pad * 2.0f) * inv});
+            // The rim is confined to the border band; damage four strips of
+            // the band, not the whole window. (The old full-box damage made
+            // every window repaint its full area at monitor Hz for ~0.3 s
+            // after each pointer move, for a 1-2 px highlight change.)
+            const double inv = 1.0 / (double)std::max(monitor->m_scale, 0.01f);
+            const double padFb = std::max((double)bandThick + 2.0, (double)bandThick * 3.0);
+            const double x = (double)monitor->m_position.x + newBox.x * inv;
+            const double y = (double)monitor->m_position.y + newBox.y * inv;
+            const double w = newBox.w * inv;
+            const double h = newBox.h * inv;
+            const double p = std::clamp(padFb * inv, 1.0, std::min(w, h) * 0.5);
+            g_pHyprRenderer->damageBox(CBox{x, y, w, p});
+            g_pHyprRenderer->damageBox(CBox{x, y + h - p, w, p});
+            g_pHyprRenderer->damageBox(CBox{x, y, p, h});
+            g_pHyprRenderer->damageBox(CBox{x + w - p, y, p, h});
         }
     }
     const float roundF = (float)round + (round == 0 ? 0 : (float)scaledBorder);
@@ -390,7 +400,7 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     CBox gateBox = newBox;
     gateBox.expand(std::max(4.0f, shPadF));
     CRegion ringRegion = ctx.m_data.damage.copy().intersect(gateBox);
-    if (rimOnly)
+    if (rimLight)
         ringRegion.subtract(box.copy().expand(-(double)innerInset - 1.0));
     else
         ringRegion.subtract(box.copy().expand(-scaledBorder - (int)std::ceil(roundF)));
@@ -535,13 +545,14 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     auto shader = g_pHyprOpenGL->useShader(s_ring);
     glUniformMatrix3fv(s_ru.proj, 1, GL_TRUE, proj.getMatrix().data());
     glUniform1i(s_ru.blur, 0);
-    // Rim-only grows the band inward: uInner is the band's inner edge, so
-    // shift/shrink it by innerInset while uThick stays at the full band.
-    const float inInset = rimOnly ? (float)innerInset : 0.0f;
+    // Rim band: uInner is the band's inner edge, one px inside the content.
+    // The rim line is moved onto the content edge by uRimAtInner/uRimShift so
+    // there is no hairline gap between the light and the window.
+    const float inInset = rimLight ? (float)innerInset : 0.0f;
     glUniform4f(s_ru.inner, ix + inInset, iy + inInset, (float)box.w - 2.0f * inInset,
                 (float)box.h - 2.0f * inInset);
     glUniform2f(s_ru.quad, (float)rw, (float)rh);
-    glUniform1f(s_ru.thick, rimOnly ? (float)bandThick : (float)scaledBorder);
+    glUniform1f(s_ru.thick, rimLight ? (float)(bandThick + innerInset) : (float)scaledBorder);
     glUniform1f(s_ru.round, outerF);
     glUniform3f(s_ru.tint, (float)col0.r, (float)col0.g, (float)col0.b);
     glUniform3f(s_ru.tint2, (float)col1.r, (float)col1.g, (float)col1.b);
@@ -599,10 +610,12 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     // the line itself takes ~55% of it, floored at one physical pixel.
     glUniform1f(s_ru.rimLight, rimLight ? 1.0f : 0.0f);
     glUniform1f(s_ru.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
-    glUniform1f(s_ru.rimWidth, std::max(0.75f, (float)(rimOnly ? bandThick : scaledBorder) * 0.50f));
+    glUniform1f(s_ru.rimWidth, std::max(0.75f, (float)(rimLight ? bandThick : scaledBorder) * 0.50f));
     glUniform1f(s_ru.rimAngle, rimAngle);
     glUniform1f(s_ru.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
     glUniform1f(s_ru.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
+    glUniform1f(s_ru.rimAtInner, rimLight ? 1.0f : 0.0f);
+    glUniform1f(s_ru.rimShift, rimLight ? (float)innerInset : 0.0f);
     // Window drop shadow: same matugen material as the pills, softer alpha.
     glUniform3f(s_ru.shCol, ((shColF >> 24) & 0xFF) / 255.f, ((shColF >> 16) & 0xFF) / 255.f,
                 ((shColF >> 8) & 0xFF) / 255.f);
@@ -616,7 +629,7 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     // glass-mode 0.5 push centres the legacy ring on its own AA edge, which
     // reads as a half-pixel outward offset once the rim is the only edge
     // treatment left.
-    glUniform1f(s_ru.push, rimOnly ? 0.0f : 0.5f);
+    glUniform1f(s_ru.push, rimLight ? 0.0f : 0.5f);
     glBindVertexArray(s_vao);
     ringRegion.forEachRect([&](const pixman_box32_t& RECT) {
         gl->scissor(ctx, &RECT, ctx.m_data.transformDamage);

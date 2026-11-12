@@ -151,9 +151,9 @@ Item {
             return ;
 
         if (media.host && media.host.openUrl)
-            media.host.openUrl(media.link);
+            media.host.openUrl(media.link, media);
         else
-            Qt.openUrlExternally(media.link);
+            Launch.openUrl(media.link);
     }
 
     function formatBytes(value) {
@@ -201,7 +201,10 @@ Item {
                 smooth: true
                 mipmap: true
                 sourceSize.width: Math.max(1, Math.round(media.width * 2))
-                sourceSize.height: Math.max(1, Math.round(media.height * 2))
+                // Height 0 lets Qt preserve the source aspect. Using the
+                // computed card height here feeds back into `ratio` when an
+                // embed has no dimensions and creates a binding loop.
+                sourceSize.height: 0
                 visible: status === Image.Ready
                 onStatusChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
                 onImplicitWidthChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
@@ -216,7 +219,7 @@ Item {
                 smooth: true
                 mipmap: true
                 sourceSize.width: Math.max(1, Math.round(media.width * 2))
-                sourceSize.height: Math.max(1, Math.round(media.height * 2))
+                sourceSize.height: 0
                 playing: media.animatedImage
                 loops: AnimatedImage.Infinite
                 cache: true
@@ -421,7 +424,7 @@ Item {
 
                     LText {
                         role: "labelSmall"
-                        text: Tr.t("Open video")
+                        text: "Open video"
                         color: Theme.subtext
                     }
 
@@ -533,7 +536,7 @@ Item {
                 LText {
                     width: parent.width
                     role: "labelLarge"
-                    text: media.m.title || media.m.filename || Tr.t("Audio")
+                    text: media.m.title || media.m.filename || "Audio"
                     color: media.ink
                     elide: Text.ElideMiddle
                 }
@@ -600,7 +603,7 @@ Item {
                 LText {
                     width: parent.width
                     role: "labelLarge"
-                    text: media.m.filename || media.m.title || Tr.t("Attachment")
+                    text: media.m.filename || media.m.title || "Attachment"
                     color: media.ink
                     elide: Text.ElideMiddle
                 }

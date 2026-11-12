@@ -25,7 +25,12 @@ All notable changes to Lucid are recorded here, newest first.
   icon rect seeds on the focused output, and the overlay waits for its surface
   to move there before the icon appears. The held tiles and ghost surfaces are
   left out of Lucid's window search, switcher and running-apps list, so they
-  never show up as stray windows. The tile is released the moment the
+  never show up as stray windows. Links opened from widgets (Social, GitHub,
+  the media viewer) grow the same launch tile from the element that was
+  pressed. If a browser is already running the link goes to it and its window
+  is raised, exactly like an app launcher press on a running app; otherwise
+  the tile waits only briefly for the browser to appear.
+  The tile is released the moment the
   app's window maps, so the only thing left on screen is its reveal; the
   helper falls back to a plain launch when the shell is not running, so a
   reload can never swallow a press.

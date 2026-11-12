@@ -838,7 +838,7 @@ PanelWindow {
         interval: 450
         repeat: false
         onTriggered: {
-            if (dockWindow.pickerMode)
+            if (dockWindow.pickerMode && typeof SpatialWall.prewarm === "function")
                 SpatialWall.prewarm(dockWindow.pickerHoverPath);
         }
     }

@@ -43,9 +43,14 @@
  M lucidnotif/NotifPopupCard.qml
  M lucidnotif/NotifSurface.qml
  M lucidosd/Toast.qml
+ M lucidprefs/CapturePage.qml
  M lucidprefs/IdlePage.qml
  M lucidprefs/NotificationsPage.qml
  M lucidshot/SnapOverlay.qml
+ M lucidshot/lucidcap/Makefile
+ M lucidshot/lucidcap/README.md
+ M lucidshot/lucidcap/lucidcap
+ M lucidshot/lucidcap/lucidcap.c
  M lucidspatial3d/depthmeshgeometry.cpp
  M lucidspatial3d/libkos_spatial3d.so
  M lucidspatial3d/meshbuild.cpp
@@ -54,6 +59,7 @@
  M lucidswitch/Switcher.qml
  M lucidui/SymbolPaths.js
  M lucidui/Twemoji.qml
+ M lucidwidgets/GithubWidget.qml
  M lucidwidgets/PreviewHost.qml
  M lucidwidgets/WidgetBody.qml
  M lucidwidgets/WidgetFrame.qml
@@ -80,6 +86,9 @@
 ?? lucidbar/LiquidShape.qml
 ?? lucidbar/LiquidSpring.qml
 ?? lucidmoji/emojiSearch.js
+?? lucidshot/lucidcap/gen/linux-dmabuf-v1-client-protocol.h
+?? lucidshot/lucidcap/gen/linux-dmabuf-v1-protocol.c
+?? lucidshot/lucidcap/protocols/linux-dmabuf-v1.xml
 ?? lucidspatial3d/shaders/spatial_backdrop.frag
 ?? lucidwidgets/AmbienceWidget.qml
 ?? lucidwidgets/SocialWidget.qml

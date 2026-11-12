@@ -70,6 +70,11 @@ uniform float uRimWidth;    // rim line width, fb px
 uniform float uRimAngle;    // light direction, degrees (0 = right, 90 = up)
 uniform float uRimSplay;    // light wrap around the flanks, 0..1
 uniform float uRimShade;    // inner rim shadow strength, 0..1
+// Window border rings: put the rim line on the band's INNER edge (the window
+// content edge) instead of the outer edge, shifted by uRimShift fb px. This
+// closes the half-pixel gap between a border rim and the content it outlines.
+uniform float uRimAtInner;
+uniform float uRimShift;
 
 const float M_E = 2.718281828459045;
 
@@ -496,7 +501,14 @@ void main() {
     float fx = clamp(uLogCME > 0.0001
         ? 1.0 - uLB * exp((-uLD * dist - uLA) * uLogCME)
         : 1.0 - uLB * pow(uLC * M_E, -uLD * dist - uLA), 0.0, 2.0);
-    float refract = pow(max(fx, 0.0001), uLFPower);
+    // fPower fast paths (same as glass.frag): 1 = identity, 0.5 = sqrt.
+    float refract;
+    if (abs(uLFPower - 1.0) < 0.001)
+        refract = max(fx, 0.0001);
+    else if (abs(uLFPower - 0.5) < 0.001)
+        refract = sqrt(max(fx, 0.0001));
+    else
+        refract = pow(max(fx, 0.0001), uLFPower);
     vec2 rvec = (wuv - vec2(0.5)) * 2.0 * (refract - 1.0) * 0.18;
     vec2 dispPx = rvec * uWinSize;
     float m = length(dispPx);
@@ -527,15 +539,15 @@ void main() {
         // Screen y grows down; negate sin so 90° means "light from above".
         vec2 Lxy = normalize(vec2(cos(ang), -sin(ang)));
         vec2 Lxy2 = -Lxy; // second simulated source: opposite corner
-        vec2 n = normalize(glowN + vec2(1e-5));
+        vec2 n = glowN;
         float splay = clamp(uRimSplay, 0.0, 1.0);
 
         // Apple lights glass from two opposite corners (top-left key +
         // bottom-right fill), not one light with a weak far-side reflection.
         // max() makes the two facing edges bright and leaves the other two
         // flanks at splay, which is what the iOS material shows.
-        float lit1 = splay + (1.0 - splay) * pow(max(dot(n, Lxy), 0.0), 2.0);
-        float lit2 = splay + (1.0 - splay) * pow(max(dot(n, Lxy2), 0.0), 2.0);
+        float lit1 = splay + (1.0 - splay) * max(dot(n, Lxy), 0.0) * max(dot(n, Lxy), 0.0);
+        float lit2 = splay + (1.0 - splay) * max(dot(n, Lxy2), 0.0) * max(dot(n, Lxy2), 0.0);
         // The light is local, not a uniform wash along the whole edge: fade
         // each source with position along the edge, brightest at its corner.
         vec2 pn = (wuv - vec2(0.5)) * 2.0;
@@ -543,10 +555,13 @@ void main() {
         float fade2 = smoothstep(-0.10, 1.10, dot(pn, Lxy2));
         float dir  = max(lit1 * fade1, lit2 * fade2);
 
-        // Crisp hairline at the silhouette with a softer inner veil. d is
+        // Crisp hairline at the silhouette with a softer veil. d is
         // 0 at the outer edge and 1 at the inner edge of the band, so the
         // physical distance inward is d * uThick.
         float insidePx = d * uThick;
+        if (uRimAtInner > 0.5)
+            insidePx = (1.0 - d) * uThick - uRimShift;
+        insidePx = abs(insidePx);
         float rimW = max(uRimWidth, 0.5);
         float hair = exp(-insidePx / max(rimW * 0.45, 0.5));
         float line = exp(-insidePx / rimW);

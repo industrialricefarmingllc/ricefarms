@@ -1651,7 +1651,9 @@ ShellRoot {
                 // compositor parses and glass passes by ~27 %. Dragged or
                 // resized surfaces keep the 4 ms default.
                 coalesceMs: 8
-                pills: bar.glassPills
+                // The preference is authoritative: with glass off the plugin
+                // must not keep drawing the bar from a stale geometry file.
+                pills: Prefs.liquidGlassEnabled ? bar.glassPills : []
             }
 
             Repeater {
@@ -2109,6 +2111,13 @@ ShellRoot {
             if (command === "")
                 return "usage: open <command>";
             return Launch.launch(command, {}) ? "ok" : "rejected";
+        }
+
+        // qs ipc call launch openurl 'https://example.com'
+        function openurl(url: string): string {
+            if (url === "")
+                return "usage: openurl <url>";
+            return Launch.openUrl(url) ? "ok" : "rejected";
         }
 
         // qs ipc call launch run <command> <title> <icon> <wmClass> <base> <workspace>

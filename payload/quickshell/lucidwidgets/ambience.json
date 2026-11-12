@@ -361,6 +361,59 @@
         "volume": 40,
         "mode": "cave"
       }
+    ],
+    "skwd:we:3008542488": [
+      {
+        "id": "aT66uumZ0Zo",
+        "url": "https://www.youtube.com/watch?v=aT66uumZ0Zo",
+        "title": "Detailed Sounds of Rustling Leaves Falling and Wind Blowing through the Forest Trees in Late Autumn",
+        "volume": 62,
+        "mode": "dry"
+      },
+      {
+        "id": "1ZX6VyRR1EA",
+        "url": "https://www.youtube.com/watch?v=1ZX6VyRR1EA",
+        "title": "Mondstadt Ambience | Peaceful Genshin Impact Music & Sounds",
+        "volume": 51,
+        "mode": "room"
+      }
+    ],
+    "/home/nicerice/.local/share/Steam/steamapps/workshop/content/431960/3831973411/自然风壁纸_4K.mp4": [
+      {
+        "id": "qSLM9K28I0k",
+        "url": "https://www.youtube.com/watch?v=qSLM9K28I0k",
+        "title": "Countryside Park Ambience - Birdsong, Rustling Trees, Spring Ambient Video for Relaxation and Sleep",
+        "volume": 73,
+        "mode": "warm"
+      },
+      {
+        "id": "8m91-gu-x8U",
+        "url": "https://www.youtube.com/watch?v=8m91-gu-x8U",
+        "title": "Empty Room Ambient Noise Sound Effect",
+        "volume": 58,
+        "mode": "wide"
+      },
+      {
+        "id": "v-GgDLZNnNI",
+        "url": "https://www.youtube.com/watch?v=v-GgDLZNnNI",
+        "title": "Night City Ambience | Night City White Nose | City Soundscape at Night",
+        "volume": 33,
+        "mode": "slow"
+      },
+      {
+        "id": "ipf7ifVSeDU",
+        "url": "https://www.youtube.com/watch?v=ipf7ifVSeDU",
+        "title": "Relaxing Meadow with Ambient Nature Sounds, Wildflowers, and Mountain View - 8 Hours",
+        "volume": 59,
+        "mode": "room"
+      },
+      {
+        "id": "neOIXUPL3CI",
+        "url": "https://www.youtube.com/watch?v=neOIXUPL3CI",
+        "title": "12 Hours of Powerline Hum and AC Noise",
+        "volume": 37,
+        "mode": "phone"
+      }
     ]
   },
   "presets": [

@@ -379,7 +379,21 @@ PanelWindow {
                             viewer.failed = false;
                             viewer.start();
                         } else {
-                            Qt.openUrlExternally(viewer.resolveSource);
+                            var r = viewer.from;
+                            var s = viewer.screenObj;
+                            var rect = null;
+                            if (r && r.width > 0 && r.height > 0)
+                                rect = {
+                                    "x": (s ? s.x : 0) + r.x,
+                                    "y": (s ? s.y : 0) + r.y,
+                                    "width": r.width,
+                                    "height": r.height
+                                };
+                            Launch.openUrl(viewer.resolveSource, {
+                                "rect": rect,
+                                "screen": s,
+                                "timeoutMs": 2500
+                            });
                         }
                         return ;
                     }

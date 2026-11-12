@@ -44,7 +44,7 @@ namespace {
 #define LG_NAME "liquid-glass-hypr"
 #define LG_DESC "Real-time liquid glass for layers + windows (in-render-pass) + gooey workspace morph"
 #define LG_AUTHOR "Lucid"
-#define LG_VERSION "0.8.35"
+#define LG_VERSION "0.8.36"
 
 HANDLE PHANDLE = nullptr;
 CFunctionHook* G_HOOK = nullptr;

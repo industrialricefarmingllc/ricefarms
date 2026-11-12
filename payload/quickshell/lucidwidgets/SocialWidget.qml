@@ -145,6 +145,25 @@ WidgetBody {
     property int threadSeq: 0
     property int threadCommentTotal: -1
     property int feedSeq: 0
+    property int feedAnchorSeq: 0
+    property bool dbgScroll: true
+    property bool feedAnchorOn: true
+    property int dbgYCount: 0
+    property real dbgLastY: 0
+
+    function dbgFeed(tag) {
+        if (!w.dbgScroll || !feedScroll)
+            return;
+        console.log("SCROLLDBG", tag,
+            "cy", feedScroll.contentY.toFixed(1),
+            "ch", feedScroll.contentHeight.toFixed(1),
+            "h", feedScroll.height.toFixed(1),
+            "count", feedScroll.count,
+            "wheel", feedWheel.running,
+            "seq", w.feedAnchorSeq,
+            "items", w.items.length,
+            "shown", w.shownItems.length);
+    }
     property int clockTick: 0
     property string searchQuery: ""
     property string channelQuery: ""
@@ -942,6 +961,93 @@ WidgetBody {
         onTriggered: w.clockTick++
     }
 
+    IpcHandler {
+        target: "socialdebug"
+
+        function state(): string {
+            return JSON.stringify({
+                "cy": feedScroll.contentY,
+                "ch": feedScroll.contentHeight,
+                "h": feedScroll.height,
+                "count": feedScroll.count,
+                "ci": feedScroll.currentIndex,
+                "origin": feedScroll.originY,
+                "begin": feedScroll.atYBeginning,
+                "end": feedScroll.atYEnd,
+                "items": w.items.length,
+                "shown": w.shownItems.length,
+                "wheel": feedWheel.running,
+                "seq": w.feedAnchorSeq
+            });
+        }
+
+        function sety(y: real): void {
+            feedWheel.stop();
+            feedScroll.contentY = y;
+            w.dbgFeed("ipc-sety " + y);
+        }
+
+        function wheel(dir: string, count: int): void {
+            var fake = {"angleDelta": {"y": dir === "up" ? 120 : -120}, "pixelDelta": {"y": 0}};
+            for (var i = 0; i < count; i++) {
+                w.feedAnchorSeq++;
+                w.wheelBy(feedScroll, fake, feedWheel);
+            }
+            w.dbgFeed("ipc-wheel " + dir + " " + count);
+        }
+
+        function refresh(): void {
+            w.loadFeed(true, true);
+        }
+
+        function prepend(): void {
+            if (w.items.length === 0)
+                return;
+            var copy = JSON.parse(JSON.stringify(w.items[0]));
+            copy.id = "debug/new/" + Date.now();
+            copy.created_at = new Date().toISOString();
+            w.items = [copy].concat(w.items);
+            w.dbgFeed("ipc-prepend");
+        }
+
+        function topid(): string {
+            var a = w.captureFeedAnchor();
+            return a ? String(a.id) : "";
+        }
+
+        function anchor(on: bool): void {
+            w.feedAnchorOn = on;
+            w.dbgFeed("ipc-anchor " + on);
+        }
+
+        function top(): void {
+            feedScroll.positionViewAtBeginning();
+            w.dbgFeed("ipc-top");
+        }
+
+        function unstick(index: int, offset: real): void {
+            w.dbgFeed("unstick-before");
+            feedScroll.positionViewAtBeginning();
+            feedScroll.positionViewAtIndex(index, ListView.Beginning);
+            feedScroll.contentY = Math.max(0, feedScroll.contentY + offset);
+            w.dbgFeed("unstick-after-a");
+            Qt.callLater(function () {
+                feedScroll.positionViewAtIndex(index, ListView.Beginning);
+                feedScroll.contentY = Math.max(0, feedScroll.contentY + offset);
+                w.dbgFeed("unstick-after-b");
+            });
+        }
+
+        function reorigin(y: real): void {
+            feedScroll.positionViewAtBeginning();
+            Qt.callLater(function () {
+                feedScroll.contentY = y;
+                w.dbgFeed("ipc-reorigin-a " + y);
+                Qt.callLater(function () { w.dbgFeed("ipc-reorigin-b " + y); });
+            });
+        }
+    }
+
 
     Timer {
         interval: 60000
@@ -1154,6 +1260,7 @@ WidgetBody {
         w.feedRequestLimit = want;
         w.refreshing = true;
         w.phase = w.items.length > 0 ? w.phase : "loading";
+        w.dbgFeed("loadFeed refresh=" + refresh + " force=" + force);
         feedProc.command = w.feedArgs(want, "", "", refresh, force);
         feedProc.running = true;
     }
@@ -1278,13 +1385,26 @@ WidgetBody {
         }
         if (best === null)
             return null;
-        return {"id": best.modelData.id, "offset": feedScroll.contentY - best.y};
+        if (w.dbgScroll)
+            console.log("SCROLLDBG capture", best.modelData.id, "y", best.y.toFixed(1), "cy", feedScroll.contentY.toFixed(1), "offset", (feedScroll.contentY - best.y).toFixed(1));
+        return {
+            "id": best.modelData.id,
+            "offset": feedScroll.contentY - best.y,
+            "seq": w.feedAnchorSeq
+        };
     }
 
     function restoreFeedAnchor(anchor) {
         if (!anchor || !anchor.id)
             return;
+        w.dbgFeed("restore-enter " + anchor.id + " off=" + anchor.offset + " seq=" + anchor.seq);
+        // A refresh must not fight a scroll the reader has already started.
+        if (feedScroll.moving || feedScroll.flicking || feedWheel.running)
+            return;
 
+        var seq = anchor.seq !== undefined ? Number(anchor.seq) : w.feedAnchorSeq;
+        if (seq !== w.feedAnchorSeq)
+            return ;
         var index = -1;
         for (var i = 0; i < w.shownItems.length; i++) {
             if (w.shownItems[i] && w.shownItems[i].id === anchor.id) {
@@ -1296,6 +1416,8 @@ WidgetBody {
             return ;
 
         var offset = anchor.offset;
+        if (w.dbgScroll)
+            console.log("SCROLLDBG restore-apply-start", anchor.id, "index", index, "cy", feedScroll.contentY.toFixed(1), "ch", feedScroll.contentHeight.toFixed(1));
         feedWheel.stop();
         // Do not positionViewAtIndex first: that makes the anchor the visual
         // top of the list if the delegate is not ready yet. Wait for the
@@ -1305,8 +1427,14 @@ WidgetBody {
         var forced = false;
         var passes = 0;
         function apply() {
+            if (seq !== w.feedAnchorSeq)
+                return ;
+            if (feedScroll.moving || feedScroll.flicking || feedWheel.running)
+                return ;
             var item = feedScroll.itemAtIndex(index);
             if (item !== null) {
+                if (w.dbgScroll)
+                    console.log("SCROLLDBG restore-item", anchor.id, "itemY", item.y.toFixed(1), "target", Math.max(0, item.y + offset).toFixed(1), "pass", passes, "from", feedScroll.contentY.toFixed(1));
                 feedScroll.contentY = Math.max(0, item.y + offset);
                 // The delegate's y can settle one frame after the model gains
                 // items above it; re-apply a couple of times so the offset is
@@ -1324,6 +1452,8 @@ WidgetBody {
             }
             if (!forced) {
                 forced = true;
+                if (w.dbgScroll)
+                    console.log("SCROLLDBG restore-forced", anchor.id, "index", index);
                 feedScroll.positionViewAtIndex(index, ListView.Beginning);
             }
             if (attempt < 18) {
@@ -1340,7 +1470,8 @@ WidgetBody {
         var append = w.feedAppend;
         w.feedAppend = false;
         w.feedLoadingMore = false;
-        var anchor = append ? null : w.captureFeedAnchor();
+        w.dbgFeed("consume-before anchor=" + (append ? "append" : "refresh"));
+        var anchor = (append || !w.feedAnchorOn) ? null : w.captureFeedAnchor();
         try {
             var value = JSON.parse(text);
             if (value.schema !== w.schemaFeed || value.schema_version !== w.schemaVersion)
@@ -1374,6 +1505,7 @@ WidgetBody {
             if (next.length > 3000)
                 next = next.slice(0, 3000);
             w.items = next;
+            w.dbgFeed("consume-after-items");
             if (append) {
                 if (incoming.length < w.feedRequestLimit)
                     w.feedAtEnd = true;
@@ -1388,6 +1520,7 @@ WidgetBody {
                 w.syncDetail();
             if (anchor !== null)
                 Qt.callLater(function () { w.restoreFeedAnchor(anchor); });
+            Qt.callLater(function () { w.dbgFeed("consume-callLater"); });
             if (!append)
                 Qt.callLater(function () { w.maybeLoadMoreFeed(); });
         } catch (error) {
@@ -3074,6 +3207,8 @@ WidgetBody {
         anim.from = from;
         anim.to = to;
         anim.restart();
+        if (w.dbgScroll && target === feedScroll)
+            console.log("SCROLLDBG wheel-anim from", from.toFixed(1), "to", to.toFixed(1), "dy", dy, "pending", pending, "max", maxY.toFixed(1));
         return true;
     }
 
@@ -3085,6 +3220,8 @@ WidgetBody {
         if (target === detailScroll && w.threadAutoScrolling)
             return true;
 
+        if (target === feedScroll)
+            w.feedAnchorSeq++;
         var maxY = Math.max(0, target.contentHeight - target.height);
         if (event.key === Qt.Key_PageUp)
             target.contentY = Math.max(0, target.contentY - target.height * 0.9);
@@ -3100,7 +3237,7 @@ WidgetBody {
         return true;
     }
 
-    function openExternal(post) {
+    function openExternal(post, item) {
         if (!post || !post.url)
             return ;
 
@@ -3109,22 +3246,31 @@ WidgetBody {
                 return ;
 
             openProc.fallbackUrl = post.url;
+            openProc.fallbackItem = item || null;
             openProc.command = [w.service, "open", "--json", "--item", post.id];
             openProc.running = true;
             return ;
         }
-        w.openUrl(post.url);
+        w.openUrl(post.url, item);
     }
 
     // Hand the URL to the default browser, then raise the browser window that
     // was already open. When none is running, xdg-open starts one normally.
-    function openUrl(value) {
+    // The placeholder grows out of `item`, the element that was pressed.
+    function openUrl(value, item, opts) {
         var target = String(value || "");
         if (target === "")
             return ;
 
+        opts = opts || {};
         var script = "desktop=$(xdg-settings get default-web-browser 2>/dev/null || true); " + "base=${desktop%.desktop}; wm=''; " + "for d in \"$HOME/.local/share/applications\" /usr/share/applications /var/lib/flatpak/exports/share/applications; do " + "f=\"$d/$desktop\"; [ -f \"$f\" ] || continue; " + "wm=$(sed -n 's/^StartupWMClass=//Ip' \"$f\" | head -1 | tr -d '\\r'); break; " + "done; " + "addr=$(hyprctl -j clients 2>/dev/null | jq -r --arg wm \"$wm\" --arg base \"$base\" '" + "([$wm,$base] + [\"helium\",\"zen\",\"zen-browser\",\"firefox\",\"librewolf\",\"chromium\",\"brave-browser\",\"google-chrome\",\"vivaldi\",\"opera\",\"qutebrowser\",\"floorp\"]) as $candidates " + "| ($candidates | map(select(. != \"\") | ascii_downcase)) as $classes " + "| [.[] | . as $w | ($w.class|ascii_downcase) as $c | ($classes | index($c)) as $i " + "| select($i != null) | {i:$i,f:$w.focusHistoryID,a:$w.address}] " + "| sort_by(.i,.f) | .[0].a // empty'); " + "setsid xdg-open \"$1\" >/dev/null 2>&1 & " + "if [ -n \"$addr\" ]; then sleep 0.15; hyprctl eval \"local w=nil for i,win in pairs(hl.get_windows()) do if win.address==\\\"$addr\\\" then w=win end end if w then hl.dispatch(hl.dsp.focus({window=w})) end\" >/dev/null 2>&1; fi";
-        Quickshell.execDetached(["sh", "-c", script, "sh", target]);
+        var command = "sh -c " + Launch.shQuote(script) + " sh " + Launch.shQuote(target);
+        w.openExternalUrl(target, item, {
+            "command": opts.command || command,
+            "title": opts.title || "Browser",
+            "icon": opts.icon || "web-browser",
+            "timeoutMs": opts.timeoutMs > 0 ? opts.timeoutMs : 2500
+        });
     }
 
     function openPostUrl() {
@@ -3350,14 +3496,16 @@ WidgetBody {
         id: openProc
 
         property string fallbackUrl: ""
+        property var fallbackItem: null
         running: false
         command: []
 
         onExited: (code) => {
             if (code !== 0 && openProc.fallbackUrl !== "")
-                w.openUrl(openProc.fallbackUrl);
+                w.openUrl(openProc.fallbackUrl, openProc.fallbackItem);
 
             openProc.fallbackUrl = "";
+            openProc.fallbackItem = null;
         }
     }
 
@@ -3578,7 +3726,7 @@ WidgetBody {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: searchInput.text === ""
                         role: "bodyMedium"
-                        text: w.newPostOpen ? Tr.t("Search channels…") : Tr.t("Search…")
+                        text: w.newPostOpen ? "Search channels…" : "Search…"
                         color: Theme.subtextDim
                         opacity: 0.8
                     }
@@ -3626,7 +3774,7 @@ WidgetBody {
                 Layout.alignment: Qt.AlignVCenter
                 icon: w.newPostOpen ? "close" : "send"
                 size: "s"
-                tooltip: w.newPostOpen ? Tr.t("Cancel New Post") : Tr.t("New Post")
+                tooltip: w.newPostOpen ? "Cancel New Post" : "New Post"
                 tintOverride: w.newPostOpen ? Theme.fgPrimary : w.inkDim
                 onClicked: w.toggleNewPost()
             }
@@ -3656,7 +3804,7 @@ WidgetBody {
                 LText {
                     Layout.fillWidth: true
                     role: "labelSmall"
-                    text: w.actionError !== "" ? w.actionError : (w.feedErrors.length > 0 ? (w.feedErrors[0].message || Tr.t("A stream could not refresh")) : "")
+                    text: w.actionError !== "" ? w.actionError : (w.feedErrors.length > 0 ? (w.feedErrors[0].message || "A stream could not refresh") : "")
                     color: w.inkDim
                     elide: Text.ElideRight
                 }
@@ -3749,6 +3897,9 @@ WidgetBody {
                     WheelHandler {
                         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                         onWheel: (event) => {
+                            w.feedAnchorSeq++;
+                            if (w.dbgScroll)
+                                console.log("SCROLLDBG wheel angle", event.angleDelta.y, "pixel", event.pixelDelta.y, "cy", feedScroll.contentY.toFixed(1), "ch", feedScroll.contentHeight.toFixed(1), "max", Math.max(0, feedScroll.contentHeight - feedScroll.height).toFixed(1));
                             w.wheelBy(feedScroll, event, feedWheel);
                             event.accepted = true;
                         }
@@ -3774,26 +3925,47 @@ WidgetBody {
                         }
                     }
 
+                    onFlickStarted: w.feedAnchorSeq++
                     onContentYChanged: {
+                        w.dbgYCount++;
+                        if (w.dbgScroll && Math.abs(contentY - w.dbgLastY) > 80)
+                            console.log("SCROLLDBG y-jump", w.dbgLastY.toFixed(1), "->", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "ci", currentIndex, "origin", originY.toFixed(1), "begin", atYBeginning, "end", atYEnd, "wheel", feedWheel.running, "moving", moving, "flicking", flicking);
+                        w.dbgLastY = contentY;
+                        if (w.dbgScroll && (w.dbgYCount % 12 === 0 || feedWheel.running))
+                            console.log("SCROLLDBG y", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "wheel", feedWheel.running, "moving", moving, "flicking", flicking);
                         var limit = Math.max(0, contentHeight - height);
                         if (contentY < 0 || contentY > limit) {
+                            if (w.dbgScroll)
+                                console.log("SCROLLDBG y-clamp", contentY.toFixed(1), "limit", limit.toFixed(1));
                             feedWheel.stop();
                             contentY = Math.max(0, Math.min(limit, contentY));
                         }
                         w.maybeLoadMoreFeed();
                     }
                     onContentHeightChanged: {
+                        if (w.dbgScroll)
+                            console.log("SCROLLDBG height-changed", contentHeight.toFixed(1), "cy", contentY.toFixed(1), "count", count);
                         Qt.callLater(clampToContent);
                         Qt.callLater(w.maybeLoadMoreFeed);
                     }
+                    onOriginYChanged: {
+                        if (w.dbgScroll)
+                            console.log("SCROLLDBG origin-changed", originY.toFixed(1), "cy", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "count", count, "ci", currentIndex, "begin", atYBeginning);
+                    }
                     onCountChanged: {
+                        if (w.dbgScroll)
+                            console.log("SCROLLDBG count-changed", count, "cy", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "ci", currentIndex, "origin", originY.toFixed(1));
+                        if (w.dbgScroll)
+                            console.log("SCROLLDBG count-changed", count, "cy", contentY.toFixed(1), "ch", contentHeight.toFixed(1));
                         feedWheel.stop();
                         Qt.callLater(clampToContent);
                     }
                     onMovementEnded: {
+                        w.dbgFeed("movement-ended");
                         clampToContent();
                         w.maybeLoadMoreFeed();
                     }
+                    onMovementStarted: w.dbgFeed("movement-started")
                 }
 
                 // scroll affordance: a restrained material rail, not a full bar
@@ -3853,7 +4025,7 @@ WidgetBody {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         role: "titleSmall"
-                        text: w.fatal !== "" ? Tr.t("The feed is not reachable") : (w.phase === "loading" ? Tr.t("Gathering streams…") : (w.searchQuery !== "" && w.items.length > 0 ? Tr.t("No matching posts") : (w.items.length > 0 ? Tr.t("You're all caught up") : Tr.t("Nothing selected yet"))))
+                        text: w.fatal !== "" ? "The feed is not reachable" : (w.phase === "loading" ? "Gathering streams…" : (w.searchQuery !== "" && w.items.length > 0 ? "No matching posts" : (w.items.length > 0 ? "You're all caught up" : "Nothing selected yet")))
                         color: w.ink
                         wrapMode: Text.Wrap
                         visible: w.phase !== "loading" || w.preview || w.fatal !== ""
@@ -3863,7 +4035,7 @@ WidgetBody {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         role: "bodySmall"
-                        text: w.fatal !== "" ? w.fatal : (w.phase === "loading" ? Tr.t("The first fetch can take a few seconds.") : (w.searchQuery !== "" && w.items.length > 0 ? Tr.t("Try a shorter or earlier part of the words you remember.") : (w.items.length > 0 ? Tr.t("Swipe left or right on a post to hide it.") : Tr.t("Choose sources from the hub button, or add a source in ~/.config/lucid-social/config.toml."))))
+                        text: w.fatal !== "" ? w.fatal : (w.phase === "loading" ? "The first fetch can take a few seconds." : (w.searchQuery !== "" && w.items.length > 0 ? "Try a shorter or earlier part of the words you remember." : (w.items.length > 0 ? "Swipe left or right on a post to hide it." : "Choose sources from the hub button, or add a source in ~/.config/lucid-social/config.toml.")))
                         color: w.inkFaint
                         wrapMode: Text.Wrap
                         visible: w.phase !== "loading" || w.preview || w.fatal !== ""
@@ -3875,7 +4047,7 @@ WidgetBody {
                         variant: "tonal"
                         size: "xs"
                         icon: w.fatal !== "" ? "refresh" : "hub"
-                        text: w.fatal !== "" ? Tr.t("Retry") : Tr.t("Choose sources")
+                        text: w.fatal !== "" ? "Retry" : "Choose sources"
                         onClicked: {
                             if (w.fatal !== "")
                                 w.retry();
@@ -4031,7 +4203,7 @@ WidgetBody {
                                     visible: w.contextLoading
                                     horizontalAlignment: Text.AlignHCenter
                                     role: "labelSmall"
-                                    text: Tr.t("Loading earlier messages…")
+                                    text: "Loading earlier messages…"
                                     color: w.inkFaint
                                     topPadding: Theme.dp(8)
                                     bottomPadding: Theme.dp(4)
@@ -4077,7 +4249,7 @@ WidgetBody {
                                     Layout.leftMargin: Theme.dp(14)
                                     Layout.fillWidth: true
                                     role: "labelLarge"
-                                    text: (w.threadCommentTotal >= 0 ? w.threadCommentTotal : (w.detailPost && w.detailPost.comment_count !== null && w.detailPost.comment_count !== undefined ? w.detailPost.comment_count : w.comments.length)) + Tr.t(" comments")
+                                    text: (w.threadCommentTotal >= 0 ? w.threadCommentTotal : (w.detailPost && w.detailPost.comment_count !== null && w.detailPost.comment_count !== undefined ? w.detailPost.comment_count : w.comments.length)) + " comments"
                                     color: w.ink
                                 }
 
@@ -4138,7 +4310,7 @@ WidgetBody {
                                             anchors.leftMargin: Theme.dp(47)
                                             anchors.verticalCenter: parent.verticalCenter
                                             role: "labelLarge"
-                                            text: Tr.t("Show ") + commentSlot.modelData.hidden + " " + (commentSlot.modelData.hidden === 1 ? "reply" : "replies")
+                                            text: "Show " + commentSlot.modelData.hidden + " " + (commentSlot.modelData.hidden === 1 ? "reply" : "replies")
                                             color: Theme.primary
                                         }
 
@@ -4165,7 +4337,7 @@ WidgetBody {
                                     Layout.topMargin: Theme.dp(8)
                                     horizontalAlignment: Text.AlignHCenter
                                     role: "bodySmall"
-                                    text: w.commentsError !== "" ? w.commentsError : Tr.t("No comments yet. Start the thread.")
+                                    text: w.commentsError !== "" ? w.commentsError : "No comments yet. Start the thread."
                                     color: w.commentsError !== "" ? Theme.error : w.inkFaint
                                     wrapMode: Text.Wrap
                                 }
@@ -4175,7 +4347,7 @@ WidgetBody {
                                     visible: w.commentsError !== ""
                                     variant: "text"
                                     size: "xs"
-                                    text: Tr.t("Retry")
+                                    text: "Retry"
                                     onClicked: w.loadThread(w.detailId)
                                 }
 
@@ -4209,7 +4381,7 @@ WidgetBody {
                         emojiUsage: w.emojiUsageCounts
                         replyName: w.replyName
                         busy: false
-                        placeholder: Tr.t("Reply...")
+                        placeholder: "Reply..."
                         onSend: (body, images) => w.postComment(body, images)
                         onCancelReply: w.cancelReply()
                     }
@@ -4246,14 +4418,14 @@ WidgetBody {
                         IconButton {
                             icon: "close"
                             size: "xs"
-                            tooltip: Tr.t("Cancel New Post")
+                            tooltip: "Cancel New Post"
                             onClicked: w.closeNewPost()
                         }
 
                         LText {
                             Layout.fillWidth: true
                             role: "titleMedium"
-                            text: Tr.t("New Post")
+                            text: "New Post"
                             color: w.ink
                         }
 
@@ -4344,7 +4516,7 @@ WidgetBody {
                         Layout.fillWidth: true
                         visible: w.sendTargetsLoading
                         role: "bodySmall"
-                        text: Tr.t("Loading channels…")
+                        text: "Loading channels…"
                         color: w.inkFaint
                     }
 
@@ -4352,7 +4524,7 @@ WidgetBody {
                         Layout.fillWidth: true
                         visible: w.shownSendTargets.length === 0 && !w.sendTargetsLoading
                         role: "bodySmall"
-                        text: w.newPostError !== "" ? w.newPostError : (w.channelQuery !== "" ? Tr.t("No matching channels.") : Tr.t("No channels available."))
+                        text: w.newPostError !== "" ? w.newPostError : (w.channelQuery !== "" ? "No matching channels." : "No channels available.")
                         color: w.newPostError !== "" ? Theme.error : w.inkFaint
                         wrapMode: Text.Wrap
                     }
@@ -4375,7 +4547,7 @@ WidgetBody {
                         emojiCatalog: w.emojiCatalog
                         emojiUsage: w.emojiUsageCounts
                         busy: w.sending || w.sendTargetId === ""
-                        placeholder: Tr.t("Write a post...")
+                        placeholder: "Write a post..."
                         onSend: (body, images) => w.sendNewPost(body, images)
                     }
 

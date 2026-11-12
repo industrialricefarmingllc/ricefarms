@@ -422,13 +422,15 @@ Item {
             }
 
             IconButton {
+                id: titleLinkButton
+
                 Layout.alignment: Qt.AlignBottom
                 icon: "link"
                 variant: "filled"
                 size: "xs"
                 tooltip: Tr.t("Open link")
                 visible: card.bodyText === "" && card.bodyUrl !== "" && !card.hideExternalLinks
-                onClicked: card.host.openUrl(card.bodyUrl)
+                onClicked: card.host.openUrl(card.bodyUrl, titleLinkButton)
             }
 
         }
@@ -445,6 +447,8 @@ Item {
                 spacing: Theme.dp(4)
 
                 SocialBody {
+                    id: bodyText
+
                     Layout.fillWidth: true
                     segments: card.post.body_segments || []
                     fallback: card.bodyText
@@ -456,18 +460,20 @@ Item {
                     maxChars: card.detail ? 0 : 280
                     lineHeight: 1.12
                     ink: card.host ? card.host.inkDim : Theme.subtext
-                    onLinkActivated: (link) => card.host.openUrl(link)
+                    onLinkActivated: (link) => card.host.openUrl(link, bodyText)
                     onClicked: card.activated()
                 }
 
                 IconButton {
+                    id: bodyLinkButton
+
                     Layout.alignment: Qt.AlignBottom
                     icon: "link"
                     variant: "filled"
                     size: "xs"
                     tooltip: Tr.t("Open link")
                     visible: card.bodyUrl !== "" && !card.hideExternalLinks
-                    onClicked: card.host.openUrl(card.bodyUrl)
+                    onClicked: card.host.openUrl(card.bodyUrl, bodyLinkButton)
                 }
 
             }

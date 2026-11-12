@@ -60,33 +60,38 @@ WidgetBody {
     readonly property var hoverGame: w.shown.find((g) => {
         return g.id === w.hoverId;
     }) || null
-    readonly property string emptyText: !w.scanned && !w.preview ? "" : (!w.found ? "Steam is not installed" : "No games installed yet")
+    readonly property string emptyText: !w.scanned && !w.preview ? "" : (!w.found ? Tr.t("Steam is not installed") : Tr.t("No games installed yet"))
 
     function ago(ts) {
         if (!ts)
-            return "Not played yet";
+            return Tr.t("Not played yet");
 
         var s = Date.now() / 1000 - ts;
         if (s < 3600)
-            return "Played just now";
+            return Tr.t("Played just now");
 
         if (s < 86400)
-            return "Played " + Math.floor(s / 3600) + " h ago";
+            return Tr.fmt("Played %1 h ago", Math.floor(s / 3600));
 
         var d = Math.floor(s / 86400);
         if (d === 1)
-            return "Played yesterday";
+            return Tr.t("Played yesterday");
 
         if (d < 14)
-            return "Played " + d + " days ago";
+            return Tr.fmt(Tr.n("Played %1 day ago", "Played %1 days ago", d), d);
 
-        if (d < 60)
-            return "Played " + Math.floor(d / 7) + " weeks ago";
+        if (d < 60) {
+            var wk = Math.floor(d / 7);
+            return Tr.fmt(Tr.n("Played %1 week ago", "Played %1 weeks ago", wk), wk);
+        }
 
-        if (d < 730)
-            return "Played " + Math.floor(d / 30) + " months ago";
+        if (d < 730) {
+            var mo = Math.floor(d / 30);
+            return Tr.fmt(Tr.n("Played %1 month ago", "Played %1 months ago", mo), mo);
+        }
 
-        return "Played " + Math.floor(d / 365) + " years ago";
+        var yr = Math.floor(d / 365);
+        return Tr.fmt(Tr.n("Played %1 year ago", "Played %1 years ago", yr), yr);
     }
 
     function hours(minutes) {
@@ -94,10 +99,15 @@ WidgetBody {
             return "";
 
         if (minutes < 60)
-            return minutes + " min";
+            return minutes + Tr.t(" min");
 
         var h = minutes / 60;
-        return (h < 10 ? h.toFixed(1) : Math.round(h)) + " h";
+        var shown = h < 10 ? h.toFixed(1) : String(Math.round(h));
+        // French uses the decimal comma; the unit itself is the same ("h").
+        if (Tr.isFrench)
+            shown = shown.replace(".", ",");
+
+        return shown + Tr.t(" h");
     }
 
     function detail(g) {
@@ -347,37 +357,51 @@ WidgetBody {
         color: hero.game ? Theme.alpha(w.tint(hero.game.name), 0.22) : "transparent"
         smoothing: Prefs.squircleF
 
-        Image {
+        SquircleClip {
+            id: heroArt
+
             anchors.fill: parent
-            source: hero.file !== "" ? "file://" + hero.file : ""
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            sourceSize.width: Theme.dp(960)
-            visible: status === Image.Ready
-        }
+            // Leave the outer rim strip uncovered, but clip the artwork with
+            // its own parallel squircle so its corners do not poke square
+            // through the card curve.
+            anchors.margins: Theme.dp(2)
+            radius: Math.max(0, w.corner - Theme.dp(2))
+            smoothing: Prefs.squircleF
+            color: "transparent"
 
-        // the artwork fades out under the text so the title reads on any cover
-        Rectangle {
-            anchors.fill: parent
-            visible: hero.game !== null
+            Image {
+                anchors.fill: parent
+                source: hero.file !== "" ? "file://" + hero.file : ""
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+                sourceSize.width: Theme.dp(960)
+                visible: status === Image.Ready
+            }
 
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
+            // the artwork fades out under the text so the title reads on any cover
+            Rectangle {
+                anchors.fill: parent
+                visible: hero.game !== null
 
-                GradientStop {
-                    position: 0
-                    color: Theme.alpha(Theme.bg, 0.94)
-                }
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
 
-                GradientStop {
-                    position: 0.55
-                    color: Theme.alpha(Theme.bg, 0.72)
-                }
+                    GradientStop {
+                        position: 0
+                        color: Theme.alpha(Theme.bg, 0.94)
+                    }
 
-                GradientStop {
-                    position: 1
-                    color: Theme.alpha(Theme.bg, 0.12)
+                    GradientStop {
+                        position: 0.55
+                        color: Theme.alpha(Theme.bg, 0.72)
+                    }
+
+                    GradientStop {
+                        position: 1
+                        color: Theme.alpha(Theme.bg, 0.12)
+                    }
+
                 }
 
             }
