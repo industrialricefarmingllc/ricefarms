@@ -348,6 +348,9 @@ build_hypr_edge_swipe() {
   if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: make -C $d"; return 0; fi
   [[ -f "$d/Makefile" ]] || { warn "hypr-edge-swipe src missing — touch gestures will be unavailable"; return 0; }
   (run_cmd make -C "$d") || warn "hypr-edge-swipe build failed — install hyprland headers matching your compositor, then make -C ~/src/hypr-edge-swipe"
+  # root-built artifacts would block a later user-side rebuild
+  chown "$TARGET_USER:$TARGET_USER" "$d/hypr-touch-gestures.so" 2>/dev/null || true
+  find "$d/src" -name '*.o' -exec chown "$TARGET_USER:$TARGET_USER" {} + 2>/dev/null || true
 }
 
 build_gtk_shim() {
@@ -407,9 +410,21 @@ build_liquid_glass() {
     [[ -f "$d/Makefile" ]] || { warn "$(basename "$d") src missing — skipping build"; continue; }
     (run_cmd make -C "$d") || warn "$(basename "$d") build failed — install hyprland headers matching your compositor, then make -C $d"
     # hyprland.lua loads a versioned 057 build name so a rebuild never rewrites
-    # a .so the running compositor has mapped. Keep the installer in step.
+    # a .so the running compositor has mapped. That name changes with each
+    # perf pass (wash5 -> rimwidgets-washmul-diag-*), so follow the config
+    # instead of assuming an alias: a mismatched name installs a plugin the
+    # shell never loads (session comes up with no glass at all).
     if [[ "$d" == *liquid-glass-hypr-057 && -f "$d/liquidglass.so" ]]; then
       cp -f "$d/liquidglass.so" "$d/liquidglass-wash5.so" 2>/dev/null || true
+      local loadso
+      loadso=$(sed -n 's|.*hyprctl plugin load \(.*liquid-glass-hypr-057/[^" ]*\.so\).*|\1|p' "$PAYLOAD_DIR/hypr/hyprland.lua" | head -1)
+      if [[ -n "$loadso" ]]; then
+        cp -f "$d/liquidglass.so" "$d/$(basename "$loadso")" 2>/dev/null || true
+        chown "$TARGET_USER:$TARGET_USER" "$d/$(basename "$loadso")" 2>/dev/null || true
+      fi
+      # build artifacts land root-owned (make runs under sudo) which blocks a
+      # later user-side `make` from relinking; hand them back to the target.
+      chown "$TARGET_USER:$TARGET_USER" "$d/liquidglass.so" "$d/liquidglass-wash5.so" 2>/dev/null || true
     fi
   done
   info "hypr-goo-workspaces standalone retired (merged into liquidglass) — not built"

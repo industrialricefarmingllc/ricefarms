@@ -9,3 +9,10 @@ payload/**/hyprlandCrashReport*.txt
 # python bytecode from payload helpers (export prunes these)
 __pycache__/
 *.pyc
+# hypr plugin build artifacts (rebuilt by install.sh's build steps)
+payload/hypr-edge-swipe/*.so
+payload/hypr-edge-swipe/src/*.o
+payload/liquid-glass-hypr/*.so
+payload/liquid-glass-hypr/src/*.o
+payload/liquid-glass-hypr-057/*.so
+payload/liquid-glass-hypr-057/src/*.o

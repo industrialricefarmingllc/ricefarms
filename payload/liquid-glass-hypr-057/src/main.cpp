@@ -140,20 +140,21 @@ void onRimStage(const Event::SRenderStageEvent&) {
     damageAllGlassRims();
 }
 
-using EndFn = void (*)(Render::GL::CHyprOpenGLImpl*);
+// CHyprOpenGLImpl::end() is end(CRenderContext&): the hook must forward the
+// context or the original runs on a garbage reference (SEGV in scissor()).
+using EndFn = void (*)(Render::GL::CHyprOpenGLImpl*, Render::CRenderContext&);
 EndFn g_originalEnd = nullptr;
 
-void hkEnd(Render::GL::CHyprOpenGLImpl* self) {
-    auto& rctx = g_pHyprRenderer->context();
-    auto& rd   = rctx.m_data;
+void hkEnd(Render::GL::CHyprOpenGLImpl* self, Render::CRenderContext& ctx) {
+    auto& rd   = ctx.m_data;
     auto  out  = rd.outFB;
     auto  main = rd.mainFB;
     auto  mon  = rd.pMonitor.lock();
     auto  damage = rd.finalDamage;
     const bool td = rd.transformDamage;
-    const bool normal = rctx.m_mode == Render::RENDER_MODE_NORMAL;
+    const bool normal = ctx.m_mode == Render::RENDER_MODE_NORMAL;
 
-    g_originalEnd(self);
+    g_originalEnd(self, ctx);
 
     // The scene/work buffer was copied to the output above. Apply the wash
     // only to the output, so the work buffer used by glass backdrop capture
