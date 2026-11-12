@@ -63,7 +63,9 @@ Item {
         return view.indexAt(view.width / 2, y);
     }
 
-    signal activated(int index)
+    // newInstance is true when Shift or Ctrl was held: the caller must not
+    // focus an existing window for this activation
+    signal activated(int index, bool newInstance)
     signal deleteRequested(int index)
     signal hideRequested(int index)
     signal prefixChosen(string prefix)
@@ -102,6 +104,20 @@ Item {
             return Prefs.launcherRowCalc;
 
         return r.subtitle !== "" ? Prefs.launcherRowTwo : Prefs.launcherRowOne;
+    }
+
+    // the leading slot of a result, for the launch animation's origin
+    function iconItemFor(index) {
+        var item = view.itemAtIndex(index);
+        if (item && item.iconItem)
+            return item.iconItem;
+
+        var kids = view.contentItem ? view.contentItem.children : [];
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i] && kids[i].index === index && kids[i].iconItem)
+                return kids[i].iconItem;
+        }
+        return null;
     }
 
     // the m3 trailing supporting text: what Return will do with this row
@@ -207,9 +223,9 @@ Item {
         scrollAnim.start();
     }
 
-    function activateCurrent() {
+    function activateCurrent(newInstance) {
         if (list.isSelectable(list.currentIndex))
-            list.activated(list.currentIndex);
+            list.activated(list.currentIndex, newInstance === true);
 
     }
 
@@ -438,6 +454,8 @@ Item {
             // an application the pointer is on can be sent out of the launcher
             readonly property bool showsHide: rowItem.kind === "app" && rowItem.hovering
             readonly property bool showsHint: Prefs.launcherActionHints && rowItem.lit > 0 && !rowItem.isHeader && !rowItem.isCalc && rowItem.trailing === ""
+            // the leading slot, for the launch animation's origin
+            property Item iconItem: lead
 
             function askThumb() {
                 if (rowItem.thumb !== "")
@@ -888,9 +906,9 @@ Item {
                 id: rowTap
 
                 enabled: rowItem.selectable && !rowItem.disabled
-                onTapped: {
+                onTapped: (point) => {
                     list.currentIndex = rowItem.index;
-                    list.activated(rowItem.index);
+                    list.activated(rowItem.index, (point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0);
                 }
             }
 

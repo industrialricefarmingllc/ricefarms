@@ -116,7 +116,7 @@
     "idleDimKeyboard": true,
     "idleDimLevel": 10,
     "idleEnabled": true,
-    "idleKeepAwake": true,
+    "idleKeepAwake": false,
     "idleLock": false,
     "idleLockAfter": 600,
     "idleLockBeforeSleep": true,

@@ -950,12 +950,15 @@ BarPill {
                         sourceSize.height: Theme.dp(64)
                     }
 
-                    RotationAnimation on rotation {
-                        from: 0
-                        to: 360
-                        duration: 14000
-                        loops: Animation.Infinite
+                    // 30 Hz is indistinguishable for a 14 s revolution and
+                    // avoids repainting the bar at the monitor's full rate.
+                    Timer {
+                        id: compactArtSpin
+
+                        interval: 33
+                        repeat: true
                         running: root.isPlaying && compactArt.visible
+                        onTriggered: compactArt.rotation = (compactArt.rotation + 360 * compactArtSpin.interval / 14000) % 360
                     }
 
                 }
@@ -1359,13 +1362,14 @@ BarPill {
                     decode: Theme.dp(384)
                     fallbackColor: Theme.secondaryContainer
 
-                    // only while it can be seen
-                    RotationAnimation on rotation {
-                        from: 0
-                        to: 360
-                        duration: 24000
-                        loops: Animation.Infinite
+                    // only while it can be seen; 30 Hz is plenty for 24 s
+                    Timer {
+                        id: recordSpin
+
+                        interval: 33
+                        repeat: true
                         running: root.isPlaying && root.expanded && vinyl.visible
+                        onTriggered: record.rotation = (record.rotation + 360 * recordSpin.interval / 24000) % 360
                     }
 
                 }

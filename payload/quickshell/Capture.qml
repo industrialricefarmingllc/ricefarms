@@ -281,7 +281,8 @@ Singleton {
     function audioScript(withSink, mic, system) {
         let s = "S=-; M=-; Y=-; command -v pactl >/dev/null 2>&1 || { echo '- - -'; exit 0; }; ";
         if (withSink)
-            s += "pactl unload-module module-null-sink 2>/dev/null >/dev/null; S=$(pactl load-module module-null-sink sink_name=lucidshot_mix sink_properties=device.description=LucidShot 2>/dev/null) || S=-; ";
+            s += "for m in $(pactl list short modules 2>/dev/null | awk '$2 == \"module-null-sink\" && /sink_name=lucidshot_mix/ {print $1}'); do pactl unload-module \"$m\" 2>/dev/null; done; " +
+            "S=$(pactl load-module module-null-sink sink_name=lucidshot_mix sink_properties=device.description=LucidShot 2>/dev/null) || S=-; ";
 
         if (mic)
             s += "M=$(" + root.loopbackScript("mic") + ") || M=-; ";
@@ -301,8 +302,13 @@ Singleton {
         const list = ids.filter((i) => {
             return i !== "" && i !== "-";
         });
+        // Module ids from the state file can outlive a PipeWire restart, and
+        // are then reused for unrelated modules (a VAC null sink, the user's
+        // speakers). Only unload a module that still carries this recorder's
+        // name, never just because its old id happens to match again.
         return list.length === 0 ? "true" : list.map((i) => {
-            return "pactl unload-module " + i + " 2>/dev/null";
+            return "l=$(pactl list short modules 2>/dev/null | awk -v i=" + i + " '$1 == i {print}'); " +
+                "case \"$l\" in *module-null-sink*sink_name=lucidshot_mix*|*module-loopback*lucidshot-*) pactl unload-module " + i + " 2>/dev/null;; esac";
         }).join("; ") + "; true";
     }
 

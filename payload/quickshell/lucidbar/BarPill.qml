@@ -169,7 +169,34 @@ Item {
     property real liquidOpenW: 0
     property real liquidOpenH: 0
     readonly property bool glassUnion: !!(pill.hostWindow && pill.hostWindow.glassUnion)
-    readonly property bool liquidActive: pill.liquidMorph && pill.liquidRunning && (!pill.externalGlass || pill.glassUnion)
+
+    // ── O(1) transform morph ────────────────────────────────────────────
+    // Keep the bar's laid-out box at the compact size and render the open
+    // panel as an overflow whose shape is driven by the existing LiquidShape
+    // shader. The bar never re-lays-out per frame, and the glass bridge only
+    // publishes at the compact/morph hand-off (two geometry states per
+    // open/close), instead of one write per rendered frame.
+    property bool transformMorph: true
+    readonly property real transformWidth: pill.altOpen ? pill.altWidth : pill.panelWidth
+    readonly property real transformHeight: pill.altOpen ? pill.altHeight : pill.panelHeight
+    readonly property bool transformActive: pill.transformMorph && pill.liquidMorph && pill.opensOnHover && !pill.popupMode && !Prefs.barFull && pill.transformWidth > pill.compactWidth + 1
+    // A short cross-fade at the hand-off hides the difference between the
+    // QML body's opaque fill and the compositor's glass. It is only 140 ms
+    // and does not touch geometry. transformOpen includes it so the compact
+    // pill is not revealed until the compact face has finished fading in.
+    property bool glassHandoff: false
+    readonly property bool transformOpen: pill.transformActive && (pill.anyOpen || pill.liquidRunning || pill.glassHandoff)
+    readonly property bool glassMorphActive: pill.transformActive && pill.liquidRunning
+    readonly property real transformOffsetX: {
+        if (!pill.transformActive)
+            return 0;
+        if (pill.alignLeft)
+            return 0;
+        var d = pill.transformWidth - pill.compactWidth;
+        return pill.alignRight ? -d : -d / 2;
+    }
+
+    readonly property bool liquidActive: pill.liquidMorph && pill.liquidRunning && (pill.transformActive || !pill.externalGlass || pill.glassUnion)
     // The QML silhouette is only used when no external glass owns the body.
     // With glass on, the compositor plugin draws the same union shape (see
     // shell.qml's glassPillFor).
@@ -179,7 +206,7 @@ Item {
     // are. The shader body is born at the click and overshoots the open
     // rect, while the shoulder flares hug the item rect, so drawing it left
     // the shoulders racing ahead of the body and coming apart from it.
-    readonly property bool liquidDrawBody: pill.liquidActive && !pill.externalGlass && !pill.groupBackground && !(Prefs.barNotch && !pill.popupMode)
+    readonly property bool liquidDrawBody: (pill.liquidActive || (pill.transformActive && pill.glassHandoff)) && (pill.transformActive || (!pill.externalGlass && !pill.groupBackground && !(Prefs.barNotch && !pill.popupMode)))
     readonly property bool liquidCentre: pill.popupAlign === "center"
     // Centre and right pills read as an extrusion when their body travels
     // down from the click. Keep their top edge on the bar and let width lead;
@@ -189,9 +216,10 @@ Item {
     readonly property real liquidPad: 28
 
     // Live compact pill in pill coordinates. In island mode it sits inside
-    // the growing shell; in popup mode it is the separate pillRect.
-    readonly property real liquidCompactX: (pill.popupMode ? pillRect.x : shell.x) + compactHolder.x
-    readonly property real liquidCompactY: (pill.popupMode ? pillRect.y : shell.y) + compactHolder.y
+    // the growing shell; in popup mode and transform mode it is the separate
+    // pillRect, so the panel can overflow without moving the bar layout.
+    readonly property real liquidCompactX: ((pill.popupMode || pill.transformActive) ? pillRect.x : shell.x) + compactHolder.x
+    readonly property real liquidCompactY: ((pill.popupMode || pill.transformActive) ? pillRect.y : shell.y) + compactHolder.y
     readonly property real liquidCompactW: compactHolder.width
     readonly property real liquidCompactH: compactHolder.height
 
@@ -259,9 +287,15 @@ Item {
         pill.liquidCompactBL)
 
     // Stable shader bounds for the whole transition: the layer texture must
-    // not be reallocated on every spring frame.
-    readonly property real liquidBoundsW: Math.max(pill.liquidCompactX + pill.liquidCompactW, pill.liquidOpenX + pill.liquidOpenW * 1.2, pill.liquidPanelX + pill.liquidPanelW) + pill.liquidPad * 2
-    readonly property real liquidBoundsH: Math.max(pill.liquidCompactY + pill.liquidCompactH, pill.liquidOpenY + pill.liquidOpenH * 1.2, pill.liquidPanelY + pill.liquidPanelH) + pill.liquidPad * 2
+    // not be reallocated on every spring frame. A transform-mode panel can
+    // start left of the compact pill, so carry the minimum into the item
+    // origin instead of assuming x=0.
+    readonly property real liquidBoundsX: Math.min(0, pill.liquidCompactX, pill.liquidOpenX, pill.liquidPanelX)
+    readonly property real liquidBoundsY: Math.min(0, pill.liquidCompactY, pill.liquidOpenY, pill.liquidPanelY)
+    readonly property real liquidRectShiftX: -pill.liquidBoundsX + pill.liquidPad
+    readonly property real liquidRectShiftY: -pill.liquidBoundsY + pill.liquidPad
+    readonly property real liquidBoundsW: Math.max(pill.liquidCompactX + pill.liquidCompactW, pill.liquidOpenX + pill.liquidOpenW * 1.2, pill.liquidPanelX + pill.liquidPanelW) - pill.liquidBoundsX + pill.liquidPad * 2
+    readonly property real liquidBoundsH: Math.max(pill.liquidCompactY + pill.liquidCompactH, pill.liquidOpenY + pill.liquidOpenH * 1.2, pill.liquidPanelY + pill.liquidPanelH) - pill.liquidBoundsY + pill.liquidPad * 2
     // Panel content only uncovers once the body is essentially at its
     // final silhouette, so text can never poke out of the liquid shape.
     readonly property real liquidPanelReveal: {
@@ -286,7 +320,12 @@ Item {
     }
 
     function captureLiquidOpen() {
-        if (pill.popupMode) {
+        if (pill.transformActive) {
+            pill.liquidOpenX = pill.transformOffsetX;
+            pill.liquidOpenY = 0;
+            pill.liquidOpenW = pill.transformWidth;
+            pill.liquidOpenH = pill.transformHeight;
+        } else if (pill.popupMode) {
             pill.liquidOpenX = pill.popupX;
             pill.liquidOpenY = pill.compactHeight + Prefs.barPopupGap;
             pill.liquidOpenW = pill.popupWidth;
@@ -577,6 +616,23 @@ Item {
     property string popupAlign: "left"
     property bool popupIsAlt: false
 
+    onLiquidRunningChanged: {
+        if (!pill.liquidRunning && pill.transformActive) {
+            // open: fade the landed body into compositor glass
+            // close: keep the compact body one beat while the compact pill is
+            // republished, so the centre notch cannot blink at the hand-off
+            pill.glassHandoff = true;
+            glassHandoffTimer.restart();
+        }
+    }
+
+    Timer {
+        id: glassHandoffTimer
+
+        interval: 140
+        onTriggered: pill.glassHandoff = false
+    }
+
     onAnyOpenChanged: {
         if (pill.anyOpen) {
             pill.popupIsAlt = pill.altOpen && !pill.expanded;
@@ -621,7 +677,7 @@ Item {
         return 0;
     }
     readonly property bool popupExpanding: pill.popupMode && pill.anyOpen
-    readonly property bool popupOpen: pill.shown && pill.popupMode && (pill.notchedPopup ? shell.height > 0.5 : shell.y > 0.5)
+    readonly property bool popupOpen: pill.shown && (pill.popupMode ? (pill.notchedPopup ? shell.height > 0.5 : shell.y > 0.5) : (pill.transformActive && pill.transformOpen))
     readonly property Item popupItem: shell
 
     // Docked (notch) hover grows from the fixed outer edge so compact text
@@ -650,8 +706,8 @@ Item {
     // place the animations below read it fresh
     property bool exiting: false
 
-    implicitWidth: (!pill.shown || pill.soloCollapse) ? 0 : (pill.popupMode ? pill.compactWidth : pill.openWidth)
-    implicitHeight: !pill.shown ? 0 : (pill.popupMode ? pill.compactHeight : pill.openHeight)
+    implicitWidth: (!pill.shown || pill.soloCollapse) ? 0 : (pill.transformActive ? pill.compactWidth : (pill.popupMode ? pill.compactWidth : pill.openWidth))
+    implicitHeight: !pill.shown ? 0 : (pill.transformActive ? pill.compactHeight : (pill.popupMode ? pill.compactHeight : pill.openHeight))
     opacity: pill.shown ? 1 : 0
     scale: pill.shown ? 1 : 0.86
     transformOrigin: Item.Center
@@ -789,7 +845,10 @@ Item {
     Timer {
         id: panelTransitionTimer
 
-        interval: Theme.barMs(420)
+        // Covers the longest morph geometry (432 ms width, or 378 ms height
+        // hold + snap). It used to be 420 * 1.35 = 567 ms, which kept the
+        // full-panel mask layer alive ~135 ms after the shape had landed.
+        interval: Theme.barMs(320)
         onTriggered: pill.panelTransitioning = false
         onRunningChanged: {
             if (running)
@@ -818,18 +877,22 @@ Item {
 
         z: -1
         visible: pill.liquidDrawBody
-        x: -pill.liquidPad
-        y: -pill.liquidPad
+        opacity: pill.glassHandoff ? 0 : 1
+        x: pill.liquidBoundsX - pill.liquidPad
+        y: pill.liquidBoundsY - pill.liquidPad
         width: pill.liquidBoundsW
         height: pill.liquidBoundsH
         fillColor: Theme.bg
         smoothing: Prefs.squircleF
         goo: pill.liquidGoo
-        compactRect: Qt.vector4d(pill.liquidCompactX + pill.liquidPad, pill.liquidCompactY + pill.liquidPad, pill.liquidCompactW, pill.liquidCompactH)
+        compactRect: Qt.vector4d(pill.liquidCompactX + pill.liquidRectShiftX, pill.liquidCompactY + pill.liquidRectShiftY, pill.liquidCompactW, pill.liquidCompactH)
         compactRadii: pill.liquidCompactRadii
-        panelRect: Qt.vector4d(pill.liquidPanelX + pill.liquidPad, pill.liquidPanelY + pill.liquidPad, pill.liquidPanelW, pill.liquidPanelH)
+        panelRect: Qt.vector4d(pill.liquidPanelX + pill.liquidRectShiftX, pill.liquidPanelY + pill.liquidRectShiftY, pill.liquidPanelW, pill.liquidPanelH)
         panelRadii: pill.liquidPanelRadii
         layer.enabled: pill.liquidDrawBody
+        Behavior on opacity {
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+        }
         layer.effect: MultiEffect {
             shadowEnabled: true
             shadowBlur: Theme.hyprShadowBlur
@@ -845,7 +908,7 @@ Item {
     Rectangle {
         id: pillRect
 
-        visible: pill.popupMode
+        visible: pill.popupMode || pill.transformActive
         x: pill.surfaceX
         y: pill.surfaceY
         width: pill.compactWidth + pill.hoverGrowWidth
@@ -875,7 +938,7 @@ Item {
         HoverHandler {
             id: pillHover
 
-            enabled: pill.popupMode
+            enabled: pill.popupMode || pill.transformActive
         }
 
         // over the contents, not on this rect: a handler on a parent never hears
@@ -898,7 +961,7 @@ Item {
 
         LiquidGlassBg {
             anchors.fill: parent
-            visible: !pill.liquidDrawBody && !pill.groupBackground
+            visible: !pill.liquidDrawBody && !pill.groupBackground && !(pill.transformActive && pill.transformOpen)
             externalGlass: pill.externalGlass
             hostWindow: pill.hostWindow
             targetScreen: pill.hostWindow ? pill.hostWindow.screen : null
@@ -977,11 +1040,11 @@ Item {
         id: shell
 
         // a notched pop-up grows down out of the pill's bottom edge, flush
-        width: pill.popupMode ? (pill.anyOpen ? pill.popupWidth : pill.compactWidth + (pill.notchedPopup ? 0 : pill.hoverGrow * 2)) : pill.width + pill.hoverGrow * 2
-        height: pill.popupMode ? (pill.anyOpen ? pill.popupHeight : (pill.notchedPopup ? 0 : pill.compactHeight)) : pill.height
-        x: pill.popupMode && pill.anyOpen ? pill.popupX : (pill.notchedPopup ? 0 : pill.surfaceX)
-        y: pill.popupMode && (pill.anyOpen || pill.notchedPopup) ? pill.compactHeight + (pill.notchedPopup ? 0 : Theme.dp(Prefs.barPopupGap)) : pill.surfaceY
-        visible: !pill.popupMode || (pill.notchedPopup ? shell.height > 0.5 : shell.y > 0.5)
+        width: pill.transformActive ? (pill.transformOpen ? pill.transformWidth : pill.compactWidth) : (pill.popupMode ? (pill.anyOpen ? pill.popupWidth : pill.compactWidth + (pill.notchedPopup ? 0 : pill.hoverGrow * 2)) : pill.width + pill.hoverGrow * 2)
+        height: pill.transformActive ? (pill.transformOpen ? pill.transformHeight : pill.compactHeight) : (pill.popupMode ? (pill.anyOpen ? pill.popupHeight : (pill.notchedPopup ? 0 : pill.compactHeight)) : pill.height)
+        x: pill.transformActive ? pill.transformOffsetX : (pill.popupMode && pill.anyOpen ? pill.popupX : (pill.notchedPopup ? 0 : pill.surfaceX))
+        y: pill.transformActive ? 0 : (pill.popupMode && (pill.anyOpen || pill.notchedPopup) ? pill.compactHeight + (pill.notchedPopup ? 0 : Theme.dp(Prefs.barPopupGap)) : pill.surfaceY)
+        visible: pill.transformActive ? pill.transformOpen : (!pill.popupMode || (pill.notchedPopup ? shell.height > 0.5 : shell.y > 0.5))
         color: "transparent"
         radius: pill.cornerRadius
         // opened in place, the panel hangs from its own stretch of the group: the
@@ -1001,7 +1064,10 @@ Item {
             // it on for the whole open state pushed the panel text through a
             // second MultiEffect layer, which resampled it and made the open
             // panel look blurry next to the compact bar
-            layer.enabled: pill.liquidActive || pill.panelTransitioning
+            // a transform-mode panel keeps its content full-size from the
+            // start, and only reveals it once the shader body has arrived:
+            // no per-frame mask FBO is needed there.
+            layer.enabled: !pill.transformActive && (pill.liquidActive || pill.panelTransitioning)
             layer.effect: MultiEffect {
                 maskEnabled: true
                 maskSource: shellContentMask
@@ -1009,7 +1075,7 @@ Item {
             // content inside clipped container
             Item {
                 id: compactFace
-                parent: pill.popupMode ? pillRect : shellContentClip
+                parent: (pill.popupMode || pill.transformActive) ? pillRect : shellContentClip
                 anchors.fill: parent
                 opacity: pill.popupMode || !pill.anyOpen ? 1 : 0
                 scale: pill.popupMode || !pill.anyOpen ? 1 : pill.compactCollapseScale

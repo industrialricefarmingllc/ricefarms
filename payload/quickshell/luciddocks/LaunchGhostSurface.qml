@@ -55,6 +55,18 @@ Item {
         smooth: true
         mipmap: true
         visible: root.iconSource !== "" && status === Image.Ready
+        layer.enabled: visible
+        // Mask in a supersampled layer, otherwise the mask is baked at 1x and
+        // the tile's scale blurs the icon back down again.
+        layer.textureSize: Qt.size(Math.ceil(width * 4), Math.ceil(height * 4))
+        layer.smooth: true
+        layer.mipmap: true
+        layer.effect: ShaderEffect {
+            property vector2d center: Qt.vector2d(0.5, 0.5)
+            property real radius: 0.5
+            property real aspect: 1
+            fragmentShader: "LauncherMask.qsb"
+        }
     }
 
     // an app with no resolvable icon still gets a mark: its initial, in the

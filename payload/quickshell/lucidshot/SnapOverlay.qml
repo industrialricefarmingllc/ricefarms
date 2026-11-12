@@ -280,7 +280,6 @@ PanelWindow {
 function stopRecordingBackend() {
         var file = snapWindow.lastRecordingFile;
         var segs = snapWindow.segmentFiles;
-        var crop = snapWindow.currentCrop;
         var listFile = file.replace(/\.mp4$/, "") + ".concat.txt";
         var mergedFile;
         var mergeCmd;
@@ -297,12 +296,9 @@ function stopRecordingBackend() {
             mergedFile = segs[0];
             mergeCmd = "";
         }
-        var finalCmd;
-        if (crop) {
-            finalCmd = "ffmpeg -y -i '" + mergedFile + "' -vf crop=" + crop + " -color_range pc -colorspace bt709 -color_primaries bt709 -color_trc bt709 -pix_fmt yuv420p -c:v libx264 -crf 18 -preset veryfast -c:a copy '" + file + "'";
-        } else {
-            finalCmd = "ffmpeg -y -i '" + mergedFile + "' -c:v copy -bsf:v h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=1 -c:a copy '" + file + "'";
-        }
+        // lucidcap already cropped each part, so join and remux instead of
+        // cropping the whole-monitor video here
+        var finalCmd = "ffmpeg -y -i '" + mergedFile + "' -c:v copy -bsf:v h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=1 -c:a copy '" + file + "'";
         var cleanupSegs = segs.map(function (s) {
             return "'" + s + "'";
         }).join(" ");
@@ -318,9 +314,7 @@ function stopRecordingBackend() {
             "i=0; while kill -0 \"$PID\" 2>/dev/null && [ \"$i\" -lt 100 ]; do sleep 0.1; i=$((i+1)); done; " +
             "fi; " +
             snapWindow.snapRuleCmd(false) + "; " +
-            "for f in /tmp/quickshell-wfrec-nullsink.pid /tmp/quickshell-wfrec-loop-mic.pid /tmp/quickshell-wfrec-loop-sys.pid; do " +
-            "if [ -f \"$f\" ]; then pactl unload-module \"$(cat \"$f\")\" 2>/dev/null; rm -f \"$f\"; fi; " +
-            "done; " +
+            snapWindow.audioCleanupCmd() + "; " +
             "rm -f \"$PIDFILE\"; " +
             mergeCmd +
             finalCmd + "; OK=$?; " +
@@ -385,6 +379,10 @@ function stopRecordingBackend() {
         // back to libx264 rather than launching a recorder that exits at once.
         var cap = "'" + snapWindow.capBin + "'";
         var args = " --monitor '" + snapWindow.outputName() + "' --fps 30 --quiet --output '" + segFile + "'";
+        // crop while recording, not after: lucidcap crops the physical frame
+        // using the logical box and the monitor's logical size
+        if (snapWindow.currentCrop !== "")
+            args += " --crop '" + snapWindow.currentCrop + "' --logical " + Math.round(snapWindow.width) + "x" + Math.round(snapWindow.height);
         if (withAudio)
             args += " --audio wfrec_combined.monitor";
         return "DRI=$(ls /dev/dri/renderD* 2>/dev/null | head -1); " +
@@ -411,10 +409,24 @@ function stopRecordingBackend() {
         return "hyprctl eval 'hl.layer_rule({ name = \"lucid-snap-rec\", match = { namespace = \"quickshell-snap\" }, no_screen_share = true, enabled = " + (on ? "true" : "false") + " })' >/dev/null 2>&1";
     }
 
+    // Unload only the modules this recorder owns. The old stop path read
+    // module ids from /tmp pid files; after a PipeWire restart those ids can
+    // belong to something else (the user's VAC/VST_OUT null sink, for one),
+    // so finishing a recording could remove the sink the music was playing
+    // through. Match by name instead, and clear the stale pid files.
+    function audioCleanupCmd() {
+        return "for id in $(pactl list short modules 2>/dev/null | awk '$2 == \"module-null-sink\" && /sink_name=wfrec_combined/ {print $1}'); do pactl unload-module \"$id\" 2>/dev/null; done; " +
+            "for id in $(pactl list short modules 2>/dev/null | awk '$2 == \"module-loopback\" && /media.name=lucidshot-(mic|sys)/ {print $1}'); do pactl unload-module \"$id\" 2>/dev/null; done; " +
+            "rm -f /tmp/quickshell-wfrec-nullsink.pid /tmp/quickshell-wfrec-loop-mic.pid /tmp/quickshell-wfrec-loop-sys.pid";
+    }
+
     function startRecordingBackend() {
+        // the selection is in logical pixels and the capture buffer is the
+        // monitor's physical one; lucidcap scales between them with --logical,
+        // so give it x,y,w,h exactly as the overlay measured them
         var crop = "";
         if (snapWindow.activeTool === "select" && snapWindow.selW > 1 && snapWindow.selH > 1) {
-            crop = Math.round(snapWindow.selW) + ":" + Math.round(snapWindow.selH) + ":" + Math.round(snapWindow.selX) + ":" + Math.round(snapWindow.selY);
+            crop = Math.round(snapWindow.selX) + "," + Math.round(snapWindow.selY) + "," + Math.round(snapWindow.selW) + "," + Math.round(snapWindow.selH);
         }
         snapWindow.currentCrop = crop;
         var sysMute = snapWindow.headphoneOn ? "0" : "1";
@@ -424,6 +436,7 @@ function stopRecordingBackend() {
         snapWindow.segmentFiles = [segFile];
         Quickshell.execDetached(["sh", "-c",
             "mkdir -p '" + snapWindow.recordSaveDir + "'; " +
+            snapWindow.audioCleanupCmd() + "; " +
             "SINK_MON=\"$(pactl get-default-sink).monitor\"; SRC=\"$(pactl get-default-source)\"; " +
             // a wedged pulse server (its 64-client cap) refuses these and used
             // to leave a video whose audio track was pure silence; fall back
@@ -481,20 +494,53 @@ function stopRecordingBackend() {
         }
     }
 
+    // The bar chip and the other surfaces read Capture.seconds, which the
+    // Capture timer derives from partStart/banked. The old overlay only drove
+    // Capture.state through a binding, so the new Capture timer ran against a
+    // stale partStart and showed a huge time. Keep its clock in step with this
+    // recorder's own clock. Do not also bind Capture.seconds: two writers made
+    // the bar tick between both values.
+    function syncCaptureStart() {
+        Capture.banked = 0;
+        Capture.partStart = Date.now();
+        Capture.now = Capture.partStart;
+        Capture.seconds = 0;
+    }
+
+    function syncCapturePause() {
+        if (Capture.partStart > 0)
+            Capture.banked += Math.max(0, Date.now() - Capture.partStart);
+    }
+
+    function syncCaptureResume() {
+        Capture.partStart = Date.now();
+        Capture.now = Capture.partStart;
+    }
+
+    function syncCaptureStop() {
+        Capture.banked = 0;
+        Capture.partStart = 0;
+        Capture.now = Date.now();
+        Capture.seconds = 0;
+    }
+
     function togglePlayPause() {
         if (snapWindow.recordingState === "idle") {
             if (!snapWindow.recorderAvailable) {
                 Quickshell.execDetached(["notify-send", "-a", "Screen recorder", "-i", "media-record", "Recording unavailable", snapWindow.capBin + " is missing"]);
                 return;
             }
+            snapWindow.syncCaptureStart();
             snapWindow.recordingState = "recording";
             snapWindow.recordSeconds = 0;
             snapWindow.startRecordingBackend();
         } else if (snapWindow.recordingState === "recording") {
+            snapWindow.syncCapturePause();
             snapWindow.recordingState = "paused";
             snapWindow.pauseRecordingBackend();
         } else if (snapWindow.recordingState === "paused") {
             snapWindow.recordingState = "recording";
+            snapWindow.syncCaptureResume();
             snapWindow.resumeRecordingBackend();
         }
     }
@@ -505,6 +551,7 @@ function stopRecordingBackend() {
         snapWindow.stoppingRecording = true;
         snapWindow.recordingState = "idle";
         snapWindow.recordSeconds = 0;
+        snapWindow.syncCaptureStop();
         snapWindow.resetSelection();
         snapWindow.activeTool = "fullscreen";
         snapWindow.stopRecordingBackend();
@@ -1919,17 +1966,13 @@ function stopRecordingBackend() {
         Keys.onEscapePressed: snapWindow.open = false
     }
 
-    // the recorder's state, for the bar chip and the control centre tile
+    // the recorder's state, for the bar chip and the control centre tile.
+    // Capture.seconds is left to the Capture timer, fed by syncCapture* above;
+    // binding it here too made the bar flip between two clocks every second
     Binding {
         target: Capture
         property: "state"
         value: snapWindow.recordingState
-    }
-
-    Binding {
-        target: Capture
-        property: "seconds"
-        value: snapWindow.recordSeconds
     }
 
     Binding {

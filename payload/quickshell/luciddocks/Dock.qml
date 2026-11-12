@@ -364,6 +364,11 @@ PanelWindow {
             dockWindow.closingFromHidden = false;
             dockWindow.snapPlacement = true;
             snapClear.restart();
+            // A PWA install drops a new .desktop file in ~/.local/share/applications.
+            // Rescan on open so it is in the wall the first time the launcher is
+            // used, rather than waiting for the 20 s background pass.
+            if (!appScanner.running)
+                appScanner.running = true;
         } else {
             if (dockWindow.launcherItem) {
                 dockWindow.launcherItem.resetTranslate();
@@ -1980,7 +1985,21 @@ PanelWindow {
         focusProbe.running = true;
     }
 
-    readonly property string focusProbeScript: "mode=\"$1\"; shift; sigs=\"$1\"; shift; for pair in \"$@\"; do pid=\"${pair%%:*}\"; addr=\"${pair#*:}\"; [ -r \"/proc/$pid/environ\" ] || continue; ok=1; for s in $sigs; do if [ \"$mode\" = inc ]; then grep -qaF -- \"$s\" \"/proc/$pid/environ\" || { ok=0; break; }; else grep -qaF -- \"$s\" \"/proc/$pid/environ\" && { ok=0; break; }; fi; done; if [ \"$ok\" = \"1\" ]; then printf '%s' \"$addr\"; exit 0; fi; done"
+    // Discord now wipes /proc/<pid>/environ after startup, so an environment
+    // signature alone can no longer tell its three accounts apart. The profile
+    // path is still visible in the command line and in open file descriptors
+    // (the profile databases), so match the signature's value there too.
+    readonly property string focusProbeScript: "mode=\"$1\"; shift; sigs=\"$1\"; shift; " +
+        "for pair in \"$@\"; do pid=\"${pair%%:*}\"; addr=\"${pair#*:}\"; " +
+        "[ -r \"/proc/$pid/environ\" ] || continue; ok=1; " +
+        "for s in $sigs; do value=\"${s#*=}\"; hit=0; " +
+        "if grep -qaF -- \"$s\" \"/proc/$pid/environ\" 2>/dev/null; then hit=1; " +
+        "elif grep -qaF -- \"$value\" \"/proc/$pid/cmdline\" 2>/dev/null; then hit=1; " +
+        "else for f in \"/proc/$pid\"/fd/*; do target=$(readlink \"$f\" 2>/dev/null) || continue; " +
+        "case \"$target\" in *\"$value\"*) hit=1; break ;; esac; done; fi; " +
+        "if [ \"$mode\" = inc ]; then [ \"$hit\" = 1 ] || { ok=0; break; }; " +
+        "else [ \"$hit\" = 1 ] && { ok=0; break; }; fi; done; " +
+        "if [ \"$ok\" = \"1\" ]; then printf '%s' \"$addr\"; exit 0; fi; done"
 
     Process {
         id: focusProbe
@@ -2748,11 +2767,18 @@ PanelWindow {
         // Delete in the picker is already deliberate. Settings' tile asks
         // first (its action goes straight to removeWorkshopItem), while the
         // picker key must not raise a dialog on a hidden Settings window.
-        // A search result that was never downloaded has nothing local to remove.
+        // A Workshop item is unsubscribed by its id whichever path shape the
+        // row carries (a scene's skwd:we:<id>, or its video file in the Steam
+        // folder).
         const workshopId = SkwdWall.workshopIdFor(path);
         if (workshopId !== "") {
-            if (workshopRemove.running || !SkwdWall.entryForPath(path))
+            if (workshopRemove.running)
                 return ;
+            // Resolve the id from the path itself rather than requiring an
+            // exact SkwdWall.items match: a scene's picker row can be the
+            // skwd:we:<id> form while the library row is its video file (or
+            // the other way round), and that mismatch used to make Delete a
+            // silent no-op for Wallpaper Engine items.
             dockWindow.removeWorkshopItem(workshopId);
             return ;
         }
@@ -3920,6 +3946,9 @@ PanelWindow {
     Process {
         id: appScanner
 
+        // Scan at startup instead of waiting for the first 20 s tick: a PWA
+        // installed before login has no entry in the launcher otherwise.
+        running: true
         command: ["sh", "-c", "for d in \"$HOME/.local/share/applications\" \"$HOME/.local/share/flatpak/exports/share/applications\" /var/lib/flatpak/exports/share/applications /usr/local/share/applications /usr/share/applications /var/lib/snapd/desktop/applications; do [ -d \"$d\" ] && find \"$d\" -maxdepth 1 -name '*.desktop' -print0; done | awk -v RS='\\0' -F/ '!seen[$NF]++ { printf \"%s%c\", $0, 0 }' | xargs -0 -r awk -v de=\"${XDG_CURRENT_DESKTOP:-Hyprland}\" 'function clean(v) { gsub(/\\|/, \" \", v); gsub(/\\r/, \"\", v); return v } function inde(l,   i, j, n, m, a, b) { n = split(l, a, \";\"); m = split(de, b, \":\"); for (i = 1; i <= n; i++) { if (a[i] == \"\") continue; for (j = 1; j <= m; j++) if (a[i] == b[j]) return 1 } return 0 } function flush(   n, e, ids, na, k, id, ae, al) { n = clean(name); e = clean(ex); if (nodisp || hidden) return; if (type != \"\" && type != \"Application\") return; if (only != \"\" && !inde(only)) return; if (notin != \"\" && inde(notin)) return; if (n == \"\" || e == \"\") return; gsub(/ ?%[a-zA-Z]/, \"\", e); sub(/[ \\t]+$/, \"\", e); if (term == \"true\") e = \"kitty -e \" e; al = \"\"; na = split(actlist, ids, \";\"); for (k = 1; k <= na; k++) { id = ids[k]; if (id == \"\" || !(id in AN) || !(id in AE)) continue; ae = clean(AE[id]); gsub(/ ?%[a-zA-Z]/, \"\", ae); sub(/[ \\t]+$/, \"\", ae); if (ae == \"\") continue; if (term == \"true\") ae = \"kitty -e \" ae; al = al (al == \"\" ? \"\" : \"\\036\") clean(AN[id]) \"\\037\" ae } print n \"|\" clean(icon) \"|\" clean(kw \" \" gen \" \" com \" \" cats) \"|\" e \"|\" clean(wm) \"|\" base \"|\" al \"|\" clean(com != \"\" ? com : gen) } BEGINFILE { name=\"\"; icon=\"\"; ex=\"\"; kw=\"\"; gen=\"\"; com=\"\"; cats=\"\"; wm=\"\"; type=\"\"; term=\"\"; only=\"\"; notin=\"\"; nodisp=0; hidden=0; insec=0; actlist=\"\"; act=\"\"; delete AN; delete AE; base=FILENAME; sub(/.*\\//, \"\", base); sub(/\\.desktop$/, \"\", base) } /^[ \\t]*\\[/ { insec = ($0 ~ /^\\[Desktop Entry\\]/) ? 1 : 0; act = \"\"; if ($0 ~ /^\\[Desktop Action /) { act = $0; sub(/^\\[Desktop Action /, \"\", act); sub(/\\].*$/, \"\", act) } next } act != \"\" && /^Name=/ { if (!(act in AN)) AN[act] = substr($0, 6); next } act != \"\" && /^Exec=/ { if (!(act in AE)) AE[act] = substr($0, 6); next } !insec { next } /^Actions=/ { if (actlist == \"\") actlist = substr($0, 9) } /^Name=/ { if (name == \"\") name = substr($0, 6) } /^Icon=/ { if (icon == \"\") icon = substr($0, 6) } /^Exec=/ { if (ex == \"\") ex = substr($0, 6) } /^Keywords=/ { if (kw == \"\") { kw = substr($0, 10); gsub(/;/, \" \", kw) } } /^GenericName=/ { if (gen == \"\") gen = substr($0, 13) } /^Comment=/ { if (com == \"\") com = substr($0, 9) } /^Categories=/ { if (cats == \"\") { cats = substr($0, 12); gsub(/;/, \" \", cats) } } /^StartupWMClass=/ { if (wm == \"\") wm = substr($0, 16) } /^Type=/ { if (type == \"\") type = substr($0, 6) } /^Terminal=/ { if (term == \"\") term = substr($0, 10) } /^OnlyShowIn=/ { if (only == \"\") only = substr($0, 12) } /^NotShowIn=/ { if (notin == \"\") notin = substr($0, 11) } /^NoDisplay=true/ { nodisp = 1 } /^Hidden=true/ { hidden = 1 } ENDFILE { flush() }'"]
 
         stdout: StdioCollector {

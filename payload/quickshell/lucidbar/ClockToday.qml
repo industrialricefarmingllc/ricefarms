@@ -25,6 +25,56 @@ Item {
 
     implicitHeight: Theme.dp(404)
 
+    // The cookie dial used to run a 500 ms RotationAnimation every second at
+    // the monitor's full refresh rate (82 extra frames/s at 165 Hz). A 30 Hz
+    // Timer interpolation is visually identical for a 6°/s decoration and
+    // costs a fraction of that.
+    property real dialAngle: 0
+    property real dialFrom: 0
+    property real dialTo: 0
+    property double dialStartMs: 0
+    property bool dialActive: false
+    readonly property int dialTarget: page.now.getSeconds() * 6
+
+    onDialTargetChanged: {
+        if (!page.visible) {
+            page.dialAngle = page.dialTarget;
+            page.dialFrom = page.dialAngle;
+            page.dialTo = page.dialAngle;
+            page.dialActive = false;
+            return;
+        }
+        var from = page.dialAngle % 360;
+        if (from < 0)
+            from += 360;
+        var to = page.dialTarget;
+        if (to < from)
+            to += 360;
+        page.dialFrom = from;
+        page.dialTo = to;
+        page.dialStartMs = Date.now();
+        page.dialActive = true;
+    }
+
+    Timer {
+        id: dialTimer
+
+        interval: 33
+        repeat: true
+        running: page.visible && page.dialActive
+        onTriggered: {
+            var t = Math.min(1, (Date.now() - page.dialStartMs) / 500);
+            var e = 1 - Math.pow(1 - t, 3);
+            page.dialAngle = page.dialFrom + (page.dialTo - page.dialFrom) * e;
+            if (t >= 1) {
+                page.dialAngle = page.dialTo % 360;
+                page.dialFrom = page.dialAngle;
+                page.dialTo = page.dialAngle;
+                page.dialActive = false;
+            }
+        }
+    }
+
     Timer {
         interval: 1000
         repeat: true
@@ -49,17 +99,7 @@ Item {
             height: Theme.dp(210)
             shape: "cookie12"
             color: Theme.alpha(Theme.fgPrimaryContainer, 0.08)
-            rotation: page.now.getSeconds() * 6
-
-            Behavior on rotation {
-                RotationAnimation {
-                    duration: Theme.durDefaultSpatial
-                    direction: RotationAnimation.Clockwise
-                    easing.type: Easing.Bezier
-                    easing.bezierCurve: Theme.curveDefaultSpatial
-                }
-
-            }
+            rotation: page.dialAngle
 
         }
 

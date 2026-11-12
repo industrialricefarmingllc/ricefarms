@@ -85,8 +85,19 @@ apply_once() {
     fi
 
     if changed helium "$HOME/.local/share/helium-matugen-theme/manifest.json"; then
-        [ -p "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/chromugen.fifo" ] && \
-            printf '1' > "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/chromugen.fifo" 2>/dev/null || true
+        fifo="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/chromugen.fifo"
+        if [ -p "$fifo" ]; then
+            # Open read-write, never write-only. With no chromugen listener
+            # holding the read end, a write-only open blocks in open(2) until a
+            # reader appears; that wedged this fanout, the set-wallpaper.sh
+            # waiting on it, and therefore the wallpaper iris, until a shell
+            # restart. A read-write open always succeeds and the byte is
+            # discarded if nobody is listening.
+            if exec 3<>"$fifo"; then
+                printf '1' >&3 2>/dev/null || true
+                exec 3>&-
+            fi
+        fi
     fi
 
     # app-surface-sync.sh has now pinned the OpenCode theme to the same

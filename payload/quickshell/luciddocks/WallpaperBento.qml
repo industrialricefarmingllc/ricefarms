@@ -8,6 +8,13 @@ import qs
 WallpaperSlots {
     id: root
 
+    // the bento's cards are real rounded shapes, so they take the shell's
+    // squircle curve rather than a plain circular corner
+    squircle: true
+    // same corner as the other wallpaper previews (Settings tiles and the
+    // strip), so the bento does not invent a second card radius
+    readonly property int corner: Theme.radiusSm
+
     // Settings -> Theme -> Bento: how large the main wallpaper is, and whether the
     // two before it are shown (without them the main one starts at the edge)
     readonly property bool showPrev: Prefs.wallpaperBentoPrev !== false
@@ -30,30 +37,30 @@ WallpaperSlots {
     slotRect: function (offset) {
         switch (offset) {
         case 0:
-            return root.cell(root.xMain, 0, root.mainW, root.stageH, Theme.radiusXl, 1);
+            return root.cell(root.xMain, 0, root.mainW, root.stageH, root.corner, 1);
         case 1:
-            return root.cell(root.xA, 0, root.aW, root.stageH, Theme.radiusLg, 0.95);
+            return root.cell(root.xA, 0, root.aW, root.stageH, root.corner, 0.95);
         case 2:
-            return root.cell(root.xB, 0, root.bW, root.tall, Theme.radiusMd, 0.9);
+            return root.cell(root.xB, 0, root.bW, root.tall, root.corner, 0.9);
         case 3:
-            return root.cell(root.xB, root.tall + root.gap, root.bW, root.short, Theme.radiusMd, 0.9);
+            return root.cell(root.xB, root.tall + root.gap, root.bW, root.short, root.corner, 0.9);
         case 4:
-            return root.cell(root.xC, 0, root.cW, root.short, Theme.radiusMd, 0.85);
+            return root.cell(root.xC, 0, root.cW, root.short, root.corner, 0.85);
         case 5:
-            return root.cell(root.xC, root.short + root.gap, root.cW, root.tall, Theme.radiusMd, 0.85);
+            return root.cell(root.xC, root.short + root.gap, root.cW, root.tall, root.corner, 0.85);
         case -1:
             if (root.showPrev)
-                return root.cell(0, 0, root.prevW, root.half, Theme.radiusMd, 0.8);
+                return root.cell(0, 0, root.prevW, root.half, root.corner, 0.8);
 
             break;
         case -2:
             if (root.showPrev)
-                return root.cell(0, root.half + root.gap, root.prevW, root.half, Theme.radiusMd, 0.7);
+                return root.cell(0, root.half + root.gap, root.prevW, root.half, root.corner, 0.7);
 
             break;
         }
         // out of the picture: parked past the edge it left by
-        return root.cell(offset > 0 ? root.width : -root.mainW, 0, root.cW, root.half, Theme.radiusMd, 0);
+        return root.cell(offset > 0 ? root.width : -root.mainW, 0, root.cW, root.half, root.corner, 0);
     }
 
     function cell(x, y, w, h, r, o) {

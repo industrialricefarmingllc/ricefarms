@@ -95,15 +95,60 @@ fi
 WALLPAPER="${WALLPAPER/#\~/$HOME}"
 TARGET_LABEL="$WALLPAPER"
 
+# A Wallpaper Engine preset is only a set of settings; its project.json names
+# the Workshop scene it needs. Download that scene first, or the daemon rejects
+# the apply with "requires Workshop item <id>; download it first".
+ensure_scene_dependency() {
+    [[ "$SKWD" == 1 && "$SKWD_TARGET" == we:* ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    local scene="${SKWD_TARGET#we:}"
+    local dir="$HOME/.local/share/Steam/steamapps/workshop/content/431960/$scene"
+    [ -f "$dir/project.json" ] || return 0
+    local deps one installed=0
+    deps=$(jq -r '.dependency // empty' "$dir/project.json" 2>/dev/null || true)
+    [ -n "$deps" ] || return 0
+    command -v skwd-steam >/dev/null 2>&1 || return 0
+    if ! pgrep -x steam >/dev/null 2>&1; then
+        nohup steam -silent >/dev/null 2>&1 &
+        sleep 5
+    fi
+    for one in ${deps//,/ }; do
+        [[ "$one" =~ ^[0-9]+$ ]] || continue
+        local dep_dir="$HOME/.local/share/Steam/steamapps/workshop/content/431960/$one"
+        [ -d "$dep_dir" ] && continue
+        echo "installing Workshop dependency $one" >&2
+        skwd-steam "$one" >/dev/null 2>&1 || true
+        [ -d "$dep_dir" ] && installed=1
+    done
+    # a new scene folder is invisible to skwd until its next scan
+    if [[ "$installed" == "1" ]]; then
+        skwd-helm list >/dev/null 2>&1 || true
+    fi
+}
+
 if [[ "$WALLPAPER" == skwd:* ]]; then
     [[ "$SKWD" == 1 ]] || { echo "error: skwd-wall is not enabled" >&2; exit 1; }
     SKWD_TARGET="${WALLPAPER#skwd:}"
     SKWD_LIVE_LABEL="$WALLPAPER"
+    ensure_scene_dependency
     if [[ -z "$SKWD_SAMPLE" || ! -f "$SKWD_SAMPLE" ]]; then
         command -v jq >/dev/null 2>&1 || { echo "error: jq is needed to sample a scene" >&2; exit 1; }
         SKWD_SAMPLE=$(skwd-helm list --json 2>/dev/null \
             | jq -r --arg k "$SKWD_TARGET" '.wallpapers[]? | select(.key == $k) | (.thumb // .preview // empty)' 2>/dev/null \
             | head -n1)
+    fi
+    # A scene that was just downloaded is already on disk before skwd has
+    # scanned it, so the list above can still be empty. Use the author's own
+    # preview as the sample instead of bailing out before wait_skwd_target
+    # gets a chance to wait for the library.
+    if [[ -z "$SKWD_SAMPLE" || ! -f "$SKWD_SAMPLE" ]]; then
+        scene_dir="$HOME/.local/share/Steam/steamapps/workshop/content/431960/${SKWD_TARGET#we:}"
+        for f in preview.gif preview.jpg preview.png; do
+            if [[ -f "$scene_dir/$f" ]]; then
+                SKWD_SAMPLE="$scene_dir/$f"
+                break
+            fi
+        done
     fi
     [[ -n "$SKWD_SAMPLE" && -f "$SKWD_SAMPLE" ]] || { echo "error: no preview for $WALLPAPER" >&2; exit 1; }
     WALLPAPER="$SKWD_SAMPLE"
@@ -612,14 +657,22 @@ wait_wallpaper() {
 wait_fanout() {
     # The palette files are written before this; the fanout is what tells the
     # apps (kitty, hypr borders, opencode, discord) to read them. Keep the iris
-    # up until that has actually happened, but cap the wait so a wedged fanout
-    # cannot hold the screen hostage.
+    # up until that has actually happened, but never wait forever: a fanout
+    # wedged on a FIFO or an app signal used to hold the circle until the
+    # shell's 90 s deadline, and the still-running heartbeat then disabled the
+    # reveal watchdog for later applies. The loop above is the cap; the waits
+    # below must not undo it.
     [[ -n "${FANOUT_PID:-}" ]] || return 0
     local i
     for i in {1..50}; do
         kill -0 "$FANOUT_PID" 2>/dev/null || break
         sleep 0.1
     done
+    if kill -0 "$FANOUT_PID" 2>/dev/null; then
+        kill "$FANOUT_PID" 2>/dev/null || true
+        sleep 0.1
+        kill -9 "$FANOUT_PID" 2>/dev/null || true
+    fi
     wait "$FANOUT_PID" 2>/dev/null || true
     FANOUT_PID=""
 }

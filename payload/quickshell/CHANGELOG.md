@@ -52,6 +52,12 @@ All notable changes to Lucid are recorded here, newest first.
 
 ### Fixed
 
+- **Delete works in every wallpaper picker style again.** The Delete key only
+  reached the Strip picker: the Bento and Pills styles (both built on
+  `WallpaperSlots`) and the Tiles grid had no `deleteHighlighted()`, so the
+  launcher's key handler raised a TypeError and did nothing. All four styles now
+  remove or unsubscribe the card under the pointer, and the slot styles follow a
+  mouse drag sideways while the button is held before settling on a card.
 - **Notch shoulders sweep as a fillet again.** The concave shoulder reused the
   convex corner's smoothing, and that superellipse turned inside out hugs the
   tab's side so closely that at the shipped smoothing the shoulder's arc was a

@@ -79,7 +79,9 @@ Item {
     // the height the drawer actually takes once the panel has had its say
     readonly property real laidOutHeight: gridH + 2 * padY
 
-    signal activated(int index)
+    // newInstance is true when Shift or Ctrl was held: the caller must not
+    // focus an existing window for this activation
+    signal activated(int index, bool newInstance)
 
     implicitHeight: naturalHeight
 
@@ -259,9 +261,9 @@ Item {
         currentIndex = Math.min(count - 1, next * pageSize + w);
     }
 
-    function activateCurrent() {
+    function activateCurrent(newInstance) {
         if (currentIndex >= 0 && currentIndex < count)
-            activated(currentIndex);
+            activated(currentIndex, newInstance === true);
 
     }
 
@@ -414,25 +416,16 @@ Item {
                             height: root.iconBox
 
                             // The plate is full-size; the icon is drawn at
-                            // 100% and cropped to that circle.
-                            SquircleRect {
-                                anchors.fill: parent
-                                anchors.margins: -Theme.dp(3)
-                                fillColor: "transparent"
-                                borderColor: Theme.accent
-                                borderWidth: cell.isSelected ? Theme.dp(2) : 0
-                                radius: width / 2
-                                smoothing: Prefs.squircleF
-                                visible: cell.isSelected
-                            }
-
+                            // 100% and cropped to that circle. Selection tints
+                            // the plate itself instead of ringing it.
                             SquircleRect {
                                 id: iconPlate
 
+                                readonly property color plateColour: cell.isSelected ? Theme.accentContainer : (Theme.isLightMode ? "#ffffff" : "#000000")
                                 anchors.fill: parent
                                 radius: width / 2
-                                fillColor: Theme.isLightMode ? "#ffffff" : "#000000"
-                                borderColor: Theme.isLightMode ? "#ffffff" : "#000000"
+                                fillColor: plateColour
+                                borderColor: plateColour
                                 borderWidth: Theme.dp(2)
                                 smoothing: Prefs.squircleF
                             }
@@ -441,6 +434,10 @@ Item {
                                 id: appIcon
 
                                 anchors.fill: parent
+                                // 5px breathing room inside the plate, so the
+                                // artwork itself sits a little smaller than
+                                // the antialiased circle it is masked to
+                                anchors.margins: Theme.dp(5)
                                 asynchronous: true
                                 cache: true
                                 // Decode above the drawn size so the surface's
@@ -491,7 +488,7 @@ Item {
                                 anchors.centerIn: parent
                                 visible: !root.emojiMode && appIcon.status !== Image.Ready
                                 text: cell.shownEntry ? cell.shownEntry.title.slice(0, 2).toUpperCase() : ""
-                                color: Theme.isLightMode ? "#000000" : "#ffffff"
+                                color: cell.isSelected ? Theme.fgAccentContainer : (Theme.isLightMode ? "#000000" : "#ffffff")
                                 role: "labelLarge"
                                 size: Math.round(root.iconSize * 0.52)
                                 horizontalAlignment: Text.AlignHCenter
@@ -499,9 +496,9 @@ Item {
 
                             TapHandler {
                                 enabled: cell.filled
-                                onTapped: {
+                                onTapped: (point) => {
                                     root.currentIndex = cell.appIndex;
-                                    root.activated(cell.appIndex);
+                                    root.activated(cell.appIndex, (point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0);
                                 }
                             }
 

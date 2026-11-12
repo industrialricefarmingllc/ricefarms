@@ -50,7 +50,13 @@ Item {
             root.value += root.velocity * h;
         }
 
-        if (Math.abs(root.value - root.target) < root.epsilon && Math.abs(root.velocity) < root.epsilon) {
+        // Position is the visual state; velocity only shapes the tiny stretch
+        // on the body. Waiting for velocity to decay as well kept a visually
+        // settled morph running for another ~380 ms (128 frames at 165 Hz),
+        // republishing glass for sub-pixel movement. Snap as soon as the
+        // position is within epsilon: the residual stretch is <0.2 % of the
+        // panel and invisible.
+        if (Math.abs(root.value - root.target) < root.epsilon) {
             root.value = root.target;
             root.velocity = 0;
             root.running = false;

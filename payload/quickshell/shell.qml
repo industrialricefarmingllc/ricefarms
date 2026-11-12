@@ -508,13 +508,39 @@ ShellRoot {
             function glassPillFor(m) {
                 if (!m || m.visible === false || m.shown === false || m.width <= 0.5)
                     return null;
-                if (m.liquidActive === true && root.glassUnion && !Prefs.barNotch)
+                if (m.liquidActive === true && root.glassUnion && !Prefs.barNotch && m.transformActive !== true)
                     return [bar.liquidGlassPill(m)];
                 var isBarPill = m.surfaceX !== undefined;
                 var bx = bar.glassQ(isBarPill ? m.x + m.surfaceX : m.x);
                 var by = bar.glassQ(isBarPill ? m.y + m.surfaceY : m.y);
                 var bw = bar.glassQ(isBarPill ? m.surfaceWidth : m.width);
                 var bh = bar.glassQ(isBarPill ? m.surfaceHeight : m.height);
+                // Transform morph: the laid-out bar box stays compact, so the
+                // bridge only needs the compact pill while the QML shader
+                // animates, and one final full-size pill at the offset where
+                // the overflow panel landed. Two geometry states per edge.
+                if (m.transformActive === true) {
+                    if (m.anyOpen === true && m.glassMorphActive !== true) {
+                        var topT = m.topRadius !== undefined ? m.topRadius : 0;
+                        var corT = m.cornerRadius !== undefined ? m.cornerRadius : (Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius);
+                        return [{
+                            "x": bar.glassQ((isBarPill ? m.x + m.surfaceX : m.x) + m.transformOffsetX),
+                            "y": by,
+                            "w": bar.glassQ(m.transformWidth),
+                            "h": bar.glassQ(m.transformHeight),
+                            "r": [topT, topT, corT, corT]
+                        }];
+                    }
+                    var topC = m.pillTopRadius !== undefined ? m.pillTopRadius : (Prefs.barNotch ? 0 : Prefs.barPillRadius);
+                    var corC = m.closedRadius !== undefined ? m.closedRadius : (Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius);
+                    return [{
+                        "x": bx,
+                        "y": by,
+                        "w": bw,
+                        "h": bh,
+                        "r": [topC, topC, corC, corC]
+                    }];
+                }
                 var top = m.topRadius !== undefined ? m.topRadius : Prefs.barPillRadius;
                 var cor = m.cornerRadius !== undefined ? m.cornerRadius : (Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius);
                 var out = [];
@@ -637,6 +663,18 @@ ShellRoot {
                         var p = bar.glassPillFor(mods[k]);
                         if (p)
                             for (var j = 1; j < p.length; j++) out.push(p[j]);
+                    }
+                } else {
+                    // A transform-mode panel overflows its compact group box;
+                    // publish its landed rect once, after the QML body has
+                    // handed off. During the morph the group pill is enough.
+                    for (var kt = 0; kt < mods.length; kt++) {
+                        var mt = mods[kt];
+                        if (!mt || mt.transformActive !== true || mt.anyOpen !== true || mt.glassMorphActive === true)
+                            continue;
+                        var pt = bar.glassPillFor(mt);
+                        if (pt)
+                            for (var jt = 0; jt < pt.length; jt++) out.push(pt[jt]);
                     }
                 }
                 return out;
@@ -774,38 +812,58 @@ ShellRoot {
                 return out;
             }
 
-            readonly property var glassPills: {
-                if (!bar.visible)
+            // True while the bar should publish glass at all. Hoisted out of
+            // the per-group bindings so each group caches independently.
+            readonly property bool glassLive: bar.visible && !(Prefs.barAutoHide && !bar.barRevealed)
+
+            // Split by mode/group: opening the centre clock must not rebuild
+            // the left/right notch groups, and a group that did not move must
+            // not allocate a new array. glassPills itself only concatenates
+            // the cached arrays.
+            readonly property var glassFull: {
+                if (!bar.glassLive || !Prefs.barFull)
                     return [];
-                // auto-hide slides the content off the top edge; publishing the
-                // live rects would leave the glass behind on the screen
-                if (Prefs.barAutoHide && !bar.barRevealed)
+
+                var fb = Theme.dp(Prefs.barFullCorner);
+                return [{
+                    "x": 0,
+                    "y": 0,
+                    "w": bar.glassQ(bar.width),
+                    "h": bar.glassQ(Theme.dp(Prefs.barHeight)),
+                    "r": [0, 0, fb, fb]
+                }];
+            }
+            readonly property var glassNotchLeft: (bar.glassLive && Prefs.barNotch) ? bar.glassGroupFor(bar.leftMods, "left") : []
+            readonly property var glassNotchRight: (bar.glassLive && Prefs.barNotch) ? bar.glassGroupFor(bar.rightMods, "right") : []
+            readonly property var glassNotchCentre: {
+                if (!bar.glassLive || !Prefs.barNotch)
                     return [];
-                if (Prefs.barFull) {
-                    var fb = Theme.dp(Prefs.barFullCorner);
-                    return [{
-                        "x": 0,
-                        "y": 0,
-                        "w": bar.glassQ(bar.width),
-                        "h": bar.glassQ(Theme.dp(Prefs.barHeight)),
-                        "r": [0, 0, fb, fb]
-                    }];
-                }
-                if (Prefs.barNotch) {
-                    var outN = [];
-                    outN = outN.concat(bar.glassGroupFor(bar.leftMods, "left"));
-                    outN = outN.concat(bar.glassGroupFor(bar.rightMods, "right"));
-                    for (var c = 0; c < bar.centreMods.length; c++)
-                        outN = outN.concat(bar.glassNotchSolo(bar.centreMods[c]));
-                    return outN;
-                }
-                var outI = [];
+
+                var out = [];
+                for (var c = 0; c < bar.centreMods.length; c++)
+                    out = out.concat(bar.glassNotchSolo(bar.centreMods[c]));
+                return out;
+            }
+            readonly property var glassIslands: {
+                if (!bar.glassLive || Prefs.barFull || Prefs.barNotch)
+                    return [];
+
+                var out = [];
                 for (var i = 0; i < bar.modules.length; i++) {
                     var p = bar.glassPillFor(bar.modules[i]);
                     if (p)
-                        outI = outI.concat(p);
+                        out = out.concat(p);
                 }
-                return outI;
+                return out;
+            }
+            readonly property var glassPills: {
+                if (!bar.glassLive)
+                    return [];
+                if (Prefs.barFull)
+                    return bar.glassFull;
+                if (Prefs.barNotch)
+                    return bar.glassNotchLeft.concat(bar.glassNotchRight, bar.glassNotchCentre).filter((p) => p);
+                return bar.glassIslands;
             }
 
             function groupForModule(m) {
@@ -1573,6 +1631,11 @@ ShellRoot {
                 targetScreen: bar.screen
                 surfaceW: bar.width
                 surfaceH: bar.height
+                // A bar transition is not direct manipulation: 8 ms (120 Hz)
+                // is one frame of lag at 165 Hz and cuts bridge writes,
+                // compositor parses and glass passes by ~27 %. Dragged or
+                // resized surfaces keep the 4 ms default.
+                coalesceMs: 8
                 pills: bar.glassPills
             }
 

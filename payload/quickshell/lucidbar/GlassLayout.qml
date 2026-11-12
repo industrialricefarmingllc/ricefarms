@@ -58,6 +58,9 @@ Item {
     property real surfaceH: 0
     // [{x, y, w, h, r: [tl, tr, br, bl]}]
     property var pills: []
+    // Minimum time between geometry publishes. 4 ms for direct manipulation,
+    // 8 ms for transitions (see the note above _lastPills).
+    property int coalesceMs: 4
     // Optional circular clip for this surface's glass body, surface-local
     // logical px: {x, y, r}. The plugin feathers the glass edge to the circle
     // (used by the launcher iris reveal, whose QML mask clips content the same
@@ -98,11 +101,12 @@ Item {
     }
 
     // Last published geometry, kept as values rather than a serialised
-    // signature. Morph frames publish at most every 4ms: below one frame on a
-    // 165 Hz output, so it only merges duplicate publishes inside the same
-    // frame. At 16ms the glass advanced in ~3-frame steps while the content
-    // (and its mask) moved every frame, which read as a flickering edge once
-    // the rim hairline made it visible.
+    // signature. The bridge publishes at most once per coalesceMs. The bar
+    // uses 8 ms (120 Hz) for panel transitions: one frame of lag at 165 Hz,
+    // still smooth, and ~27 % fewer filesystem writes + plugin parses + glass
+    // passes. Surfaces that are directly dragged or resized keep 4 ms so the
+    // glass stays on the pointer. Do not use a trailing debounce: it starves
+    // mid-morph and freezes the glass until the animation settles.
     //
     // The equality check is a field-by-field walk (~0.2 us for six pills), not
     // a JSON string: stringifying the same list costs ~25 us on V4, and doing
@@ -120,7 +124,7 @@ Item {
     Timer {
         id: coalesceTimer
 
-        interval: 4
+        interval: root.coalesceMs
         repeat: false
         onTriggered: root.flushPending()
     }
@@ -131,6 +135,8 @@ Item {
             return out;
         for (var i = 0; i < src.length; i++) {
             var p = src[i];
+            if (!p)
+                continue;
             out.push({
                 "x": p.x,
                 "y": p.y,
@@ -212,7 +218,7 @@ Item {
             "w": root.surfaceW,
             "h": root.surfaceH
         };
-        json.pills = Array.isArray(root.pills) ? root.pills : [];
+        json.pills = Array.isArray(root.pills) ? root.pills.filter((p) => p) : [];
         json.mask = root.mask || ({});
         json.full = root.full;
         if (root._writes === 0)
@@ -244,7 +250,7 @@ Item {
         }
         if (root.geometrySame())
             return; // idle: nothing transformed
-        if (Date.now() - root._lastWriteMs < 4) {
+        if (Date.now() - root._lastWriteMs < root.coalesceMs) {
             coalesceTimer.restart();
             return;
         }

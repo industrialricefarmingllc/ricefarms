@@ -1203,7 +1203,7 @@ Item {
             Keys.onDeletePressed: (event) => {
                 // browsing the picker: Delete trashes the highlighted card.
                 // With a filter typed the key belongs to the search field.
-                if (face.pickerMode && face.highlightQuery === "" && wallStrip && wallStrip.deleteHighlighted()) {
+                if (face.pickerMode && face.highlightQuery === "" && wallStrip && typeof wallStrip.deleteHighlighted === "function" && wallStrip.deleteHighlighted()) {
                     event.accepted = true;
                 } else if (face.displayMode === "clipboard" && (event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier)) {
                     face.armOrClear();

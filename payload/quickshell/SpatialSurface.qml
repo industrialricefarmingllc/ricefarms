@@ -136,8 +136,7 @@ Item {
         surface.pointerX = surface.rawPointerX;
         surface.pointerY = surface.rawPointerY;
         surface.syncVideo();
-        if (!surface.foregroundOnly && surface.screen)
-            SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+        surface.reportReady();
     }
 
     function syncVideo() {
@@ -406,6 +405,17 @@ Item {
         }
     }
 
+    // Report this output's first usable frame. A 0x0 surface is not composited
+    // (e.g. its spatial layer never mapped after an output reconfiguration);
+    // there is no first frame to wait for, so it must not hold the reveal's
+    // ready handshake. Reporting it as ready also fills SpatialWall.surfaceReady
+    // for outputs that would otherwise never report at all.
+    function reportReady() {
+        if (surface.foregroundOnly || !surface.screen)
+            return ;
+        SpatialWall.reportSurface(surface.screen.name, surface.width <= 0 || surface.visualReady);
+    }
+
     function syncMesh() {
         if (!mesh3d.item)
             return ;
@@ -441,20 +451,17 @@ Item {
     }
 
     onVisualReadyChanged: {
-        if (!surface.foregroundOnly && surface.screen)
-            SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+        surface.reportReady();
     }
     onMeshReadyChanged: {
-        if (!surface.foregroundOnly && surface.screen)
-            SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+        surface.reportReady();
         // A wallpaper committed while a window is focused still needs one
         // fresh freeze frame; otherwise the old wallpaper would stay visible.
         if (surface.windowFocused && surface.meshReady)
             surface.beginFreeze();
     }
     onSourceReadyChanged: {
-        if (!surface.foregroundOnly && surface.screen)
-            SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+        surface.reportReady();
     }
     onWidthChanged: surface.syncMesh()
     onHeightChanged: surface.syncMesh()
@@ -511,8 +518,7 @@ Item {
             surface.syncVideo();
             motionTexture.scheduleUpdate();
             surface.syncMesh();
-            if (!surface.foregroundOnly && surface.screen)
-                SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+            surface.reportReady();
         }
         function onLayeredReadyChanged() { surface.syncMesh(); }
         function onDepthPathChanged() { surface.syncMesh(); }
@@ -522,14 +528,12 @@ Item {
         function onSourceWidthChanged() { surface.syncMesh(); }
         function onSourceHeightChanged() { surface.syncMesh(); }
         function onRenderPathChanged() {
-            if (!surface.foregroundOnly && surface.screen)
-                SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+            surface.reportReady();
         }
         // a commit that leaves renderPath unchanged still bumps the revision;
         // the surfaces re-assert readiness so a cleared map can never stick
         function onSurfaceRevisionChanged() {
-            if (!surface.foregroundOnly && surface.screen)
-                SpatialWall.reportSurface(surface.screen.name, surface.visualReady);
+            surface.reportReady();
         }
     }
 
@@ -577,6 +581,24 @@ Item {
                 shake: [SpatialShake.x, SpatialShake.y, SpatialShake.z],
                 pointerHere: surface.pointerHere,
                 frozen: surface.frozen,
+                geometry: {
+                    "width": surface.width,
+                    "height": surface.height,
+                    "textureW": surface.textureSize.width,
+                    "textureH": surface.textureSize.height,
+                    "renderingEnabled": surface.renderingEnabled,
+                    "windowVisible": surface.parent ? surface.parent.visible : null,
+                    "windowScreen": surface.parent && surface.parent.screen ? surface.parent.screen.name : "",
+                    "meshActive": mesh3d.active,
+                    "meshItem": mesh3d.item !== null,
+                    "sourceReady": surface.sourceReady,
+                    "visualReady": surface.visualReady,
+                    "depthStatus": depthMap.status,
+                    "stillStatus": still.status,
+                    "bgStatus": backgroundMap.status,
+                    "matteStatus": matteMap.status,
+                    "influenceStatus": influenceMap.status
+                },
                 windowFocused: surface.windowFocused,
                 pointer: [SpatialPointer.x, SpatialPointer.y],
                 monName: Hyprland.monitorFor(surface.screen) ? Hyprland.monitorFor(surface.screen).name : "",

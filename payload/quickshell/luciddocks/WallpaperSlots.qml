@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell.Widgets
 import qs
+import "../squircle"
 
 // The picker styles built from slots: every wallpaper is one shape that glides
 // between places as the selection moves, changing width, height and corner
@@ -24,10 +25,30 @@ Item {
     property int hoveredIndex: -1
     property int currentIndex: -1
     property string appliedPath: ""
+    // the picker's query, for the explicit "nothing matched" state
+    property string filterText: ""
     // the Live tab: the same picker over the videos
     property bool live: false
+    // a style with real corners opts into the shell's squircle curve; the
+    // pill style leaves smoothing at 0, where the same mask is an exact
+    // capsule and keeps its Theme.pill ends
+    property bool squircle: false
     property real stableHeight: height
     property bool syncing: false
+    // True while the picker is being laid out (the launcher opening, or the
+    // panel widening for this tab): the slots ease from their old size to the
+    // new one. The picture must not ride that ease, or the wallpaper scales
+    // with the growing card. See the card's WallpaperCardMedia below.
+    property bool layoutResizing: false
+    // How many slots either side of the selected one a style can put on screen.
+    // A card's picture is only built within this reach (see the delegate's
+    // `near`), so a library of a hundred wallpapers does not decode a hundred
+    // pictures at once - and does not decode them again on every model rebuild.
+    // Styles that show more (the pills) raise it.
+    property int visibleReach: 6
+    // where the pointer has carried the slots while a drag is in progress
+    property bool dragging: false
+    property real dragOffset: 0
     property real originX: -1
     property real originY: -1
     readonly property int count: strip.model ? strip.model.count : 0
@@ -47,6 +68,7 @@ Item {
     }
 
     signal chosen(string path)
+    signal wallpaperDeleteRequested(string path)
 
     function noteOrigin(card) {
         if (!card || strip.Window.width <= 0 || strip.Window.height <= 0) {
@@ -81,6 +103,26 @@ Item {
         strip.chosen(path);
     }
 
+    // Delete: the card under the pointer if there is one, otherwise the
+    // selected card - the same interface as WallpaperStrip's, so the launcher's
+    // Delete key works in the slot styles too.
+    function deleteHighlighted() {
+        if (strip.count <= 0)
+            return false;
+
+        const at = strip.hoveredIndex >= 0 && strip.hoveredIndex < strip.count ? strip.hoveredIndex : strip.currentIndex;
+        if (at < 0 || at >= strip.count)
+            return false;
+
+        const item = strip.model ? strip.model.get(at) : null;
+        if (!item || item.path === "")
+            return false;
+
+        strip.hoveredIndex = -1;
+        strip.wallpaperDeleteRequested(item.path);
+        return true;
+    }
+
     function setIndexImmediate(i) {
         strip.syncing = true;
         strip.currentIndex = i;
@@ -88,6 +130,7 @@ Item {
     }
 
     // the model arrives after the picker does
+    onCurrentIndexChanged: strip.hoveredIndex = -1
     onCountChanged: {
         if (strip.count > 0 && strip.currentIndex < 0)
             strip.currentIndex = 0;
@@ -99,6 +142,29 @@ Item {
 
         interval: 120
         onTriggered: strip.syncing = false
+    }
+
+    // The slot width/height Behaviors run for 300 ms. Keep the picture pinned
+    // to the final slot for a beat after the last layout change, then let it
+    // follow normally again once the card has settled.
+    Timer {
+        id: layoutSettle
+
+        interval: Theme.ms(340)
+        onTriggered: strip.layoutResizing = false
+    }
+
+    onWidthChanged: {
+        if (strip.width > 1) {
+            strip.layoutResizing = true;
+            layoutSettle.restart();
+        }
+    }
+    onStableHeightChanged: {
+        if (strip.stableHeight > 1) {
+            strip.layoutResizing = true;
+            layoutSettle.restart();
+        }
     }
 
     Item {
@@ -116,14 +182,18 @@ Item {
             }
         }
 
-        // Touch and mouse swipes walk the slots one shape at a time, the same
-        // step the wheel and the arrow keys take. The slots are a Repeater
-        // positioned by currentIndex, so there is no view to flick.
+        // Touch and mouse swipes walk the slots: the row follows the pointer
+        // while the button is down, then settles on the shapes it was carried
+        // past. The slots are a Repeater positioned by currentIndex, so the
+        // drag offset is applied to every shape instead of scrolling a view.
         DragHandler {
             id: swipe
 
             target: null
             enabled: strip.count > 1
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.TouchScreen
+            xAxis.enabled: true
+            yAxis.enabled: false
 
             property real grabX: 0
             // last motion point; on release centroid.position can already be
@@ -131,17 +201,24 @@ Item {
             property real lastX: 0
 
             onCentroidChanged: {
-                if (swipe.active)
-                    swipe.lastX = centroid.position.x;
+                if (!swipe.active)
+                    return ;
+
+                swipe.lastX = centroid.position.x;
+                strip.dragOffset = swipe.lastX - swipe.grabX;
             }
 
             onActiveChanged: {
                 if (swipe.active) {
                     swipe.grabX = swipe.lastX = centroid.position.x;
+                    strip.dragOffset = 0;
+                    strip.dragging = true;
                     return ;
                 }
 
                 var dx = swipe.lastX - swipe.grabX + centroid.velocity.x * 0.12;
+                strip.dragging = false;
+                strip.dragOffset = 0;
                 if (Math.abs(dx) < Theme.dp(24))
                     return ;
 
@@ -154,27 +231,35 @@ Item {
         Repeater {
             id: slots
 
-            model: strip.count
+            // the model itself, not its count: an int model makes the Repeater
+            // rebuild every delegate whenever a row is appended, which is what
+            // turned each filter keystroke into a hundred card rebuilds. Bound
+            // to the model, inserts and moves only touch the delegates they are
+            // about, the same way the strip's Repeater behaves.
+            model: strip.model
 
             delegate: Item {
                 id: slot
 
                 required property int index
+                required property string path
+                required property string name
+                required property string thumb
+                required property string preview
+                required property string kind
 
                 readonly property int offset: slot.index - strip.currentIndex
                 readonly property var rect: strip.slotRect(slot.offset)
-                readonly property var entry: strip.model ? strip.model.get(slot.index) : null
-                readonly property string path: slot.entry ? slot.entry.path : ""
-                readonly property string thumb: slot.entry ? slot.entry.thumb : ""
-                readonly property string preview: slot.entry ? (slot.entry.preview || "") : ""
-                readonly property string kind: slot.entry ? (slot.entry.kind || "") : ""
                 readonly property bool isCurrent: slot.offset === 0
                 readonly property bool isApplied: strip.appliedPath !== "" && strip.appliedPath === slot.path
                 readonly property bool hovered: slotHover.hovered
                 readonly property bool pressed: slotTap.pressed && slot.hovered
                 readonly property bool wide: slot.width >= Theme.dp(70)
+                // one beyond the reach, so the card entering from the edge
+                // already exists and slides in instead of popping
+                readonly property bool near: Math.abs(slot.offset) <= strip.visibleReach + 1
 
-                x: slot.rect.x
+                x: slot.rect.x + (strip.dragging ? strip.dragOffset : 0)
                 y: slot.rect.y
                 width: slot.rect.w
                 height: slot.rect.h
@@ -190,7 +275,7 @@ Item {
                 }
 
                 Behavior on x {
-                    enabled: !strip.syncing
+                    enabled: !strip.syncing && !strip.dragging
 
                     NumberAnimation {
                         duration: Theme.ms(300)
@@ -248,59 +333,81 @@ Item {
 
                 }
 
-                ClippingRectangle {
-                    id: card
-
+                // Only the slots a style can actually show build a card: the
+                // rest stay bare delegates with no picture, no mask layer and
+                // no decode. This is the strip's `near` gate, for the slot
+                // styles (bento, pills) that used to build every wallpaper.
+                Loader {
                     anchors.fill: parent
-                    radius: slot.rect.r
-                    color: Theme.bgTile
+                    active: slot.near
+                    sourceComponent: cardComp
+                }
 
-                    Behavior on radius {
-                        enabled: !strip.syncing
+                Component {
+                    id: cardComp
 
-                        NumberAnimation {
-                            duration: Theme.ms(300)
-                            easing.type: Easing.Bezier
-                            easing.bezierCurve: Theme.easeEmphasizedDecel
-                        }
+                    SquircleClip {
+                        id: card
 
-                    }
-
-                    // a narrow shape shows the middle of the picture, a wide one all of it
-                    WallpaperCardMedia {
-                        anchors.centerIn: parent
-                        width: Math.max(parent.width, parent.height * 1.6)
-                        height: parent.height
-                        path: slot.path
-                        thumb: slot.thumb
-                        preview: slot.preview
-                        kind: slot.kind
-                        active: slot.isCurrent || slot.hovered
-                        sourceSizeWidth: Theme.dp(640)
-                        sourceSizeHeight: Theme.dp(400)
-                    }
-
-                    Rectangle {
                         anchors.fill: parent
-                        color: Theme.text
-                        opacity: slot.pressed ? Theme.statePressed : (slot.hovered ? Theme.stateHover : 0)
+                        radius: slot.rect.r
+                        smoothing: strip.squircle ? Prefs.squircleF : 0
+                        color: Theme.bgTile
 
-                        Behavior on opacity {
+                        Behavior on radius {
+                            enabled: !strip.syncing
+
                             NumberAnimation {
-                                duration: Theme.durShort
+                                duration: Theme.ms(300)
+                                easing.type: Easing.Bezier
+                                easing.bezierCurve: Theme.easeEmphasizedDecel
                             }
 
                         }
 
-                    }
+                        // a narrow shape shows the middle of the picture, a wide one all of it.
+                        // While the slot is easing to a new size, use that final slot, not the
+                        // current half-grown card: the container animates around a steady picture,
+                        // instead of the picture stretching to fill each frame.
+                        WallpaperCardMedia {
+                            anchors.centerIn: parent
+                            width: Math.max(strip.layoutResizing ? slot.rect.w : parent.width,
+                                            (strip.layoutResizing ? slot.rect.h : parent.height) * 1.6)
+                            height: strip.layoutResizing ? slot.rect.h : parent.height
+                            path: slot.path
+                            thumb: slot.thumb
+                            preview: slot.preview
+                            kind: slot.kind
+                            active: slot.isCurrent || slot.hovered
+                            current: slot.isCurrent
+                            sourceSizeWidth: Theme.dp(640)
+                            sourceSizeHeight: Theme.dp(400)
+                        }
 
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: card.radius
-                        color: "transparent"
-                        border.color: Theme.accent
-                        border.width: slot.isCurrent ? 3 : 0
-                        visible: slot.isCurrent
+                        Rectangle {
+                            anchors.fill: parent
+                            color: Theme.text
+                            opacity: slot.pressed ? Theme.statePressed : (slot.hovered ? Theme.stateHover : 0)
+
+                            Behavior on opacity {
+                                NumberAnimation {
+                                    duration: Theme.durShort
+                                }
+
+                            }
+
+                        }
+
+                        SquircleRect {
+                            anchors.fill: parent
+                            radius: card.radius
+                            smoothing: strip.squircle ? Prefs.squircleF : 0
+                            fillColor: "transparent"
+                            borderColor: Theme.accent
+                            borderWidth: slot.isCurrent ? 3 : 0
+                            visible: slot.isCurrent
+                        }
+
                     }
 
                 }
@@ -423,11 +530,25 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: strip.live ? "No videos in this folder" : "No wallpapers in this folder"
+            text: strip.filterText !== "" ? (strip.live ? "No live wallpapers found" : "No wallpapers found") : (strip.live ? "No videos in this folder" : "No wallpapers in this folder")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody
             font.weight: Font.Medium
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Math.min(Theme.dp(340), Math.max(Theme.dp(140), strip.width - Theme.dp(32)))
+            visible: strip.filterText !== ""
+            text: (RemoteWall.enabled && RemoteWall.query !== "" && RemoteWall.query === strip.filterText.toLowerCase())
+                ? "Nothing in your library, Wallhaven, or the Workshop matches \"" + strip.filterText + "\"."
+                : "No local wallpaper matches \"" + strip.filterText + "\"."
+            color: Theme.subtextDim
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontLabel
         }
 
     }
