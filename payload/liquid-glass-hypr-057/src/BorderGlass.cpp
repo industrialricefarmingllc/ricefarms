@@ -2,6 +2,7 @@
 #include "Config.hpp"
 #include "Shaders.hpp"
 #include "WindowGlass.hpp"
+#include "RimFollow.hpp"
 
 #include <GLES3/gl32.h>
 #include <hyprland/src/render/Renderer.hpp>
@@ -14,6 +15,8 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <map>
+#include <tuple>
 
 using namespace Render;
 using namespace Render::GL;
@@ -60,6 +63,10 @@ struct SBokehU {
 } s_bo;
 GLuint s_vao = 0, s_vbo = 0;
 bool s_ok = false;
+
+// Cursor-following rim angle, one state per live border box. The border hook
+// has no window pointer; the quantized box + monitor is its identity.
+std::map<std::tuple<MONITORID, int, int, int, int>, lg::SRimFollowState> s_rimFollow;
 
 // Second-half detection for the animated overload: same box twice in a row
 // means grad2 of the border we just drew — cancel only.
@@ -292,6 +299,12 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     if (!monitor)
         return false;
 
+    // Glass bodies are off. The master switch normally gates the border ring
+    // too, but the Apple rim is an independent edge treatment: let it stand
+    // alone and strip every other border-glass cost below (no blur chain, no
+    // bokeh, no shadow pass, quarter-res backdrop capture).
+    const bool rimOnly = lg::getInt("plugin:liquidglass:enabled", 1) == 0;
+
     // A glassed window already carries the Apple rim inside its glass pane
     // (glass.frag glass_rim). Don't draw a second rim in the outside border
     // band. Callers still cancel the flat native border, so the pane's own
@@ -306,22 +319,57 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     if (scaledBorder < 1)
         return false;
 
+    // Native border thickness (the window's true outer edge is at
+    // box + scaledBorder). The rim band may be wider than the hairline.
+    const int nativeBorder = scaledBorder;
+    int bandThick = scaledBorder;
+    int innerInset = 0;
+
     // Apple rim light: draw a slightly wider band than the native hairline so
-    // the lit line and its inner falloff have room. This overlays at most
-    // (rim_width - border_size) logical px of window content, which is the
-    // glass edge rather than the window body. rim_width 0 keeps the old band.
+    // the lit line and its inner falloff have room. rim_width 0 keeps the old
+    // band.
     const bool rimLight = lg::getInt("plugin:liquidglass:rim_light", 1) == 1;
     if (rimLight) {
         const float rimLogical = std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_width", 1.75f));
         const float rimPx = rimLogical * (float)monitor->m_scale * ctx.m_data.renderModif.combinedScale();
         if (rimPx > (float)scaledBorder)
-            scaledBorder = (int)std::ceil(rimPx);
+            bandThick = (int)std::ceil(rimPx);
+    }
+
+    if (rimOnly) {
+        // Keep the OUTER edge on the native border and grow the band inward
+        // into the content. The old path grew outward, which floated the rim
+        // 1-2 px outside the window once the glass body was gone.
+        innerInset = std::max(0, bandThick - nativeBorder);
+        scaledBorder = nativeBorder;
+    } else {
+        scaledBorder = bandThick;
     }
 
     newBox.x -= scaledBorder;
     newBox.y -= scaledBorder;
     newBox.w += 2 * scaledBorder;
     newBox.h += 2 * scaledBorder;
+    // Cursor-following rim angle (opaque windows; glassed panes skip this
+    // border ring and use glass.frag's own follow state). Coordinates are
+    // monitor-local fb px, including across multiple outputs.
+    float rimAngle = lg::getFloat("plugin:liquidglass:rim_angle", 135.0f);
+    if (rimLight) {
+        const auto key = std::make_tuple(monitor->m_id, (int)std::lround(box.x), (int)std::lround(box.y),
+                                         (int)std::lround(box.w), (int)std::lround(box.h));
+        if (s_rimFollow.size() > 512)
+            s_rimFollow.clear();
+        auto& st = s_rimFollow[key];
+        const float prev = st.angle;
+        rimAngle = lg::rimAngleFor(box, lg::cursorLocal(monitor), rimAngle, st);
+        if (st.init && std::isfinite(prev) && std::abs(rimAngle - prev) > 0.01f) {
+            const float inv = 1.0f / monitor->m_scale;
+            const float pad = 12.0f;
+            g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + (newBox.x - pad) * inv,
+                                            monitor->m_position.y + (newBox.y - pad) * inv,
+                                            (newBox.w + pad * 2.0f) * inv, (newBox.h + pad * 2.0f) * inv});
+        }
+    }
     const float roundF = (float)round + (round == 0 ? 0 : (float)scaledBorder);
     const float outerF = outerRound == -1 ? roundF : (float)outerRound;
 
@@ -331,7 +379,10 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     const float shOxF = lg::getFloat("plugin:liquidglass:shadow_offset_x", 0.0f);
     const float shOyF = lg::getFloat("plugin:liquidglass:shadow_offset_y", 20.0f) * 0.5f;
     const int shColF = lg::getInt("plugin:liquidglass:shadow_color", 0x1a1a1a11);
-    const float shPadF = shBlurF * 2.2f + std::max(std::fabs(shOxF), std::fabs(shOyF)) + 8.0f;
+    // Rim-only has no shadow: don't grow the capture/gate for a halo that is
+    // never drawn (uShadowA is forced to 0 below too).
+    const float shPadF = rimOnly ? 0.0f
+                                 : shBlurF * 2.2f + std::max(std::fabs(shOxF), std::fabs(shOyF)) + 8.0f;
 
     // Damage gate, mirroring upstream: band ∩ damage ∩ clipBox. Empty means
     // the original would emit no fragments either. Grown past the frame
@@ -339,7 +390,10 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     CBox gateBox = newBox;
     gateBox.expand(std::max(4.0f, shPadF));
     CRegion ringRegion = ctx.m_data.damage.copy().intersect(gateBox);
-    ringRegion.subtract(box.copy().expand(-scaledBorder - (int)std::ceil(roundF)));
+    if (rimOnly)
+        ringRegion.subtract(box.copy().expand(-(double)innerInset - 1.0));
+    else
+        ringRegion.subtract(box.copy().expand(-scaledBorder - (int)std::ceil(roundF)));
     if (ctx.m_data.clipBox.w != 0 && ctx.m_data.clipBox.h != 0)
         ringRegion.intersect(ctx.m_data.clipBox);
     if (ringRegion.empty())
@@ -357,8 +411,9 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
 
     // Capture = outer box + bleed, clamped to the source. Bleed covers the
     // lens throw AND the shadow halo (shadow pixels are flat color, but the
-    // draw quad == capture region so the quad must span both).
-    const int ringPad = std::max(RING_PAD_PX, (int)std::ceil(shPadF) + 8);
+    // draw quad == capture region so the quad must span both). Rim-only has
+    // no shadow and only needs the small lens throw.
+    const int ringPad = rimOnly ? 16 : std::max(RING_PAD_PX, (int)std::ceil(shPadF) + 8);
     const int qx0 = std::max(0, (int)std::floor(newBox.x - ringPad));
     const int qy0 = std::max(0, (int)std::floor(newBox.y - ringPad));
     const int qx1 = std::min(srcW, (int)std::ceil(newBox.x + newBox.w + ringPad));
@@ -366,26 +421,37 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     const int rw = qx1 - qx0, rh = qy1 - qy0;
     if (rw < 8 || rh < 8)
         return false;
-    const int hw = std::max(1, rw / 2), hh = std::max(1, rh / 2);
+    // Rim-only samples the backdrop at the border band for the highlight
+    // tint. It must resolve the band (rim_width + ringPad), so use
+    // quarter-res rather than a postage-stamp capture: a 32x32 downsample
+    // averages the dark window interior into every edge texel and the rim
+    // reads as a flat gray hairline instead of the backdrop-lit Apple rim.
+    const int hw = rimOnly ? std::max(1, rw / 4) : std::max(1, rw / 2);
+    const int hh = rimOnly ? std::max(1, rh / 4) : std::max(1, rh / 2);
     const int qw = std::max(1, hw / 2), qh = std::max(1, hh / 2);
     const int ew = std::max(1, qw / 2), eh = std::max(1, qh / 2);
 
     if (!s_halfA)
         s_halfA = g_pHyprRenderer->createFB("liquidglass-border-a");
-    if (!s_halfB)
-        s_halfB = g_pHyprRenderer->createFB("liquidglass-border-b");
-    if (!s_halfC)
-        s_halfC = g_pHyprRenderer->createFB("liquidglass-border-c");
-    // PERF: s_halfT (bokeh) lazy — allocated below only when bokeh on.
-    if (!s_halfA || !s_halfB || !s_halfC)
+    if (!s_halfA)
         return false;
     if (s_halfA->m_size.x != hw || s_halfA->m_size.y != hh)
         s_halfA->alloc(hw, hh, source->m_drmFormat);
-    if (s_halfB->m_size.x != qw || s_halfB->m_size.y != qh)
-        s_halfB->alloc(qw, qh, source->m_drmFormat);
-    if (s_halfC->m_size.x != ew || s_halfC->m_size.y != eh)
-        s_halfC->alloc(ew, eh, source->m_drmFormat);
-    if (!s_halfA->getTexture() || !s_halfB->getTexture() || !s_halfC->getTexture())
+    if (!rimOnly) {
+        if (!s_halfB)
+            s_halfB = g_pHyprRenderer->createFB("liquidglass-border-b");
+        if (!s_halfC)
+            s_halfC = g_pHyprRenderer->createFB("liquidglass-border-c");
+        if (!s_halfB || !s_halfC)
+            return false;
+        if (s_halfB->m_size.x != qw || s_halfB->m_size.y != qh)
+            s_halfB->alloc(qw, qh, source->m_drmFormat);
+        if (s_halfC->m_size.x != ew || s_halfC->m_size.y != eh)
+            s_halfC->alloc(ew, eh, source->m_drmFormat);
+        if (!s_halfB->getTexture() || !s_halfC->getTexture())
+            return false;
+    }
+    if (!s_halfA->getTexture())
         return false;
 
     // Blur radius is the user setting regardless of window size, same as the
@@ -395,10 +461,10 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     const float userRadius = lg::getFloat("plugin:liquidglass:blur_radius", 2.0f);
     const int userPasses = std::max(1, std::min(3, (int)std::round(lg::getFloat("plugin:liquidglass:blur_iters", 2.0f))));
     const float radius = userRadius * lg::getFloat("plugin:liquidglass:border_blur_scale", 0.0f);
-    const int passes = radius < 0.05f ? 0 : userPasses;
+    const int passes = rimOnly ? 0 : (radius < 0.05f ? 0 : userPasses);
     const float effR = radius * std::sqrt((float)userPasses) * 0.5f * (float)monitor->m_scale;
     const float bokeh = lg::getFloat("plugin:liquidglass:bokeh", 0.0f);
-    const bool bokehOn = bokeh > 0.01f;
+    const bool bokehOn = !rimOnly && bokeh > 0.01f;
 
     // PERF: no glGet* save/restore (pipeline stalls). Hyprland re-sets blend.
     glEnable(GL_BLEND);
@@ -431,8 +497,13 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
         if (bokehOn) {
             if (!s_halfT)
                 s_halfT = g_pHyprRenderer->createFB("liquidglass-border-t");
-            if (s_halfT && (s_halfT->m_size.x != hw || s_halfT->m_size.y != hh))
-                s_halfT->alloc(hw, hh, source->m_drmFormat);
+            // Bokeh is a low-frequency disc scatter: evaluating it at half the
+            // capture resolution is visually lossless (the ring samples it
+            // bilinearly with the same normalized UVs) and quarters its
+            // 17-tap fill cost.
+            const int btw = std::max(1, hw / 2), bth = std::max(1, hh / 2);
+            if (s_halfT && (s_halfT->m_size.x != btw || s_halfT->m_size.y != bth))
+                s_halfT->alloc(btw, bth, source->m_drmFormat);
             if (s_halfT && s_halfT->getTexture())
                 bokehPass(s_halfA, s_halfT, effR, bokeh);
         }
@@ -464,9 +535,13 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     auto shader = g_pHyprOpenGL->useShader(s_ring);
     glUniformMatrix3fv(s_ru.proj, 1, GL_TRUE, proj.getMatrix().data());
     glUniform1i(s_ru.blur, 0);
-    glUniform4f(s_ru.inner, ix, iy, (float)box.w, (float)box.h);
+    // Rim-only grows the band inward: uInner is the band's inner edge, so
+    // shift/shrink it by innerInset while uThick stays at the full band.
+    const float inInset = rimOnly ? (float)innerInset : 0.0f;
+    glUniform4f(s_ru.inner, ix + inInset, iy + inInset, (float)box.w - 2.0f * inInset,
+                (float)box.h - 2.0f * inInset);
     glUniform2f(s_ru.quad, (float)rw, (float)rh);
-    glUniform1f(s_ru.thick, (float)scaledBorder);
+    glUniform1f(s_ru.thick, rimOnly ? (float)bandThick : (float)scaledBorder);
     glUniform1f(s_ru.round, outerF);
     glUniform3f(s_ru.tint, (float)col0.r, (float)col0.g, (float)col0.b);
     glUniform3f(s_ru.tint2, (float)col1.r, (float)col1.g, (float)col1.b);
@@ -503,7 +578,7 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     glUniform1f(s_ru.glowE1, lg::getFloat("plugin:liquidglass:glow_edge1", -0.5f));
     glUniform1f(s_ru.glowT, lg::getFloat("plugin:liquidglass:glow_threshold", 0.5f));
     glUniform1f(s_ru.glowBias, lg::getFloat("plugin:liquidglass:border_glow_bias", 0.5f));
-    glUniform1f(s_ru.throwMax, std::min(24.0f, (float)scaledBorder * 1.5f));
+    glUniform1f(s_ru.throwMax, std::min(24.0f, (float)(rimOnly ? bandThick : scaledBorder) * 1.5f));
     // Windows path: single radius, no vec4. Fade applies to ALL borders.
     glUniform1f(s_ru.useRadii, 0.0f);
     glUniform4f(s_ru.radii, outerF, outerF, outerF, outerF);
@@ -524,20 +599,24 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     // the line itself takes ~55% of it, floored at one physical pixel.
     glUniform1f(s_ru.rimLight, rimLight ? 1.0f : 0.0f);
     glUniform1f(s_ru.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
-    glUniform1f(s_ru.rimWidth, std::max(0.75f, (float)scaledBorder * 0.50f));
-    glUniform1f(s_ru.rimAngle, lg::getFloat("plugin:liquidglass:rim_angle", 135.0f));
+    glUniform1f(s_ru.rimWidth, std::max(0.75f, (float)(rimOnly ? bandThick : scaledBorder) * 0.50f));
+    glUniform1f(s_ru.rimAngle, rimAngle);
     glUniform1f(s_ru.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
     glUniform1f(s_ru.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
     // Window drop shadow: same matugen material as the pills, softer alpha.
     glUniform3f(s_ru.shCol, ((shColF >> 24) & 0xFF) / 255.f, ((shColF >> 16) & 0xFF) / 255.f,
                 ((shColF >> 8) & 0xFF) / 255.f);
-    glUniform1f(s_ru.shA, ((shColF & 0xFF) / 255.f));
+    glUniform1f(s_ru.shA, rimOnly ? 0.0f : ((shColF & 0xFF) / 255.f));
     glUniform2f(s_ru.shOff, shOxF, shOyF);
     glUniform1f(s_ru.shBlur, shBlurF);
     // Windows never carry notch flares (plain rounded rects). Push 0.5: the
     // band sits on the window's own edge pixels (see ring.frag).
     glUniform2f(s_ru.flare, 0.0f, 0.0f);
-    glUniform1f(s_ru.push, 0.5f);
+    // Rim-only puts the band exactly on the native border edge (push 0). The
+    // glass-mode 0.5 push centres the legacy ring on its own AA edge, which
+    // reads as a half-pixel outward offset once the rim is the only edge
+    // treatment left.
+    glUniform1f(s_ru.push, rimOnly ? 0.0f : 0.5f);
     glBindVertexArray(s_vao);
     ringRegion.forEachRect([&](const pixman_box32_t& RECT) {
         gl->scissor(ctx, &RECT, ctx.m_data.transformDamage);
@@ -552,9 +631,14 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
 }
 
 bool wanted(Render::CRenderContext& ctx) {
-    return lg::getInt("plugin:liquidglass:enabled", 1) == 1
-        && lg::getInt("plugin:liquidglass:window_borders", 1) == 1
-        && !ctx.m_renderingSnapshot;
+    if (lg::getInt("plugin:liquidglass:window_borders", 1) != 1 || ctx.m_renderingSnapshot)
+        return false;
+    // The Apple rim is an independent edge treatment, not part of the glass
+    // bodies: when liquid glass is master-disabled, keep the rim drawing and
+    // let drawRing() drop to its cheap rim-only path.
+    const bool rimOn = lg::getInt("plugin:liquidglass:rim_light", 1) == 1
+        && lg::getFloat("plugin:liquidglass:rim_strength", 1.0f) > 0.0f;
+    return lg::getInt("plugin:liquidglass:enabled", 1) == 1 || rimOn;
 }
 
 } // namespace

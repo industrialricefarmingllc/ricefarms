@@ -1,0 +1,818 @@
+#!/usr/bin/env python3
+"""lucid-gate - a task tollbooth with a small virtual currency.
+
+One process owns the ledger (a JSON file) and an always-on Unix socket.  The
+shell is only a view: it reads the state file, and asks the daemon to change it
+through this CLI.  Any source that wants to be gated can call
+
+    gate run --place discord -- discord
+
+and it will block until the gate is unlocked by a finished task or by spending
+Compute.  `gate request` without --wait is the fire-and-forget form.
+
+No third-party dependencies; Python 3.11+.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import secrets
+import signal
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+VERSION = "0.1.0"
+
+HOME = Path(os.environ.get("HOME") or str(Path.home()))
+STATE_HOME = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local" / "state")
+CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config")
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
+
+STATE_DIR = STATE_HOME / "lucid-gate"
+STATE_PATH = STATE_DIR / "state.json"
+CONFIG_PATH = CONFIG_HOME / "lucid-gate" / "config.json"
+SOCKET_PATH = RUNTIME / "lucid-gate.sock"
+
+DEFAULT_TASKS = [
+    {
+        "id": "duolingo",
+        "name": "Duolingo lesson",
+        "detail": "The next lesson, embedded",
+        "kind": "duolingo",
+        "external": True,
+        "logo": "duolingo-owl.png",
+        "url": "https://www.duolingo.com/learn",
+        "min": 0,
+        "reward": 160,
+        "icon": "language",
+    },
+    {
+        "id": "focus",
+        "name": "Five quiet minutes",
+        "detail": "No gates, no apps",
+        "kind": "timer",
+        "min": 300,
+        "reward": 50,
+        "icon": "timer",
+    },
+    {
+        "id": "typing",
+        "name": "Typing sprint",
+        "detail": "One minute at the keyboard",
+        "kind": "timer",
+        "min": 60,
+        "reward": 20,
+        "icon": "keyboard",
+    },
+    {
+        "id": "debug",
+        "name": "Debug credit",
+        "detail": "Instantly adds Compute",
+        "kind": "instant",
+        "min": 0,
+        "reward": 160,
+        "icon": "developer_board",
+    },
+]
+
+DEFAULT_CONFIG = {
+    "starting_balance": 0,
+    "default_cost": 160,
+    "place_costs": {
+        "opencode": 160,
+        "discord": 160,
+        "steam": 160,
+    },
+    "tasks": None,
+}
+
+# how long a resolved gate stays in the state file for pollers to notice
+GATE_TTL = 60 * 60 * 24
+SESSION_TTL = 60 * 60 * 2
+
+
+class Failure(Exception):
+    """A request that cannot be honoured, reported to the caller as an error."""
+
+
+# --------------------------------------------------------------------------- #
+# config / state
+
+def load_config() -> dict:
+    cfg = json.loads(json.dumps(DEFAULT_CONFIG))
+    try:
+        user = json.loads(CONFIG_PATH.read_text())
+    except (OSError, ValueError):
+        return cfg
+    if not isinstance(user, dict):
+        return cfg
+    for key in ("starting_balance", "default_cost"):
+        value = user.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            cfg[key] = int(value)
+    place_costs = user.get("place_costs")
+    if isinstance(place_costs, dict):
+        for place, cost in place_costs.items():
+            if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+                cfg["place_costs"][str(place)] = int(cost)
+    tasks = user.get("tasks")
+    if isinstance(tasks, list):
+        cfg["tasks"] = [t for t in tasks if isinstance(t, dict) and t.get("id")]
+    return cfg
+
+
+def resolved_tasks(cfg: dict) -> list[dict]:
+    by_id = {t["id"]: dict(t) for t in DEFAULT_TASKS}
+    for task in cfg.get("tasks") or []:
+        tid = str(task["id"])
+        base = by_id.get(tid, {"id": tid})
+        base.update(task)
+        by_id[tid] = base
+    out = []
+    for task in by_id.values():
+        task.setdefault("name", task["id"])
+        task.setdefault("detail", "")
+        task.setdefault("kind", "timer")
+        task.setdefault("url", "")
+        task.setdefault("icon", "timer")
+        task["min"] = max(0, int(task.get("min", 60)))
+        task["reward"] = max(0, int(task.get("reward", 20)))
+        out.append(task)
+    return out
+
+
+def empty_state(cfg: dict) -> dict:
+    return {
+        "version": 1,
+        "balance": int(cfg.get("starting_balance", 0)),
+        "gates": {},
+        "sessions": {},
+        "history": [],
+        "stats": {"earned": 0, "spent": 0, "completed": 0},
+    }
+
+
+def load_state(cfg: dict) -> dict:
+    try:
+        data = json.loads(STATE_PATH.read_text())
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict):
+        return empty_state(cfg)
+    state = empty_state(cfg)
+    state.update(data)
+    for key in ("gates", "sessions"):
+        if not isinstance(state.get(key), dict):
+            state[key] = {}
+    if not isinstance(state.get("history"), list):
+        state["history"] = []
+    if not isinstance(state.get("stats"), dict):
+        state["stats"] = {"earned": 0, "spent": 0, "completed": 0}
+    for key in ("earned", "spent", "completed"):
+        try:
+            state["stats"][key] = int(state["stats"].get(key, 0))
+        except (TypeError, ValueError):
+            state["stats"][key] = 0
+    try:
+        state["balance"] = max(0, int(state.get("balance", 0)))
+    except (TypeError, ValueError):
+        state["balance"] = 0
+    return state
+
+
+def save_state(state: dict, cfg: dict) -> None:
+    now = time.time()
+    for bucket, ttl in ((state["gates"], GATE_TTL), (state["sessions"], SESSION_TTL)):
+        for key in list(bucket.keys()):
+            entry = bucket[key]
+            stamp = entry.get("resolved") or entry.get("finished")
+            if entry.get("state") in ("granted", "cancelled", "done", "abandoned") and stamp:
+                if now - float(stamp) > ttl:
+                    del bucket[key]
+    state["tasks"] = resolved_tasks(cfg)
+    state["place_costs"] = cfg["place_costs"]
+    state["default_cost"] = cfg["default_cost"]
+    state["version"] = 1
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    # Written in place rather than by rename: the shell watches the inode, and
+    # a rename would leave its watch on a file nobody writes to any more.
+    with open(STATE_PATH, "w") as handle:
+        json.dump(state, handle, indent=2, sort_keys=False)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def new_id(prefix: str) -> str:
+    return f"{prefix}-{secrets.token_hex(4)}"
+
+
+# --------------------------------------------------------------------------- #
+# ledger operations (shared by the daemon and the tests)
+
+def find_gate(state: dict, gate_id: str, *, pending: bool = False) -> dict:
+    gate = state["gates"].get(gate_id)
+    if gate is None:
+        raise Failure(f"no gate called {gate_id}")
+    if pending and gate.get("state") != "pending":
+        raise Failure(f"gate {gate_id} is already {gate.get('state')}")
+    return gate
+
+
+def next_pending(state: dict) -> dict | None:
+    pending = [g for g in state["gates"].values() if g.get("state") == "pending"]
+    return min(pending, key=lambda g: g.get("created", 0)) if pending else None
+
+
+def request_gate(state: dict, cfg: dict, place: str, label: str, cost: int | None, ref: str = "") -> dict:
+    if ref:
+        for gate in state["gates"].values():
+            if gate.get("state") == "pending" and gate.get("ref") == ref:
+                return gate
+    if cost is None:
+        cost = int(cfg["place_costs"].get(place, cfg["default_cost"]))
+    gate = {
+        "id": new_id("g"),
+        "place": place,
+        "label": label or place,
+        "cost": max(0, cost),
+        "state": "pending",
+        "created": time.time(),
+        "resolved": None,
+        "ref": ref,
+    }
+    state["gates"][gate["id"]] = gate
+    return gate
+
+
+def start_session(state: dict, task_id: str, gate_id: str | None = None) -> dict:
+    tasks = {t["id"]: t for t in state.get("tasks", [])}
+    task = tasks.get(task_id)
+    if task is None:
+        raise Failure(f"no task called {task_id}")
+    running = [
+        s for s in state["sessions"].values()
+        if s.get("state") == "running" and s.get("task") == task_id
+    ]
+    if running:
+        return max(running, key=lambda s: s.get("started", 0))
+    if gate_id:
+        find_gate(state, gate_id, pending=True)
+    else:
+        gate = next_pending(state)
+        gate_id = gate["id"] if gate else ""
+    session = {
+        "id": new_id("s"),
+        "task": task_id,
+        "taskName": task.get("name", task_id),
+        "reward": int(task.get("reward", 0)),
+        "min": int(task.get("min", 0)),
+        "started": time.time(),
+        "gate": gate_id or "",
+        "state": "running",
+        "finished": None,
+    }
+    state["sessions"][session["id"]] = session
+    return session
+
+
+def complete_session(state: dict, task_id: str, gate_id: str | None = None) -> dict:
+    running = [
+        s for s in state["sessions"].values()
+        if s.get("state") == "running" and s.get("task") == task_id
+    ]
+    if not running:
+        raise Failure(f"no running {task_id} session; start one first")
+    session = max(running, key=lambda s: s.get("started", 0))
+    elapsed = time.time() - float(session.get("started", 0))
+    missing = float(session.get("min", 0)) - elapsed
+    if missing > 1.0:
+        raise Failure(f"{int(missing + 0.999)}s left on {session.get('taskName', task_id)}")
+
+    session["state"] = "done"
+    session["finished"] = time.time()
+    state["stats"]["completed"] = int(state["stats"].get("completed", 0)) + 1
+
+    target_gate = gate_id or session.get("gate") or ""
+    gate = state["gates"].get(target_gate) if target_gate else None
+    if gate is not None and gate.get("state") == "pending":
+        gate["state"] = "granted"
+        gate["resolved"] = time.time()
+        gate["by"] = "task"
+        return {"session": session, "gate": gate, "balance": state["balance"], "awarded": 0}
+
+    reward = int(session.get("reward", 0))
+    state["balance"] = int(state["balance"]) + reward
+    state["stats"]["earned"] = int(state["stats"].get("earned", 0)) + reward
+    return {"session": session, "gate": None, "balance": state["balance"], "awarded": reward}
+
+
+def unlock_gate(state: dict, gate_id: str) -> dict:
+    gate = find_gate(state, gate_id, pending=True)
+    cost = int(gate.get("cost", 0))
+    if int(state["balance"]) < cost:
+        raise Failure(f"need {cost - int(state['balance'])} more Compute")
+    state["balance"] = int(state["balance"]) - cost
+    state["stats"]["spent"] = int(state["stats"].get("spent", 0)) + cost
+    gate["state"] = "granted"
+    gate["resolved"] = time.time()
+    gate["by"] = "spend"
+    return {"gate": gate, "balance": state["balance"]}
+
+
+def cancel_gate(state: dict, gate_id: str) -> dict:
+    gate = find_gate(state, gate_id, pending=True)
+    gate["state"] = "cancelled"
+    gate["resolved"] = time.time()
+    for session in state["sessions"].values():
+        if session.get("state") == "running" and session.get("gate") == gate_id:
+            session["state"] = "abandoned"
+            session["finished"] = time.time()
+    return {"gate": gate}
+
+
+def abandon_session(state: dict, session_id: str) -> dict:
+    session = state["sessions"].get(session_id)
+    if session is None:
+        raise Failure(f"no session called {session_id}")
+    if session.get("state") != "running":
+        raise Failure(f"session {session_id} is already {session.get('state')}")
+    session["state"] = "abandoned"
+    session["finished"] = time.time()
+    return {"session": session}
+
+
+# --------------------------------------------------------------------------- #
+# daemon
+
+class Daemon:
+    def __init__(self, idle_exit: float = 3600.0):
+        self.cfg = load_config()
+        self.state = load_state(self.cfg)
+        self.lock = asyncio.Lock()
+        self.idle_exit = idle_exit
+        self.last_activity = time.time()
+
+    async def dispatch(self, req: dict) -> dict:
+        cmd = str(req.get("cmd", ""))
+        now = time.time()
+        self.last_activity = now
+
+        async with self.lock:
+            # config edits apply without restarting the daemon
+            self.cfg = load_config()
+            tasks = resolved_tasks(self.cfg)
+            if self.state.get("tasks") != tasks:
+                self.state["tasks"] = tasks
+                save_state(self.state, self.cfg)
+
+            if cmd == "status":
+                self.state["tasks"] = resolved_tasks(self.cfg)
+                return {"ok": True, "state": self.state, "now": now}
+
+            if cmd == "request":
+                gate = request_gate(
+                    self.state,
+                    self.cfg,
+                    str(req.get("place") or "unknown"),
+                    str(req.get("label") or ""),
+                    req.get("cost"),
+                    str(req.get("ref") or ""),
+                )
+                save_state(self.state, self.cfg)
+                return {"ok": True, "gate": gate}
+
+            if cmd == "unlock":
+                result = unlock_gate(self.state, str(req.get("gate") or ""))
+                save_state(self.state, self.cfg)
+                return {"ok": True, **result}
+
+            if cmd == "cancel":
+                result = cancel_gate(self.state, str(req.get("gate") or ""))
+                save_state(self.state, self.cfg)
+                return {"ok": True, **result}
+
+            if cmd == "start":
+                session = start_session(self.state, str(req.get("task") or ""), req.get("gate") or None)
+                save_state(self.state, self.cfg)
+                return {"ok": True, "session": session, "balance": self.state["balance"]}
+
+            if cmd == "complete":
+                result = complete_session(self.state, str(req.get("task") or ""), req.get("gate") or None)
+                save_state(self.state, self.cfg)
+                return {"ok": True, **result}
+
+            if cmd == "abandon":
+                result = abandon_session(self.state, str(req.get("session") or ""))
+                save_state(self.state, self.cfg)
+                return {"ok": True, **result}
+
+            if cmd == "reset":
+                self.state = empty_state(self.cfg)
+                save_state(self.state, self.cfg)
+                return {"ok": True, "state": self.state}
+
+            if cmd == "shutdown":
+                asyncio.get_running_loop().call_later(0.05, lambda: os.kill(os.getpid(), signal.SIGTERM))
+                return {"ok": True}
+
+            raise Failure(f"unknown command {cmd!r}")
+
+    async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            line = await reader.readline()
+            if not line:
+                return
+            try:
+                req = json.loads(line.decode())
+                if not isinstance(req, dict):
+                    raise ValueError("request must be an object")
+            except ValueError as exc:
+                resp = {"ok": False, "error": f"bad request: {exc}"}
+            else:
+                try:
+                    resp = await self.dispatch(req)
+                except Failure as exc:
+                    resp = {"ok": False, "error": str(exc)}
+                except Exception as exc:  # keep the daemon alive
+                    resp = {"ok": False, "error": f"internal error: {exc}"}
+            writer.write((json.dumps(resp) + "\n").encode())
+            await writer.drain()
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def run(self) -> int:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        # make sure the shell has a state file to watch from the first second
+        save_state(self.state, self.cfg)
+        if SOCKET_PATH.exists():
+            try:
+                SOCKET_PATH.unlink()
+            except OSError:
+                pass
+        server = await asyncio.start_unix_server(self.handle, path=str(SOCKET_PATH))
+        os.chmod(SOCKET_PATH, 0o600)
+        stop = asyncio.Event()
+
+        def shutdown(*_args):
+            stop.set()
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, shutdown)
+            except NotImplementedError:
+                pass
+
+        async def idle_watch():
+            while not stop.is_set():
+                await asyncio.sleep(60)
+                idle = time.time() - self.last_activity
+                pending = any(g.get("state") == "pending" for g in self.state["gates"].values())
+                if idle > self.idle_exit and not pending:
+                    stop.set()
+                    return
+
+        watcher = asyncio.create_task(idle_watch())
+        try:
+            async with server:
+                await stop.wait()
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except asyncio.CancelledError:
+                pass
+        try:
+            SOCKET_PATH.unlink()
+        except OSError:
+            pass
+        return 0
+
+
+# --------------------------------------------------------------------------- #
+# client
+
+def socket_ready(timeout: float = 0.15) -> bool:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(str(SOCKET_PATH))
+            return True
+    except OSError:
+        return False
+
+
+def spawn_daemon() -> None:
+    subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "daemon", "--idle-exit", "3600"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+
+def ensure_daemon() -> None:
+    if socket_ready():
+        return
+    spawn_daemon()
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        if socket_ready():
+            return
+        time.sleep(0.05)
+    raise Failure("could not start the gate daemon")
+
+
+def call(payload: dict, timeout: float = 30.0, spawn: bool = True) -> dict:
+    if spawn:
+        ensure_daemon()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout)
+        try:
+            sock.connect(str(SOCKET_PATH))
+        except OSError as exc:
+            raise Failure(f"gate daemon is not answering: {exc}") from exc
+        sock.sendall(json.dumps(payload).encode() + b"\n")
+        chunks = []
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            if b"\n" in chunk:
+                break
+    raw = b"".join(chunks).strip()
+    if not raw:
+        raise Failure("gate daemon closed the connection")
+    try:
+        resp = json.loads(raw.decode())
+    except ValueError as exc:
+        raise Failure(f"bad response from the gate daemon: {exc}") from exc
+    if not resp.get("ok"):
+        raise Failure(str(resp.get("error") or "request failed"))
+    return resp
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+
+def fmt_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds + 0.999))
+    if seconds >= 60:
+        return f"{seconds // 60}:{seconds % 60:02d}"
+    return f"{seconds}s"
+
+
+def task_line(task: dict) -> str:
+    return f"  {task['id']:<12} {task['name']:<24} +{task['reward']:<4} {fmt_duration(task['min'])}"
+
+
+def print_status(resp: dict) -> None:
+    state = resp["state"]
+    now = resp.get("now", time.time())
+    print(f"balance  {state.get('balance', 0)} Compute")
+    print(f"gates    {sum(1 for g in state.get('gates', {}).values() if g.get('state') == 'pending')} pending")
+    tasks = state.get("tasks", [])
+    if tasks:
+        print("tasks")
+        for task in tasks:
+            print(task_line(task))
+    for gate in sorted(state.get("gates", {}).values(), key=lambda g: g.get("created", 0)):
+        if gate.get("state") != "pending":
+            continue
+        print(f"gate     {gate['id']}  {gate['place']}  \"{gate['label']}\"  costs {gate['cost']}")
+    for session in state.get("sessions", {}).values():
+        if session.get("state") != "running":
+            continue
+        left = float(session.get("started", now)) + float(session.get("min", 0)) - now
+        print(f"running  {session['task']}  {session['id']}  {fmt_duration(left)} left")
+
+
+def emit(obj: dict, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(obj, indent=2))
+    else:
+        print(json.dumps(obj, indent=2))
+
+
+def cmd_status(args) -> int:
+    resp = call({"cmd": "status"})
+    if args.json:
+        emit({"state": resp["state"], "now": resp.get("now", time.time())}, True)
+    else:
+        print_status(resp)
+    return 0
+
+
+def cmd_tasks(args) -> int:
+    resp = call({"cmd": "status"})
+    for task in resp["state"].get("tasks", []):
+        print(f"{task['id']:<14} {task['name']:<26} +{task['reward']:<4} {fmt_duration(task['min'])}")
+    return 0
+
+
+def cmd_request(args) -> int:
+    payload = {
+        "cmd": "request",
+        "place": args.place,
+        "label": args.label,
+        "cost": args.cost,
+        "ref": args.ref,
+        "wait": args.wait,
+    }
+    if not args.wait:
+        resp = call(payload)
+        if args.json:
+            emit({"gate": resp["gate"]}, True)
+        else:
+            print(f"{resp['gate']['id']}  {resp['gate']['place']}  {resp['gate']['cost']} Compute")
+        return 0
+
+    resp = call(payload, timeout=args.timeout + 5)
+    gate = resp["gate"]
+    if args.json:
+        emit({"gate": gate}, True)
+    else:
+        print(f"{gate['id']}  {gate['place']}  {gate['cost']} Compute", flush=True)
+    # The daemon has already resolved (or the caller timed out); read the state.
+    for _ in range(int(args.timeout * 10)):
+        state = call({"cmd": "status"})["state"]
+        current = state.get("gates", {}).get(gate["id"], gate)
+        if current.get("state") == "granted":
+            return 0
+        if current.get("state") in ("cancelled",):
+            return 1
+        time.sleep(0.1)
+    return 1
+
+
+def cmd_run(args) -> int:
+    cmd = list(args.cmd or [])
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        print("gate run: missing command after --", file=sys.stderr)
+        return 2
+    resp = call(
+        {
+            "cmd": "request",
+            "place": args.place,
+            "label": args.label,
+            "cost": args.cost,
+            "ref": args.ref,
+        },
+        timeout=30,
+    )
+    gate = resp["gate"]
+    print(f"lucid-gate: {gate['place']} costs {gate['cost']} Compute ({gate['id']})", file=sys.stderr, flush=True)
+    deadline = time.time() + args.timeout
+    while time.time() < deadline:
+        state = call({"cmd": "status"})["state"]
+        current = state.get("gates", {}).get(gate["id"], {})
+        if current.get("state") == "granted":
+            print("lucid-gate: unlocked", file=sys.stderr, flush=True)
+            os.execvp(cmd[0], cmd)
+        if current.get("state") == "cancelled":
+            print("lucid-gate: cancelled", file=sys.stderr)
+            return 1
+        time.sleep(0.15)
+    print("lucid-gate: timed out waiting for the gate", file=sys.stderr)
+    return 1
+
+
+def cmd_start(args) -> int:
+    resp = call({"cmd": "start", "task": args.task, "gate": args.gate})
+    print(f"{resp['session']['id']}  {resp['session']['task']}  {fmt_duration(resp['session']['min'])}  ({resp['balance']} Compute)")
+    return 0
+
+
+def cmd_complete(args) -> int:
+    resp = call({"cmd": "complete", "task": args.task, "gate": args.gate})
+    if resp.get("gate"):
+        print(f"unlocked {resp['gate']['place']} with {resp['session']['task']}")
+    else:
+        print(f"+{resp['awarded']} Compute  (balance {resp['balance']})")
+    return 0
+
+
+def cmd_unlock(args) -> int:
+    resp = call({"cmd": "unlock", "gate": args.gate})
+    print(f"unlocked {resp['gate']['place']}  (balance {resp['balance']} Compute)")
+    return 0
+
+
+def cmd_cancel(args) -> int:
+    resp = call({"cmd": "cancel", "gate": args.gate})
+    print(f"cancelled {resp['gate']['place']}")
+    return 0
+
+
+def cmd_abandon(args) -> int:
+    resp = call({"cmd": "abandon", "session": args.session})
+    print(f"abandoned {resp['session']['task']}")
+    return 0
+
+
+def cmd_reset(args) -> int:
+    if not args.yes:
+        print("gate reset: this wipes the balance and all gates; pass --yes", file=sys.stderr)
+        return 2
+    resp = call({"cmd": "reset"})
+    print(f"reset; balance {resp['state']['balance']} Compute")
+    return 0
+
+
+def cmd_daemon(args) -> int:
+    daemon = Daemon(idle_exit=max(60.0, args.idle_exit))
+    return asyncio.run(daemon.run())
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(prog="gate", description="task tollbooth with a virtual currency")
+    ap.add_argument("--version", action="version", version=f"lucid-gate {VERSION}")
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("status", help="show the balance, gates and running tasks")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("tasks", help="list the tasks that earn Compute")
+    p.set_defaults(func=cmd_tasks)
+
+    p = sub.add_parser("request", help="ask the gate to open a place")
+    p.add_argument("--place", default="unknown")
+    p.add_argument("--label", default="")
+    p.add_argument("--cost", type=int, default=None)
+    p.add_argument("--ref", default="")
+    p.add_argument("--wait", action="store_true", help="block until unlocked")
+    p.add_argument("--timeout", type=float, default=600.0)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_request)
+
+    p = sub.add_parser("run", help="gate a command: run it after the gate opens")
+    p.add_argument("--place", default="unknown")
+    p.add_argument("--label", default="")
+    p.add_argument("--cost", type=int, default=None)
+    p.add_argument("--ref", default="")
+    p.add_argument("--timeout", type=float, default=600.0)
+    p.add_argument("cmd", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("start", help="start a task session")
+    p.add_argument("task")
+    p.add_argument("--gate", default="")
+    p.set_defaults(func=cmd_start)
+
+    p = sub.add_parser("complete", help="finish a task session")
+    p.add_argument("task")
+    p.add_argument("--gate", default="")
+    p.set_defaults(func=cmd_complete)
+
+    p = sub.add_parser("unlock", help="pay Compute to open a gate")
+    p.add_argument("gate")
+    p.set_defaults(func=cmd_unlock)
+
+    p = sub.add_parser("cancel", help="give up on a gate")
+    p.add_argument("gate")
+    p.set_defaults(func=cmd_cancel)
+
+    p = sub.add_parser("abandon", help="stop a running task without credit")
+    p.add_argument("session")
+    p.set_defaults(func=cmd_abandon)
+
+    p = sub.add_parser("reset", help="wipe the ledger")
+    p.add_argument("--yes", action="store_true")
+    p.set_defaults(func=cmd_reset)
+
+    p = sub.add_parser("daemon", help=argparse.SUPPRESS)
+    p.add_argument("--idle-exit", type=float, default=3600.0)
+    p.set_defaults(func=cmd_daemon)
+    return ap
+
+
+def main(argv: list[str]) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return int(args.func(args) or 0)
+    except Failure as exc:
+        print(f"gate: {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

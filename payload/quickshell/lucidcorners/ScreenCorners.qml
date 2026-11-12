@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import qs
 import "../squircle"
@@ -26,12 +27,30 @@ Scope {
     property int cornerSize: Theme.windowRadius
     property color cornerColor: "black"
 
+    // The ambient service applies the focused-screen black dimming in the
+    // global shader; this click-through layer adds the rest on other outputs.
+    readonly property real inactiveExtraDim: {
+        const v = parseFloat(inactiveDimFile.text());
+        return isNaN(v) ? 0 : Math.max(0, Math.min(1, v));
+    }
+    readonly property var focusedScreen: Monitors.focusedScreen
+
+    FileView {
+        id: inactiveDimFile
+
+        path: Quickshell.env("HOME") + "/.cache/lucid/ambient-eink/inactive_extra_dim"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+    }
+
     Variants {
         model: Quickshell.screens
         delegate: PanelWindow {
             required property var modelData
             screen: modelData
             objectName: "screenCorners"
+            readonly property bool onFocusedScreen: root.focusedScreen !== null && root.focusedScreen !== undefined && modelData !== null && root.focusedScreen.name === modelData.name
 
             color: "transparent"
             // -1: reserve nothing AND ignore other layers' reservations
@@ -56,6 +75,24 @@ Scope {
                 bottom: true
                 left: true
                 right: true
+            }
+
+            // Extra black dimming for outputs that are not focused. The
+            // focused output's cap lives in the shader itself.
+            Rectangle {
+                anchors.fill: parent
+                color: "black"
+                opacity: root.inactiveExtraDim > 0 && !onFocusedScreen ? root.inactiveExtraDim : 0
+                visible: opacity > 0.001
+
+                // Match the service's 5s shader fade, so moving focus between
+                // outputs (and a new daylight level) glides instead of snapping.
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: 5000
+                        easing.type: Easing.InOutSine
+                    }
+                }
             }
 
             // One SDF draw for all four corners (inverted squircles, i.e.

@@ -134,7 +134,7 @@ Item {
     function askDelete() {
         var b = Keybinds.find(editor.editingId);
         if (b)
-            Prefs.askConfirm("Delete this keybind?", "“" + Keybinds.displayDesc(b) + "” (" + Keybinds.tokens(b.keys).join(" + ") + ") is removed from keybinds.json and Hyprland reloads without it.", "Delete", "keybind-delete:" + b.id);
+            Prefs.askConfirm(Tr.t("Delete this keybind?"), "“" + Keybinds.displayDesc(b) + "” (" + Keybinds.tokens(b.keys).join(" + ") + Tr.t(") is removed from keybinds.json and Hyprland reloads without it."), Tr.t("Delete"), "keybind-delete:" + b.id);
 
     }
 
@@ -298,7 +298,7 @@ Item {
                 x: card.pad
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: Theme.dp(12)
-                text: editor.editingId === "" ? "New keybind" : "Edit keybind"
+                text: editor.editingId === "" ? Tr.t("New keybind") : Tr.t("Edit keybind")
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontHeadlineSm
@@ -327,7 +327,7 @@ Item {
                 spacing: Theme.dp(10)
 
                 SectionLabel {
-                    text: "Keys"
+                    text: Tr.t("Keys")
                 }
 
                 Rectangle {
@@ -353,7 +353,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         visible: keysPreview.shownKeys === ""
-                        text: editor.recording ? "Press the keys you want · Esc cancels" : "No keys yet"
+                        text: editor.recording ? Tr.t("Press the keys you want · Esc cancels") : Tr.t("No keys yet")
                         color: editor.recording ? Theme.accent : Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodyLg
@@ -370,7 +370,7 @@ Item {
                         anchors.right: recordBtn.left
                         anchors.rightMargin: Theme.dp(10)
                         anchors.verticalCenter: parent.verticalCenter
-                        placeholder: editor.each ? "SUPER + {key}" : "SUPER + SHIFT + T"
+                        placeholder: editor.each ? Tr.t("SUPER + {key}") : Tr.t("SUPER + SHIFT + T")
                         text: editor.keys
                         enabled: !editor.recording
                         onEdited: (v) => {
@@ -383,7 +383,7 @@ Item {
 
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: editor.recording ? "Stop" : "Record"
+                        text: editor.recording ? Tr.t("Stop") : Tr.t("Record")
                         variant: editor.recording ? "filled" : "tonal"
                         iconPath: "keyboard"
                         onClicked: editor.recording ? editor.stopRecording() : editor.startRecording()
@@ -426,7 +426,7 @@ Item {
                         spacing: Theme.dp(2)
 
                         Text {
-                            text: "Repeat for workspaces 1–10"
+                            text: Tr.t("Repeat for workspaces 1–10")
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodyLg
@@ -448,12 +448,12 @@ Item {
                 }
 
                 SectionLabel {
-                    text: "Description"
+                    text: Tr.t("Description")
                 }
 
                 M3TextField {
                     width: body.width
-                    placeholder: "What it does, the way the cheatsheet should say it"
+                    placeholder: Tr.t("What it does, the way the cheatsheet should say it")
                     text: editor.desc
                     onEdited: (v) => {
                         editor.desc = v;
@@ -461,12 +461,12 @@ Item {
                 }
 
                 SectionLabel {
-                    text: "Category"
+                    text: Tr.t("Category")
                 }
 
                 M3TextField {
                     width: body.width
-                    placeholder: "One of these, or a new one"
+                    placeholder: Tr.t("One of these, or a new one")
                     text: editor.category
                     onEdited: (v) => {
                         editor.category = v;
@@ -493,7 +493,7 @@ Item {
                 }
 
                 SectionLabel {
-                    text: "Action"
+                    text: Tr.t("Action")
                 }
 
                 M3Segmented {
@@ -514,7 +514,7 @@ Item {
                 M3TextField {
                     width: body.width
                     visible: editor.kind === "exec"
-                    placeholder: "kitty, or anything you would run in a terminal"
+                    placeholder: Tr.t("kitty, or anything you would run in a terminal")
                     text: editor.cmd
                     onEdited: (v) => {
                         editor.cmd = v;
@@ -576,7 +576,7 @@ Item {
                         x: Theme.dp(14)
                         y: Theme.dp(14)
                         visible: luaEdit.text === ""
-                        text: "hl.dsp.window.close()"
+                        text: Tr.t("hl.dsp.window.close()")
                         color: Theme.subtextDim
                         font.family: "monospace"
                         font.pixelSize: Theme.fontBodyMd
@@ -586,7 +586,7 @@ Item {
 
                 Text {
                     width: body.width
-                    text: editor.kind === "lua" ? "An expression giving a Hyprland dispatcher — hl.dsp.window.close(), hl.dsp.focus({ workspace = 3 }) — or function() … end, run on every press. fn (utils/functions.lua) and seq(a, b) are in scope." : "Runs through the shell, pipes and all."
+                    text: editor.kind === "lua" ? Tr.t("An expression giving a Hyprland dispatcher — hl.dsp.window.close(), hl.dsp.focus({ workspace = 3 }) — or function() … end, run on every press. fn (utils/functions.lua) and seq(a, b) are in scope.") : Tr.t("Runs through the shell, pipes and all.")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBodyMd
@@ -594,7 +594,7 @@ Item {
                 }
 
                 SectionLabel {
-                    text: "Options"
+                    text: Tr.t("Options")
                 }
 
                 Flow {
@@ -633,7 +633,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: editor.editingId !== ""
                 enabled: Keybinds.parseError === ""
-                text: "Delete"
+                text: Tr.t("Delete")
                 variant: "text"
                 destructive: true
                 onClicked: editor.askDelete()
@@ -646,13 +646,13 @@ Item {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Cancel"
+                    text: Tr.t("Cancel")
                     variant: "text"
                     onClicked: editor.dismiss()
                 }
 
                 M3Button {
-                    text: "Save"
+                    text: Tr.t("Save")
                     variant: "filled"
                     enabled: editor.canSave
                     onClicked: editor.save()

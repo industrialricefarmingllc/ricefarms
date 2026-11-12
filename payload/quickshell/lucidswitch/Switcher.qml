@@ -106,7 +106,9 @@ PanelWindow {
     // quickshell can keep a toplevel hyprland has forgotten; it has no workspace
     function ranked() {
         const list = Hyprland.toplevels.values.filter((t) => {
-            return t && t.workspace && sw.addr(t) !== "" && !(t.lastIpcObject && t.lastIpcObject.mapped === false);
+            return t && t.workspace && sw.addr(t) !== ""
+                && !(t.lastIpcObject && t.lastIpcObject.mapped === false)
+                && !Launch.isGhostWindow(t.lastIpcObject);
         });
         list.sort((x, y) => {
             const sx = sw.stamps[sw.addr(x)] || 0;
@@ -719,7 +721,7 @@ PanelWindow {
                                             role: "labelSmall"
                                             tabular: true
                                             color: tile.here ? Theme.fgPrimary : Theme.text
-                                            text: tile.special ? Specials.label(tile.wsName) : (tile.ws ? "Workspace " + tile.ws.id : "")
+                                            text: tile.special ? Specials.label(tile.wsName) : (tile.ws ? Tr.t("Workspace ") + tile.ws.id : "")
                                         }
 
                                     }
@@ -873,7 +875,7 @@ PanelWindow {
                     anchors.horizontalCenter: parent.horizontalCenter
                     role: "titleMedium"
                     color: Theme.subtext
-                    text: "No windows open"
+                    text: Tr.t("No windows open")
                 }
 
             }
@@ -905,7 +907,7 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "labelMedium"
                         color: Theme.subtext
-                        text: sw.count === 1 ? "1 window" : sw.count + " windows"
+                        text: sw.count === 1 ? Tr.t("1 window") : sw.count + Tr.t(" windows")
                     }
 
                 }
@@ -919,7 +921,7 @@ PanelWindow {
                     elide: Text.ElideLeft
                     role: "labelMedium"
                     color: Theme.subtextDim
-                    text: sw.count > 0 ? "Tab to move  ·  Enter to switch  ·  Del to close  ·  Esc to cancel" : "Esc to close"
+                    text: sw.count > 0 ? Tr.t("Tab to move  ·  Enter to switch  ·  Del to close  ·  Esc to cancel") : Tr.t("Esc to close")
                 }
 
             }

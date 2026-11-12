@@ -279,15 +279,15 @@ Column {
     }
 
     SettingCard {
-        title: "GALLERY"
-        subtitle: "Colour schemes from tinted-theming, base16 and base24, each drawn in its own colours. Add one to your themes, or use it straight away."
+        title: Tr.t("GALLERY")
+        subtitle: Tr.t("Colour schemes from tinted-theming, base16 and base24, each drawn in its own colours. Add one to your themes, or use it straight away.")
 
         SettingRow {
-            title: page.schemes.length > 0 ? page.schemes.length + " schemes" : "Not downloaded yet"
-            description: page.galleryState === "working" ? "Downloading..." : (page.galleryState === "error" ? page.galleryError : (page.schemes.length > 0 ? "Downloaded " + new Date(page.galleryUpdated * 1000).toLocaleDateString(Qt.locale(), Locale.ShortFormat) + " from github.com/tinted-theming/schemes." : "About half a megabyte from github.com/tinted-theming/schemes, kept in ~/.cache/lucid/schemes."))
+            title: page.schemes.length > 0 ? page.schemes.length + Tr.t(" schemes") : Tr.t("Not downloaded yet")
+            description: page.galleryState === "working" ? Tr.t("Downloading...") : (page.galleryState === "error" ? page.galleryError : (page.schemes.length > 0 ? Tr.t("Downloaded ") + new Date(page.galleryUpdated * 1000).toLocaleDateString(Qt.locale(), Locale.ShortFormat) + Tr.t(" from github.com/tinted-theming/schemes.") : Tr.t("About half a megabyte from github.com/tinted-theming/schemes, kept in ~/.cache/lucid/schemes.")))
 
             M3Button {
-                text: page.galleryState === "working" ? "Downloading..." : (page.schemes.length > 0 ? "Update" : "Download")
+                text: page.galleryState === "working" ? Tr.t("Downloading...") : (page.schemes.length > 0 ? Tr.t("Update") : Tr.t("Download"))
                 variant: page.schemes.length > 0 ? "tonal" : "filled"
                 enabled: page.galleryState !== "working"
                 onClicked: page.updateGallery()
@@ -296,8 +296,8 @@ Column {
         }
 
         SettingRow {
-            title: "Browse"
-            description: page.filtered.length === page.schemes.length ? "Hover a scheme to add it or use it." : page.filtered.length + " of " + page.schemes.length + " match."
+            title: Tr.t("Browse")
+            description: page.filtered.length === page.schemes.length ? Tr.t("Hover a scheme to add it or use it.") : page.filtered.length + Tr.t(" of ") + page.schemes.length + Tr.t(" match.")
             visible: page.schemes.length > 0
             showDivider: false
             stacked: true
@@ -314,7 +314,7 @@ Column {
 
                     M3TextField {
                         width: galleryBar.width - galleryFilter.width - galleryBar.spacing
-                        placeholder: "Search by name or author"
+                        placeholder: Tr.t("Search by name or author")
                         onEdited: (v) => {
                             return page.query = v;
                         }
@@ -366,7 +366,7 @@ Column {
 
                 M3Button {
                     visible: page.filtered.length > page.shown
-                    text: "Show more (" + (page.filtered.length - page.shown) + " left)"
+                    text: Tr.t("Show more (") + (page.filtered.length - page.shown) + Tr.t(" left)")
                     onClicked: page.shown += 48
                 }
 
@@ -377,11 +377,11 @@ Column {
     }
 
     SettingCard {
-        title: "IMPORT"
+        title: Tr.t("IMPORT")
 
         SettingRow {
-            title: "Import a scheme"
-            description: "From a colour-scheme repo, or a file you have. base16 and base24 YAML, name-keyed JSON (Catppuccin and friends) and palettes Lucid exported are read exactly; anything else gives up its hex codes, sorted by tone. A repo's wallpapers come along with it."
+            title: Tr.t("Import a scheme")
+            description: Tr.t("From a colour-scheme repo, or a file you have. base16 and base24 YAML, name-keyed JSON (Catppuccin and friends) and palettes Lucid exported are read exactly; anything else gives up its hex codes, sorted by tone. A repo's wallpapers come along with it.")
             showDivider: false
             stacked: true
 
@@ -414,7 +414,7 @@ Column {
 
                     M3Button {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Import repo"
+                        text: Tr.t("Import repo")
                         variant: "filled"
                         enabled: page.repoUrl.trim() !== "" && page.addState !== "working"
                         iconPath: "add"
@@ -430,7 +430,7 @@ Column {
                         id: fileField
 
                         width: importRows.fieldWidth
-                        placeholder: "A scheme file, like ~/Downloads/nord.yaml"
+                        placeholder: Tr.t("A scheme file, like ~/Downloads/nord.yaml")
                         enabled: page.addState !== "working"
                         onEdited: (v) => {
                             return page.filePath = v;
@@ -445,7 +445,7 @@ Column {
                         id: chooseButton
 
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Choose..."
+                        text: Tr.t("Choose...")
                         enabled: page.addState !== "working"
                         onClicked: {
                             filePicker.command = ["python3", Qt.resolvedUrl("pickfile.py").toString().replace("file://", ""), "--title", "Choose a colour scheme"];
@@ -457,7 +457,7 @@ Column {
                         id: importFileButton
 
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Import file"
+                        text: Tr.t("Import file")
                         variant: "filled"
                         enabled: page.filePath.trim() !== "" && page.addState !== "working"
                         iconPath: "add"
@@ -554,7 +554,7 @@ Column {
                         }
 
                         M3Button {
-                            text: "Apply"
+                            text: Tr.t("Apply")
                             variant: "filled"
                             anchors.verticalCenter: parent.verticalCenter
                             visible: page.addState === "done" && page.addResult !== null
@@ -577,12 +577,12 @@ Column {
     }
 
     SettingCard {
-        title: "EDITOR"
-        subtitle: "The palette on screen, one colour at a time. The shell wears the draft while you work on it."
+        title: Tr.t("EDITOR")
+        subtitle: Tr.t("The palette on screen, one colour at a time. The shell wears the draft while you work on it.")
 
         SettingRow {
-            title: "Edit the palette"
-            description: "Pick a key colour and change it: the rest of the palette is built again from the six, the way an imported scheme is, and a colour that would not read against the background is moved to one that does. Any other role can be set by itself. Nothing is kept until you save it as a theme."
+            title: Tr.t("Edit the palette")
+            description: Tr.t("Pick a key colour and change it: the rest of the palette is built again from the six, the way an imported scheme is, and a colour that would not read against the background is moved to one that does. Any other role can be set by itself. Nothing is kept until you save it as a theme.")
             showDivider: false
             stacked: true
 
@@ -598,11 +598,11 @@ Column {
     }
 
     SettingCard {
-        title: "EXPORT"
+        title: Tr.t("EXPORT")
 
         SettingRow {
-            title: "Save the palette to a file"
-            description: "The palette on screen, draft included. A Lucid palette keeps every role and imports back exactly as it is; base16 YAML works with tinted-theming's tools and templates, and anything else that reads base16."
+            title: Tr.t("Save the palette to a file")
+            description: Tr.t("The palette on screen, draft included. A Lucid palette keeps every role and imports back exactly as it is; base16 YAML works with tinted-theming's tools and templates, and anything else that reads base16.")
             showDivider: false
             stacked: true
 
@@ -631,7 +631,7 @@ Column {
 
                     M3Button {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: page.exportState === "working" ? "Saving..." : "Save as..."
+                        text: page.exportState === "working" ? Tr.t("Saving...") : Tr.t("Save as...")
                         variant: "filled"
                         enabled: page.exportState !== "working"
                         onClicked: {

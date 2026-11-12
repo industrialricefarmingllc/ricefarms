@@ -204,7 +204,7 @@ Item {
                         Text {
                             width: parent.width - mark.width - parent.spacing
                             anchors.verticalCenter: parent.verticalCenter
-                            text: tile.other ? (tile.n.o === 1 ? "1 small item" : (tile.n.o || 0).toLocaleString(Qt.locale(), "f", 0) + " small items") : tile.n.n
+                            text: tile.other ? (tile.n.o === 1 ? Tr.t("1 small item") : (tile.n.o || 0).toLocaleString(Qt.locale(), "f", 0) + Tr.t(" small items")) : tile.n.n
                             color: tile.ink
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontLabelLg

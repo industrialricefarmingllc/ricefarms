@@ -10,9 +10,22 @@ Item {
     property string title: ""
     property string body: ""
     property string action: ""
-    property string confirmLabel: "Reset"
+    property string confirmLabel: Tr.t("Reset")
 
     signal confirmed(string action)
+
+    Accessible.role: Accessible.Dialog
+    Accessible.name: dialog.title
+    Accessible.description: dialog.body
+    Accessible.focusable: true
+    Keys.onEscapePressed: dialog.dismiss()
+    onShownChanged: {
+        if (dialog.shown)
+            Qt.callLater(function() {
+                return confirmBtn.forceActiveFocus();
+            });
+
+    }
 
     function ask(t, b, label, a) {
         dialog.title = t;
@@ -117,12 +130,14 @@ Item {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Cancel"
+                    text: Tr.t("Cancel")
                     variant: "text"
                     onClicked: dialog.dismiss()
                 }
 
                 M3Button {
+                    id: confirmBtn
+
                     text: dialog.confirmLabel
                     variant: "filled"
                     destructive: true

@@ -373,7 +373,7 @@ Item {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
-                        text: plate.out ? plate.out.name + "  ·  " + plate.size.w + " × " + plate.size.h : ""
+                        text: plate.out ? plate.out.name + "  ·  " + plate.size.w + Tr.t(" × ") + plate.size.h : ""
                         color: plate.inkDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel

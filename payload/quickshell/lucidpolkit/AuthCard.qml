@@ -188,7 +188,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
 
                 Text {
-                    text: "Authentication required"
+                    text: Tr.t("Authentication required")
                     color: Theme.accent
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabelMd
@@ -232,7 +232,7 @@ Rectangle {
             visible: card.identity !== null
 
             Text {
-                text: Polkit.multiUser ? "Continue as" : "Signing in as"
+                text: Polkit.multiUser ? Tr.t("Continue as") : Tr.t("Signing in as")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelSm
@@ -571,7 +571,7 @@ Rectangle {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Details"
+                        text: Tr.t("Details")
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodySm
@@ -610,13 +610,13 @@ Rectangle {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Cancel"
+                    text: Tr.t("Cancel")
                     variant: "text"
                     onClicked: Polkit.cancel()
                 }
 
                 M3Button {
-                    text: "Authenticate"
+                    text: Tr.t("Authenticate")
                     variant: "filled"
                     enabled: card.canSubmit
                     onClicked: card.submit()
@@ -651,7 +651,7 @@ Rectangle {
 
                     Text {
                         width: parent.width
-                        text: "Action  " + Polkit.actionId
+                        text: Tr.t("Action  ") + Polkit.actionId
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodySm
@@ -661,7 +661,7 @@ Rectangle {
 
                     Text {
                         width: parent.width
-                        text: "Vendor  " + Polkit.vendor
+                        text: Tr.t("Vendor  ") + Polkit.vendor
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodySm
@@ -718,7 +718,7 @@ Rectangle {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Authorised"
+            text: Tr.t("Authorised")
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontTitleMd

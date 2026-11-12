@@ -116,10 +116,10 @@ Column {
     }
 
     SettingCard {
-        title: "ADAPTER"
+        title: Tr.t("ADAPTER")
 
         SettingRow {
-            title: "Bluetooth"
+            title: Tr.t("Bluetooth")
             description: page.adapterSummary
             enabled: !!page.adapter && !Bt.hardBlocked
             disabledReason: page.adapter ? Bt.blockReason : "No Bluetooth adapter is plugged into this machine."
@@ -135,10 +135,10 @@ Column {
         }
 
         SettingRow {
-            title: "Let other devices find this one"
+            title: Tr.t("Let other devices find this one")
             enabled: page.on
             disabledReason: "Turn Bluetooth on first."
-            description: page.on && page.adapter && page.adapter.discoverable ? "Anything nearby can see this machine as “" + (Bt.alias !== "" ? Bt.alias : "this computer") + "” and ask to pair." : "Turn this on while you pair something that has to start the pairing itself, then turn it back off."
+            description: page.on && page.adapter && page.adapter.discoverable ? Tr.t("Anything nearby can see this machine as “") + (Bt.alias !== "" ? Bt.alias : Tr.t("this computer")) + Tr.t("” and ask to pair.") : Tr.t("Turn this on while you pair something that has to start the pairing itself, then turn it back off.")
 
             M3Switch {
                 enabled: page.on
@@ -153,10 +153,10 @@ Column {
         }
 
         SettingRow {
-            title: "Accept pairing requests"
+            title: Tr.t("Accept pairing requests")
             enabled: page.on
             disabledReason: "Turn Bluetooth on first."
-            description: "With this off, a device can see this machine but cannot pair with it."
+            description: Tr.t("With this off, a device can see this machine but cannot pair with it.")
 
             M3Switch {
                 enabled: page.on
@@ -171,7 +171,7 @@ Column {
         }
 
         SettingRow {
-            title: "Answer pairing questions"
+            title: Tr.t("Answer pairing questions")
             enabled: !!page.adapter
             disabledReason: "No Bluetooth adapter is plugged into this machine."
             description: {
@@ -198,16 +198,16 @@ Column {
         }
 
         SettingRow {
-            title: "Name other devices see"
+            title: Tr.t("Name other devices see")
             enabled: !!page.adapter
-            description: Bt.address !== "" ? "The adapter's address is " + Bt.address + "." : "Reading the adapter…"
+            description: Bt.address !== "" ? Tr.t("The adapter's address is ") + Bt.address + "." : Tr.t("Reading the adapter…")
             warning: Bt.aliasError
             showDivider: false
 
             M3TextField {
                 width: Theme.dp(260)
                 enabled: !!page.adapter && !Bt.aliasBusy
-                placeholder: "this computer"
+                placeholder: Tr.t("this computer")
                 text: Bt.alias
                 onAccepted: (v) => {
                     return Bt.setAlias(v);
@@ -219,10 +219,10 @@ Column {
     }
 
     SettingCard {
-        title: "RECEIVING FILES"
+        title: Tr.t("RECEIVING FILES")
 
         SettingRow {
-            title: "Receive files"
+            title: Tr.t("Receive files")
             enabled: !!page.adapter
             disabledReason: "No Bluetooth adapter is plugged into this machine."
             description: {
@@ -255,23 +255,23 @@ Column {
         }
 
         SettingRow {
-            title: "Save to"
+            title: Tr.t("Save to")
             enabled: Prefs.btReceive
-            description: BtReceive.folder !== "" ? BtReceive.pretty(BtReceive.folder) : "Your Downloads folder"
+            description: BtReceive.folder !== "" ? BtReceive.pretty(BtReceive.folder) : Tr.t("Your Downloads folder")
             resetKey: "btReceiveFolder"
 
             Row {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Open"
+                    text: Tr.t("Open")
                     variant: "text"
                     enabled: Prefs.btReceive && BtReceive.folder !== ""
                     onClicked: BtReceive.openFolder()
                 }
 
                 M3Button {
-                    text: folderPicker.running ? "Choosing…" : "Change…"
+                    text: folderPicker.running ? Tr.t("Choosing…") : Tr.t("Change…")
                     enabled: Prefs.btReceive && !folderPicker.running
                     onClicked: {
                         folderPicker.command = ["python3", Qt.resolvedUrl("pickfile.py").toString().replace("file://", ""), "--directory", "--title", "Save received files to", "--file", BtReceive.folder];
@@ -284,9 +284,9 @@ Column {
         }
 
         SettingRow {
-            title: "Accept from paired devices without asking"
+            title: Tr.t("Accept from paired devices without asking")
             enabled: Prefs.btReceive
-            description: "Your own phone or laptop sends straight to the folder. Anything else still asks."
+            description: Tr.t("Your own phone or laptop sends straight to the folder. Anything else still asks.")
 
             M3Switch {
                 enabled: Prefs.btReceive
@@ -305,19 +305,19 @@ Column {
                 required property var modelData
 
                 title: modelData.name
-                description: "From " + modelData.device + " · " + page.ago(modelData.time)
+                description: Tr.t("From ") + modelData.device + " · " + page.ago(modelData.time)
 
                 Row {
                     spacing: Theme.dp(8)
 
                     M3Button {
-                        text: "Show in folder"
+                        text: Tr.t("Show in folder")
                         variant: "text"
                         onClicked: BtReceive.showInFolder(modelData.file)
                     }
 
                     M3Button {
-                        text: "Open"
+                        text: Tr.t("Open")
                         onClicked: BtReceive.openFile(modelData.file)
                     }
 
@@ -353,13 +353,13 @@ Column {
     }
 
     SettingCard {
-        title: "DEVICES"
+        title: Tr.t("DEVICES")
 
         SettingRow {
-            title: page.discovering ? "Searching" + ".".repeat(dots.n) : "Nearby devices"
+            title: page.discovering ? Tr.t("Searching") + ".".repeat(dots.n) : Tr.t("Nearby devices")
             enabled: page.on
             disabledReason: "Turn Bluetooth on to see what is around."
-            description: page.discovering ? "Leave the device you want in pairing mode. Searching stops on its own after a minute." : "Put the device into pairing mode first, then search."
+            description: page.discovering ? Tr.t("Leave the device you want in pairing mode. Searching stops on its own after a minute.") : Tr.t("Put the device into pairing mode first, then search.")
             stacked: true
             showDivider: page.on
 
@@ -370,7 +370,7 @@ Column {
                 M3TextField {
                     width: parent.width - scanBtn.implicitWidth - unnamedBox.implicitWidth - autoScanBox.implicitWidth - Theme.dp(30)
                     enabled: page.on
-                    placeholder: "Filter by name or address"
+                    placeholder: Tr.t("Filter by name or address")
                     onEdited: (v) => {
                         return page.filter = v;
                     }
@@ -382,7 +382,7 @@ Column {
                     anchors.verticalCenter: parent.verticalCenter
                     variant: page.discovering ? "filled" : "tonal"
                     enabled: page.on
-                    text: page.discovering ? "Stop" : "Search"
+                    text: page.discovering ? Tr.t("Stop") : Tr.t("Search")
                     onClicked: {
                         if (!page.adapter)
                             return ;
@@ -398,7 +398,7 @@ Column {
 
                     anchors.verticalCenter: parent.verticalCenter
                     enabled: page.on
-                    label: "Unnamed"
+                    label: Tr.t("Unnamed")
                     checked: Prefs.btShowUnnamed
                     onToggled: Prefs.btShowUnnamed = !Prefs.btShowUnnamed
                 }
@@ -408,7 +408,7 @@ Column {
 
                     anchors.verticalCenter: parent.verticalCenter
                     enabled: page.on
-                    label: "Search when this page opens"
+                    label: Tr.t("Search when this page opens")
                     checked: Prefs.btScanOnOpen
                     onToggled: Prefs.btScanOnOpen = !Prefs.btScanOnOpen
                 }
@@ -425,7 +425,7 @@ Column {
             spacing: Theme.dp(2)
 
             GroupLabel {
-                text: "Connected"
+                text: Tr.t("Connected")
                 visible: page.connectedList.length > 0
             }
 
@@ -441,7 +441,7 @@ Column {
             }
 
             GroupLabel {
-                text: "Paired"
+                text: Tr.t("Paired")
                 visible: page.pairedList.length > 0
             }
 
@@ -457,7 +457,7 @@ Column {
             }
 
             GroupLabel {
-                text: "Available"
+                text: Tr.t("Available")
                 visible: page.nearbyList.length > 0
             }
 
@@ -478,7 +478,7 @@ Column {
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: Theme.dp(18)
                 bottomPadding: Theme.dp(18)
-                text: page.filter.trim() !== "" ? "Nothing matches “" + page.filter.trim() + "”." : (page.discovering ? "Looking for devices…" : "No devices yet. Press Search to look for some.")
+                text: page.filter.trim() !== "" ? Tr.t("Nothing matches “") + page.filter.trim() + "”." : (page.discovering ? Tr.t("Looking for devices…") : Tr.t("No devices yet. Press Search to look for some."))
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBody

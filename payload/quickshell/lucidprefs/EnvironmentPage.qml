@@ -23,13 +23,13 @@ Column {
     spacing: Theme.dp(26)
 
     SettingCard {
-        title: "POINTER"
-        subtitle: Env.probed ? "" : "Reading what this machine has installed…"
+        title: Tr.t("POINTER")
+        subtitle: Env.probed ? "" : Tr.t("Reading what this machine has installed…")
 
         SettingRow {
-            title: "Cursor theme"
-            description: "Applied to GTK, Qt, XWayland and Hyprland at once. The pointer on screen changes as soon as you pick one; applications you open later pick it up from the environment."
-            warning: Env.cursorMissing ? "“" + Prefs.envCursorTheme + "” is not installed on this machine any more." : ""
+            title: Tr.t("Cursor theme")
+            description: Tr.t("Applied to GTK, Qt, XWayland and Hyprland at once. The pointer on screen changes as soon as you pick one; applications you open later pick it up from the environment.")
+            warning: Env.cursorMissing ? "“" + Prefs.envCursorTheme + Tr.t("” is not installed on this machine any more.") : ""
 
             M3Button {
                 text: page.orUnset(Prefs.envCursorTheme)
@@ -41,11 +41,11 @@ Column {
         }
 
         SettingRow {
-            title: "Pointer shadow"
+            title: Tr.t("Pointer shadow")
             resetKey: "envCursorShadow"
             enabled: Env.shadowCapable && !Env.shadowBuilding
             disabledReason: Env.shadowBuilding ? "Rendering the pointer without its shadow\u2026 this takes a few seconds." : (Env.shadowReason !== "" ? "\u201c" + Prefs.envCursorTheme + "\u201d " + Env.shadowReason + "." : "Reading the theme\u2019s sources\u2026")
-            description: "The soft shade behind the pointer. Hyprland has no switch for it \u2014 it is painted into the theme itself \u2014 so turning it off renders the theme again from its vector sources and points everything at that copy. The pointer keeps its exact shape, sizes and hotspots."
+            description: Tr.t("The soft shade behind the pointer. Hyprland has no switch for it \u2014 it is painted into the theme itself \u2014 so turning it off renders the theme again from its vector sources and points everything at that copy. The pointer keeps its exact shape, sizes and hotspots.")
             warning: Env.shadowError
 
             M3Switch {
@@ -58,9 +58,9 @@ Column {
         }
 
         SettingRow {
-            title: "Cursor size"
+            title: Tr.t("Cursor size")
             resetKey: "envCursorSize"
-            description: "In pixels. GTK, Qt and Hyprland are all told the same number, which is what stops the pointer changing size as you move between applications."
+            description: Tr.t("In pixels. GTK, Qt and Hyprland are all told the same number, which is what stops the pointer changing size as you move between applications.")
             showDivider: false
             stacked: true
 
@@ -81,12 +81,12 @@ Column {
     }
 
     SettingCard {
-        title: "THEMES"
+        title: Tr.t("THEMES")
 
         SettingRow {
-            title: "Use legacy icons"
+            title: Tr.t("Use legacy icons")
             resetKey: "envLegacyIcons"
-            description: "Turns off Lucid's own icons, coloured by Matugen from your wallpaper, and uses your GTK icon theme instead: on the desktop, the dock, the launcher, the tray and in Lumen."
+            description: Tr.t("Turns off Lucid's own icons, coloured by Matugen from your wallpaper, and uses your GTK icon theme instead: on the desktop, the dock, the launcher, the tray and in Lumen.")
 
             M3Switch {
                 checked: Prefs.envLegacyIcons
@@ -99,10 +99,10 @@ Column {
 
         // lucid's sets while its own icons are on, the gtk themes once they are off
         SettingRow {
-            title: "Icon theme"
+            title: Tr.t("Icon theme")
             resetKey: Prefs.envLegacyIcons ? "" : "envIconSet"
-            description: Prefs.envLegacyIcons ? "Used by application menus, file managers and the shell's own dock. The dock follows a change straight away; open applications repaint when they next redraw." : "How Lucid draws files, folders and apps, in your wallpaper's colours. Gravity is lit softly from above; Gravity (Simplified) is the same set in flat tones."
-            warning: Prefs.envLegacyIcons && Env.iconMissing ? "“" + Prefs.envIconTheme + "” is not installed on this machine any more." : ""
+            description: Prefs.envLegacyIcons ? Tr.t("Used by application menus, file managers and the shell's own dock. The dock follows a change straight away; open applications repaint when they next redraw.") : Tr.t("How Lucid draws files, folders and apps, in your wallpaper's colours. Gravity is lit softly from above; Gravity (Simplified) is the same set in flat tones.")
+            warning: Prefs.envLegacyIcons && Env.iconMissing ? "“" + Prefs.envIconTheme + Tr.t("” is not installed on this machine any more.") : ""
 
             M3Button {
                 text: Prefs.envLegacyIcons ? page.orUnset(Prefs.envIconTheme) : LucidIcons.nameOf(Prefs.envIconSet)
@@ -114,9 +114,9 @@ Column {
         }
 
         SettingRow {
-            title: "Application theme"
-            description: "The GTK theme applications draw their own windows with. It has no effect on the shell, which follows the palette on the Theme page."
-            warning: Env.gtkMissing ? "“" + Prefs.envGtkTheme + "” is not installed on this machine any more." : ""
+            title: Tr.t("Application theme")
+            description: Tr.t("The GTK theme applications draw their own windows with. It has no effect on the shell, which follows the palette on the Theme page.")
+            warning: Env.gtkMissing ? "“" + Prefs.envGtkTheme + Tr.t("” is not installed on this machine any more.") : ""
 
             M3Button {
                 text: page.orUnset(Prefs.envGtkTheme)
@@ -128,9 +128,9 @@ Column {
         }
 
         SettingRow {
-            title: "Light or dark"
+            title: Tr.t("Light or dark")
             resetKey: "envColorScheme"
-            description: "What applications are asked to prefer. Auto leaves the choice to each application."
+            description: Tr.t("What applications are asked to prefer. Auto leaves the choice to each application.")
             showDivider: false
 
             M3Segmented {
@@ -147,13 +147,13 @@ Column {
     }
 
     SettingCard {
-        title: "TYPE"
-        subtitle: "The shell's own font, and the one applications draw with."
+        title: Tr.t("TYPE")
+        subtitle: Tr.t("The shell's own font, and the one applications draw with.")
 
         SettingRow {
-            title: "Interface font"
+            title: Tr.t("Interface font")
             resetKey: "fontFamily"
-            description: "Applied everywhere the shell draws text. Chosen from the fonts installed on this machine."
+            description: Tr.t("Applied everywhere the shell draws text. Chosen from the fonts installed on this machine.")
 
             M3Button {
                 text: Prefs.fontFamily
@@ -164,9 +164,9 @@ Column {
         }
 
         SettingRow {
-            title: "Text size"
+            title: Tr.t("Text size")
             resetKey: "fontScale"
-            description: "Scales the shell's whole type ramp at once. Applications are not affected."
+            description: Tr.t("Scales the shell's whole type ramp at once. Applications are not affected.")
             stacked: true
 
             M3Slider {
@@ -185,9 +185,9 @@ Column {
         }
 
         SettingRow {
-            title: "Applications use the same font"
+            title: Tr.t("Applications use the same font")
             resetKey: "envFontSync"
-            description: "GTK and Qt are given the shell's interface font. Turn this off to set a separate one for them."
+            description: Tr.t("GTK and Qt are given the shell's interface font. Turn this off to set a separate one for them.")
 
             M3Switch {
                 checked: Prefs.envFontSync
@@ -199,10 +199,10 @@ Column {
         }
 
         SettingRow {
-            title: "Application font"
+            title: Tr.t("Application font")
             enabled: !Prefs.envFontSync
             disabledReason: "Following the interface font above."
-            description: "What GTK and Qt applications draw their menus and labels with."
+            description: Tr.t("What GTK and Qt applications draw their menus and labels with.")
 
             M3Button {
                 text: page.orUnset(Prefs.envAppFont)
@@ -213,9 +213,9 @@ Column {
         }
 
         SettingRow {
-            title: "Application text size"
+            title: Tr.t("Application text size")
             resetKey: "envAppFontSize"
-            description: "In points, the unit GTK and Qt both measure type in."
+            description: Tr.t("In points, the unit GTK and Qt both measure type in.")
             stacked: true
 
             M3Slider {
@@ -233,8 +233,8 @@ Column {
         }
 
         SettingRow {
-            title: "Document font"
-            description: "Used by applications that lay out pages rather than interfaces."
+            title: Tr.t("Document font")
+            description: Tr.t("Used by applications that lay out pages rather than interfaces.")
 
             M3Button {
                 text: page.orUnset(Prefs.envDocumentFont)
@@ -245,8 +245,8 @@ Column {
         }
 
         SettingRow {
-            title: "Monospace font"
-            description: "Terminals, editors and anything else asking for a fixed-width face."
+            title: Tr.t("Monospace font")
+            description: Tr.t("Terminals, editors and anything else asking for a fixed-width face.")
             showDivider: false
 
             M3Button {
@@ -260,13 +260,13 @@ Column {
     }
 
     SettingCard {
-        title: "TOOLKITS"
+        title: Tr.t("TOOLKITS")
         subtitle: Env.summary
 
         SettingRow {
-            title: "GTK applications"
+            title: Tr.t("GTK applications")
             resetKey: "envApplyGtk"
-            description: "Writes the settings above into GTK 2, 3 and 4, and into gsettings, which is what makes running applications follow along."
+            description: Tr.t("Writes the settings above into GTK 2, 3 and 4, and into gsettings, which is what makes running applications follow along.")
             enabled: Env.targets.gsettings !== false
 
             M3Switch {
@@ -279,9 +279,9 @@ Column {
         }
 
         SettingRow {
-            title: "Qt applications"
+            title: Tr.t("Qt applications")
             resetKey: "envApplyQt"
-            description: Env.targets.qt6ct === false && Env.targets.qt5ct === false ? "Neither qt5ct nor qt6ct is configured on this machine, so there is nothing to write." : "Writes into the qt5ct and qt6ct configurations this machine already has."
+            description: Env.targets.qt6ct === false && Env.targets.qt5ct === false ? Tr.t("Neither qt5ct nor qt6ct is configured on this machine, so there is nothing to write.") : Tr.t("Writes into the qt5ct and qt6ct configurations this machine already has.")
             enabled: Env.targets.qt6ct === true || Env.targets.qt5ct === true
 
             M3Switch {
@@ -294,10 +294,10 @@ Column {
         }
 
         SettingRow {
-            title: "Qt style"
+            title: Tr.t("Qt style")
             enabled: Prefs.envApplyQt && (Env.targets.qt6ct === true || Env.targets.qt5ct === true)
             disabledReason: "Turn Qt applications on to choose a style."
-            description: "How Qt draws its own widgets. Fusion is the one every machine has."
+            description: Tr.t("How Qt draws its own widgets. Fusion is the one every machine has.")
 
             M3Button {
                 text: page.orUnset(Prefs.envQtStyle)
@@ -308,9 +308,9 @@ Column {
         }
 
         SettingRow {
-            title: "Hyprland environment"
+            title: Tr.t("Hyprland environment")
             resetKey: "envApplyHypr"
-            description: "Keeps XCURSOR_THEME, XCURSOR_SIZE and the icon theme in Hyprland's env module, so applications started later inherit them."
+            description: Tr.t("Keeps XCURSOR_THEME, XCURSOR_SIZE and the icon theme in Hyprland's env module, so applications started later inherit them.")
             enabled: Env.targets.hyprland !== false
             disabledReason: "No Hyprland env module on this machine to write to."
             showDivider: false
@@ -327,18 +327,18 @@ Column {
     }
 
     SettingCard {
-        title: "THIS MACHINE"
+        title: Tr.t("THIS MACHINE")
 
         SettingRow {
-            title: "Re-read from the system"
-            description: Env.lastError !== "" ? Env.lastError : "Loads whatever the machine's own configuration files currently say, discarding what is set here. Useful after changing appearance with another tool."
+            title: Tr.t("Re-read from the system")
+            description: Env.lastError !== "" ? Env.lastError : Tr.t("Loads whatever the machine's own configuration files currently say, discarding what is set here. Useful after changing appearance with another tool.")
             showDivider: false
 
             M3Button {
-                text: Env.busy ? "Working…" : "Re-read"
+                text: Env.busy ? Tr.t("Working…") : Tr.t("Re-read")
                 variant: "tonal"
                 enabled: !Env.busy
-                onClicked: Prefs.askConfirm("Re-read appearance from this machine?", "Every setting on this page is replaced by what the machine's GTK, Qt and Hyprland configuration currently says. Nothing else is touched.", "Re-read", Prefs.resetEnvToken)
+                onClicked: Prefs.askConfirm(Tr.t("Re-read appearance from this machine?"), Tr.t("Every setting on this page is replaced by what the machine's GTK, Qt and Hyprland configuration currently says. Nothing else is touched."), Tr.t("Re-read"), Prefs.resetEnvToken)
             }
 
         }

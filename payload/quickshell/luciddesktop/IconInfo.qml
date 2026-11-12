@@ -281,7 +281,7 @@ Item {
                 }
 
                 Text {
-                    text: sheet.hasDisk ? DesktopIcons.human(sheet.d.fsFree) + " free of " + DesktopIcons.human(sheet.d.fsSize) + (sheet.d.fsType ? "  ·  " + sheet.d.fsType : "") : ""
+                    text: sheet.hasDisk ? DesktopIcons.human(sheet.d.fsFree) + Tr.t(" free of ") + DesktopIcons.human(sheet.d.fsSize) + (sheet.d.fsType ? "  ·  " + sheet.d.fsType : "") : ""
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabelLg
@@ -352,7 +352,7 @@ Item {
                     anchors.right: execSwitch.left
                     anchors.rightMargin: Theme.dp(12)
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Allow running as a program"
+                    text: Tr.t("Allow running as a program")
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBodyMd
@@ -378,13 +378,13 @@ Item {
 
                 Button {
                     variant: "text"
-                    text: "Close"
+                    text: Tr.t("Close")
                     onClicked: DesktopIcons.closeInfo()
                 }
 
                 Button {
                     variant: "tonal"
-                    text: "Open"
+                    text: Tr.t("Open")
                     icon: "open_in_new"
                     onClicked: {
                         var k = sheet.shown ? sheet.shown.key : "";

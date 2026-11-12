@@ -364,11 +364,22 @@ hl.bind("Print", hl.dsp.exec_cmd("qs ipc call snap toggle"))
 -- keymap actually emits. Do NOT use "code:NN": Hyprland 0.56.2's Lua bind
 -- parser turns any "code:" spec into an empty-key bind (key="", keycode=0),
 -- which matches KEY_UNKNOWN events (e.g. Xbox Elite paddles).
-hl.bind("XF86Launch7", hl.dsp.exec_cmd("kitty"))
-hl.bind("F16", hl.dsp.exec_cmd("kitty"))
+local lucid_launch = (os.getenv("HOME") or "") .. "/.config/quickshell/scripts/lucid-launch"
+local function lucid_shquote(s)
+  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+local function lucid_app(cmd, title, icon, class)
+  local out = lucid_shquote(lucid_launch) .. " -c " .. lucid_shquote(cmd)
+  if title then out = out .. " --title " .. lucid_shquote(title) end
+  if icon then out = out .. " --icon " .. lucid_shquote(icon) end
+  if class then out = out .. " --class " .. lucid_shquote(class) end
+  return hl.dsp.exec_cmd(out)
+end
+hl.bind("XF86Launch7", lucid_app("kitty", "Terminal", "utilities-terminal", "kitty"))
+hl.bind("F16", lucid_app("kitty", "Terminal", "utilities-terminal", "kitty"))
 -- F17 = open nautilus (same keymap remap: FK17 = XF86Launch8)
-hl.bind("XF86Launch8", hl.dsp.exec_cmd("nautilus --new-window"))
-hl.bind("F17", hl.dsp.exec_cmd("nautilus --new-window"))
+hl.bind("XF86Launch8", lucid_app("nautilus --new-window", "Files", "system-file-manager", "org.gnome.Nautilus"))
+hl.bind("F17", lucid_app("nautilus --new-window", "Files", "system-file-manager", "org.gnome.Nautilus"))
 
 -- Urgency focus guard: no activation focus-steal within 5s of input.
 -- misc:focus_on_activate=false means activation requests (urgent hints,
@@ -380,20 +391,54 @@ hl.bind("F17", hl.dsp.exec_cmd("nautilus --new-window"))
 -- is logged with its reason (see FOCUS_REASONS) to /tmp/urgency-guard.log,
 -- so a steal that still happens while armed leaves a trace of its path.
 local URGENCY_GUARD_MS = 5000
+-- Classes that always win an activation request, even while armed. A URL
+-- handed to an already-running browser (xdg-open via the desktop URL
+-- handler) arrives immediately after the click or keypress that opened it,
+-- so the 5s idle gate can never pass for it: without this, link opens only
+-- mark the tab urgent and never take you to it. This is safe for Wayland
+-- clients because xdg-activation requires an input serial owned by the
+-- requesting client, so a web page cannot fire it on its own.
+local URGENCY_GUARD_ALWAYS = { helium = true, zen = true }
 local urgencyGuardGen = 0
 local urgencyGuardArmed = false
 local urgencyGuardLastSrc = nil
 local urgencyGuardLastDecision = "-"
--- Focus reasons from src/desktop/state/FocusState.hpp (2nd arg of window.active).
-local URGENCY_GUARD_REASONS = {
-  [0]="UNKNOWN",[1]="FFM",[2]="KEYBIND",[3]="DISPATCH_FOCUSWINDOW",
-  [4]="DISPATCH_MOVEWINDOWINTOGROUP",[5]="CLICK",[6]="OTHER",
-  [7]="DESKTOP_STATE_CHANGE",[8]="SWITCH_TO_WINDOW_SOFT",[9]="SWITCH_TO_WINDOW_HARD",
-  [10]="GROUP_CURRENT_WINDOW_CHANGE",[11]="WORKSPACE_CHANGE",
-  [12]="TOGGLE_SPECIAL_WORKSPACE",[13]="UNMAP_WINDOW_TILING",
-  [14]="UNMAP_WINDOW_FLOATING",[15]="UNMAP_GROUPED_WINDOW",
-  [16]="NEW_WINDOW",[17]="GHOSTS",
+-- Focus reasons from src/desktop/state/FocusState.hpp (2nd arg of
+-- window.active). 0.57 turned these into bit flags (1 << n), so composite
+-- reasons such as CLICK_DOWN (CLICK|1<<5) must be split, not table-indexed.
+local URGENCY_GUARD_REASON_BITS = {
+  { 262144, "OTHER" },
+  { 131072, "GHOSTS" },
+  { 65536, "NEW_WINDOW" },
+  { 32768, "UNMAP_GROUPED_WINDOW" },
+  { 16384, "UNMAP_WINDOW_FLOATING" },
+  { 8192, "UNMAP_WINDOW_TILING" },
+  { 4096, "TOGGLE_SPECIAL_WORKSPACE" },
+  { 2048, "WORKSPACE_CHANGE" },
+  { 1024, "GROUP_CURRENT_WINDOW_CHANGE" },
+  { 512, "SWITCH_TO_WINDOW_HARD" },
+  { 256, "SWITCH_TO_WINDOW_SOFT" },
+  { 128, "DESKTOP_STATE_CHANGE" },
+  { 64, "CLICK_UP" },
+  { 32, "CLICK_DOWN" },
+  { 16, "CLICK" },
+  { 8, "DISPATCH_MOVEWINDOWINTOGROUP" },
+  { 4, "DISPATCH_FOCUSWINDOW" },
+  { 2, "KEYBIND" },
+  { 1, "FFM" },
 }
+local function urgencyGuardReasonName(reason)
+  if reason == nil or reason == 0 then return "UNKNOWN" end
+  local parts = {}
+  local rest = reason
+  for _, bit in ipairs(URGENCY_GUARD_REASON_BITS) do
+    if math.floor(rest / bit[1]) % 2 == 1 then
+      parts[#parts + 1] = bit[2]
+      rest = rest - bit[1]
+    end
+  end
+  return #parts > 0 and table.concat(parts, "|") or tostring(reason)
+end
 local function urgencyGuardLog(msg)
   pcall(function()
     local f = io.open("/tmp/urgency-guard.log", "a")
@@ -445,7 +490,8 @@ pcall(function()
       return w.class, w.title, w.address
     end)
     if not ok then cls, title, addr = "?", "?", nil end
-    if urgencyGuardShouldFocus() then
+    local forced = URGENCY_GUARD_ALWAYS[tostring(cls)] == true
+    if forced or urgencyGuardShouldFocus() then
       -- Already there: nothing to do (avoids a redundant jump/warp).
       local cur = nil
       pcall(function()
@@ -457,8 +503,9 @@ pcall(function()
         urgencyGuardLog(string.format("urgent already-active %s | %s", tostring(cls), tostring(title)))
         return
       end
-      urgencyGuardLastDecision = "focused-idle-urgent"
-      urgencyGuardLog(string.format("urgent FOCUS (idle) %s | %s", tostring(cls), tostring(title)))
+      urgencyGuardLastDecision = forced and "focused-allowlisted-urgent" or "focused-idle-urgent"
+      urgencyGuardLog(string.format("urgent FOCUS (%s) %s | %s",
+        forced and "allowlisted" or "idle", tostring(cls), tostring(title)))
       if addr then
         pcall(function()
           hl.dispatch(hl.dsp.focus({ window = "address:" .. addr }))
@@ -475,7 +522,7 @@ pcall(function()
   hl.on("window.active", function(w, reason)
     local ok, cls, title = pcall(function() return w.class, w.title end)
     if not ok then cls, title = "?", "?" end
-    local rname = URGENCY_GUARD_REASONS[reason] or tostring(reason)
+    local rname = urgencyGuardReasonName(reason)
     urgencyGuardLog(string.format("focus -> %s | %s reason=%s armed=%s",
       tostring(cls), tostring(title), rname, tostring(urgencyGuardArmed)))
   end)
@@ -620,6 +667,11 @@ hl.bind("SUPER + T", hl.dsp.exec_cmd("qs ipc call launcher translate"), { descri
 -- <<< quick-translate <<<
 
 -- SUPER+R opens Lucid's launcher on the Emoji tab, the same way SUPER+T opens
--- Translate. R already sits in hyprland.lua's super-tap disarm list, so the
--- release tap cannot reopen the launcher on top of this chord.
-hl.bind("SUPER + R", hl.dsp.exec_cmd("qs ipc call launcher emoji"), { description = "Emoji (SUPER+R)" })
+-- Translate. This binding is non-transparent, so it shadows hyprland.lua's
+-- transparent SUPER+R tap-disarm entry; clear the tap cell explicitly. Without
+-- this the Super release both closes and reopens the panel and leaves the next
+-- bare-Super tap out of sync.
+hl.bind("SUPER + R", function()
+  if _G.lucid_super_tap_disarm then _G.lucid_super_tap_disarm() end
+end, { transparent = true, non_consuming = true, description = "disarm launcher tap (SUPER+R)" })
+hl.bind("SUPER + R", hl.dsp.global("quickshell:launcherEmoji"), { description = "Emoji (SUPER+R)" })

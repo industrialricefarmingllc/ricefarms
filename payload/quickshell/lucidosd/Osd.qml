@@ -27,7 +27,18 @@ PanelWindow {
     readonly property bool micMuted: (source && source.audio) ? source.audio.muted : false
     property string backlightDevice: ""
     property int maxBrightness: 0
-    readonly property int brightnessPercent: osdWindow.maxBrightness > 0 ? Math.round((parseInt(brightnessFile.text()) / osdWindow.maxBrightness) * 100) : 0
+    property bool backlightScanned: false
+    readonly property bool virtualBrightnessMode: osdWindow.backlightScanned && osdWindow.maxBrightness <= 0
+    readonly property int brightnessPercent: {
+        if (osdWindow.maxBrightness > 0)
+            return Math.round((parseInt(brightnessFile.text()) / osdWindow.maxBrightness) * 100);
+
+        if (osdWindow.virtualBrightnessMode) {
+            const v = parseInt(virtualBrightnessFile.text());
+            return isNaN(v) ? 100 : Math.max(0, Math.min(100, v));
+        }
+        return 0;
+    }
     property bool capsLock: false
     property bool numLock: false
     // keyboard layout: hyprland names each one in full ("Russian (Phonetic)"),
@@ -374,10 +385,15 @@ PanelWindow {
     }
 
     // the ambient-light script stamps when it last drove the backlight, so a
-    // step that came from it is not answered with a card of its own
+    // step that came from it is not answered with a card of its own. The
+    // ambient-eink service does the same for its virtual brightness.
     function autoBrightnessAdjustedRecently() {
         const ts = parseInt(autoBrightnessFlag.text().trim());
-        return !isNaN(ts) && (Date.now() / 1000 - ts) < 2.5;
+        if (!isNaN(ts) && (Date.now() / 1000 - ts) < 2.5)
+            return true;
+
+        const ets = parseInt(ambientBrightnessFlag.text().trim());
+        return !isNaN(ets) && (Date.now() / 1000 - ets) < 2.5;
     }
 
     Timer {
@@ -403,7 +419,12 @@ PanelWindow {
         command: ["bash", "-c", "ls /sys/class/backlight | head -1"]
 
         stdout: StdioCollector {
-            onStreamFinished: osdWindow.backlightDevice = this.text.trim().replace(/[@/*=|]$/, "")
+            onStreamFinished: {
+                osdWindow.backlightDevice = this.text.trim().replace(/[@/*=|]$/, "");
+                osdWindow.backlightScanned = true;
+                if (osdWindow.backlightDevice === "")
+                    osdWindow.maxBrightness = 0;
+            }
         }
 
     }
@@ -422,7 +443,15 @@ PanelWindow {
     Process {
         id: setBrightnessProc
 
-        command: osdWindow.pendingBrightness >= 0 ? ["brightnessctl", "set", osdWindow.pendingBrightness + "%"] : []
+        command: {
+            if (osdWindow.pendingBrightness < 0)
+                return [];
+
+            if (osdWindow.maxBrightness > 0)
+                return ["brightnessctl", "set", osdWindow.pendingBrightness + "%"];
+
+            return [Quickshell.env("HOME") + "/.local/bin/lucid-ambient-eink", "--brightness", String(osdWindow.pendingBrightness)];
+        }
     }
 
     Process {
@@ -445,9 +474,27 @@ PanelWindow {
     }
 
     FileView {
+        id: virtualBrightnessFile
+
+        path: Quickshell.env("HOME") + "/.cache/lucid/ambient-eink/brightness"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+    }
+
+    FileView {
         id: autoBrightnessFlag
 
         path: Quickshell.env("HOME") + "/.cache/lucid/auto-brightness-last-write"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+    }
+
+    FileView {
+        id: ambientBrightnessFlag
+
+        path: Quickshell.env("HOME") + "/.cache/lucid/ambient-eink/last-auto-write"
         watchChanges: true
         printErrors: false
         onFileChanged: reload()

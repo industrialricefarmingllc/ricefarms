@@ -1,0 +1,11 @@
+[Unit]
+Description=Instantly purge Trash contents (delete means delete)
+
+[Service]
+Type=simple
+ExecStart=/home/nicerice/.local/bin/trash-purge
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

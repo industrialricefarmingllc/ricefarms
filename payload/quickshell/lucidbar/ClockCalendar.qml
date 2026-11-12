@@ -313,7 +313,7 @@ Item {
                 LText {
                     role: "bodyMedium"
                     color: Theme.subtext
-                    text: page.selectedDate.toLocaleDateString(Qt.locale(), "d MMMM yyyy") + (page.dayItems.length ? "  ·  " + page.dayItems.length + (page.dayItems.length === 1 ? " reminder" : " reminders") : "")
+                    text: page.selectedDate.toLocaleDateString(Qt.locale(), "d MMMM yyyy") + (page.dayItems.length ? "  ·  " + page.dayItems.length + (page.dayItems.length === 1 ? Tr.t(" reminder") : Tr.t(" reminders")) : "")
                 }
 
             }
@@ -384,7 +384,7 @@ Item {
                         anchors.horizontalCenter: parent.horizontalCenter
                         role: "bodyMedium"
                         color: Theme.subtext
-                        text: "A free day"
+                        text: Tr.t("A free day")
                     }
 
                 }
@@ -402,9 +402,9 @@ Item {
                     id: nameField
 
                     width: parent.width
-                    label: "New reminder"
-                    placeholder: "What should it say?"
-                    supporting: page.past && nameField.text.trim() !== "" ? (page.gone(0, 0) && !page.gone(23, 59) ? Agenda.timeText({ "hour": page.newHour, "minute": page.newMinute }) + " has already gone by today" : "That day has already gone by") : ""
+                    label: Tr.t("New reminder")
+                    placeholder: Tr.t("What should it say?")
+                    supporting: page.past && nameField.text.trim() !== "" ? (page.gone(0, 0) && !page.gone(23, 59) ? Agenda.timeText({ "hour": page.newHour, "minute": page.newMinute }) + Tr.t(" has already gone by today") : Tr.t("That day has already gone by")) : ""
                     containerColor: Theme.withBlur(Theme.surfaceHighest)
                     onAccepted: page.submit()
                 }
@@ -519,7 +519,7 @@ Item {
                         variant: "filled"
                         size: "xs"
                         icon: "add"
-                        text: "Add"
+                        text: Tr.t("Add")
                         disabled: nameField.text.trim() === "" || page.past
                         onClicked: page.submit()
                     }

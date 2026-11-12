@@ -15,7 +15,11 @@ Variants {
         screen: modelData
         // Keep the surface mapped while the effect is on so the layer can
         // cross-fade; the wallpaper underneath is already the new one.
-        visible: SpatialWall.enabled
+        // Only the main output draws the 3D layer: a 4K side output was
+        // paying for a fullscreen parallax repaint nobody was looking at.
+        readonly property bool drawVisual: SpatialWall.renderOnSecondary
+            || modelData === Monitors.mainScreen
+        visible: SpatialWall.enabled && drawVisual
         color: "transparent"
         // skwd renders its own wallpaper on the Bottom layer; sit there too,
         // with a lower order, so the depth surface is in front of skwd but
@@ -38,7 +42,9 @@ Variants {
             screen: modelData
             // A local mesh job owns the GPU; the flat wallpaper is enough
             // until it finishes, and this keeps the shell's FBOs allocatable.
+            // Side outputs do not render the visual at all.
             renderingEnabled: !SpatialWall.meshBusy
+                && (SpatialWall.renderOnSecondary || modelData === Monitors.mainScreen)
         }
     }
 }

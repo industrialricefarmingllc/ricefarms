@@ -12,6 +12,10 @@ Item {
 
     property var model: null
     property int currentIndex: 0
+    // bumped by the face after the dock rewrites the rows; the measured-height
+    // cache below uses it to rebuild once per model update instead of doing a
+    // model.get() for every row on every layout query.
+    property int revision: 0
     // what to embolden in each title
     property string query: ""
     property string emptyLabel: "No results"
@@ -23,6 +27,27 @@ Item {
     // the model's count, not the view's: the view only announces a count that
     // differs from its last layout, so 11 rows to none to 11 never reached us
     readonly property int count: list.model ? list.model.count : 0
+    // One model.get per row per revision, not per layout pass. The list asks
+    // for a row height for every delegate and for every prefix sum while
+    // scrolling; doing model.get() in each of those made contentExtent and
+    // rowY quadratic in the row count on every keystroke.
+    readonly property var heights: {
+        list.revision;
+        var n = list.model ? list.model.count : 0;
+        var out = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var r = list.model.get(i);
+            if (!r)
+                out[i] = 0;
+            else if (r.kind === "header")
+                out[i] = Prefs.launcherRowHeader;
+            else if (r.kind === "calc")
+                out[i] = Prefs.launcherRowCalc;
+            else
+                out[i] = r.subtitle !== "" ? Prefs.launcherRowTwo : Prefs.launcherRowOne;
+        }
+        return out;
+    }
     readonly property bool hasSelection: list.count > 0 && list.isSelectable(list.currentIndex)
     // where the pill is this frame; the rows light by it
     readonly property real pillY: selection.slot
@@ -43,7 +68,8 @@ Item {
             return 0;
 
         var h = 0;
-        for (var i = 0; i < list.model.count; i++) h += list.rowHeight(i) + list.rowSpacing
+        var hs = list.heights;
+        for (var i = 0; i < hs.length; i++) h += hs[i] + list.rowSpacing
         return h - list.rowSpacing + list.bottomPad;
     }
     readonly property real maxScroll: Math.max(0, list.contentExtent - list.viewport)
@@ -93,17 +119,7 @@ Item {
 
     // must match the delegate's height expression below, and Dock.measure()
     function rowHeight(index) {
-        var r = list.rowAt(index);
-        if (!r)
-            return 0;
-
-        if (r.kind === "header")
-            return Prefs.launcherRowHeader;
-
-        if (r.kind === "calc")
-            return Prefs.launcherRowCalc;
-
-        return r.subtitle !== "" ? Prefs.launcherRowTwo : Prefs.launcherRowOne;
+        return index >= 0 && index < list.heights.length ? list.heights[index] : 0;
     }
 
     // the leading slot of a result, for the launch animation's origin
@@ -296,7 +312,6 @@ Item {
         onCountChanged: list.ensureSelectable()
         highlightFollowsCurrentItem: false
         interactive: true
-        flickableDirection: Flickable.VerticalFlick
         boundsBehavior: Flickable.StopAtBounds
         z: 1
 
@@ -339,7 +354,10 @@ Item {
         populate: Transition {
             SequentialAnimation {
                 PauseAnimation {
-                    duration: Theme.ms(Math.max(0, Math.min(view.ViewTransition.index, 9)) * 22)
+                    // Cap the stagger at five rows: a 30-row query used to
+                    // spend up to 198 ms waiting before the first fade even
+                    // began. Five rows is enough to read as a cascade.
+                    duration: Theme.ms(Math.max(0, Math.min(view.ViewTransition.index, 5)) * 12)
                 }
 
                 ParallelAnimation {
@@ -347,7 +365,7 @@ Item {
                         properties: "opacity"
                         from: 0
                         to: 1
-                        duration: Theme.ms(200)
+                        duration: Theme.ms(160)
                         easing.type: Easing.OutCubic
                     }
 
@@ -430,6 +448,8 @@ Item {
             required property string iconName
             required property string glyph
             required property string emoji
+            required property string image
+            required property bool animated
             required property string swatchBg
             required property string swatchAccent
             required property string trailing
@@ -443,7 +463,7 @@ Item {
             readonly property bool isCalc: rowItem.kind === "calc"
             readonly property bool selected: list.currentIndex === rowItem.index && rowItem.selectable
             readonly property bool hovering: list.hoveredIndex === rowItem.index && rowItem.selectable && !rowItem.disabled
-            readonly property bool hasLead: rowItem.iconName !== "" || rowItem.glyph !== "" || rowItem.emoji !== "" || rowItem.swatchBg !== "" || rowItem.thumb !== ""
+            readonly property bool hasLead: rowItem.iconName !== "" || rowItem.glyph !== "" || rowItem.emoji !== "" || rowItem.image !== "" || rowItem.swatchBg !== "" || rowItem.thumb !== ""
             // how much of the pill is under this row this frame. everything that
             // marks the selection is coloured by it, so none of it leads or trails
             readonly property real lit: list.hasSelection && rowItem.selectable ? Math.max(0, 1 - Math.abs(list.pillY - rowItem.y) / Math.max(1, rowItem.height)) : 0
@@ -466,6 +486,18 @@ Item {
             width: list.rowWidth
             height: rowItem.isHeader ? Prefs.launcherRowHeader : (rowItem.isCalc ? Prefs.launcherRowCalc : (rowItem.subtitle !== "" ? Prefs.launcherRowTwo : Prefs.launcherRowOne))
             opacity: rowItem.disabled ? Theme.disabledContent : 1
+
+            Accessible.role: rowItem.isHeader ? Accessible.Heading : Accessible.ListItem
+            Accessible.name: rowItem.title
+            Accessible.description: rowItem.subtitle
+            Accessible.selected: rowItem.selected
+            Accessible.selectable: rowItem.selectable
+            Accessible.focusable: rowItem.selectable
+            Accessible.onPressAction: {
+                if (rowItem.selectable && !rowItem.disabled)
+                    list.activated(rowItem.index, false);
+
+            }
             onThumbChanged: rowItem.askThumb()
             Component.onCompleted: rowItem.askThumb()
 
@@ -554,7 +586,7 @@ Item {
                         anchors.horizontalCenter: parent.horizontalCenter
                         role: "labelSmall"
                         size: list.ts("labelSmall")
-                        text: "Return"
+                        text: Tr.t("Return")
                         color: list.mix(Theme.subtextDim, Theme.alpha(Theme.fgPrimaryContainer, 0.7), rowItem.lit)
                     }
 
@@ -608,17 +640,24 @@ Item {
                     anchors.centerIn: parent
                     width: Math.round(list.leadSlot * 0.88)
                     height: Math.round(list.leadSlot * 0.88)
+                    // IconImage decodes synchronously by default. A query that
+                    // matches 30+ apps then blocks the GUI thread decoding each
+                    // new icon while the panel is opening. The grid already
+                    // decodes asynchronously; the list should too.
+                    asynchronous: true
                     visible: rowItem.iconName !== ""
                     source: rowItem.iconName === "" ? "" : (IconTheme.generation >= 0 && IconTheme.pathFor(rowItem.iconName) !== "" ? IconTheme.pathFor(rowItem.iconName) : Quickshell.iconPath(rowItem.iconName, true))
                 }
 
-                Text {
+                Twemoji {
                     anchors.centerIn: parent
-                    visible: rowItem.emoji !== ""
-                    text: rowItem.emoji
-                    font.pixelSize: Math.round(list.leadSlot * 0.6)
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                    visible: rowItem.emoji !== "" || rowItem.image !== ""
+                    emoji: rowItem.emoji
+                    imageSource: rowItem.image
+                    animated: rowItem.animated
+                    playing: list.visible
+                    size: Math.round(list.leadSlot * 0.6)
+                    fallbackColor: Theme.text
                 }
 
                 Rectangle {

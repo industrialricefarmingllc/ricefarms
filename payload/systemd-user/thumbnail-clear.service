@@ -1,0 +1,6 @@
+[Unit]
+Description=Clear the RAM thumbnail cache
+
+[Service]
+Type=oneshot
+ExecStart=/home/nicerice/.local/bin/thumbnail-clear

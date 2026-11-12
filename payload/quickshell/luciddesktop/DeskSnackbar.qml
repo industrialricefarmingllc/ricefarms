@@ -17,6 +17,10 @@ PanelWindow {
     property var shown: null
     property bool up: false
 
+    Accessible.role: Accessible.AlertMessage
+    Accessible.name: bar.shown ? String(bar.shown.text || "") : ""
+    Accessible.description: bar.shown && bar.shown.undo ? Tr.t("Undo") : ""
+
     screen: DesktopIcons.screen
     visible: bar.up || pill.opacity > 0.01
     color: "transparent"
@@ -132,7 +136,7 @@ PanelWindow {
                 id: undoText
 
                 anchors.centerIn: parent
-                text: "Undo"
+                text: Tr.t("Undo")
                 color: Theme.accent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelLg

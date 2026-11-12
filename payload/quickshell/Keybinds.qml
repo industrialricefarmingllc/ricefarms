@@ -16,7 +16,7 @@ Singleton {
     // defined by binds.lua: no binds but SUPER+Escape, so a combo being recorded
     // reaches the settings window instead of doing whatever it is bound to
     readonly property string captureSubmap: "lucid_capture"
-    readonly property var fieldOrder: ["id", "keys", "desc", "category", "type", "cmd", "lua", "each", "opts", "enabled"]
+    readonly property var fieldOrder: ["id", "keys", "desc", "category", "type", "app", "cmd", "lua", "each", "opts", "enabled"]
 
     property var binds: []
     property bool loaded: false

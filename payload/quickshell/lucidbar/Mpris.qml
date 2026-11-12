@@ -748,6 +748,12 @@ BarPill {
 
         stdout: SplitParser {
             onRead: (line) => {
+                // The bar's visualizer sits behind the launcher. Skipping the
+                // per-line model update avoids repainting the full-width bar
+                // while the reveal owns the frame; the bars resume from their
+                // last values when the panel closes.
+                if (SpatialWall.launcherOpen)
+                    return;
                 const raw = line.trim().split(" ");
                 const prev = root.bars;
                 const out = new Array(raw.length);
@@ -957,10 +963,9 @@ BarPill {
 
                         interval: 33
                         repeat: true
-                        running: root.isPlaying && compactArt.visible
+                        running: root.isPlaying && compactArt.visible && !SpatialWall.launcherOpen
                         onTriggered: compactArt.rotation = (compactArt.rotation + 360 * compactArtSpin.interval / 14000) % 360
                     }
-
                 }
 
                 // the cover look: the album art standing still, squared off
@@ -2133,7 +2138,7 @@ BarPill {
                         role: "labelMedium"
                         tabular: true
                         color: Theme.subtext
-                        text: "Live  ·  " + root.fmt(root.livePosSec)
+                        text: Tr.t("Live  ·  ") + root.fmt(root.livePosSec)
                     }
 
                 }
@@ -2266,7 +2271,7 @@ BarPill {
 
                 Button {
                     anchors.centerIn: parent
-                    text: "Identify what's playing"
+                    text: Tr.t("Identify what's playing")
                     icon: root.identifyGlyph
                     onClicked: root.identify()
                 }
@@ -2326,7 +2331,7 @@ BarPill {
                     anchors.verticalCenter: parent.verticalCenter
                     role: "titleMedium"
                     color: Theme.text
-                    text: "Identify"
+                    text: Tr.t("Identify")
                 }
 
                 // what it listens to: this computer's own sound, or the microphone
@@ -2547,7 +2552,7 @@ BarPill {
                                 anchors.centerIn: parent
                                 variant: "text"
                                 size: "xs"
-                                text: "Turn the mic up"
+                                text: Tr.t("Turn the mic up")
                                 icon: root.micGlyph
                                 onClicked: Audio.setVolume(Audio.source, 100)
                             }
@@ -2630,7 +2635,7 @@ BarPill {
                             Button {
                                 anchors.verticalCenter: parent.verticalCenter
                                 size: "xs"
-                                text: "Shazam"
+                                text: Tr.t("Shazam")
                                 icon: root.openGlyph
                                 containerOverride: Theme.accent
                                 contentOverride: Theme.fgAccent
@@ -2697,7 +2702,7 @@ BarPill {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "titleSmall"
                         color: Theme.accent
-                        text: "Recent"
+                        text: Tr.t("Recent")
                     }
 
                     IconButton {

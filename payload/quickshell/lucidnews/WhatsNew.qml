@@ -200,13 +200,13 @@ PanelWindow {
                 LText {
                     role: "labelLarge"
                     color: Theme.accent
-                    text: "What's new"
+                    text: Tr.t("What's new")
                 }
 
                 LText {
                     width: parent.width
                     role: "headlineSmall"
-                    text: "Lucid v" + notes.version + (notes.name !== "" ? " · " + notes.name : "")
+                    text: Tr.t("Lucid v") + notes.version + (notes.name !== "" ? " · " + notes.name : "")
                     elide: Text.ElideRight
                 }
 
@@ -224,7 +224,7 @@ PanelWindow {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 icon: "close"
-                tooltip: "Close"
+                tooltip: Tr.t("Close")
                 onClicked: sheet.hide()
             }
 
@@ -516,7 +516,7 @@ PanelWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 variant: "text"
                 icon: "open_in_new"
-                text: "Every change"
+                text: Tr.t("Every change")
                 onClicked: {
                     Qt.openUrlExternally(notes.fullUrl);
                     sheet.hide();
@@ -527,7 +527,7 @@ PanelWindow {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 variant: "filled"
-                text: "Got it"
+                text: Tr.t("Got it")
                 onClicked: sheet.hide()
             }
 
@@ -631,7 +631,7 @@ PanelWindow {
                     horizontalAlignment: Text.AlignHCenter
                     role: "labelLarge"
                     color: Theme.subtext
-                    text: "A picture goes here"
+                    text: Tr.t("A picture goes here")
                 }
 
                 LText {

@@ -304,7 +304,7 @@ FloatingWindow {
             "hidden": win.app.lumen.hidden
         }, function(r) {
             if (!r.ok) {
-                win.say(r.error || "Can't open that folder");
+                win.say(r.error || Tr.t("Can't open that folder"));
                 return ;
             }
             win.raw = r.items || [];
@@ -602,7 +602,7 @@ FloatingWindow {
         }
         if (!win.canEdit) {
             if (win.current && win.current.animated)
-                win.say("Moving pictures can't be edited yet");
+                win.say(Tr.t("Moving pictures can't be edited yet"));
 
             return ;
         }
@@ -695,7 +695,7 @@ FloatingWindow {
             var pic = stage.current, req = grabLater.req;
             if (!pic || !pic.ready) {
                 win.busy = false;
-                win.say("The picture isn't ready yet");
+                win.say(Tr.t("The picture isn't ready yet"));
                 return ;
             }
             var tmp = win.app.home + "/.cache/lucid/lens/render-" + Date.now() + ".tiff";
@@ -703,7 +703,7 @@ FloatingWindow {
             var ok = pic.grabToImage(function(r) {
                 if (!r.saveToFile(tmp)) {
                     win.busy = false;
-                    win.say("Couldn't draw the edited picture");
+                    win.say(Tr.t("Couldn't draw the edited picture"));
                     return ;
                 }
                 req.tmp = tmp;
@@ -711,7 +711,7 @@ FloatingWindow {
             }, Qt.size(Math.round(pic.width), Math.round(pic.height)));
             if (!ok) {
                 win.busy = false;
-                win.say("Couldn't draw the edited picture");
+                win.say(Tr.t("Couldn't draw the edited picture"));
             }
         }
     }
@@ -720,7 +720,7 @@ FloatingWindow {
         win.busy = false;
         var c = win.current;
         if (!r.ok) {
-            win.say(r.error || "Couldn't save it");
+            win.say(r.error || Tr.t("Couldn't save it"));
             return ;
         }
         if (c)
@@ -745,7 +745,7 @@ FloatingWindow {
                 }
                 win.rebuild();
             }
-            win.say("Saved as “" + name + "”", "Show", {
+            win.say(Tr.t("Saved as “") + name + "”", Tr.t("Show"), {
                 "kind": "show",
                 "path": r.path
             });
@@ -756,7 +756,7 @@ FloatingWindow {
             if (r.first)
                 said = r.lossless ? "Saved without losing quality  ·  original kept" : "Saved  ·  original kept";
 
-            win.say(said, r.backup ? "Undo" : "", r.backup ? {
+            win.say(said, r.backup ? Tr.t("Undo") : "", r.backup ? {
                 "kind": "unsave",
                 "path": r.path,
                 "backup": r.backup,
@@ -825,14 +825,14 @@ FloatingWindow {
                 "first": p.first === true
             }, function(r) {
                 if (!r.ok) {
-                    win.say(r.error || "Couldn't put it back");
+                    win.say(r.error || Tr.t("Couldn't put it back"));
                     return ;
                 }
                 if (p.first)
                     win.clearKept(r.path);
 
                 win.rewritten(r);
-                win.say("Put back as it was");
+                win.say(Tr.t("Put back as it was"));
             });
         } else if (p.kind === "unrevert") {
             win.app.call("unrevert", {
@@ -841,18 +841,18 @@ FloatingWindow {
                 "entry": p.entry
             }, function(r) {
                 if (!r.ok) {
-                    win.say(r.error || "Couldn't put the edits back");
+                    win.say(r.error || Tr.t("Couldn't put the edits back"));
                     return ;
                 }
                 win.rewritten(r);
-                win.say("Edited version put back");
+                win.say(Tr.t("Edited version put back"));
             });
         } else if (p.kind === "restore") {
             win.app.call("restore", {
                 "path": p.path
             }, function(r) {
                 if (!r.ok) {
-                    win.say(r.error || "Couldn't restore it");
+                    win.say(r.error || Tr.t("Couldn't restore it"));
                     return ;
                 }
                 win.landOn = p.path;
@@ -860,13 +860,13 @@ FloatingWindow {
                     win.raw = win.raw.concat([p.entry]);
 
                 win.rebuild();
-                win.say("Restored “" + win.app.nameOf(p.path) + "”");
+                win.say(Tr.t("Restored “") + win.app.nameOf(p.path) + "”");
             });
         } else if (p.kind === "wallpaper") {
             win.app.call("wallpaper", {
                 "path": p.previous
             });
-            win.say("Wallpaper put back");
+            win.say(Tr.t("Wallpaper put back"));
         } else if (p.kind === "show") {
             win.reveal(p.path);
         } else if (p.kind === "jump") {
@@ -897,7 +897,7 @@ FloatingWindow {
                 "path": c.path
             }, function(r) {
                 if (!r.ok) {
-                    win.say(r.error || "Couldn't move it to the trash");
+                    win.say(r.error || Tr.t("Couldn't move it to the trash"));
                     return ;
                 }
                 win.forget(c.path);
@@ -905,7 +905,7 @@ FloatingWindow {
                     return it.path !== c.path;
                 });
                 win.rebuild();
-                win.say("Moved “" + c.name + "” to the trash", "Undo", {
+                win.say(Tr.t("Moved “") + c.name + Tr.t("” to the trash"), Tr.t("Undo"), {
                     "kind": "restore",
                     "path": c.path,
                     "entry": entry
@@ -964,13 +964,13 @@ FloatingWindow {
         }, function(r) {
             win.busy = false;
             if (!r.ok) {
-                win.say(r.error || "Couldn't revert it");
+                win.say(r.error || Tr.t("Couldn't revert it"));
                 return ;
             }
             win.forget(path);
             win.clearKept(path);
             win.rewritten(r);
-            win.say("Back to the original", "Undo", {
+            win.say(Tr.t("Back to the original"), Tr.t("Undo"), {
                 "kind": "unrevert",
                 "path": r.path,
                 "backup": r.backup,
@@ -998,11 +998,11 @@ FloatingWindow {
                 "path": c.path
             }, function(r) {
                 if (!r.ok) {
-                    win.say(r.error || "Couldn't delete it");
+                    win.say(r.error || Tr.t("Couldn't delete it"));
                     return ;
                 }
                 win.clearKept(c.path);
-                win.say("Original moved to the trash");
+                win.say(Tr.t("Original moved to the trash"));
             });
         });
     }
@@ -1033,7 +1033,7 @@ FloatingWindow {
                 "name": name
             }, function(r) {
                 if (!r.ok) {
-                    win.say(r.error || "Couldn't rename it");
+                    win.say(r.error || Tr.t("Couldn't rename it"));
                     return ;
                 }
                 var p = Object.assign({}, win.pending);
@@ -1066,10 +1066,10 @@ FloatingWindow {
             "path": c.video ? c.path : (c.decoded || c.path)
         }, function(r) {
             if (!r.ok) {
-                win.say(r.error || "Couldn't set the wallpaper");
+                win.say(r.error || Tr.t("Couldn't set the wallpaper"));
                 return ;
             }
-            win.say("Wallpaper set", r.previous ? "Undo" : "", r.previous ? {
+            win.say(Tr.t("Wallpaper set"), r.previous ? Tr.t("Undo") : "", r.previous ? {
                 "kind": "wallpaper",
                 "previous": r.previous
             } : null);
@@ -1085,13 +1085,13 @@ FloatingWindow {
             win.app.call("copyFile", {
                 "path": c.path
             });
-            win.say("Video copied");
+            win.say(Tr.t("Video copied"));
             return ;
         }
         win.app.call("copyImage", {
             "path": c.decoded || c.path
         }, function(r) {
-            win.say(r.ok ? "Picture copied" : (r.error || "Couldn't copy it"));
+            win.say(r.ok ? Tr.t("Picture copied") : (r.error || Tr.t("Couldn't copy it")));
         });
     }
 
@@ -1101,7 +1101,7 @@ FloatingWindow {
             return ;
 
         Quickshell.execDetached(["wl-copy", c.path]);
-        win.say("Path copied");
+        win.say(Tr.t("Path copied"));
     }
 
     function readText() {
@@ -1109,16 +1109,16 @@ FloatingWindow {
         if (!c)
             return ;
 
-        win.say("Reading the text…");
+        win.say(Tr.t("Reading the text…"));
         win.app.call("ocr", {
             "path": c.decoded || c.path
         }, function(r) {
             if (!r.ok)
-                win.say(r.error || "Couldn't read it");
+                win.say(r.error || Tr.t("Couldn't read it"));
             else if (r.words === 0)
-                win.say("There's no text to read in it");
+                win.say(Tr.t("There's no text to read in it"));
             else
-                win.say("Copied " + r.words + (r.words === 1 ? " word" : " words") + " of text");
+                win.say(Tr.t("Copied ") + r.words + (r.words === 1 ? Tr.t(" word") : Tr.t(" words")) + Tr.t(" of text"));
         });
     }
 
@@ -1139,7 +1139,7 @@ FloatingWindow {
             "path": c.path
         }, function(r) {
             if (!r.ok || r.apps.length === 0) {
-                win.say("No other app opens this kind of picture");
+                win.say(Tr.t("No other app opens this kind of picture"));
                 return ;
             }
             dialog.ask({
@@ -1170,7 +1170,7 @@ FloatingWindow {
             "device": device.id,
             "path": c.video ? c.path : (c.decoded || c.path)
         }, function(r) {
-            win.say(r.ok ? "Sent to " + device.name : (r.error || "Couldn't send it"));
+            win.say(r.ok ? Tr.t("Sent to ") + device.name : (r.error || Tr.t("Couldn't send it")));
         });
     }
 
@@ -1178,7 +1178,7 @@ FloatingWindow {
         win.app.call("paste", {
         }, function(r) {
             if (!r.ok) {
-                win.say(r.error || "There's no picture on the clipboard");
+                win.say(r.error || Tr.t("There's no picture on the clipboard"));
                 return ;
             }
             if (!win.confirmLeave(function() {
@@ -1346,10 +1346,10 @@ FloatingWindow {
             "at": stage.movie ? stage.movie.position / 1000 : 0
         }, function(r) {
             if (!r.ok) {
-                win.say(r.error || "Couldn't save that frame");
+                win.say(r.error || Tr.t("Couldn't save that frame"));
                 return ;
             }
-            win.say("Saved “" + r.name + "”", "Show", {
+            win.say(Tr.t("Saved “") + r.name + "”", Tr.t("Show"), {
                 "kind": "jump",
                 "path": r.path
             });
@@ -1366,7 +1366,7 @@ FloatingWindow {
             "at": stage.movie ? stage.movie.position / 1000 : 0,
             "clipboard": true
         }, function(r) {
-            win.say(r.ok ? "Frame copied" : (r.error || "Couldn't copy that frame"));
+            win.say(r.ok ? Tr.t("Frame copied") : (r.error || Tr.t("Couldn't copy that frame")));
         });
     }
 
@@ -1412,12 +1412,12 @@ FloatingWindow {
         }, function(r) {
             win.trimJob = "";
             if (!r.ok) {
-                win.say(r.error === "Stopped" ? "Trim stopped" : (r.error || "Couldn't trim it"));
+                win.say(r.error === "Stopped" ? Tr.t("Trim stopped") : (r.error || Tr.t("Couldn't trim it")));
                 return ;
             }
             win.trimming = false;
             keys.forceActiveFocus();
-            win.say("Saved “" + r.name + "”", "Show", {
+            win.say(Tr.t("Saved “") + r.name + "”", Tr.t("Show"), {
                 "kind": "jump",
                 "path": r.path
             });
@@ -1771,7 +1771,7 @@ FloatingWindow {
         }, function(r) {
             var list = r.devices || [];
             if (list.length === 0) {
-                win.say("No phone is connected right now");
+                win.say(Tr.t("No phone is connected right now"));
                 return ;
             }
             if (list.length === 1) {
@@ -1982,7 +1982,7 @@ FloatingWindow {
     }
 
     visible: true
-    title: win.current ? win.current.name : "Lens"
+    title: win.current ? win.current.name : Tr.t("Lens")
     // one step under solid, so hyprland can still blur it
     color: win.immersive ? "black" : Theme.alpha(Theme.bg, Math.min(Theme.bg.a, 254 / 255))
     implicitWidth: Theme.dp(win.app.prefs.width)

@@ -315,7 +315,7 @@ Column {
     }
 
     function askTrash(path, size) {
-        Prefs.askConfirm("Move to the trash?", "“" + page.baseName(path) + "” (" + Storage.size(size) + ") goes to the trash. The space comes back once the trash is emptied.", "Move", "storage-trash:" + path);
+        Prefs.askConfirm(Tr.t("Move to the trash?"), "“" + page.baseName(path) + "” (" + Storage.size(size) + Tr.t(") goes to the trash. The space comes back once the trash is emptied."), Tr.t("Move"), "storage-trash:" + path);
     }
 
     function showInMap(path) {
@@ -437,7 +437,7 @@ Column {
     }
 
     SettingCard {
-        title: "OVERVIEW"
+        title: Tr.t("OVERVIEW")
 
         StorageOverview {
             width: parent.width
@@ -452,7 +452,7 @@ Column {
     SettingCard {
         id: mapCard
 
-        title: "USAGE MAP"
+        title: Tr.t("USAGE MAP")
         visible: page.scan !== null
 
         StorageMap {
@@ -470,12 +470,12 @@ Column {
     }
 
     SettingCard {
-        title: "FREE UP SPACE"
-        subtitle: page.notice !== "" ? page.notice : (Storage.cleanup ? (page.reclaimable > 0 ? "About " + Storage.size(page.reclaimable) + " could go without touching anything you made. Each item asks before it deletes." : "Nothing here is worth clearing right now.") : "")
+        title: Tr.t("FREE UP SPACE")
+        subtitle: page.notice !== "" ? page.notice : (Storage.cleanup ? (page.reclaimable > 0 ? Tr.t("About ") + Storage.size(page.reclaimable) + Tr.t(" could go without touching anything you made. Each item asks before it deletes.") : Tr.t("Nothing here is worth clearing right now.")) : "")
 
         SettingRow {
-            title: Storage.measuring ? "Measuring" : "Waiting to measure"
-            description: "Looking at caches, old packages and the trash."
+            title: Storage.measuring ? Tr.t("Measuring") : Tr.t("Waiting to measure")
+            description: Tr.t("Looking at caches, old packages and the trash.")
             visible: !Storage.cleanup
 
             LoadingIndicator {
@@ -498,8 +498,8 @@ Column {
     }
 
     SettingCard {
-        title: "CACHES AND TRASH"
-        subtitle: "Things your apps and tools keep around to save time. They come back on their own when needed."
+        title: Tr.t("CACHES AND TRASH")
+        subtitle: Tr.t("Things your apps and tools keep around to save time. They come back on their own when needed.")
         visible: page.cacheItems.length > 0
 
         Repeater {
@@ -514,8 +514,8 @@ Column {
     }
 
     SettingCard {
-        title: "WORTH A LOOK"
-        subtitle: "Not deleted from here, because only you can say what is still needed. Show opens them in the usage map."
+        title: Tr.t("WORTH A LOOK")
+        subtitle: Tr.t("Not deleted from here, because only you can say what is still needed. Show opens them in the usage map.")
         visible: page.reviewItems.length > 0
 
         Repeater {
@@ -530,8 +530,8 @@ Column {
     }
 
     SettingCard {
-        title: "DUPLICATES"
-        subtitle: "The same file in more than one place, matched by size and by samples of what is inside. Keeping one of each gets " + Storage.size(page.dupeWaste) + " back."
+        title: Tr.t("DUPLICATES")
+        subtitle: Tr.t("The same file in more than one place, matched by size and by samples of what is inside. Keeping one of each gets ") + Storage.size(page.dupeWaste) + Tr.t(" back.")
         visible: page.dupes.length > 0
 
         Repeater {
@@ -543,7 +543,7 @@ Column {
                 required property var modelData
 
                 title: page.baseName(dupeRow.modelData.files[0].p)
-                description: dupeRow.modelData.files.length + " copies of " + Storage.size(dupeRow.modelData.size) + ". Keeping one gets " + Storage.size(dupeRow.modelData.waste) + " back."
+                description: dupeRow.modelData.files.length + Tr.t(" copies of ") + Storage.size(dupeRow.modelData.size) + Tr.t(". Keeping one gets ") + Storage.size(dupeRow.modelData.waste) + Tr.t(" back.")
                 stacked: true
 
                 Column {
@@ -597,7 +597,7 @@ Column {
 
                                 Text {
                                     width: parent.width
-                                    text: (copy.index === 0 ? "Oldest copy, changed " : "Changed ") + page.ago(copy.modelData.m)
+                                    text: (copy.index === 0 ? Tr.t("Oldest copy, changed ") : Tr.t("Changed ")) + page.ago(copy.modelData.m)
                                     color: Theme.subtext
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontLabelMd
@@ -639,7 +639,7 @@ Column {
         }
 
         SettingRow {
-            title: page.allDupes ? "Show fewer" : "Show " + (page.dupes.length - 4) + " more"
+            title: page.allDupes ? Tr.t("Show fewer") : Tr.t("Show ") + (page.dupes.length - 4) + Tr.t(" more")
             visible: page.dupes.length > 4
 
             M3IconButton {
@@ -652,8 +652,8 @@ Column {
     }
 
     SettingCard {
-        title: "LARGEST FILES"
-        subtitle: page.vol ? "Your biggest files on " + page.vol.name + "." : ""
+        title: Tr.t("LARGEST FILES")
+        subtitle: page.vol ? Tr.t("Your biggest files on ") + page.vol.name + "." : ""
         visible: page.large.length > 0
 
         Repeater {
@@ -665,7 +665,7 @@ Column {
                 required property var modelData
 
                 title: page.baseName(bigRow.modelData.p)
-                description: page.tilde(page.dirName(bigRow.modelData.p)) + "  ·  changed " + page.ago(bigRow.modelData.m)
+                description: page.tilde(page.dirName(bigRow.modelData.p)) + Tr.t("  ·  changed ") + page.ago(bigRow.modelData.m)
 
                 Row {
                     spacing: Theme.dp(4)
@@ -701,7 +701,7 @@ Column {
         }
 
         SettingRow {
-            title: page.allLarge ? "Show fewer" : "Show " + (Math.min(30, page.large.length) - 8) + " more"
+            title: page.allLarge ? Tr.t("Show fewer") : Tr.t("Show ") + (Math.min(30, page.large.length) - 8) + Tr.t(" more")
             visible: page.large.length > 8
 
             M3IconButton {
@@ -714,7 +714,7 @@ Column {
     }
 
     SettingCard {
-        title: "DRIVES"
+        title: Tr.t("DRIVES")
         subtitle: Storage.mountError
         visible: Storage.drives.length > 0
 
@@ -752,7 +752,7 @@ Column {
                     M3Button {
                         anchors.right: parent.right
                         variant: "tonal"
-                        text: "Eject"
+                        text: Tr.t("Eject")
                         visible: driveRow.d.removable
                         enabled: Storage.mounting === ""
                         onClicked: Storage.eject(driveRow.d.path, driveRow.d.parts.filter((p) => {
@@ -833,7 +833,7 @@ Column {
                             anchors.rightMargin: Theme.dp(4)
                             anchors.verticalCenter: parent.verticalCenter
                             variant: "text"
-                            text: driveRow.h && driveRow.h.ok ? "Check again" : "Check"
+                            text: driveRow.h && driveRow.h.ok ? Tr.t("Check again") : Tr.t("Check")
                             enabled: Storage.checking === ""
                             onClicked: Storage.checkHealth(driveRow.d.path)
                         }
@@ -847,8 +847,8 @@ Column {
         }
 
         SettingRow {
-            title: "Trim SSDs every week"
-            description: "Tells each SSD which blocks are free, which keeps writes fast. This is fstrim.timer, and changing it asks for your password."
+            title: Tr.t("Trim SSDs every week")
+            description: Tr.t("Tells each SSD which blocks are free, which keeps writes fast. This is fstrim.timer, and changing it asks for your password.")
             visible: Storage.trimKnown && Storage.drives.some((d) => {
                 return !d.rota;
             })
@@ -865,12 +865,12 @@ Column {
     }
 
     SettingCard {
-        title: "HOUSEKEEPING"
+        title: Tr.t("HOUSEKEEPING")
 
         SettingRow {
-            title: "Warn when space runs low"
+            title: Tr.t("Warn when space runs low")
             resetKey: "storageLowWarn"
-            description: "A notification when the system drive, or the one your home is on, drops below " + Prefs.storageLowGB + " GB free. Checked every ten minutes."
+            description: Tr.t("A notification when the system drive, or the one your home is on, drops below ") + Prefs.storageLowGB + Tr.t(" GB free. Checked every ten minutes.")
 
             M3Switch {
                 checked: Prefs.storageLowWarn
@@ -882,7 +882,7 @@ Column {
         }
 
         SettingRow {
-            title: "Warn below"
+            title: Tr.t("Warn below")
             resetKey: "storageLowGB"
             enabled: Prefs.storageLowWarn
             disabledReason: "Warnings are off."
@@ -904,9 +904,9 @@ Column {
         }
 
         SettingRow {
-            title: "Empty the trash by itself"
+            title: Tr.t("Empty the trash by itself")
             resetKey: "storageTrashDays"
-            description: "Deletes what has been in the trash longer than this. Lucid checks when it starts and every six hours."
+            description: Tr.t("Deletes what has been in the trash longer than this. Lucid checks when it starts and every six hours.")
             stacked: true
 
             M3Chips {

@@ -140,7 +140,7 @@ Column {
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: dev.muted ? "Muted" : dev.volume + "%"
+                text: dev.muted ? Tr.t("Muted") : dev.volume + "%"
                 color: dev.muted ? Theme.subtextDim : Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabel
@@ -242,7 +242,7 @@ Column {
                 spacing: Theme.dp(7)
 
                 Text {
-                    text: dev.modelData.isSink ? "Socket" : "Connector"
+                    text: dev.modelData.isSink ? Tr.t("Socket") : Tr.t("Connector")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabelLg
@@ -273,7 +273,7 @@ Column {
                 spacing: Theme.dp(7)
 
                 Text {
-                    text: "Mode"
+                    text: Tr.t("Mode")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabelLg

@@ -18,6 +18,7 @@ Flow {
 
     signal chosen(var key)
 
+    Accessible.role: Accessible.Grouping
     spacing: Theme.dp(8)
 
     Repeater {
@@ -34,6 +35,19 @@ Flow {
             radius: Theme.pill(height)
             color: chip.selected ? Theme.accentContainer : Theme.bgSunken
             opacity: chips.enabled ? 1 : 0.38
+
+            activeFocusOnTab: chips.enabled && chips.interactive
+            Accessible.role: chips.multi ? Accessible.CheckBox : Accessible.RadioButton
+            Accessible.name: Tr.t(chip.modelData.label || chip.modelData.key)
+            Accessible.checkable: true
+            Accessible.checked: chip.selected
+            Accessible.selected: chip.selected
+            Accessible.focusable: chips.enabled && chips.interactive
+            Accessible.focused: chip.activeFocus
+            Accessible.onPressAction: chips.chosen(chip.modelData.key)
+            Keys.onSpacePressed: chips.chosen(chip.modelData.key)
+            Keys.onReturnPressed: chips.chosen(chip.modelData.key)
+            Keys.onEnterPressed: chips.chosen(chip.modelData.key)
 
             Rectangle {
                 anchors.fill: parent
@@ -54,12 +68,13 @@ Flow {
                 id: label
 
                 anchors.centerIn: parent
-                text: chip.modelData.label
+                text: Tr.t(chip.modelData.label)
                 color: chip.selected ? Theme.fgAccentContainer : Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelLg
                 font.variableAxes: Theme.axes(Theme.fontLabelLg, 420, 0)
                 font.weight: chip.selected ? Font.DemiBold : Font.Medium
+                Accessible.ignored: true
             }
 
             MouseArea {
@@ -69,7 +84,21 @@ Flow {
                 hoverEnabled: chips.enabled && chips.interactive
                 enabled: chips.enabled && chips.interactive
                 cursorShape: Qt.PointingHandCursor
-                onClicked: chips.chosen(chip.modelData.key)
+                onClicked: {
+                    chip.forceActiveFocus();
+                    chips.chosen(chip.modelData.key);
+                }
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -Theme.dp(2)
+                radius: parent.radius + Theme.dp(2)
+                color: "transparent"
+                border.width: chip.activeFocus && chips.enabled ? Theme.dp(2) : 0
+                border.color: Theme.accent
+                visible: border.width > 0 && Prefs.a11yFocusRing
+                z: 10
             }
 
             Behavior on color {

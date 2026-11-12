@@ -43,21 +43,21 @@ Item {
         opacity: page.detailed ? 0 : 1
 
         SettingCard {
-            title: "THIS MACHINE"
+            title: Tr.t("THIS MACHINE")
 
             SettingRow {
-                title: "Status"
-                description: KdeConnect.installed ? "Links this machine to a phone or tablet on the same network: files both ways, a shared clipboard, its notifications here, and a remote for whatever it is playing. " + KdeConnect.summary + "." : "KDE Connect is not installed. Install the kdeconnect package and this page comes to life."
+                title: Tr.t("Status")
+                description: KdeConnect.installed ? Tr.t("Links this machine to a phone or tablet on the same network: files both ways, a shared clipboard, its notifications here, and a remote for whatever it is playing. ") + KdeConnect.summary + "." : Tr.t("KDE Connect is not installed. Install the kdeconnect package and this page comes to life.")
                 enabled: KdeConnect.installed
                 disabledReason: "KDE Connect is not installed. Install the kdeconnect package and this page comes to life."
                 warning: KdeConnect.lastError
             }
 
             SettingRow {
-                title: "Name your phone sees"
+                title: Tr.t("Name your phone sees")
                 visible: KdeConnect.active
                 enabled: KdeConnect.running
-                description: KdeConnect.selfId !== "" ? "This machine's KDE Connect ID is " + KdeConnect.selfId + "." : "Waiting for the KDE Connect daemon…"
+                description: KdeConnect.selfId !== "" ? Tr.t("This machine's KDE Connect ID is ") + KdeConnect.selfId + "." : Tr.t("Waiting for the KDE Connect daemon…")
 
                 M3TextField {
                     width: Theme.dp(260)
@@ -74,10 +74,10 @@ Item {
             }
 
             SettingRow {
-                title: "Connect over"
+                title: Tr.t("Connect over")
                 visible: KdeConnect.active && KdeConnect.backends.length > 0
                 enabled: KdeConnect.running
-                description: "The network is the fast path. Bluetooth is a fallback for when the two are not on the same Wi-Fi."
+                description: Tr.t("The network is the fast path. Bluetooth is a fallback for when the two are not on the same Wi-Fi.")
                 stacked: true
                 showDivider: false
 
@@ -91,7 +91,7 @@ Item {
                         CheckLine {
                             required property var modelData
 
-                            label: modelData.name === "LAN" ? "This network" : modelData.name
+                            label: modelData.name === "LAN" ? Tr.t("This network") : modelData.name
                             checked: modelData.enabled
                             onToggled: KdeConnect.setBackend(modelData.name, !modelData.enabled)
                         }
@@ -105,20 +105,20 @@ Item {
         }
 
         SettingCard {
-            title: "DEVICES"
+            title: Tr.t("DEVICES")
             visible: KdeConnect.active
 
             SettingRow {
-                title: "Your devices"
+                title: Tr.t("Your devices")
                 enabled: KdeConnect.running
-                description: KdeConnect.running ? "Open KDE Connect on the phone and it turns up here. Pick a connected one to open it." : "The KDE Connect daemon is not answering. It normally starts itself the moment something asks for it."
+                description: KdeConnect.running ? Tr.t("Open KDE Connect on the phone and it turns up here. Pick a connected one to open it.") : Tr.t("The KDE Connect daemon is not answering. It normally starts itself the moment something asks for it.")
                 stacked: true
                 showDivider: KdeConnect.devices.length > 0
 
                 M3Button {
                     variant: "tonal"
                     enabled: KdeConnect.running
-                    text: "Look again"
+                    text: Tr.t("Look again")
                     onClicked: KdeConnect.rescan()
                 }
 
@@ -131,7 +131,7 @@ Item {
                 spacing: Theme.dp(2)
 
                 GroupLabel {
-                    text: "Wants to pair"
+                    text: Tr.t("Wants to pair")
                     visible: page.asking.length > 0
                 }
 
@@ -145,7 +145,7 @@ Item {
                 }
 
                 GroupLabel {
-                    text: "Connected"
+                    text: Tr.t("Connected")
                     visible: KdeConnect.reachable.length > 0
                 }
 
@@ -161,7 +161,7 @@ Item {
                 }
 
                 GroupLabel {
-                    text: "Paired, offline"
+                    text: Tr.t("Paired, offline")
                     visible: KdeConnect.offline.length > 0
                 }
 
@@ -176,7 +176,7 @@ Item {
                 }
 
                 GroupLabel {
-                    text: "Nearby"
+                    text: Tr.t("Nearby")
                     visible: page.nearby.length > 0
                 }
 
@@ -196,7 +196,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     topPadding: Theme.dp(18)
                     bottomPadding: Theme.dp(18)
-                    text: "No devices yet. Install KDE Connect on your phone, open it, and it will appear here."
+                    text: Tr.t("No devices yet. Install KDE Connect on your phone, open it, and it will appear here.")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBody

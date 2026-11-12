@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import shutil
 import signal
 import subprocess
 import sys
@@ -179,9 +180,21 @@ def main() -> int:
                                "--image-zoom", str(args.image_zoom)]
                     for aspect in aspects:
                         command += ["--aspect", f"{aspect:.6f}"]
+                    # The mesh builder links OpenCV, which otherwise uses every
+                    # core. Keep the whole warm sweep below the interactive
+                    # pipeline: two threads and idle I/O class.
+                    child_env = dict(os.environ)
+                    child_env.update({
+                        "OMP_NUM_THREADS": "2",
+                        "OPENCV_FOR_THREADS_NUM": "2",
+                    })
+                    ionice = shutil.which("ionice")
+                    if ionice:
+                        command = [ionice, "-c", "3"] + command
                     global _child
                     _child = subprocess.Popen(command, stdout=subprocess.DEVNULL,
-                                              stderr=subprocess.DEVNULL)
+                                              stderr=subprocess.DEVNULL,
+                                              env=child_env)
                     _child.wait()
                     mesh_ok = _child.returncode == 0
                     _child = None

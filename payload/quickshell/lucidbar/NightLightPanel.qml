@@ -52,7 +52,7 @@ Item {
             width: col.width
             leftPadding: Theme.dp(4)
             rightPadding: Theme.dp(4)
-            text: NightLight.available ? NightLight.status + (NightLight.active ? "  ·  " + NightLight.temperature + " K" : "") : "hyprsunset is not installed, so the screen can't be warmed."
+            text: NightLight.available ? NightLight.status + (NightLight.active ? "  ·  " + NightLight.temperature + Tr.t(" K") : "") : Tr.t("hyprsunset is not installed, so the screen can't be warmed.")
             color: NightLight.available ? (NightLight.active ? Theme.accent : Theme.subtext) : Theme.warning
             font.family: Theme.fontFamily
             font.bold: true
@@ -133,7 +133,7 @@ Item {
             Text {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.dp(4)
-                text: "Cooler"
+                text: Tr.t("Cooler")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(10)
@@ -142,7 +142,7 @@ Item {
             Text {
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.dp(4)
-                text: "Warmer"
+                text: Tr.t("Warmer")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(10)
@@ -188,7 +188,7 @@ Item {
 
                         Text {
                             width: parent.width
-                            text: option.modelData.desc
+                            text: Tr.t(option.modelData.desc)
                             color: option.selected ? Theme.accent : Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(10)
@@ -256,7 +256,7 @@ Item {
             width: col.width
             leftPadding: Theme.dp(4)
             rightPadding: Theme.dp(4)
-            text: "Hours and more in Settings"
+            text: Tr.t("Hours and more in Settings")
             color: settingsArea.containsMouse ? Theme.accent : Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(10)

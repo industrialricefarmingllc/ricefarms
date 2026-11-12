@@ -4,7 +4,8 @@
     "videoWallpaper": "/home/nicerice/Pictures/wallpapers"
   },
   "paper": {
-    "engine": "skwd-paper"
+    "engine": "skwd-paper",
+    "wallpaperLayer": "background"
   },
   "theme": {
     "policy": "off",

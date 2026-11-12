@@ -15,18 +15,18 @@ Column {
     }
 
     SettingCard {
-        title: "ON THE DESKTOP"
+        title: Tr.t("ON THE DESKTOP")
         visible: !page.inSheet
 
         SettingRow {
-            title: "Edit the dock where it is"
-            description: "In edit mode the desktop shades over and the dock gets a handle: drag it up to float the dock higher, or down into the bottom edge to make it a notch. Right-click the dock for these settings, right beside it."
+            title: Tr.t("Edit the dock where it is")
+            description: Tr.t("In edit mode the desktop shades over and the dock gets a handle: drag it up to float the dock higher, or down into the bottom edge to make it a notch. Right-click the dock for these settings, right beside it.")
             enabled: Prefs.dockEnabled
             disabledReason: "The dock is switched off."
             showDivider: false
 
             M3Button {
-                text: "Edit the dock"
+                text: Tr.t("Edit the dock")
                 variant: "filled"
                 iconPath: "edit"
                 enabled: Prefs.dockEnabled
@@ -38,12 +38,12 @@ Column {
     }
 
     SettingCard {
-        title: "STYLE"
+        title: Tr.t("STYLE")
 
         SettingRow {
-            title: "Dock style"
+            title: Tr.t("Dock style")
             resetKey: "dockStyle"
-            description: Prefs.dockSplit ? "The launcher, your pinned apps and the running ones each float on an island of their own, the way the bar's modules do. They close up into one as the launcher opens out of them, and part again when it closes." : (Prefs.dockNotch ? "The dock sits flush against the bottom edge, its lower corners sweeping out into it." : "The dock floats above the bottom edge as one rounded island.")
+            description: Prefs.dockSplit ? Tr.t("The launcher, your pinned apps and the running ones each float on an island of their own, the way the bar's modules do. They close up into one as the launcher opens out of them, and part again when it closes.") : (Prefs.dockNotch ? Tr.t("The dock sits flush against the bottom edge, its lower corners sweeping out into it.") : Tr.t("The dock floats above the bottom edge as one rounded island."))
 
             M3Segmented {
                 width: Math.max(Theme.dp(300), fitWidth)
@@ -66,9 +66,9 @@ Column {
         }
 
         SettingRow {
-            title: "Edge blend"
+            title: Tr.t("Edge blend")
             resetKey: "dockNotchFlare"
-            description: "How far the dock's lower corners sweep out into the bottom of the screen, so it reads as carved out of the edge rather than resting on it."
+            description: Tr.t("How far the dock's lower corners sweep out into the bottom of the screen, so it reads as carved out of the edge rather than resting on it.")
             enabled: Prefs.dockNotch
             disabledReason: "Only a notch meets the screen edge, so there is nothing to blend into - set Dock style to Notch above."
             stacked: true
@@ -89,9 +89,9 @@ Column {
         }
 
         SettingRow {
-            title: "Island gap"
+            title: Tr.t("Island gap")
             resetKey: "dockSplitGap"
-            description: "How far apart the launcher's island, the pinned apps' and the running apps' sit."
+            description: Tr.t("How far apart the launcher's island, the pinned apps' and the running apps' sit.")
             enabled: Prefs.dockSplit
             disabledReason: "Only a split dock has islands to space out - set Dock style to Split above."
             showDivider: false
@@ -115,12 +115,12 @@ Column {
     }
 
     SettingCard {
-        title: "SIZE & PLACEMENT"
+        title: Tr.t("SIZE & PLACEMENT")
 
         SettingRow {
-            title: "Icon size"
+            title: Tr.t("Icon size")
             resetKey: "dockIconSize"
-            description: "The size of each icon's slot in the dock. The dock's own height follows it."
+            description: Tr.t("The size of each icon's slot in the dock. The dock's own height follows it.")
             stacked: true
 
             M3Slider {
@@ -138,9 +138,9 @@ Column {
         }
 
         SettingRow {
-            title: "Icon padding"
+            title: Tr.t("Icon padding")
             resetKey: "dockIconPadding"
-            description: "How far each icon is inset inside its own slot. More padding shrinks the icon without moving the dock."
+            description: Tr.t("How far each icon is inset inside its own slot. More padding shrinks the icon without moving the dock.")
             stacked: true
 
             M3Slider {
@@ -158,9 +158,9 @@ Column {
         }
 
         SettingRow {
-            title: "Icon spacing"
+            title: Tr.t("Icon spacing")
             resetKey: "dockSpacing"
-            description: "The gap between neighbouring icons."
+            description: Tr.t("The gap between neighbouring icons.")
             stacked: true
 
             M3Slider {
@@ -178,9 +178,9 @@ Column {
         }
 
         SettingRow {
-            title: "Dock radius"
+            title: Tr.t("Dock radius")
             resetKey: "dockRadius"
-            description: "How round the dock's corners are. Each icon's own corners follow it, up to a full circle."
+            description: Tr.t("How round the dock's corners are. Each icon's own corners follow it, up to a full circle.")
             stacked: true
 
             M3Slider {
@@ -198,9 +198,9 @@ Column {
         }
 
         SettingRow {
-            title: "Distance from bottom"
+            title: Tr.t("Distance from bottom")
             resetKey: "dockBottomMargin"
-            description: "How far the dock floats above the bottom edge of the screen."
+            description: Tr.t("How far the dock floats above the bottom edge of the screen.")
             enabled: !Prefs.dockNotch
             disabledReason: "A notch sits flush against the screen edge by definition - set Dock style to Island or Split above to float the dock."
             showDivider: false
@@ -224,12 +224,12 @@ Column {
     }
 
     SettingCard {
-        title: "BEHAVIOUR"
+        title: Tr.t("BEHAVIOUR")
 
         SettingRow {
-            title: "Hover strength"
+            title: Tr.t("Hover strength")
             resetKey: "dockHoverEffect"
-            description: "How far an icon swells and lifts under the pointer. At 0 the icons stay put - hovering still highlights them, it just stops moving them."
+            description: Tr.t("How far an icon swells and lifts under the pointer. At 0 the icons stay put - hovering still highlights them, it just stops moving them.")
             stacked: true
 
             M3Slider {
@@ -247,8 +247,8 @@ Column {
         }
 
         SettingRow {
-            title: "Magnify on hover"
-            description: "Icons swell as the pointer passes over them, and their neighbours follow in a ripple."
+            title: Tr.t("Magnify on hover")
+            description: Tr.t("Icons swell as the pointer passes over them, and their neighbours follow in a ripple.")
 
             M3Switch {
                 checked: Prefs.dockMagnify
@@ -260,8 +260,8 @@ Column {
         }
 
         SettingRow {
-            title: "Auto-hide"
-            description: "Always slides the dock off the bottom of the screen until the pointer reaches the edge. Dynamic only does it while a tiled window is open on the workspace, or a floating one overlaps the dock, so it is back whenever the desktop is clear."
+            title: Tr.t("Auto-hide")
+            description: Tr.t("Always slides the dock off the bottom of the screen until the pointer reaches the edge. Dynamic only does it while a tiled window is open on the workspace, or a floating one overlaps the dock, so it is back whenever the desktop is clear.")
             stacked: true
 
             M3Segmented {
@@ -286,8 +286,8 @@ Column {
         }
 
         SettingRow {
-            title: "Show running applications"
-            description: "Applications that are running but not pinned appear in the dock beside the pinned ones."
+            title: Tr.t("Show running applications")
+            description: Tr.t("Applications that are running but not pinned appear in the dock beside the pinned ones.")
 
             M3Switch {
                 checked: Prefs.dockShowRunning
@@ -299,8 +299,8 @@ Column {
         }
 
         SettingRow {
-            title: "Icon tiles"
-            description: "Draws a filled tile behind every icon. Material 3 leaves the container empty and lets hover and press do the talking, which is how the dock looks with this off."
+            title: Tr.t("Icon tiles")
+            description: Tr.t("Draws a filled tile behind every icon. Material 3 leaves the container empty and lets hover and press do the talking, which is how the dock looks with this off.")
             showDivider: false
 
             M3Switch {
@@ -315,11 +315,11 @@ Column {
     }
 
     SettingCard {
-        title: "INDICATORS"
+        title: Tr.t("INDICATORS")
 
         SettingRow {
-            title: "Running indicator"
-            description: "A mark beneath any icon whose application is running - one segment per window, widening into a single bar for the window you are focused on."
+            title: Tr.t("Running indicator")
+            description: Tr.t("A mark beneath any icon whose application is running - one segment per window, widening into a single bar for the window you are focused on.")
 
             M3Switch {
                 checked: Prefs.dockShowIndicators
@@ -331,8 +331,8 @@ Column {
         }
 
         SettingRow {
-            title: "Tooltips"
-            description: "The application's name appears above its icon after a short hover."
+            title: Tr.t("Tooltips")
+            description: Tr.t("The application's name appears above its icon after a short hover.")
             showDivider: false
 
             M3Switch {
@@ -347,15 +347,15 @@ Column {
     }
 
     SettingCard {
-        title: "LAUNCHER"
+        title: Tr.t("LAUNCHER")
 
         SettingRow {
-            title: "Launcher"
-            description: "The search panel the dock opens into, its modes, prefixes and the clipboard behind them now has a page of its own."
+            title: Tr.t("Launcher")
+            description: Tr.t("The search panel the dock opens into, its modes, prefixes and the clipboard behind them now has a page of its own.")
             showDivider: false
 
             M3Button {
-                text: "Launcher\u2026"
+                text: Tr.t("Launcher\u2026")
                 variant: "tonal"
                 onClicked: Prefs.settingsRequested("launcher")
             }
@@ -365,19 +365,19 @@ Column {
     }
 
     SettingCard {
-        title: "PINNED APPLICATIONS"
+        title: Tr.t("PINNED APPLICATIONS")
         visible: !page.inSheet
 
         SettingRow {
-            title: "Reset pinned applications"
-            description: "Puts the dock back to its default set of pinned applications. Anything pinned or reordered since is discarded."
+            title: Tr.t("Reset pinned applications")
+            description: Tr.t("Puts the dock back to its default set of pinned applications. Anything pinned or reordered since is discarded.")
             showDivider: false
 
             M3Button {
-                text: "Reset dock"
+                text: Tr.t("Reset dock")
                 variant: "text"
                 destructive: true
-                onClicked: Prefs.askReset("Reset pinned applications?", "The dock goes back to its default set of pinned applications. Anything pinned or reordered since is discarded.", Prefs.resetDockToken)
+                onClicked: Prefs.askReset(Tr.t("Reset pinned applications?"), Tr.t("The dock goes back to its default set of pinned applications. Anything pinned or reordered since is discarded."), Prefs.resetDockToken)
             }
 
         }

@@ -125,7 +125,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: "Add an account"
+                text: Tr.t("Add an account")
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontHeadlineSm
@@ -135,7 +135,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: "A home folder is created the first time they sign in."
+                text: Tr.t("A home folder is created the first time they sign in.")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodyMd
@@ -153,7 +153,7 @@ Item {
 
                 width: parent.width
                 commitOnBlur: false
-                placeholder: "Full name"
+                placeholder: Tr.t("Full name")
                 onEdited: (v) => {
                     dialog.realName = v;
                     if (dialog.nameLinked) {
@@ -169,7 +169,7 @@ Item {
 
                 width: parent.width
                 commitOnBlur: false
-                placeholder: "Username"
+                placeholder: Tr.t("Username")
                 error: dialog.nameProblem !== ""
                 onEdited: (v) => {
                     // typing here by hand cuts the tie to the full name
@@ -180,7 +180,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: dialog.nameProblem !== "" ? dialog.nameProblem : (dialog.userName !== "" ? "Their home folder will be /home/" + dialog.userName : "")
+                text: dialog.nameProblem !== "" ? dialog.nameProblem : (dialog.userName !== "" ? Tr.t("Their home folder will be /home/") + dialog.userName : "")
                 color: dialog.nameProblem !== "" ? Theme.error : Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodySm
@@ -191,7 +191,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: "Account type"
+                text: Tr.t("Account type")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelLg
@@ -216,7 +216,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: dialog.accountType === Users.admin ? "Administrators can install software and change settings for everyone on this machine." : "Standard accounts can change only their own settings and files."
+                text: dialog.accountType === Users.admin ? Tr.t("Administrators can install software and change settings for everyone on this machine.") : Tr.t("Standard accounts can change only their own settings and files.")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodySm
@@ -227,7 +227,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: "Password"
+                text: Tr.t("Password")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelLg
@@ -256,7 +256,7 @@ Item {
                 width: parent.width
                 password: true
                 commitOnBlur: false
-                placeholder: "Password"
+                placeholder: Tr.t("Password")
                 visible: dialog.mode === "now"
                 onEdited: (v) => {
                     return dialog.pw = v;
@@ -270,7 +270,7 @@ Item {
                 width: parent.width
                 password: true
                 commitOnBlur: false
-                placeholder: "Confirm password"
+                placeholder: Tr.t("Confirm password")
                 error: dialog.confirm.length > 0 && dialog.confirm !== dialog.pw
                 visible: dialog.mode === "now"
                 onEdited: (v) => {
@@ -289,13 +289,13 @@ Item {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Cancel"
+                    text: Tr.t("Cancel")
                     variant: "text"
                     onClicked: dialog.dismiss()
                 }
 
                 M3Button {
-                    text: "Add account"
+                    text: Tr.t("Add account")
                     variant: "filled"
                     enabled: dialog.valid
                     onClicked: dialog.submit()

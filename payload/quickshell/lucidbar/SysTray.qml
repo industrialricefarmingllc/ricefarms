@@ -321,7 +321,7 @@ BarPill {
                 Text {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Tray"
+                    text: Tr.t("Tray")
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -332,7 +332,7 @@ BarPill {
                 Text {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    text: root.attentionCount > 0 ? root.attentionCount + " needs attention" : (root.trayCount === 1 ? "1 running" : root.trayCount + " running")
+                    text: root.attentionCount > 0 ? root.attentionCount + Tr.t(" needs attention") : (root.trayCount === 1 ? Tr.t("1 running") : root.trayCount + Tr.t(" running"))
                     color: root.attentionCount > 0 ? Theme.accent : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(11)

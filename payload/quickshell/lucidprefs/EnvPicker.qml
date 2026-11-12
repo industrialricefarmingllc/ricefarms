@@ -188,7 +188,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.dp(12)
                 anchors.verticalCenter: parent.verticalCenter
-                text: "Search " + picker.items.length + " installed " + picker.noun
+                text: Tr.t("Search ") + picker.items.length + Tr.t(" installed ") + picker.noun
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodyLg
@@ -201,7 +201,7 @@ Item {
         Text {
             anchors.centerIn: parent
             width: card.width - Theme.dp(60)
-            text: picker.items.length === 0 ? "Nothing installed to choose from" : "No " + picker.noun + " match “" + picker.filter + "”"
+            text: picker.items.length === 0 ? Tr.t("Nothing installed to choose from") : Tr.t("No ") + picker.noun + Tr.t(" match “") + picker.filter + "”"
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBodyLg

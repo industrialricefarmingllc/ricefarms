@@ -91,7 +91,7 @@ WidgetBody {
             anchors.verticalCenter: parent.verticalCenter
             role: "titleMedium"
             color: w.inkDim
-            text: "Search"
+            text: Tr.t("Search")
         }
 
         Row {
@@ -222,7 +222,7 @@ WidgetBody {
                 elide: Text.ElideRight
                 role: "titleMedium"
                 color: w.inkDim
-                text: "Search apps, files and the web"
+                text: Tr.t("Search apps, files and the web")
             }
 
             WidgetTap {

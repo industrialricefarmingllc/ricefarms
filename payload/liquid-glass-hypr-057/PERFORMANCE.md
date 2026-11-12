@@ -1,5 +1,10 @@
 # Liquid glass — performance model and 2026-11-04 optimization pass
 
+> **2026-11-06:** see `PERFORMANCE-20261106.md` for the current measured
+> numbers and the fast-path/bokeh/overlap-cache fixes. Some statements below
+> (notably the window fast-path condition and bokeh state) no longer match
+> the code or the live preset.
+
 This document is the measured + theoretical cost model for the
 `liquid-glass-hypr` shader stack on this machine (GTX 1080 Ti, Hyprland
 0.57, 2560x1440@165 + 2x3840x2160@60). It covers every place the material

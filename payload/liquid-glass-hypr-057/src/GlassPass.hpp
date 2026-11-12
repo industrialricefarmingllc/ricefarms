@@ -15,8 +15,15 @@
 
 class CGlassPassElement : public IPassElement {
   public:
+    enum class EPhase {
+        Glass,      // full body, added before the layer content
+        RimCapture, // rim-only: backdrop capture, before the layer content
+        RimDraw,    // rim-only: rim overlay, added after the layer content
+    };
+
     struct SData {
         std::shared_ptr<CGlassLayer> layer;
+        EPhase                       phase = EPhase::Glass;
     };
 
     explicit CGlassPassElement(const SData& data);

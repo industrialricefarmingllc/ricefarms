@@ -144,7 +144,7 @@ Item {
                 id: hint
 
                 anchors.centerIn: parent
-                text: tile.clash !== null ? "Updates “" + tile.clash.name + "”" : "Enter to save · Esc to cancel"
+                text: tile.clash !== null ? Tr.t("Updates “") + tile.clash.name + "”" : Tr.t("Enter to save · Esc to cancel")
                 color: tile.clash !== null ? Theme.accent : Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(10)
@@ -170,7 +170,7 @@ Item {
             anchors.leftMargin: Theme.dp(14)
             anchors.rightMargin: Theme.dp(14)
             anchors.topMargin: Theme.dp(10)
-            text: "Save this layout"
+            text: Tr.t("Save this layout")
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody
@@ -188,7 +188,7 @@ Item {
             anchors.rightMargin: Theme.dp(14)
             anchors.topMargin: Theme.dp(3)
             height: Theme.dp(30)
-            text: tile.empty ? "Place a widget or two first, then keep the arrangement here." : "Keep what is on your desktop now as a preset of your own."
+            text: tile.empty ? Tr.t("Place a widget or two first, then keep the arrangement here.") : Tr.t("Keep what is on your desktop now as a preset of your own.")
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(10)
@@ -224,7 +224,7 @@ Item {
 
             width: parent.width - save.width - parent.spacing
             height: Theme.dp(42)
-            placeholder: "Name it"
+            placeholder: Tr.t("Name it")
             commitOnBlur: false
             onEdited: (v) => {
                 return tile.draft = v;

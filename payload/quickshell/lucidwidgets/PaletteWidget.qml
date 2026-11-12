@@ -91,7 +91,7 @@ WidgetBody {
             anchors.verticalCenter: parent.verticalCenter
             role: "titleSmall"
             color: w.ink
-            text: w.copied !== "" ? "Copied " + w.copied.toUpperCase() : Prefs.currentTheme.charAt(0).toUpperCase() + Prefs.currentTheme.slice(1).replace("-", " ")
+            text: w.copied !== "" ? Tr.t("Copied ") + w.copied.toUpperCase() : Prefs.currentTheme.charAt(0).toUpperCase() + Prefs.currentTheme.slice(1).replace("-", " ")
         }
 
     }

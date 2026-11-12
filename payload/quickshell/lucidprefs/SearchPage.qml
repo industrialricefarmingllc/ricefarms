@@ -85,7 +85,7 @@ Column {
     Text {
         width: parent.width
         visible: page.results.length === 0
-        text: !win.searchReady ? "Reading the pages…" : "Nothing in Settings matches “" + win.searchQuery + "”. Search looks through the name and the description of every option, on every page."
+        text: !win.searchReady ? Tr.t("Reading the pages…") : Tr.t("Nothing in Settings matches “") + win.searchQuery + Tr.t("”. Search looks through the name and the description of every option, on every page.")
         color: Theme.subtext
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontBodyLg
@@ -182,7 +182,7 @@ Column {
                     anchors.right: pageGo.left
                     anchors.rightMargin: Theme.dp(12)
                     anchors.verticalCenter: parent.verticalCenter
-                    text: page.mark(item.modelData.title)
+                    text: page.mark(Tr.t(item.modelData.title))
                     textFormat: Text.StyledText
                     color: item.selected ? item.fg : Theme.accent
                     font.family: Theme.fontFamily
@@ -197,7 +197,7 @@ Column {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.dp(20)
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Open page"
+                    text: Tr.t("Open page")
                     color: item.selected ? item.fg : Theme.subtextDim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabelMd
@@ -229,7 +229,7 @@ Column {
 
                 Text {
                     width: parent.width
-                    text: item.isPage ? "" : page.mark(item.modelData.title)
+                    text: item.isPage ? "" : page.mark(Tr.t(item.modelData.title))
                     textFormat: Text.StyledText
                     color: item.fg
                     font.family: Theme.fontFamily
@@ -240,7 +240,7 @@ Column {
 
                 Text {
                     width: parent.width
-                    text: item.isPage ? "" : [item.modelData.cardLabel, item.modelData.description].filter((s) => {
+                    text: item.isPage ? "" : [Tr.t(item.modelData.cardLabel), Tr.t(item.modelData.description)].filter((s) => {
                         return s !== "";
                     }).join("  ·  ")
                     visible: text !== ""

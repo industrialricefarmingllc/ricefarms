@@ -184,7 +184,7 @@ BarPill {
                 id: startLabel
 
                 anchors.centerIn: parent
-                text: "Start"
+                text: Tr.t("Start")
                 color: Theme.fgAccent
                 font.family: Theme.fontFamily
                 font.bold: true

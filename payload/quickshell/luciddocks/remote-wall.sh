@@ -78,6 +78,25 @@ wallhaven)
     ext="${ext%%[?&]*}"
     [[ "$ext" =~ ^[A-Za-z0-9]{2,5}$ ]] || ext=jpg
     out="$dir/wallhaven-$id.$ext"
+    sidecar="${out%.*}.json"
+
+    # Keep the Wallhaven metadata beside the image so local search can use the
+    # tags and a readable name without asking the network again.
+    tags=$(printf '%s' "$meta" | jq -c '[.data.tags[]?.name // empty] | map(select(. != ""))' 2>/dev/null || echo '[]')
+    name=$(printf '%s' "$meta" | jq -r '[(.data.tags // [])[]?.name // empty] | map(select(. != "")) | join(", ")' 2>/dev/null || true)
+    [ -n "$name" ] || name="wallhaven-$id"
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg id "$id" --arg name "$name" --argjson tags "$tags" \
+            --arg url "$(printf '%s' "$meta" | jq -r '.data.url // ""' 2>/dev/null || true)" \
+            --arg source "$(printf '%s' "$meta" | jq -r '.data.source // ""' 2>/dev/null || true)" \
+            --arg purity "$(printf '%s' "$meta" | jq -r '.data.purity // ""' 2>/dev/null || true)" \
+            --arg category "$(printf '%s' "$meta" | jq -r '.data.category // ""' 2>/dev/null || true)" \
+            --arg resolution "$(printf '%s' "$meta" | jq -r '.data.resolution // ""' 2>/dev/null || true)" \
+            --argjson fileSize "$total" \
+            --argjson colors "$(printf '%s' "$meta" | jq -c '.data.colors // []' 2>/dev/null || echo '[]')" \
+            '{id:$id,name:$name,tags:$tags,url:$url,source:$source,purity:$purity,category:$category,resolution:$resolution,fileSize:$fileSize,colors:$colors}' \
+            >"$sidecar.tmp" 2>/dev/null && mv -f "$sidecar.tmp" "$sidecar"
+    fi
 
     if [ ! -s "$out" ]; then
         lock="$HOME/.cache/lucid/remote-wall-$id.lock"

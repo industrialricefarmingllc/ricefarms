@@ -59,7 +59,7 @@ Item {
 
         Text {
             width: parent.width
-            text: [row.part.fstype || "no filesystem", row.swap ? "swap" : (row.mounted ? row.mounts.join(", ") : "not mounted"), Storage.size(row.part.size)].join("  ·  ")
+            text: [row.part.fstype || Tr.t("no filesystem"), row.swap ? "swap" : (row.mounted ? row.mounts.join(", ") : Tr.t("not mounted")), Storage.size(row.part.size)].join("  ·  ")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontLabelMd
@@ -80,7 +80,7 @@ Item {
 
         Text {
             anchors.right: parent.right
-            text: Storage.size(row.part.avail) + " free"
+            text: Storage.size(row.part.avail) + Tr.t(" free")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontLabelMd
@@ -122,7 +122,7 @@ Item {
         M3Button {
             anchors.verticalCenter: parent.verticalCenter
             variant: "text"
-            text: row.mounted ? "Unmount" : "Mount"
+            text: row.mounted ? Tr.t("Unmount") : Tr.t("Mount")
             visible: !row.busy && (row.mountable || (row.mounted && !row.system))
             enabled: Storage.mounting === ""
             onClicked: Storage.udisks(row.mounted ? "unmount" : "mount", row.part.path)

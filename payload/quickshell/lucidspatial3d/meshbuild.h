@@ -7,7 +7,12 @@
 // Shared depth-map mesh construction. Used by the QML geometry and by the
 // offline cache builder, so both produce byte-identical vertex buffers.
 struct MeshBuildResult {
+    // Indexed triangle mesh. The vertex buffer is deduplicated across the
+    // triangle soup (the same grid vertex is shared by up to six triangles),
+    // so the cache file and the GPU upload are roughly 2.5-3x smaller than
+    // the old three-vertices-per-triangle layout.
     QByteArray vertices;
+    QByteArray indices;
     QVector3D minimum;
     QVector3D maximum;
     float focusDistance = 0.0f;

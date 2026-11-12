@@ -108,7 +108,7 @@ Rectangle {
                 id: addLabel
 
                 anchors.centerIn: parent
-                text: card.busy ? "Adding..." : "Add"
+                text: card.busy ? Tr.t("Adding...") : Tr.t("Add")
                 color: card.c[5] || Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabel - 1
@@ -138,7 +138,7 @@ Rectangle {
                 id: useLabel
 
                 anchors.centerIn: parent
-                text: "Use"
+                text: Tr.t("Use")
                 color: card.c[0] || Theme.fgAccent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabel - 1

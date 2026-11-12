@@ -194,7 +194,7 @@ WidgetBody {
             role: "bodySmall"
             color: w.inkDim
             wrapMode: Text.Wrap
-            text: "No pictures in " + w.folder.replace(w.home, "~")
+            text: Tr.t("No pictures in ") + w.folder.replace(w.home, "~")
         }
 
     }

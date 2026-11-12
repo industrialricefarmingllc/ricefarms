@@ -29,11 +29,11 @@ Item {
     }
 
     function activate() {
-        const a = popupCard.defaultAction();
-        if (a)
-            Notifs.invokeAction(a);
-        else
-            Notifs.shadeRequested();
+        if (Notifs.activate(popupCard.notification)) {
+            Notifs.popupDrop(popupCard.notifId);
+            return ;
+        }
+        Notifs.shadeRequested();
         Notifs.popupDrop(popupCard.notifId);
     }
 

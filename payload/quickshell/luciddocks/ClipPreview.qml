@@ -195,7 +195,7 @@ Item {
             LText {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "bodyMedium"
-                text: preview.kind === "image" ? (holder.imageBroken ? "Couldn't load image" : "Loading image…") : (preview.kind === "binary" ? "No preview for binary data" : "Nothing selected")
+                text: preview.kind === "image" ? (holder.imageBroken ? Tr.t("Couldn't load image") : Tr.t("Loading image…")) : (preview.kind === "binary" ? Tr.t("No preview for binary data") : Tr.t("Nothing selected"))
                 color: Theme.subtext
             }
 
@@ -225,7 +225,7 @@ Item {
             width: parent.width
             elide: Text.ElideRight
             role: "labelSmall"
-            text: "Press Ctrl+Shift+Del again to clear everything"
+            text: Tr.t("Press Ctrl+Shift+Del again to clear everything")
             color: Theme.error
             visible: preview.clearArmed
         }

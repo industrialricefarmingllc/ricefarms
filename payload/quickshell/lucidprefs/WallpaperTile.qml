@@ -164,13 +164,13 @@ Rectangle {
             cursorShape: Qt.PointingHandCursor
             onClicked: {
                 if (tile.workshopId !== "") {
-                    Prefs.askConfirm("Unsubscribe from this scene?", "\"" + tile.name + "\" is unsubscribed from the Steam Workshop, and its files are removed from this computer. You can subscribe again later.", "Unsubscribe", "workshop:" + tile.workshopId);
+                    Prefs.askConfirm(Tr.t("Unsubscribe from this scene?"), "\"" + tile.name + Tr.t("\" is unsubscribed from the Steam Workshop, and its files are removed from this computer. You can subscribe again later."), Tr.t("Unsubscribe"), "workshop:" + tile.workshopId);
                     return ;
                 }
                 if (!tile.deletable)
                     return ;
 
-                Prefs.askConfirm(tile.live ? "Delete this live wallpaper?" : "Delete this wallpaper?", "\"" + tile.name + "\" is moved to the trash, so it can be restored from there if you change your mind.", "Delete", "wallpaper:" + tile.path);
+                Prefs.askConfirm(tile.live ? Tr.t("Delete this live wallpaper?") : Tr.t("Delete this wallpaper?"), "\"" + tile.name + Tr.t("\" is moved to the trash, so it can be restored from there if you change your mind."), Tr.t("Delete"), "wallpaper:" + tile.path);
             }
         }
 

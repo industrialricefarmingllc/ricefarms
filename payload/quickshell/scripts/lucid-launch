@@ -1,0 +1,217 @@
+#!/bin/sh
+# lucid-launch — start a GUI application through Lucid's launch placeholder.
+#
+# usage:
+#   lucid-launch [options] -- COMMAND [ARG...]
+#   lucid-launch [options] -c 'SHELL COMMAND'
+#
+# options:
+#   --title TEXT      name shown under the placeholder
+#   --icon NAME|PATH  icon shown on the placeholder
+#   --class WMCLASS   the window class to match (optional)
+#   --base FILE       the desktop file id to match (optional)
+#   --workspace WS    the workspace the app belongs on (optional)
+#   --rect X,Y,W,H    where the placeholder grows from, in screen coordinates
+#   --timeout MS      how long to hold the tile while the app starts
+#
+# The shell holds a real tile for a launch, shows the app's icon and a loading
+# indicator on it, and gives it to the app's first window. That used to happen
+# only for apps picked in the launcher. This script lets every other launch
+# source ask for the same thing: it writes a request in
+# $XDG_RUNTIME_DIR/lucid-launch and raises quickshell:launch. The running shell
+# claims the request (moves the .req aside) and starts the app itself.
+#
+# If the shell does not claim it — not running, starting up, or busy past the
+# wait — the command is started directly here, so a missing shell can never
+# swallow a launch.
+
+set -eu
+
+# the request files are private; the app this starts is not, so put the
+# session's umask back before the fallback exec
+old_umask=$(umask)
+umask 077
+
+token="lucid-launch-$(date +%s)-$$"
+title=""
+icon=""
+wmclass=""
+base=""
+workspace=""
+rect=""
+timeout=""
+cmd=""
+
+usage() {
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+die() {
+    printf 'lucid-launch: %s\n' "$*" >&2
+    exit 2
+}
+
+quote() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --title)
+            [ $# -ge 2 ] || die "--title needs a value"
+            title=$2
+            shift 2
+            ;;
+        --title=*)
+            title=${1#*=}
+            shift
+            ;;
+        --icon)
+            [ $# -ge 2 ] || die "--icon needs a value"
+            icon=$2
+            shift 2
+            ;;
+        --icon=*)
+            icon=${1#*=}
+            shift
+            ;;
+        --class)
+            [ $# -ge 2 ] || die "--class needs a value"
+            wmclass=$2
+            shift 2
+            ;;
+        --class=*)
+            wmclass=${1#*=}
+            shift
+            ;;
+        --base)
+            [ $# -ge 2 ] || die "--base needs a value"
+            base=$2
+            shift 2
+            ;;
+        --base=*)
+            base=${1#*=}
+            shift
+            ;;
+        --workspace)
+            [ $# -ge 2 ] || die "--workspace needs a value"
+            workspace=$2
+            shift 2
+            ;;
+        --workspace=*)
+            workspace=${1#*=}
+            shift
+            ;;
+        --rect)
+            [ $# -ge 2 ] || die "--rect needs a value"
+            rect=$2
+            shift 2
+            ;;
+        --rect=*)
+            rect=${1#*=}
+            shift
+            ;;
+        --timeout)
+            [ $# -ge 2 ] || die "--timeout needs a value"
+            timeout=$2
+            shift 2
+            ;;
+        --timeout=*)
+            timeout=${1#*=}
+            shift
+            ;;
+        -c)
+            [ $# -ge 2 ] || die "-c needs a command"
+            cmd=$2
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            die "unknown option $1"
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [ -z "$cmd" ]; then
+    [ $# -gt 0 ] || die "no command"
+    for arg in "$@"; do
+        if [ -z "$cmd" ]; then
+            cmd=$(quote "$arg")
+        else
+            cmd="$cmd $(quote "$arg")"
+        fi
+    done
+fi
+
+# keep the request out of the way of anyone else, and private enough that
+# another user on the machine cannot inject a launch
+dir="${XDG_RUNTIME_DIR:-/tmp}/lucid-launch"
+mkdir -p "$dir" 2>/dev/null || true
+req="$dir/$token.req"
+cmdfile="$dir/$token.cmd"
+
+# one line per field, percent-encoded so a newline or a stray % in a title
+# cannot break the request
+enc() {
+    printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e ':a' -e 'N' -e '$!ba' -e 's/\n/%0A/g'
+}
+
+{
+    printf 'token=%s\n' "$(enc "$token")"
+    printf 'title=%s\n' "$(enc "$title")"
+    printf 'icon=%s\n' "$(enc "$icon")"
+    printf 'class=%s\n' "$(enc "$wmclass")"
+    printf 'base=%s\n' "$(enc "$base")"
+    printf 'workspace=%s\n' "$(enc "$workspace")"
+    printf 'rect=%s\n' "$rect"
+    printf 'timeout=%s\n' "$timeout"
+} > "$req.tmp"
+printf '%s' "$cmd" > "$cmdfile.tmp"
+mv "$cmdfile.tmp" "$cmdfile"
+mv "$req.tmp" "$req"
+
+claimed=0
+if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl dispatch 'hl.dsp.global("quickshell:launch")' >/dev/null 2>&1 \
+        || hyprctl dispatch global quickshell:launch >/dev/null 2>&1 \
+        || true
+    i=0
+    while [ "$i" -lt 50 ]; do
+        if [ ! -e "$req" ]; then
+            claimed=1
+            break
+        fi
+        sleep 0.01
+        i=$((i+1))
+    done
+fi
+
+if [ "$claimed" = "1" ]; then
+    exit 0
+fi
+
+# the shell never took it: claim it ourselves, so a shell that wakes up late
+# cannot start it twice, and run it plainly
+fallback="$req.fallback"
+if ! mv "$req" "$fallback" 2>/dev/null; then
+    exit 0
+fi
+rm -f "$fallback" "$cmdfile"
+
+umask "$old_umask"
+
+helper="${LUCID_SHELL_DIR:-$HOME/.config/quickshell}/scripts/launch-detached.sh"
+if [ -x "$helper" ]; then
+    exec "$helper" "$token" "$cmd"
+fi
+exec sh -c "$cmd"

@@ -101,6 +101,15 @@ inline constexpr const char* RIMSHADE = "plugin:liquidglass:rim_shade";
 // the hairline width in logical px (the border's rim_width is a band width).
 inline constexpr const char* GLASSRIM = "plugin:liquidglass:glass_rim";
 inline constexpr const char* GLASSRIMW = "plugin:liquidglass:glass_rim_width";
+// Cursor-following rim angle. The configured rim_angle is the base diagonal;
+// the drawn angle moves toward the cursor by a small gain, capped to a small
+// deviation, and filtered over rim_follow_smoothing seconds. dx is mirrored
+// (horizontal only); cursor coordinates are converted per monitor so multiple
+// outputs at different positions work.
+inline constexpr const char* RIMFOLLOW = "plugin:liquidglass:rim_follow";
+inline constexpr const char* RIMFOLLOWSTR = "plugin:liquidglass:rim_follow_strength";
+inline constexpr const char* RIMFOLLOWMAX = "plugin:liquidglass:rim_follow_max";
+inline constexpr const char* RIMFOLLOWSMOOTH = "plugin:liquidglass:rim_follow_smoothing";
 } // namespace Key
 
 template <typename T, typename V>
@@ -254,6 +263,12 @@ void registerConfig(HANDLE handle) {
     // hairline width in logical px, independent of the border band width.
     add<Values::Int>(handle, Key::GLASSRIM, INTEGER{1});
     add<Values::Float>(handle, Key::GLASSRIMW, FLOAT{1.1});
+    // Cursor-following rim angle: subtle gain, small max deviation, 2s
+    // exponential smoothing. 0 disables and leaves rim_angle static.
+    add<Values::Int>(handle, Key::RIMFOLLOW, INTEGER{1});
+    add<Values::Float>(handle, Key::RIMFOLLOWSTR, FLOAT{0.2});
+    add<Values::Float>(handle, Key::RIMFOLLOWMAX, FLOAT{15.0});
+    add<Values::Float>(handle, Key::RIMFOLLOWSMOOTH, FLOAT{0.3});
 }
 
 // Read fresh on every call: correct across file writes, and at ~20
@@ -340,8 +355,9 @@ int getInt(const char* key, int fallback) {
             // else fall through to registered/default below
         }
         if (!std::strcmp(key, Key::TINT)) {
-            // Tint follows the theme's surface (auto dark/light, like QML
-            // bgOpaque); alpha stays with the registered/default low byte.
+            // Tint is the shell's bgOpaque (mContainer after Theme.qml's
+            // surface ramp), not the raw matugen surface role; alpha stays
+            // with the registered/default low byte.
             int alpha = fallback & 0xFF;
             try {
                 const auto v = Config::mgr()->getConfigValue(key);
@@ -590,14 +606,165 @@ void mAtTone10(double r, double g, double b, double& or_, double& og, double& ob
     ob = mGam(lb);
 }
 
+// --- Lucid Theme.qml surface ramp -----------------------------------------
+// The glass tint is the shell's `Theme.bgOpaque` (mContainer), not the raw
+// matugen `surface` role: raw surface is near-black in dark mode and
+// near-white in light mode, while bgOpaque carries the container chroma the
+// shell's own items sit on. These helpers are a 1:1 port of the colour math
+// in Theme.qml (_lin/_gam/_y/_yAt/atTone/tintTo/surface); keep them in step
+// with it if the QML changes.
+
+struct Rgb {
+    double r = 0, g = 0, b = 0;
+};
+
+static double tLin(double c) {
+    return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+static double tGam(double c) {
+    const double v = c <= 0.0031308 ? c * 12.92 : 1.055 * std::pow(c, 1.0 / 2.4) - 0.055;
+    return std::max(0.0, std::min(1.0, v));
+}
+
+static double tYAt(double t) {
+    return t <= 8 ? t / 903.2963 : std::pow((t + 16.0) / 116.0, 3);
+}
+
+static double tY(const Rgb& c) {
+    return 0.2126 * tLin(c.r) + 0.7152 * tLin(c.g) + 0.0722 * tLin(c.b);
+}
+
+static double tTone(const Rgb& c) {
+    const double y = tY(c);
+    return y <= 0.008856 ? y * 903.2963 : 116.0 * std::pow(y, 1.0 / 3.0) - 16.0;
+}
+
+static Rgb tAtTone(Rgb c, double tone) {
+    const double t = std::max(0.0, std::min(100.0, tone));
+    const double target = tYAt(t);
+    const double y = tY(c);
+    if (y <= 0)
+        return {tGam(target), tGam(target), tGam(target)};
+    const double k = target / y;
+    double lr = tLin(c.r) * k, lg = tLin(c.g) * k, lb = tLin(c.b) * k;
+    const double peak = std::max({lr, lg, lb});
+    if (peak > 1) {
+        lr /= peak;
+        lg /= peak;
+        lb /= peak;
+        const double yb = 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+        const double w = yb >= 1 ? 0 : std::max(0.0, std::min(1.0, (target - yb) / (1 - yb)));
+        lr += (1 - lr) * w;
+        lg += (1 - lg) * w;
+        lb += (1 - lb) * w;
+    }
+    return {tGam(lr), tGam(lg), tGam(lb)};
+}
+
+static Rgb tShade(Rgb c, double tones) {
+    return tones == 0 ? c : tAtTone(c, tTone(c) - tones);
+}
+
+// Qt's QColor HSL: hue is 0..1 in QML (c.hslHue), saturation/lightness 0..1.
+static void tRgbToHsl(const Rgb& c, double& h, double& s, double& l) {
+    const double mx = std::max({c.r, c.g, c.b});
+    const double mn = std::min({c.r, c.g, c.b});
+    l = (mx + mn) / 2.0;
+    if (mx == mn) {
+        h = 0;
+        s = 0;
+        return;
+    }
+    const double d = mx - mn;
+    s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+    if (mx == c.r)
+        h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+    else if (mx == c.g)
+        h = (c.b - c.r) / d + 2.0;
+    else
+        h = (c.r - c.g) / d + 4.0;
+    h /= 6.0;
+}
+
+static Rgb tHslToRgb(double h, double s, double l) {
+    h = std::fmod(h, 1.0);
+    if (h < 0)
+        h += 1.0;
+    s = std::max(0.0, std::min(1.0, s));
+    l = std::max(0.0, std::min(1.0, l));
+    if (s <= 0)
+        return {l, l, l};
+    const double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const double p = 2 * l - q;
+    auto hue = [p, q](double t) {
+        if (t < 0)
+            t += 1;
+        if (t > 1)
+            t -= 1;
+        if (t < 1.0 / 6.0)
+            return p + (q - p) * 6 * t;
+        if (t < 1.0 / 2.0)
+            return q;
+        if (t < 2.0 / 3.0)
+            return p + (q - p) * (2.0 / 3.0 - t) * 6;
+        return p;
+    };
+    return {hue(h + 1.0 / 3.0), hue(h), hue(h - 1.0 / 3.0)};
+}
+
+static double tChroma(const Rgb& c) {
+    return std::max({c.r, c.g, c.b}) - std::min({c.r, c.g, c.b});
+}
+
+static Rgb tMix(const Rgb& a, const Rgb& b, double k) {
+    return {a.r * (1 - k) + b.r * k, a.g * (1 - k) + b.g * k, a.b * (1 - k) + b.b * k};
+}
+
+static Rgb tTintTo(Rgb c, double k, const Rgb& source) {
+    if (k <= 0)
+        return c;
+    double h = 0, s = 0, l = 0;
+    tRgbToHsl(source, h, s, l);
+    const double tone = tTone(c);
+    // floor the chroma so a washed-out wallpaper still tints the surface
+    const Rgb pure = tAtTone(tHslToRgb(h, std::max(0.55, std::min(1.0, s)), 0.55), tone);
+    const double head = tChroma(pure);
+    if (head <= 0.001)
+        return c;
+    const double f = std::min(1.0, k * 0.13 / head);
+    return tAtTone(tMix(c, pure, f), tone);
+}
+
+static Rgb tSurface(Rgb c, double tones, double tint, const Rgb& source) {
+    return tTintTo(tShade(c, tones), tint, source);
+}
+
+static int rgbToInt(const Rgb& c) {
+    const auto ch = [](double v) {
+        return (int)std::lround(std::max(0.0, std::min(1.0, v)) * 255.0);
+    };
+    return (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b);
+}
+
 struct MatugenCache {
     std::filesystem::file_time_type stamp = std::filesystem::file_time_type::min();
     std::filesystem::file_time_type modeStamp = std::filesystem::file_time_type::min();
     bool ok = false;
+    bool lightMode = false;
     int primaryRgb = 0; // 0xRRGGBB, for atTone shadow hue (light) / black (dark)
-    int surfaceRgb = 0; // 0xRRGGBB, for auto dark/light tint
     bool hasPrimary = false;
+    bool hasPrimarySource = false;
+    Rgb primarySource{};
     bool hasSurface = false;
+    Rgb surface{};
+    bool hasContainer = false;
+    Rgb container{};
+    bool hasLowest = false;
+    Rgb lowest{};
+    bool hasSeed = false;
+    double seedHue = -1;
+    double seedSaturation = 0;
 };
 
 // Theme mode mirror of Theme.qml (defaults to dark when the file is
@@ -627,93 +794,160 @@ static std::string themeMode(std::filesystem::file_time_type& stampOut) {
     return s.empty() ? "dark" : s;
 }
 
+// Theme.bgOpaque: mContainer = surface(cContainer, pillDarkness * 3),
+// where surface() applies the light-mode tint and the ramp shift. The prefs
+// are read live so the glass follows the General > Surface sliders without
+// waiting for a matugen run.
+static int tintFromCache(const MatugenCache& c) {
+    if (!c.hasContainer)
+        return -1;
+    const bool isLight = c.hasSurface ? tTone(c.surface) > 50.0 : c.lightMode;
+    double v = 0;
+    double darkness = 0;
+    if (tuneLookup("surfaceDarkness", v) && v >= 0)
+        darkness = v;
+    double tint = isLight ? 0.7 : 0.0;
+    if (tuneLookup("surfaceTint", v) && v >= 0)
+        tint = v;
+    const double tintLift = 10.0;
+    double rampShift = 0;
+    if (tint > 0 && c.hasLowest)
+        rampShift = isLight ? std::max(0.0, tTone(c.lowest) - (100.0 - tint * tintLift))
+                            : -(tint * tintLift);
+    Rgb source{};
+    if (c.hasSeed && c.seedHue >= 0) {
+        const double sat = std::max(0.35, std::min(0.8, c.seedSaturation > 0 ? c.seedSaturation : 0.4));
+        source = tHslToRgb(c.seedHue / 360.0, sat, 0.55);
+    } else if (c.hasPrimarySource) {
+        source = c.primarySource;
+    } else {
+        return -1;
+    }
+    return rgbToInt(tSurface(c.container, darkness * 3.0 + rampShift, tint, source));
+}
+
 bool matugenColors(int& primaryRgb, int& surfaceRgb) {
     static MatugenCache cache;
     // PERF: stat TTL (100ms) — theme switches are rare; was 2 stats per
     // getInt(tint/shadow) call in the render thread.
     static auto lastStat = std::chrono::steady_clock::now() - std::chrono::hours(1);
     const auto now = std::chrono::steady_clock::now();
-    if (cache.ok && (now - lastStat) < std::chrono::milliseconds(100)) {
-        primaryRgb = cache.hasPrimary ? cache.primaryRgb : -1;
-        surfaceRgb = cache.hasSurface ? cache.surfaceRgb : -1;
-        return true;
-    }
-    lastStat = now;
-    const char* home = std::getenv("HOME");
-    if (!home || !*home)
-        return false;
-    const std::string path = std::string(home) + "/.cache/quickshell/matugen.json";
-    std::error_code ec;
-    const auto stamp = std::filesystem::last_write_time(path, ec);
-    if (ec)
-        return false;
-    std::filesystem::file_time_type modeStamp = std::filesystem::file_time_type::min();
-    const std::string mode = themeMode(modeStamp);
-    if (!cache.ok || cache.stamp != stamp || cache.modeStamp != modeStamp) {
-        MatugenCache fresh;
-        fresh.stamp = stamp;
-        fresh.modeStamp = modeStamp;
-        std::ifstream f(path);
-        if (f) {
-            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-            const char* p = text.data();
-            const char* end = p + text.size();
-            auto hexKey = [&](const char* key, unsigned& v) {
-                const std::string needle = std::string("\"") + key + "\"";
-                const char* at = std::search(p, end, needle.begin(), needle.end());
-                if (at == end)
-                    return false;
-                const char* q = at + needle.size();
-                while (q < end && (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r' || *q == ',' || *q == ':'))
-                    ++q;
-                if (q < end && *q == '"')
-                    ++q;
-                if (q < end && *q == '#')
-                    ++q;
-                v = 0;
-                int n = 0;
-                while (q < end && n < 6) {
-                    const char c = *q;
-                    unsigned d = 99;
-                    if (c >= '0' && c <= '9')
-                        d = (unsigned)(c - '0');
-                    else if (c >= 'a' && c <= 'f')
-                        d = (unsigned)(c - 'a' + 10);
-                    else if (c >= 'A' && c <= 'F')
-                        d = (unsigned)(c - 'A' + 10);
-                    else
-                        break;
-                    v = (v << 4) | d;
-                    ++q;
-                    ++n;
-                }
-                return n == 6;
-            };
-            unsigned pv = 0;
-            const bool hasPv = hexKey("primary", pv);
-            if (mode == "light" && hasPv) {
-                double or_, og, ob;
-                mAtTone10(((pv >> 16) & 0xFF) / 255.0, ((pv >> 8) & 0xFF) / 255.0, (pv & 0xFF) / 255.0, or_, og, ob);
-                fresh.primaryRgb = ((int)std::lround(or_ * 255) << 16) | ((int)std::lround(og * 255) << 8)
-                    | (int)std::lround(ob * 255);
-                fresh.hasPrimary = true;
-            } else if (mode != "light") {
-                fresh.primaryRgb = 0x000000;
-                fresh.hasPrimary = true;
-            }
-            unsigned sv = 0;
-            if (hexKey("surface", sv)) {
-                fresh.surfaceRgb = (int)sv;
-                fresh.hasSurface = true;
-            }
-            fresh.ok = fresh.hasPrimary || fresh.hasSurface;
+    if (!cache.ok || (now - lastStat) >= std::chrono::milliseconds(100)) {
+        lastStat = now;
+        const char* home = std::getenv("HOME");
+        if (!home || !*home)
+            return false;
+        const std::string path = std::string(home) + "/.cache/quickshell/matugen.json";
+        std::error_code ec;
+        const auto stamp = std::filesystem::last_write_time(path, ec);
+        if (ec) {
+            cache = MatugenCache{};
+            return false;
         }
-        cache = fresh;
+        std::filesystem::file_time_type modeStamp = std::filesystem::file_time_type::min();
+        const std::string mode = themeMode(modeStamp);
+        if (!cache.ok || cache.stamp != stamp || cache.modeStamp != modeStamp) {
+            MatugenCache fresh;
+            fresh.stamp = stamp;
+            fresh.modeStamp = modeStamp;
+            fresh.lightMode = mode == "light";
+            std::ifstream f(path);
+            if (f) {
+                const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                const char* p = text.data();
+                const char* end = p + text.size();
+                auto hexKey = [&](const char* key, unsigned& v) {
+                    const std::string needle = std::string("\"") + key + "\"";
+                    const char* at = p;
+                    while ((at = std::search(at, end, needle.begin(), needle.end())) != end) {
+                        const char* q = at + needle.size();
+                        while (q < end && (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r'))
+                            ++q;
+                        // Exact key: "surface" must not swallow "surface_container".
+                        if (q >= end || *q != ':') {
+                            at += needle.size();
+                            continue;
+                        }
+                        ++q;
+                        while (q < end && (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r' || *q == ','))
+                            ++q;
+                        if (q < end && *q == '"')
+                            ++q;
+                        if (q < end && *q == '#')
+                            ++q;
+                        v = 0;
+                        int n = 0;
+                        while (q < end && n < 6) {
+                            const char c = *q;
+                            unsigned d = 99;
+                            if (c >= '0' && c <= '9')
+                                d = (unsigned)(c - '0');
+                            else if (c >= 'a' && c <= 'f')
+                                d = (unsigned)(c - 'a' + 10);
+                            else if (c >= 'A' && c <= 'F')
+                                d = (unsigned)(c - 'A' + 10);
+                            else
+                                break;
+                            v = (v << 4) | d;
+                            ++q;
+                            ++n;
+                        }
+                        return n == 6;
+                    }
+                    return false;
+                };
+                auto colorKey = [&](const char* key, Rgb& out) {
+                    unsigned v = 0;
+                    if (!hexKey(key, v))
+                        return false;
+                    out = {((v >> 16) & 0xFF) / 255.0, ((v >> 8) & 0xFF) / 255.0, (v & 0xFF) / 255.0};
+                    return true;
+                };
+                unsigned pv = 0;
+                const bool hasPv = hexKey("primary", pv);
+                if (hasPv) {
+                    fresh.hasPrimarySource = true;
+                    fresh.primarySource = {((pv >> 16) & 0xFF) / 255.0, ((pv >> 8) & 0xFF) / 255.0,
+                                           (pv & 0xFF) / 255.0};
+                }
+                if (mode == "light" && hasPv) {
+                    double or_, og, ob;
+                    mAtTone10(((pv >> 16) & 0xFF) / 255.0, ((pv >> 8) & 0xFF) / 255.0, (pv & 0xFF) / 255.0, or_, og, ob);
+                    fresh.primaryRgb = ((int)std::lround(or_ * 255) << 16) | ((int)std::lround(og * 255) << 8)
+                        | (int)std::lround(ob * 255);
+                    fresh.hasPrimary = true;
+                } else if (mode != "light") {
+                    fresh.primaryRgb = 0x000000;
+                    fresh.hasPrimary = true;
+                }
+                fresh.hasSurface = colorKey("surface", fresh.surface);
+                fresh.hasContainer = colorKey("surface_container", fresh.container);
+                fresh.hasLowest = colorKey("surface_container_lowest", fresh.lowest);
+                fresh.ok = fresh.hasPrimary || fresh.hasContainer;
+            }
+            // The surface ladder's hue seed (app-surface-sync). Optional; the
+            // tint falls back to the theme primary when it is missing.
+            const std::string seedPath = std::string(home) + "/.cache/quickshell/surface-seed.json";
+            std::ifstream sf(seedPath);
+            if (sf) {
+                const std::string seedText((std::istreambuf_iterator<char>(sf)), std::istreambuf_iterator<char>());
+                const char* sp = seedText.data();
+                const char* se = sp + seedText.size();
+                double hv = 0, sv = 0;
+                if (tValue(sp, se, "hue", hv)) {
+                    fresh.seedHue = hv;
+                    fresh.hasSeed = hv >= 0;
+                }
+                if (tValue(sp, se, "saturation", sv))
+                    fresh.seedSaturation = sv;
+            }
+            cache = fresh;
+        }
     }
     if (!cache.ok)
         return false;
     primaryRgb = cache.hasPrimary ? cache.primaryRgb : -1;
-    surfaceRgb = cache.hasSurface ? cache.surfaceRgb : -1;
+    surfaceRgb = tintFromCache(cache);
     return true;
 }
 
@@ -755,7 +989,8 @@ bool tuneLookup(const char* prefsKey, double& out) {
                                      "liquidGlassA",        "liquidGlassB",          "liquidGlassC",      "liquidGlassD",
                                      "liquidGlassFPower",   "liquidGlassNoise",      "liquidGlassBlurRadius", "liquidGlassBlurIters",
                                      "liquidGlassBokeh",    "liquidGlassGlow",       "liquidGlassGlowWeight", "liquidGlassGlowBias",
-                                     "liquidGlassGlowEdge0", "liquidGlassGlowEdge1", "liquidGlassOpacity",    nullptr};
+                                     "liquidGlassGlowEdge0", "liquidGlassGlowEdge1", "liquidGlassOpacity",
+                                     "surfaceDarkness",      "surfaceTint",            nullptr};
         const char* p = text.data();
         const char* end = p + text.size();
         for (int i = 0; keys[i]; i++) {

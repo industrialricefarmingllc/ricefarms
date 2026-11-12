@@ -112,7 +112,7 @@ Item {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: Theme.dp(22)
-            text: "Time zone"
+            text: Tr.t("Time zone")
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontHeadlineSm
@@ -163,7 +163,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.dp(12)
                 anchors.verticalCenter: parent.verticalCenter
-                text: picker.zones.length > 0 ? "Search " + picker.zones.length + " zones" : "Reading the zone database…"
+                text: picker.zones.length > 0 ? Tr.t("Search ") + picker.zones.length + Tr.t(" zones") : Tr.t("Reading the zone database…")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodyLg

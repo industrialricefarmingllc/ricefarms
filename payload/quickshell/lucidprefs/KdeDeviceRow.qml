@@ -261,14 +261,14 @@ Column {
                 M3Button {
                     variant: "filled"
                     visible: dev.asking
-                    text: "Accept"
+                    text: Tr.t("Accept")
                     onClicked: KdeConnect.accept(dev.devId)
                 }
 
                 M3Button {
                     variant: "filled"
                     visible: !dev.paired && !dev.asking && !dev.waiting
-                    text: "Pair"
+                    text: Tr.t("Pair")
                     onClicked: KdeConnect.pair(dev.devId)
                 }
 
@@ -276,7 +276,7 @@ Column {
                     variant: "text"
                     destructive: true
                     visible: dev.asking || dev.waiting
-                    text: dev.asking ? "Reject" : "Cancel"
+                    text: dev.asking ? Tr.t("Reject") : Tr.t("Cancel")
                     onClicked: KdeConnect.cancel(dev.devId)
                 }
 
@@ -284,8 +284,8 @@ Column {
                     variant: "text"
                     destructive: true
                     visible: dev.paired && !dev.asking && !dev.waiting
-                    text: "Unpair"
-                    onClicked: Prefs.askConfirm("Unpair " + dev.modelData.name + "?", "This machine and that device stop trusting each other. Nothing on either is deleted, and you can pair them again whenever you like.", "Unpair", "kde-unpair:" + dev.devId)
+                    text: Tr.t("Unpair")
+                    onClicked: Prefs.askConfirm(Tr.t("Unpair ") + dev.modelData.name + "?", Tr.t("This machine and that device stop trusting each other. Nothing on either is deleted, and you can pair them again whenever you like."), Tr.t("Unpair"), "kde-unpair:" + dev.devId)
                 }
 
             }

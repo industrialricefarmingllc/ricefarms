@@ -282,6 +282,12 @@ void main() {
         : max((7.0 + 3.5 * log(1.0 + min(uBox.x, uBox.y) / 30.0)) * 1.5, 4.0);
     float edgePx = (uEdgePx > 0.001) ? uEdgePx
         : (7.0 + 3.5 * log(1.0 + min(uBox.x, uBox.y) / 30.0)) * 9.0;
+    // Rim/glow normals are only visible within a few rim widths of the edge:
+    // the rim is exp-decayed (largest remaining term ~exp(-8) at 8x width)
+    // and the glow's edgeMask is zero past the bevel band. Four extra SDF
+    // taps per slow fragment over the rest of the (wide) bevel band are
+    // pure waste, so gate them to the band where they can contribute.
+    float nReach = max(bevW, max(uRimWidth, 0.75) * 8.0);
 #ifdef LG_WINDOW
     // Window specialization: circular rounded box, no squircle/flare/over-rim.
     // The interior fast path is the important part: a large window is mostly
@@ -290,16 +296,18 @@ void main() {
     // the expensive path below.
     sdPx = sdPillBox4(pillPx, halfPx, uRadii);
     // The fast path must be pixel-identical to the slow path at its boundary.
-    // CA (and the detail-preserving tint derived from its taps) only exists in
-    // the slow path, so CA off is the sole condition: detail_preserve can be
-    // off while CA is on, and the fast path would silently drop the fringes.
-    // The angular glow is edge-masked: at sdPx < -edgePx, glowIn is saturated
-    // and both kdir and edgeMask are zero, so the slow path's glow term
-    // collapses to the same 1+uGlowB multiplier the fast path applies.
-    // Running the slow path everywhere just because a focused window carries
-    // the active-glow boost made the whole pane pay for an effect that is
-    // exactly zero there.
-    if (uOverRim < 0.5 && uCA < 0.001 && sdPx < -edgePx) {
+    // At sdPx < -edgePx every term that the slow path adds to the interior is
+    // provably zero:
+    //   - lensMask = 0 (edgePx > bevW), so refractVec == 0 and CA's doCA gate
+    //     (|caVec|^2 > 2.5e-7) is false; the detail term compares the same
+    //     taps and is 0 too, regardless of uCA/uDetail;
+    //   - the angular glow is edge-masked: glowIn saturates and both kdir and
+    //     edgeMask are zero, leaving only the 1+uGlowB multiplier;
+    //   - rim/shadow/bevel are edge-local or gated by pillA.
+    // So no CA condition belongs here: with ca=0.5 (the current preset) the
+    // old `uCA < 0.001` test sent the whole pane down the slow path for an
+    // effect that is exactly zero in the interior.
+    if (uOverRim < 0.5 && sdPx < -edgePx) {
         vec2 ditherFast = vec2(hash(gl_FragCoord.xy * 0.009) - 0.5,
                                hash(gl_FragCoord.xy * 0.011 + vec2(7.0, 13.0)) - 0.5)
                         * 0.6 * uTexel;
@@ -344,7 +352,7 @@ void main() {
     // reaches this point (the interior fast path returned above), so the four
     // extra SDF taps stay confined to the edge. Skip them entirely when both
     // consumers are off (rim_light=0 and glow_weight/bias=0).
-    if (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001) {
+    if (-sdPx < nReach && (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001)) {
         vec4 pr = max(uRadii, vec4(bevW));
         float tgx = sdPillBox4(pillPx + vec2(1.0, 0.0), halfPx, pr) - sdPillBox4(pillPx - vec2(1.0, 0.0), halfPx, pr);
         float tgy = sdPillBox4(pillPx + vec2(0.0, 1.0), halfPx, pr) - sdPillBox4(pillPx - vec2(0.0, 1.0), halfPx, pr);
@@ -357,7 +365,7 @@ void main() {
         dist = clamp(-sdPx / rMax, 0.0, 1.0);
         vec4 prA = max(uUnionAR, vec4(bevW));
         vec4 prB = max(uUnionBR, vec4(bevW));
-        if (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001) {
+        if (-sdPx < nReach && (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001)) {
             float tgx = sdUnionPill(pillPx + vec2(1.0, 0.0), uUnionA, prA, uUnionB, prB, uUnionK)
                       - sdUnionPill(pillPx - vec2(1.0, 0.0), uUnionA, prA, uUnionB, prB, uUnionK);
             float tgy = sdUnionPill(pillPx + vec2(0.0, 1.0), uUnionA, prA, uUnionB, prB, uUnionK)
@@ -370,7 +378,7 @@ void main() {
         dist = sdDistPill(pillPx, halfPx, uRadii, sdPx);
         // Bevel-anchored band + proxy-rounded normals (see decl): kinks sit
         // outside the band, direction fades to neutral with depth anyway.
-        if (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001) {
+        if (-sdPx < nReach && (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001)) {
             vec4 pr = max(uRadii, vec4(bevW));
             float tgx = sdPillBox4(pillPx + vec2(1.0, 0.0), halfPx, pr) - sdPillBox4(pillPx - vec2(1.0, 0.0), halfPx, pr);
             float tgy = sdPillBox4(pillPx + vec2(0.0, 1.0), halfPx, pr) - sdPillBox4(pillPx - vec2(0.0, 1.0), halfPx, pr);
@@ -387,7 +395,7 @@ void main() {
         dist = clamp(-sdS, 0.0, 2.0);
         // sdPx here is the unscaled silhouette-true field (px); super field
         // has no medial kinks except the masked-out center, so no proxy.
-        if (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001) {
+        if (-sdPx < nReach && (uRimLight > 0.5 || abs(uGlowW) > 0.001 || abs(uGlowB) > 0.001)) {
             float sse = 3.0 / max(min(uBox.x, uBox.y), 1.0);
             vec2 pSup0 = (uv - vec2(0.5)) * 2.0;
             float sgx = sdSuperellipse(pSup0 + vec2(sse, 0.0), uPower, 1.0) - sdSuperellipse(pSup0 - vec2(sse, 0.0), uPower, 1.0);
@@ -435,7 +443,7 @@ void main() {
         // directional shading along a line from the joint into the tab.
         // Values (sdPx, dist, masks) stay on the exact union, so refraction
         // and coverage never move — only the light direction relaxes.
-        if (uUsePill > 0.5 && (uFlare.x > 0.01 || uFlare.y > 0.01)) {
+        if (-sdPx < nReach && uUsePill > 0.5 && (uFlare.x > 0.01 || uFlare.y > 0.01)) {
             vec4 prF = max(uRadii, vec4(bevW));
             float kR = 3.0;
             float sXp = sminN(sdPillBox4(pillPx + vec2(1.0, 0.0), halfPx, prF), sdFlareU(pillPx + vec2(1.0, 0.0), halfPx, uFlare), kR);
@@ -581,9 +589,14 @@ void main() {
         // tap), keep the sharp backdrop and skip the frost instead of
         // washing it out. Content-adaptive, so dark and light modes need no
         // separate handling; the tint color itself already follows matugen.
-        float lumC = dot(bg.rgb, vec3(0.299, 0.587, 0.114));
-        float lumN = dot(vec3(rC, gC, bC), vec3(0.299, 0.587, 0.114));
-        float detail = clamp(abs(lumC - lumN) * 2.5, 0.0, 1.0) * uDetail;
+        // PERF: with detail_preserve=0 (current preset) the contrast math is
+        // dead; skip the luma dots/clamp/multiply entirely.
+        float detail = 0.0;
+        if (uDetail > 0.0005) {
+            float lumC = dot(bg.rgb, vec3(0.299, 0.587, 0.114));
+            float lumN = dot(vec3(rC, gC, bC), vec3(0.299, 0.587, 0.114));
+            detail = clamp(abs(lumC - lumN) * 2.5, 0.0, 1.0) * uDetail;
+        }
         bg = mix(bg, vec4(uBaseColor, 1.0), tint * (1.0 - detail));
         bg.a = 1.0;
     }
@@ -657,7 +670,7 @@ void main() {
     // The highlight is a saturated, brightened copy of the glass colour
     // (CoreAnimation's vibrantColorMatrix), not a fixed white stroke.
     // Placed after the tint mix so the edge light survives opacity=1.
-    if (uRimLight > 0.5) {
+    if (uRimLight > 0.5 && -sdPx < nReach) {
         float edgeDistPx = max(-sdPx, 0.0);
         float rimW = max(uRimWidth, 0.75);
         // Sit the hairline just inside the silhouette: the exact edge pixel is

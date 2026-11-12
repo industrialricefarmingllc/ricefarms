@@ -88,7 +88,7 @@ def ensure_model() -> Path:
     models = cache_root() / "models"
     models.mkdir(parents=True, exist_ok=True)
     model = models / "isnet-general-use.onnx"
-    if model.is_file() and sha256_file(model) == MODEL_SHA256:
+    if model.is_file() and spatial_cache.cached_sha256(model) == MODEL_SHA256:
         return model
     for stale in models.glob("isnet-general-use.onnx.*.part"):
         stale.unlink(missing_ok=True)
@@ -104,6 +104,7 @@ def ensure_model() -> Path:
         if sha256_file(tmp) != MODEL_SHA256:
             raise RuntimeError("foreground model checksum does not match the pinned contract")
         os.replace(tmp, model)
+        spatial_cache.store_sha256(model, MODEL_SHA256)
         return model
     except Exception:
         tmp.unlink(missing_ok=True)
@@ -120,11 +121,15 @@ def largest_component(mask, minimum_fraction: float, maximum_fraction: float,
         return np.zeros_like(mask, dtype=bool)
     total = mask.size
     height = mask.shape[0]
+    # One pass for every component's area instead of `labels == index` for
+    # each label: a noisy fallback mask can have thousands of components and
+    # the old loop was quadratic in the pixel count.
+    areas = np.bincount(labels.ravel(), minlength=count + 1)
+    bottom_labels = set(labels[height - 1, :].tolist())
     best = 0
     best_area = 0
     for index in range(1, count + 1):
-        component = labels == index
-        area = int(component.sum())
+        area = int(areas[index])
         if area < total * minimum_fraction or area > total * maximum_fraction:
             continue
         # A subject cropped by the frame is still the subject. Rejecting any
@@ -133,7 +138,7 @@ def largest_component(mask, minimum_fraction: float, maximum_fraction: float,
         # in the reconstructed background, so they look like they vanished).
         # Only the bottom edge is filtered, and only for callers that are
         # looking for a floating near field rather than a framed subject.
-        if not allow_bottom and np.where(component)[0].max() > height - 2:
+        if not allow_bottom and index in bottom_labels:
             continue
         if area > best_area:
             best, best_area = index, area
@@ -149,19 +154,38 @@ def fill_small_holes(mask, max_area_fraction: float = 0.025):
     if not holes.any():
         return mask
     labels, count = ndimage.label(holes)
-    out = mask.copy()
+    # Same single-pass area lookup as largest_component: a hole-heavy mask
+    # used to do one full `labels == index` comparison per hole.
+    areas = np.bincount(labels.ravel(), minlength=count + 1)
     maximum = mask.size * max_area_fraction
-    for index in range(1, count + 1):
-        hole = labels == index
-        if hole.sum() <= maximum:
-            out |= hole
-    return out
+    keep = areas <= maximum
+    keep[0] = False
+    return mask | keep[labels]
+
+
+_SESSIONS = {}
+
+
+def segment_session(model: Path, threads: int):
+    """One IS-Net session per process, so a warm sweep does not reload it."""
+    import onnxruntime as ort
+
+    key = (str(model), threads)
+    session = _SESSIONS.get(key)
+    if session is not None:
+        return session
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = max(1, threads)
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    session = ort.InferenceSession(str(model), sess_options=options,
+                                   providers=["CPUExecutionProvider"])
+    _SESSIONS[key] = session
+    return session
 
 
 def segment(photo):
     """Return (soft 0..1 alpha, used_model)."""
     import numpy as np
-    import onnxruntime as ort
     from PIL import Image
     from scipy import ndimage
 
@@ -169,11 +193,12 @@ def segment(photo):
     used_model = False
     try:
         model = ensure_model()
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = 4
-        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        session = ort.InferenceSession(str(model), sess_options=options,
-                                       providers=["CPUExecutionProvider"])
+        try:
+            threads = int(os.environ.get("LUCID_PREP_THREADS")
+                          or os.environ.get("LUCID_DEPTH_THREADS") or 4)
+        except ValueError:
+            threads = 4
+        session = segment_session(model, threads)
         input_info = session.get_inputs()[0]
         output_info = session.get_outputs()[0]
         if (input_info.name != "input_image" or output_info.name != "output_image"

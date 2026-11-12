@@ -109,7 +109,7 @@ WidgetBody {
         wrapMode: Text.WordWrap
         role: "bodyMedium"
         color: w.bare ? "white" : w.inkDim
-        text: "Pin apps to the dock and they show up here."
+        text: Tr.t("Pin apps to the dock and they show up here.")
     }
 
     // shapes: straight on the wallpaper, one shape per app

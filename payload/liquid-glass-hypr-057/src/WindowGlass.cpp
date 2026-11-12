@@ -737,6 +737,24 @@ void CWindowGlass::damageLast() {
                                    m_boundsLog.h});
 }
 
+void CWindowGlass::damageRim() {
+    if (!m_boundsOk || m_boundsLog.w <= 0.0 || m_boundsLog.h <= 0.0)
+        return;
+    const float pad = 12.0f;
+    const float x = (float)m_lastMonPos.x + (float)m_boundsLog.x;
+    const float y = (float)m_lastMonPos.y + (float)m_boundsLog.y;
+    const float w = (float)m_boundsLog.w;
+    const float h = (float)m_boundsLog.h;
+    // The rim line is INSIDE the glass silhouette; damage inside bands (a
+    // little overlap into the interior) or the glass pass never intersects
+    // the pointer move. The capture-coverage guard will widen this to the
+    // full capture when needed, which is fine.
+    g_pHyprRenderer->damageBox(CBox{x, y, w, pad});
+    g_pHyprRenderer->damageBox(CBox{x, y + h - pad, w, pad});
+    g_pHyprRenderer->damageBox(CBox{x, y, pad, h});
+    g_pHyprRenderer->damageBox(CBox{x + w - pad, y, pad, h});
+}
+
 void CWindowGlass::noteBorderBox(const CBox& box, PHLMONITOR monitor) {
     m_borderBox = box;
     m_borderMon = monitor ? monitor->m_id : MONITOR_INVALID;
@@ -913,6 +931,15 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor, const Render:
     // moving) overlaps this pane's padded capture region; only that case
     // needs the live read-after-write fallback.
     bool useShared = true;
+    // Any earlier window (glass or not) that overlaps the pane itself. The
+    // padded 32px bleed is wider than the pane, so two touching tiled windows
+    // always overlap it; that used to disable the content cache for every
+    // window after the first, forcing a full capture + Kawase + bokeh on
+    // every typed character / video frame. A content-only frame cannot change
+    // the bleed outside this pane, so the cached capture is still exact when
+    // only the bleed overlaps. It is not exact when an earlier window covers
+    // the pane: its repaint can land inside this window's damage.
+    bool earlierOverlapsPane = false;
     if (auto it = WINDOW_BOXES->find(monitor->m_id); it != WINDOW_BOXES->end()) {
         const CBox padded{winBox.x - PAD_PX, winBox.y - PAD_PX, winBox.w + 2 * PAD_PX, winBox.h + 2 * PAD_PX};
         for (const auto& prev : it->second) {
@@ -921,19 +948,27 @@ std::optional<SWinDraw> CWindowGlass::snapshot(PHLMONITOR monitor, const Render:
                 break;
             }
         }
+        for (const auto& prev : it->second) {
+            if (!prev.intersection(winBox).empty()) {
+                earlierOverlapsPane = true;
+                break;
+            }
+        }
     }
     if (transitioning)
         m_captureValid = false;
 
     // Content-only damage: if every damaged pixel is inside this window and
-    // no earlier window overlaps it, the backdrop behind the glass has not
-    // changed. Reuse the previous blurred capture instead of blitting the
+    // no earlier window covers the pane, the backdrop behind the glass has
+    // not changed. Reuse the previous blurred capture instead of blitting the
     // whole pane again. This is the typing/video case; moves, workspace
-    // slides and anything outside the pane still recapture.
+    // slides and anything outside the pane still recapture. Touching tiled
+    // neighbours overlap only the padded bleed, not the pane, so they no
+    // longer defeat this cache.
     const CBox dmg = ctx.m_data.damage.getExtents();
     const bool contentOnly = dmg.w > 0 && dmg.h > 0 && dmg.x >= winBox.x - 1 && dmg.y >= winBox.y - 1 &&
         dmg.x + dmg.w <= winBox.x + winBox.w + 1 && dmg.y + dmg.h <= winBox.y + winBox.h + 1;
-    const bool reuse = useShared && contentOnly && m_captureValid && m_cacheMon == monitor->m_id &&
+    const bool reuse = !earlierOverlapsPane && contentOnly && m_captureValid && m_cacheMon == monitor->m_id &&
         std::fabs(m_cacheMonScale - monitor->m_scale) < 1e-4 && m_cacheMonSize.x == monitor->m_transformedSize.x &&
         m_cacheMonSize.y == monitor->m_transformedSize.y && boxEqual(m_cacheBox, winBox);
 
@@ -1158,7 +1193,7 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                     ensureChain(hw, hh, caller->m_drmFormat);
                 // Bokeh output lazy (see ensureKawase): only with bokeh on.
                 if (bokehOn)
-                    ensureBokeh(hw, hh, caller->m_drmFormat);
+                    ensureBokeh(std::max(1, hw / 2), std::max(1, hh / 2), caller->m_drmFormat);
                 // Sharp capture for the over-rim progressive mix (same size
                 // and UV contract as L0). Lazy: only the rim pass needs it.
                 if (overRim) {
@@ -1186,7 +1221,7 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                     // m_halfA (and m_halfT when bokeh is on) is still exact.
                     // Skip the blit/sync and the Kawase chain entirely; the
                     // glass shader below still redraws its damaged region.
-                    const bool cacheOk = !overRim && d.reuseCapture && d.useShared && m_captureValid &&
+                    const bool cacheOk = !overRim && d.reuseCapture && m_captureValid &&
                         m_cacheMon == monitor->m_id && std::fabs(m_cacheMonScale - monitor->m_scale) < 1e-4 &&
                         m_cacheMonSize.x == monitor->m_transformedSize.x &&
                         m_cacheMonSize.y == monitor->m_transformedSize.y && boxEqual(m_cacheBox, d.box) &&
@@ -1324,7 +1359,9 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                         glUniform1f(m_gu.rimBlur, overRim ? 1.0f : 0.0f);
                         glUniform2f(m_gu.capOrigin, ox, oy);
                         glUniform2f(m_gu.capScale, sx, sy);
-                        glUniform2f(m_gu.texel, 1.0f / (float)uBlurFb->m_size.x, 1.0f / (float)uBlurFb->m_size.y);
+                        // Dither/CA steps are in CAPTURE space (see Glass.cpp):
+                        // the bokeh texture is half-res but shares L0 UVs.
+                        glUniform2f(m_gu.texel, 1.0f / (float)m_halfA->m_size.x, 1.0f / (float)m_halfA->m_size.y);
                         glUniform3f(m_gu.baseColor, ((d.tint >> 24) & 0xFF) / 255.f, ((d.tint >> 16) & 0xFF) / 255.f,
                                    ((d.tint >> 8) & 0xFF) / 255.f);
                         glUniform1f(m_gu.power, T.power);
@@ -1342,10 +1379,27 @@ void CWindowGlass::draw(Render::CRenderContext& ctx, PHLMONITOR monitor, const S
                         glUniform1f(m_gu.glowT, T.glowT);
                         // Apple rim light on the window glass pane (same
                         // material/knobs as the border ring and Lucid pills).
-                        glUniform1f(m_gu.rimLight, (float)lg::getInt("plugin:liquidglass:glass_rim", 1));
+                        // Cursor-following rim angle: subtle, horizontally
+                        // mirrored, filtered over rim_follow_smoothing. The
+                        // damage below keeps the 2s transition animating even
+                        // when nothing else repaints this pane.
+                        const bool rimOn = lg::getInt("plugin:liquidglass:glass_rim", 1) == 1;
+                        float rimAngle = lg::getFloat("plugin:liquidglass:rim_angle", 135.0f);
+                        const float rimPrev = m_rimFollow.angle;
+                        if (rimOn) {
+                            rimAngle = lg::rimAngleFor(d.box, lg::cursorLocal(monitor), rimAngle, m_rimFollow);
+                            if (m_rimFollow.init && std::isfinite(rimPrev) && std::abs(rimAngle - rimPrev) > 0.01f) {
+                                const float inv = 1.0f / monitor->m_scale;
+                                const float pad = 10.0f;
+                                g_pHyprRenderer->damageBox(
+                                    CBox{monitor->m_position.x + d.box.x * inv - pad, monitor->m_position.y + d.box.y * inv - pad,
+                                         d.box.w * inv + pad * 2.0f, d.box.h * inv + pad * 2.0f});
+                            }
+                        }
+                        glUniform1f(m_gu.rimLight, rimOn ? 1.0f : 0.0f);
                         glUniform1f(m_gu.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
                         glUniform1f(m_gu.rimWidth, std::max(0.75f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f) * (float)monitor->m_scale));
-                        glUniform1f(m_gu.rimAngle, lg::getFloat("plugin:liquidglass:rim_angle", 135.0f));
+                        glUniform1f(m_gu.rimAngle, rimAngle);
                         glUniform1f(m_gu.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
                         glUniform1f(m_gu.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
                         glUniform1f(m_gu.usePill, 1.0f);

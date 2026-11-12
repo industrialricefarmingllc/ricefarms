@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/node "$HOME/.local/share/lucid-pwa/patch.mjs" "$@"

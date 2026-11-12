@@ -1,7 +1,6 @@
 import QtQuick
 import qs
 import qs.lucidui
-import "../squircle"
 
 // Wallpaper selector strip, in Pibble's carousel language: a fixed window of
 // 1:2 cards laid out by their continuous rank, so a step slides the whole
@@ -24,6 +23,9 @@ Item {
     property int itemGap: Theme.dp(10)
     property int hoveredIndex: -1
     property int currentIndex: 0
+    // true only after a real pointer/key move, not a model refill or a
+    // programmatic placement
+    property bool userMoved: false
     // the wallpaper actually in use
     property string appliedPath: ""
     property string filterText: ""
@@ -39,6 +41,15 @@ Item {
     readonly property int count: strip.model ? strip.model.count : 0
     readonly property int sides: Prefs.wallpaperStripSides === 3 ? 3 : 2
     readonly property int halfVisible: strip.sides
+    // The carousel only ever draws cards around the animated rank. Deriving
+    // that window from the integer part of animIndex means the far delegates
+    // stop depending on animIndex altogether: they used to re-evaluate rank,
+    // x, opacity and the parallax on every frame of a 280 ms slide, N times
+    // over for the whole folder. The window moves once per card crossed, not
+    // once per frame.
+    readonly property int windowCenter: Math.round(strip.animIndex)
+    readonly property int windowStart: strip.windowCenter - strip.halfVisible - 2
+    readonly property int windowEnd: strip.windowCenter + strip.halfVisible + 2
 
     // 1:2 portrait previews, the same shape Pibble's carousel windows use.
     // The stage's available height sets the card height; its width is half of
@@ -146,6 +157,7 @@ Item {
         if (strip.count <= 0)
             return;
 
+        strip.userMoved = true;
         strip.currentIndex = strip.clampIndex(strip.currentIndex + d);
     }
 
@@ -265,6 +277,7 @@ Item {
                     var dir = dx < 0 ? 1 : -1;
                     var steps = carried >= 24 ? Math.max(1, Math.round(carried / strip.slotSpacing)) : 0;
                     strip.dragging = false;
+                    strip.userMoved = true;
                     strip.currentIndex = strip.clampIndex(strip.currentIndex + dir * steps);
                     strip.animIndex = strip.currentIndex;
                 }
@@ -304,10 +317,16 @@ Item {
                 required property string thumb
                 required property string preview
                 required property string kind
+                // optional: not every filtered row carries source dimensions
+                property int srcWidth: 0
+                property int srcHeight: 0
 
-                readonly property real rank: cell.index - strip.animIndex
+                // the false branch deliberately has no animIndex reference:
+                // that is what keeps an off-screen delegate out of the
+                // per-frame animation dependency graph
+                readonly property real rank: cell.near ? (cell.index - strip.animIndex) : (cell.index < strip.windowCenter ? -99 : 99)
                 readonly property real absRank: Math.abs(cell.rank)
-                readonly property bool near: cell.absRank <= strip.halfVisible + 1
+                readonly property bool near: cell.index >= strip.windowStart && cell.index <= strip.windowEnd
                 readonly property bool isCurrent: !strip.dragging && !strip.jumping && cell.index === strip.currentIndex
                 readonly property real rankGrow: Math.max(strip.edgeFloor, 1 - cell.absRank * strip.edgeRate)
                 readonly property real cellAlpha: cell.near ? Math.max(0, Math.min(1, strip.halfVisible + 1 - cell.absRank)) : 0
@@ -381,13 +400,13 @@ Item {
                 Component {
                     id: cardComp
 
-                    SquircleClip {
+                    Rectangle {
                         id: card
 
                         anchors.fill: parent
-                        radius: strip.cardCorner
-                        smoothing: Prefs.squircleF
+                        radius: 5
                         color: Theme.bgTile
+                        clip: true
                         opacity: (cell.isCurrent || cell.hovered || cell.absRank < 0.5) ? 1 : (cell.absRank <= 1 ? 0.78 : (cell.absRank <= 2 ? 0.5 : 0.36))
                         scale: cell.pressed ? 1 - 4 / card.width : (cell.hovered ? 1 + Theme.dp(6) / card.width : 1)
 
@@ -418,8 +437,14 @@ Item {
                             thumb: cell.thumb
                             preview: cell.preview
                             kind: cell.kind
+                            sourceWidth: cell.srcWidth
+                            sourceHeight: cell.srcHeight
                             active: cell.isCurrent || cell.hovered
                             current: cell.isCurrent
+                            // while the row is still moving, the cached cut is
+                            // indistinguishable during the slide and avoids a
+                            // full-size decode for every card crossed
+                            preferThumb: strip.dragging || Math.abs(strip.animIndex - strip.currentIndex) > 0.01
                             overscan: strip.parallaxOverscan
                             parallax: cell.parallaxShift
                             sourceSizeWidth: strip.decodeSize.width
@@ -508,6 +533,7 @@ Item {
                             strip.noteOrigin(cell.cardItem);
                             strip.chosen(cell.path);
                         } else {
+                            strip.userMoved = true;
                             strip.currentIndex = cell.index;
                         }
                     }
@@ -574,7 +600,7 @@ Item {
 
                     anchors.centerIn: parent
                     role: "labelSmall"
-                    text: "Active"
+                    text: Tr.t("Active")
                     color: Theme.fgAccent
                 }
 
@@ -620,7 +646,7 @@ Item {
         LText {
             anchors.horizontalCenter: parent.horizontalCenter
             role: "titleMedium"
-            text: strip.filterText !== "" ? (strip.live ? "No live wallpapers found" : "No wallpapers found") : (strip.live ? "No videos in this folder" : "No wallpapers in this folder")
+            text: strip.filterText !== "" ? (strip.live ? Tr.t("No live wallpapers found") : Tr.t("No wallpapers found")) : (strip.live ? Tr.t("No videos in this folder") : Tr.t("No wallpapers in this folder"))
             color: Theme.text
         }
 

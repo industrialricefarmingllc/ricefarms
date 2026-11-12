@@ -12,9 +12,35 @@ Item {
     property bool selected: false
     property bool closable: false
     property bool disabled: false
+    property string accessibleName: ""
+    property string accessibleDescription: ""
 
     signal clicked()
     signal closeClicked()
+
+    readonly property bool checkable: chip.kind === "filter"
+
+    function activate() {
+        if (!chip.disabled)
+            chip.clicked();
+    }
+
+    activeFocusOnTab: !chip.disabled
+    Accessible.role: chip.checkable ? Accessible.CheckBox : Accessible.Button
+    Accessible.name: chip.accessibleName !== "" ? chip.accessibleName : chip.text
+    Accessible.description: chip.accessibleDescription
+    Accessible.checkable: chip.checkable
+    Accessible.checked: chip.checkable ? chip.selected : false
+    Accessible.focusable: !chip.disabled
+    Accessible.focused: chip.activeFocus
+    Accessible.onPressAction: chip.activate()
+    Keys.onSpacePressed: chip.activate()
+    Keys.onReturnPressed: chip.activate()
+    Keys.onEnterPressed: chip.activate()
+    Keys.onDeletePressed: {
+        if (chip.closable)
+            chip.closeClicked();
+    }
 
     readonly property bool showLead: (chip.kind === "filter" && chip.selected) || chip.icon !== ""
     readonly property color content: chip.selected ? Theme.fgSecondaryContainer : (chip.kind === "assist" ? Theme.text : Theme.subtext)
@@ -50,7 +76,10 @@ Item {
             radius: Theme.rad(8)
             tint: chip.content
             disabled: chip.disabled
-            onClicked: chip.clicked()
+            onClicked: {
+                chip.forceActiveFocus();
+                chip.activate();
+            }
         }
 
     }
@@ -88,11 +117,25 @@ Item {
                 anchors.fill: parent
                 anchors.margins: -Theme.dp(4)
                 cursorShape: Qt.PointingHandCursor
+                Accessible.role: Accessible.Button
+                Accessible.name: Tr.t("Remove")
+                Accessible.onPressAction: chip.closeClicked()
                 onClicked: chip.closeClicked()
             }
 
         }
 
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(2)
+        radius: Theme.rad(8) + Theme.dp(2)
+        color: "transparent"
+        border.width: chip.activeFocus && !chip.disabled ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
 }

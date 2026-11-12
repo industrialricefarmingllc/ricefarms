@@ -72,7 +72,7 @@ Item {
                     spacing: Theme.dp(1)
 
                     Text {
-                        text: "Edit mode"
+                        text: Tr.t("Edit mode")
                         color: Theme.text
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontTitleSm
@@ -80,7 +80,7 @@ Item {
                     }
 
                     Text {
-                        text: "Drag to move · right-click for options"
+                        text: Tr.t("Drag to move · right-click for options")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabelMd
@@ -102,7 +102,7 @@ Item {
         EditTool {
             anchors.verticalCenter: parent.verticalCenter
             icon: "toolbar"
-            text: "Bar"
+            text: Tr.t("Bar")
             selected: Edit.sheet === "bar" || Edit.sheet === "module"
             onClicked: Edit.toggleSheet("bar", toolbar.screenName)
         }
@@ -110,7 +110,7 @@ Item {
         EditTool {
             anchors.verticalCenter: parent.verticalCenter
             icon: "dock_to_bottom"
-            text: "Dock"
+            text: Tr.t("Dock")
             selected: Edit.sheet === "dock"
             onClicked: Edit.toggleSheet("dock", toolbar.screenName)
         }
@@ -118,7 +118,7 @@ Item {
         EditTool {
             anchors.verticalCenter: parent.verticalCenter
             icon: "widgets"
-            text: "Widgets"
+            text: Tr.t("Widgets")
             onClicked: {
                 Edit.closeSheet();
                 Widgets.openPanel(toolbar.screenName);
@@ -128,7 +128,7 @@ Item {
         EditTool {
             anchors.verticalCenter: parent.verticalCenter
             icon: "wallpaper"
-            text: "Wallpaper"
+            text: Tr.t("Wallpaper")
             onClicked: {
                 Edit.closeSheet();
                 Prefs.desktopActionRequested("wallpaper");
@@ -145,7 +145,7 @@ Item {
         EditTool {
             anchors.verticalCenter: parent.verticalCenter
             icon: "undo"
-            text: "Undo"
+            text: Tr.t("Undo")
             disabled: !Edit.canUndo
             onClicked: Edit.undo()
         }
@@ -153,7 +153,7 @@ Item {
         EditTool {
             anchors.verticalCenter: parent.verticalCenter
             icon: "history"
-            text: "Revert"
+            text: Tr.t("Revert")
             disabled: !Edit.changed
             onClicked: Edit.revert()
         }
@@ -161,7 +161,7 @@ Item {
         EditTool {
             anchors.verticalCenter: parent.verticalCenter
             icon: "check"
-            text: "Done"
+            text: Tr.t("Done")
             filled: true
             onClicked: Edit.exit()
         }

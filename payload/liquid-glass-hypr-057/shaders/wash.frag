@@ -1,10 +1,9 @@
 #version 300 es
-#extension GL_KHR_blend_equation_advanced : require
 precision highp float;
 
 // Per-window wallpaper wash, drawn after the window content.
 //
-// Dark mode: raw blurred wallpaper, screen-blended at 5%. Light mode: true
+// Dark mode: raw blurred wallpaper, screen-blended at 10%. Light mode: true
 // GPU multiply (GL_MULTIPLY_KHR) at 10% coverage. Both are clipped to the
 // window's rounded silhouette here; the caller selects the blend equation.
 
@@ -20,7 +19,6 @@ uniform float     uSoft;   // 1 = light-mode multiply, 0 = dark screen
 uniform float     uDarkOpacity; // dark-mode screen source scale
 uniform float     uFade;        // window/workspace fade 0..1
 
-layout(blend_support_multiply) out;
 layout(location = 0) out vec4 fragColor;
 
 // Shared squircle box SDF (same shape as squircle_box.glsl).
@@ -95,13 +93,14 @@ void main() {
     vec2 uv = gl_FragCoord.xy / uScreen;
     vec4 wash = texture(uWash, uv);
     if (uSoft > 0.5) {
-        // True GPU multiply at 10% coverage. The source is premultiplied;
-        // GL_MULTIPLY_KHR combines it with the framebuffer using source alpha
-        // as coverage, so text and window content are blended, not covered.
+        // 10% multiply without an advanced blend equation: the shader emits
+        // 1 - a*(1-wash), and the caller multiplies it into the destination.
+        // This also keeps the shader free of blend-equation layout qualifiers,
+        // which some GLSL ES compilers reject.
         float a = 0.10 * mask * uFade;
-        fragColor = vec4(wash.rgb * a, a);
+        fragColor = vec4(vec3(1.0) - a * (vec3(1.0) - wash.rgb), 1.0);
     } else {
-        // Dark mode: screen the raw blurred wallpaper at 5%.
+        // Dark mode: screen the raw blurred wallpaper at 10%.
         fragColor = vec4(wash.rgb * uDarkOpacity * uFade, 1.0);
     }
 }

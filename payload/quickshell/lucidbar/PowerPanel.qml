@@ -176,7 +176,7 @@ Item {
             leftPadding: Theme.dp(4)
             rightPadding: Theme.dp(4)
             topPadding: Theme.dp(4)
-            text: "Game mode is on, and may set a profile of its own when it turns off."
+            text: Tr.t("Game mode is on, and may set a profile of its own when it turns off.")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(10)

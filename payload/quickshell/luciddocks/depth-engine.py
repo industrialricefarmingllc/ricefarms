@@ -193,6 +193,7 @@ def fetch(url: str, dest: Path, digest: str, progress_file: str) -> None:
             tmp.unlink(missing_ok=True)
             raise RuntimeError("depth model checksum does not match the pinned contract")
         os.replace(tmp, dest)
+        spatial_cache.store_sha256(dest, digest)
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
@@ -206,9 +207,11 @@ def ensure_model(name: str, progress_file: str) -> tuple[Path, dict]:
     extras = [models / extra["file"] for extra in config.get("extras", ())]
 
     def complete() -> bool:
-        if not (model.is_file() and sha256_file(model) == config["sha256"]):
+        if not (model.is_file()
+                and spatial_cache.cached_sha256(model) == config["sha256"]):
             return False
-        return all(path.is_file() and sha256_file(path) == extra["sha256"]
+        return all(path.is_file()
+                   and spatial_cache.cached_sha256(path) == extra["sha256"]
                    for path, extra in zip(extras, config.get("extras", ())))
 
     if complete():
@@ -282,7 +285,34 @@ def guided_refine(depth, guide, radius=8, eps=1e-4):
     geometry: the filter only redistributes values that are already there.
     """
     import numpy as np
-    from scipy.ndimage import uniform_filter
+
+    def box1d(values, size, axis):
+        """Separable box mean with edge replication, O(1) per pixel.
+
+        Numerically identical to scipy.ndimage.uniform_filter(..., mode="nearest")
+        at these sizes: the running sum is accumulated in float64 and the result
+        is cast back to float32, so the 16-bit depth output is unchanged.
+        """
+        radius = size // 2
+        pad = [(0, 0), (0, 0)]
+        pad[axis] = (radius, radius)
+        padded = np.pad(values, pad, mode="edge")
+        sums = np.cumsum(padded, axis=axis, dtype=np.float64)
+        count = values.shape[axis]
+        if axis == 0:
+            high = sums[size - 1:size - 1 + count]
+            low = np.empty_like(high)
+            low[0] = 0
+            low[1:] = sums[:count - 1]
+        else:
+            high = sums[:, size - 1:size - 1 + count]
+            low = np.empty_like(high)
+            low[:, 0] = 0
+            low[:, 1:] = sums[:, :count - 1]
+        return ((high - low) / size).astype(np.float32)
+
+    def uniform_filter(values, size):
+        return box1d(box1d(values, size, 0), size, 1)
 
     g = np.asarray(guide, dtype=np.float32)
     if g.ndim == 3:
@@ -293,16 +323,16 @@ def guided_refine(depth, guide, radius=8, eps=1e-4):
     if g.shape != p.shape:
         return p
     size = int(radius) * 2 + 1
-    mean_g = uniform_filter(g, size, mode="nearest")
-    mean_p = uniform_filter(p, size, mode="nearest")
-    corr_gp = uniform_filter(g * p, size, mode="nearest")
-    corr_gg = uniform_filter(g * g, size, mode="nearest")
+    mean_g = uniform_filter(g, size)
+    mean_p = uniform_filter(p, size)
+    corr_gp = uniform_filter(g * p, size)
+    corr_gg = uniform_filter(g * g, size)
     var_g = corr_gg - mean_g * mean_g
     cov_gp = corr_gp - mean_g * mean_p
     a = cov_gp / (var_g + eps)
     b = mean_p - a * mean_g
-    mean_a = uniform_filter(a, size, mode="nearest")
-    mean_b = uniform_filter(b, size, mode="nearest")
+    mean_a = uniform_filter(a, size)
+    mean_b = uniform_filter(b, size)
     return mean_a * g + mean_b
 
 

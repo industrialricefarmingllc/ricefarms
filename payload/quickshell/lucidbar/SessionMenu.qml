@@ -162,7 +162,7 @@ BarPill {
                 Text {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Power"
+                    text: Tr.t("Power")
                     color: Theme.accent
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontTitleSm
@@ -237,7 +237,7 @@ BarPill {
                             y: root.gridPanel ? actionIcon.y + actionIcon.height + Theme.dp(8) : (parent.height - height) / 2
                             width: parent.width - x - (root.gridPanel ? Theme.dp(6) : Theme.dp(12))
                             horizontalAlignment: root.gridPanel ? Text.AlignHCenter : Text.AlignLeft
-                            text: actionRow.isArmed ? actionRow.modelData.label + (root.gridPanel ? "?" : "? Click again") : actionRow.modelData.label
+                            text: actionRow.isArmed ? actionRow.modelData.label + (root.gridPanel ? "?" : Tr.t("? Click again")) : actionRow.modelData.label
                             color: actionRow.isArmed ? Theme.fgError : Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodyLg

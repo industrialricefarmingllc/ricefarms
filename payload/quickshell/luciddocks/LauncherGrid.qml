@@ -106,64 +106,8 @@ Item {
         }
     }
 
-    // A finger swipe pages the wall: sideways turns a page (PageUp/PageDown)
-    // and up/down walks a row (the wheel's step). The wall is paged cells with
-    // pibble's slot rebinding rather than a Flickable, so the touch path is
-    // here instead of the view's own flick. A mouse drag follows the same path.
-    DragHandler {
-        id: swipe
-
-        target: null
-        enabled: root.count > 1
-
-        property real grabX: 0
-        property real grabY: 0
-        // the last point seen while dragging: on release the centroid can
-        // already be back at the press position, so the release delta must
-        // come from the last motion, not from centroid.position
-        property real lastX: 0
-        property real lastY: 0
-
-        onCentroidChanged: {
-            if (swipe.active) {
-                swipe.lastX = centroid.position.x;
-                swipe.lastY = centroid.position.y;
-            }
-        }
-
-        onActiveChanged: {
-            if (swipe.active) {
-                swipe.grabX = swipe.lastX = centroid.position.x;
-                swipe.grabY = swipe.lastY = centroid.position.y;
-                return ;
-            }
-
-            // include the release velocity so a quick flick carries further
-            var dx = swipe.lastX - swipe.grabX + centroid.velocity.x * 0.12;
-            var dy = swipe.lastY - swipe.grabY + centroid.velocity.y * 0.12;
-            if (Math.max(Math.abs(dx), Math.abs(dy)) < Theme.dp(30))
-                return ;
-
-            if (Math.abs(dx) >= Math.abs(dy)) {
-                if (root.pageCount > 1)
-                    root.pageMove(dx < 0 ? 1 : -1);
-                else
-                    root.stepHorizontal(dx < 0 ? 1 : -1);
-                return ;
-            }
-
-            // one page at most: a long throw should not skip the wall
-            var rows = Math.max(1, Math.min(root.rows, Math.round(Math.abs(dy) / Math.max(Theme.dp(44), root.tileH + root.rowGap))));
-            for (var i = 0; i < rows; i++)
-                root.stepVertical(dy < 0 ? 1 : -1);
-        }
-    }
-
     onCountChanged: {
-        // while a model rebuilds it briefly reports zero items; keep the
-        // selection there instead of dropping the page the user just swiped
-        // to (a real query change calls resetSelection explicitly)
-        if (count > 0 && currentIndex >= count)
+        if (currentIndex >= count)
             currentIndex = Math.max(0, count - 1);
     }
     onActiveChanged: {
@@ -296,7 +240,7 @@ Item {
                 property: "opacity"
                 from: 0
                 to: 1
-                duration: Theme.ms(200)
+                duration: Theme.ms(160)
                 easing.type: Easing.OutCubic
             }
 
@@ -305,7 +249,7 @@ Item {
                 property: "scale"
                 from: 0.9
                 to: 1
-                duration: Theme.ms(280)
+                duration: Theme.ms(220)
                 easing.type: Easing.OutBack
                 easing.overshoot: 1.8
             }
@@ -315,7 +259,7 @@ Item {
                 property: "anchors.verticalCenterOffset"
                 from: 40
                 to: 0
-                duration: Theme.ms(280)
+                duration: Theme.ms(220)
                 easing.type: Easing.OutBack
                 easing.overshoot: 1.8
             }
@@ -416,16 +360,25 @@ Item {
                             height: root.iconBox
 
                             // The plate is full-size; the icon is drawn at
-                            // 100% and cropped to that circle. Selection tints
-                            // the plate itself instead of ringing it.
+                            // 100% and cropped to that circle.
+                            SquircleRect {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.dp(3)
+                                fillColor: "transparent"
+                                borderColor: Theme.accent
+                                borderWidth: cell.isSelected ? Theme.dp(2) : 0
+                                radius: width / 2
+                                smoothing: Prefs.squircleF
+                                visible: cell.isSelected
+                            }
+
                             SquircleRect {
                                 id: iconPlate
 
-                                readonly property color plateColour: cell.isSelected ? Theme.accentContainer : (Theme.isLightMode ? "#ffffff" : "#000000")
                                 anchors.fill: parent
                                 radius: width / 2
-                                fillColor: plateColour
-                                borderColor: plateColour
+                                fillColor: Theme.isLightMode ? "#ffffff" : "#000000"
+                                borderColor: Theme.isLightMode ? "#ffffff" : "#000000"
                                 borderWidth: Theme.dp(2)
                                 smoothing: Prefs.squircleF
                             }
@@ -442,9 +395,12 @@ Item {
                                 cache: true
                                 // Decode above the drawn size so the surface's
                                 // 1.35x reveal scale (and any HiDPI factor)
-                                // never upsamples a tiny pixmap.
-                                sourceSize.width: Math.max(64, Math.ceil(width * 4))
-                                sourceSize.height: Math.max(64, Math.ceil(height * 4))
+                                // never upsamples a tiny pixmap. 3x covers
+                                // 1.35 x 2 dpr with a little headroom; 4x was
+                                // 78% more decoded/texture pixels for no
+                                // visible gain at this tile size.
+                                sourceSize.width: Math.max(64, Math.ceil(width * 3))
+                                sourceSize.height: Math.max(64, Math.ceil(height * 3))
                                 // Smooth/downsample rather than nearest-neighbour.
                                 smooth: true
                                 mipmap: true
@@ -462,7 +418,7 @@ Item {
                                 // Mask in a supersampled layer, otherwise the
                                 // mask is baked at 1x and the face scale blurs
                                 // the icon back down again.
-                                layer.textureSize: Qt.size(Math.ceil(width * 4), Math.ceil(height * 4))
+                                layer.textureSize: Qt.size(Math.ceil(width * 3), Math.ceil(height * 3))
                                 layer.smooth: true
                                 layer.mipmap: true
                                 layer.effect: ShaderEffect {
@@ -473,22 +429,22 @@ Item {
                                 }
                             }
 
-                            Text {
+                            Twemoji {
                                 anchors.centerIn: parent
                                 visible: root.emojiMode
-                                text: cell.shownEntry ? cell.shownEntry.emoji : ""
-                                color: Theme.text
-                                font.family: "Noto Color Emoji"
-                                font.pixelSize: Math.round(root.iconBox * 0.58)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
+                                emoji: cell.shownEntry ? cell.shownEntry.emoji : ""
+                                imageSource: cell.shownEntry ? (cell.shownEntry.image || "") : ""
+                                animated: cell.shownEntry ? (cell.shownEntry.animated === true) : false
+                                playing: root.active
+                                size: Math.round(root.iconBox * 0.58)
+                                fallbackColor: Theme.text
                             }
 
                             LText {
                                 anchors.centerIn: parent
                                 visible: !root.emojiMode && appIcon.status !== Image.Ready
                                 text: cell.shownEntry ? cell.shownEntry.title.slice(0, 2).toUpperCase() : ""
-                                color: cell.isSelected ? Theme.fgAccentContainer : (Theme.isLightMode ? "#000000" : "#ffffff")
+                                color: Theme.isLightMode ? "#000000" : "#ffffff"
                                 role: "labelLarge"
                                 size: Math.round(root.iconSize * 0.52)
                                 horizontalAlignment: Text.AlignHCenter
@@ -540,7 +496,7 @@ Item {
                         }
 
                         PauseAnimation {
-                            duration: cell.index * 22
+                            duration: cell.index * 11
                         }
 
                         ParallelAnimation {
@@ -548,7 +504,7 @@ Item {
                                 target: wrap
                                 property: "opacity"
                                 to: 1
-                                duration: Theme.ms(180)
+                                duration: Theme.ms(140)
                                 easing.type: Easing.OutCubic
                             }
 
@@ -556,7 +512,7 @@ Item {
                                 target: wrap
                                 property: "scale"
                                 to: 1
-                                duration: Theme.ms(280)
+                                duration: Theme.ms(220)
                                 easing.type: Easing.OutBack
                                 easing.overshoot: 2.2
                             }
@@ -565,7 +521,7 @@ Item {
                                 target: wrap
                                 property: "anchors.verticalCenterOffset"
                                 to: 0
-                                duration: Theme.ms(280)
+                                duration: Theme.ms(220)
                                 easing.type: Easing.OutBack
                                 easing.overshoot: 2.2
                             }
@@ -595,7 +551,7 @@ Item {
                                 target: wrap
                                 property: "scale"
                                 to: 0.4
-                                duration: Theme.ms(280)
+                                duration: Theme.ms(200)
                                 easing.type: Easing.InQuad
                             }
 
@@ -603,7 +559,7 @@ Item {
                                 target: wrap
                                 property: "opacity"
                                 to: 0
-                                duration: Theme.ms(280)
+                                duration: Theme.ms(200)
                                 easing.type: Easing.InQuad
                             }
 
@@ -622,7 +578,7 @@ Item {
     LText {
         anchors.centerIn: parent
         visible: root.count === 0
-        text: "No apps found"
+        text: Tr.t("No apps found")
         role: "bodyMedium"
         color: Theme.subtext
     }

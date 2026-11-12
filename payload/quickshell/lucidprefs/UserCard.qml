@@ -70,7 +70,7 @@ Item {
 
         Text {
             width: parent.width
-            text: Users.displayName(card.user) || "Account"
+            text: Users.displayName(card.user) || Tr.t("Account")
             color: card.fg
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBodyLg

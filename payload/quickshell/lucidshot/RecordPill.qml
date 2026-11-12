@@ -96,7 +96,7 @@ Item {
                     role: "labelLarge"
                     tabular: true
                     color: Theme.fgErrorContainer
-                    text: pill.paused ? "Paused  " + Capture.clock(Capture.seconds) : Capture.clock(Capture.seconds)
+                    text: pill.paused ? Tr.t("Paused  ") + Capture.clock(Capture.seconds) : Capture.clock(Capture.seconds)
                 }
 
             }
@@ -139,7 +139,7 @@ Item {
             danger: true
             size: "s"
             icon: "stop"
-            text: "Stop"
+            text: Tr.t("Stop")
             onClicked: Capture.stop()
         }
 
@@ -171,7 +171,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             role: "labelLarge"
             color: Theme.text
-            text: "Saving the recording…"
+            text: Tr.t("Saving the recording…")
         }
 
         Item {

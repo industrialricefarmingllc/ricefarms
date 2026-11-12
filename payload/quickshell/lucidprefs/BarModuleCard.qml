@@ -70,8 +70,8 @@ SettingCard {
     SettingRow {
         id: showRow
 
-        title: "Show in the bar"
-        description: (Prefs[card.mod ? card.mod.key : ""] === true ? "In the " + card.groupName + " group. Drag it along the bar to move it, or down off the bar to take it out." : "Switched on, it goes back where it was.") + (card.away ? " Not in the bar right now: it shows " + card.mod.when + "." : "")
+        title: Tr.t("Show in the bar")
+        description: (Prefs[card.mod ? card.mod.key : ""] === true ? Tr.t("In the ") + card.groupName + Tr.t(" group. Drag it along the bar to move it, or down off the bar to take it out.") : Tr.t("Switched on, it goes back where it was.")) + (card.away ? Tr.t(" Not in the bar right now: it shows ") + card.mod.when + "." : "")
         enabled: card.barOn
         disabledReason: "The bar is switched off, so this module has nothing to appear in."
         showDivider: false
@@ -91,8 +91,8 @@ SettingCard {
     // how it looks, closed in the bar and opened; the bar changes as you pick
     SettingRow {
         visible: !!card.mod && !!card.mod.styles
-        title: "In the bar"
-        description: "How it looks until you open it."
+        title: Tr.t("In the bar")
+        description: Tr.t("How it looks until you open it.")
         stacked: true
         showDivider: false
 
@@ -129,8 +129,8 @@ SettingCard {
 
     SettingRow {
         visible: !!card.mod && !!card.mod.panelStyles
-        title: "Opened"
-        description: "How its panel looks."
+        title: Tr.t("Opened")
+        description: Tr.t("How its panel looks.")
         stacked: true
         showDivider: false
 
@@ -159,9 +159,9 @@ SettingCard {
     // workspaces
     SettingRow {
         visible: card.moduleId === "workspaces"
-        title: "How many"
+        title: Tr.t("How many")
         resetKey: "workspacesShown"
-        description: "The ones it always shows. A workspace past them still shows up while it exists."
+        description: Tr.t("The ones it always shows. A workspace past them still shows up while it exists.")
         stacked: true
         showDivider: false
 
@@ -180,9 +180,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "workspaces"
-        title: "Wheel to switch"
+        title: Tr.t("Wheel to switch")
         resetKey: "workspacesWheel"
-        description: "The wheel over it moves to the next or the previous workspace."
+        description: Tr.t("The wheel over it moves to the next or the previous workspace.")
         showDivider: false
 
         M3Switch {
@@ -199,9 +199,9 @@ SettingCard {
         id: clockDate
 
         visible: card.moduleId === "clock"
-        title: "Date"
+        title: Tr.t("Date")
         resetKey: "clockDateFormat"
-        description: "How the date reads beside or under the time."
+        description: Tr.t("How the date reads beside or under the time.")
         enabled: Prefs.clockShowDate
         disabledReason: "The date is switched off on the Date & Time page."
         stacked: true
@@ -234,9 +234,9 @@ SettingCard {
     // media
     SettingRow {
         visible: card.moduleId === "media"
-        title: "Hide it when nothing plays"
+        title: Tr.t("Hide it when nothing plays")
         resetKey: "mediaHideIdle"
-        description: "Off, it says Nothing playing; on, it leaves the bar until a player starts."
+        description: Tr.t("Off, it says Nothing playing; on, it leaves the bar until a player starts.")
         showDivider: false
 
         M3Switch {
@@ -250,9 +250,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "media"
-        title: "Artist before the title"
+        title: Tr.t("Artist before the title")
         resetKey: "mediaArtist"
-        description: "The panel always names both."
+        description: Tr.t("The panel always names both.")
         showDivider: false
 
         M3Switch {
@@ -266,9 +266,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "media"
-        title: "Longest the track gets"
+        title: Tr.t("Longest the track gets")
         resetKey: "mediaTitleWidth"
-        description: "A longer one scrolls while it plays."
+        description: Tr.t("A longer one scrolls while it plays.")
         enabled: Prefs.mediaStyle !== "compact"
         disabledReason: "Compact shows no track."
         stacked: true
@@ -291,9 +291,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "media"
-        title: "Play button"
+        title: Tr.t("Play button")
         resetKey: "mediaPlayButton"
-        description: "Off, a click opens the player and the panel has the buttons."
+        description: Tr.t("Off, a click opens the player and the panel has the buttons.")
         showDivider: false
 
         M3Switch {
@@ -307,9 +307,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "media"
-        title: "Wheel for the volume"
+        title: Tr.t("Wheel for the volume")
         resetKey: "mediaWheelVolume"
-        description: "The wheel over it turns the player's own volume up or down."
+        description: Tr.t("The wheel over it turns the player's own volume up or down.")
         showDivider: false
 
         M3Switch {
@@ -326,9 +326,9 @@ SettingCard {
     // system tray
     SettingRow {
         visible: card.moduleId === "tray"
-        title: "Icon colours"
+        title: Tr.t("Icon colours")
         resetKey: "trayIconColor"
-        description: "As each app draws them, or in the shell's colours: grey from the text, or one of the palette's colours. Their light and shade stay either way. An app Lucid has its own icon for shows that instead, unless legacy icons are on."
+        description: Tr.t("As each app draws them, or in the shell's colours: grey from the text, or one of the palette's colours. Their light and shade stay either way. An app Lucid has its own icon for shows that instead, unless legacy icons are on.")
         stacked: true
         showDivider: false
 
@@ -360,9 +360,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "tray"
-        title: "Apps in the tray"
+        title: Tr.t("Apps in the tray")
         resetKey: "trayHidden"
-        description: SystemTray.items.values.length > 0 ? "The ones running now. One switched off stays out of the bar and the panel until you switch it back on." : "Nothing is in the tray right now. Apps show up here while they run."
+        description: SystemTray.items.values.length > 0 ? Tr.t("The ones running now. One switched off stays out of the bar and the panel until you switch it back on.") : Tr.t("Nothing is in the tray right now. Apps show up here while they run.")
         stacked: true
         showDivider: false
 
@@ -447,9 +447,9 @@ SettingCard {
     // privacy
     SettingRow {
         visible: card.moduleId === "privacy"
-        title: "Watch"
+        title: Tr.t("Watch")
         resetKey: "privacyWatch"
-        description: "What makes the module show up. At least one stays on."
+        description: Tr.t("What makes the module show up. At least one stays on.")
         stacked: true
         showDivider: false
 
@@ -488,9 +488,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "privacy"
-        title: "Tell me when something starts"
+        title: Tr.t("Tell me when something starts")
         resetKey: "privacyToast"
-        description: "A toast names the app the moment it starts using the microphone, the camera or the screen. Lucid's own recording, which you start yourself, is left out."
+        description: Tr.t("A toast names the app the moment it starts using the microphone, the camera or the screen. Lucid's own recording, which you start yourself, is left out.")
         showDivider: false
 
         M3Switch {
@@ -504,9 +504,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "privacy"
-        title: "Keep its place in the bar"
+        title: Tr.t("Keep its place in the bar")
         resetKey: "privacyAlwaysShown"
-        description: "A quiet shield stays when nothing is in use, so the modules beside it never shift."
+        description: Tr.t("A quiet shield stays when nothing is in use, so the modules beside it never shift.")
         showDivider: false
 
         M3Switch {
@@ -521,9 +521,9 @@ SettingCard {
     // power
     SettingRow {
         visible: card.moduleId === "power"
-        title: "Actions"
+        title: Tr.t("Actions")
         resetKey: "powerModuleActions"
-        description: "The ones switched on show in the panel, top to bottom in this order. At least one stays."
+        description: Tr.t("The ones switched on show in the panel, top to bottom in this order. At least one stays.")
         stacked: true
         showDivider: false
 
@@ -639,9 +639,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "power"
-        title: "Ask twice"
+        title: Tr.t("Ask twice")
         resetKey: "powerModuleConfirm"
-        description: "Log out, restart and shut down wait for a second click within three seconds, so a stray one does nothing."
+        description: Tr.t("Log out, restart and shut down wait for a second click within three seconds, so a stray one does nothing.")
         showDivider: false
 
         M3Switch {
@@ -655,9 +655,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "power"
-        title: "Show how long it has been up"
+        title: Tr.t("Show how long it has been up")
         resetKey: "powerModuleUptime"
-        description: "The time since the machine started, at the top of the panel."
+        description: Tr.t("The time since the machine started, at the top of the panel.")
         showDivider: false
 
         M3Switch {
@@ -674,9 +674,9 @@ SettingCard {
         id: windowText
 
         visible: card.moduleId === "window"
-        title: "Shows"
+        title: Tr.t("Shows")
         resetKey: "windowModuleText"
-        description: "What the pill reads in the bar, or only the app's icon. The panel always has both."
+        description: Tr.t("What the pill reads in the bar, or only the app's icon. The panel always has both.")
         stacked: true
         showDivider: false
 
@@ -705,9 +705,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "window"
-        title: "Longest it gets"
+        title: Tr.t("Longest it gets")
         resetKey: "windowModuleWidth"
-        description: "A longer title is cut short with an ellipsis."
+        description: Tr.t("A longer title is cut short with an ellipsis.")
         enabled: Prefs.windowModuleText !== "icon"
         disabledReason: "It shows only the icon."
         stacked: true
@@ -730,9 +730,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "window"
-        title: "Scroll to switch windows"
+        title: Tr.t("Scroll to switch windows")
         resetKey: "windowModuleScroll"
-        description: "The wheel over the pill moves the focus through the windows on the workspace."
+        description: Tr.t("The wheel over the pill moves the focus through the windows on the workspace.")
         showDivider: false
 
         M3Switch {
@@ -746,9 +746,9 @@ SettingCard {
 
     SettingRow {
         visible: card.moduleId === "window"
-        title: "Middle click closes it"
+        title: Tr.t("Middle click closes it")
         resetKey: "windowModuleMiddleClose"
-        description: "Like closing a browser tab: the window in focus closes on a middle click on the pill."
+        description: Tr.t("Like closing a browser tab: the window in focus closes on a middle click on the pill.")
         showDivider: false
 
         M3Switch {
@@ -764,13 +764,13 @@ SettingCard {
         id: moreRow
 
         visible: !!card.mod && !!card.mod.more
-        title: "More settings"
+        title: Tr.t("More settings")
         description: card.mod && card.mod.more ? card.mod.more : ""
         showDivider: false
 
         M3Button {
             visible: !!card.mod && !!card.mod.page
-            text: card.mod && card.pageNames[card.mod.page] ? "Open " + card.pageNames[card.mod.page] : "Open"
+            text: card.mod && card.pageNames[card.mod.page] ? Tr.t("Open ") + card.pageNames[card.mod.page] : Tr.t("Open")
             variant: "tonal"
             onClicked: Prefs.settingsRequested(card.mod.page)
         }
@@ -779,12 +779,12 @@ SettingCard {
 
     SettingRow {
         visible: card.options.length > 0
-        title: "Reset this module"
-        description: "Its options above go back to how they ship. Whether it shows and where it sits stay as they are."
+        title: Tr.t("Reset this module")
+        description: Tr.t("Its options above go back to how they ship. Whether it shows and where it sits stay as they are.")
         showDivider: false
 
         M3Button {
-            text: "Reset"
+            text: Tr.t("Reset")
             variant: "text"
             destructive: true
             enabled: card.options.some((k) => {

@@ -116,7 +116,7 @@ Item {
 
                 NotifTextButton {
                     anchors.verticalCenter: parent.verticalCenter
-                    label: "Clear"
+                    label: Tr.t("Clear")
                     onClicked: Notifs.clearGroup(group.groupKey)
                 }
 

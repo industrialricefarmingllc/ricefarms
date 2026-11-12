@@ -40,11 +40,11 @@ Column {
     spacing: Theme.dp(26)
 
     SettingCard {
-        title: "KEYBINDS"
+        title: Tr.t("KEYBINDS")
 
         SettingRow {
-            title: Keybinds.missing ? "No keybinds file yet" : Keybinds.binds.length + " keybinds"
-            description: Keybinds.missing ? "~/.config/lucid/keybinds.json does not exist, so Hyprland is running a small emergency set. Add a keybind to start the file, or re-run the Lucid installer for the full default list." : "Kept in ~/.config/lucid/keybinds.json. Every change is saved as you make it and Hyprland reloads straight away, so a new key works the moment you save it." + (Keybinds.sheetKeys !== "" ? " " + Keybinds.sheetKeys + " shows them all, over whatever you are doing." : "")
+            title: Keybinds.missing ? Tr.t("No keybinds file yet") : Keybinds.binds.length + Tr.t(" keybinds")
+            description: Keybinds.missing ? Tr.t("~/.config/lucid/keybinds.json does not exist, so Hyprland is running a small emergency set. Add a keybind to start the file, or re-run the Lucid installer for the full default list.") : Tr.t("Kept in ~/.config/lucid/keybinds.json. Every change is saved as you make it and Hyprland reloads straight away, so a new key works the moment you save it.") + (Keybinds.sheetKeys !== "" ? " " + Keybinds.sheetKeys + Tr.t(" shows them all, over whatever you are doing.") : "")
             warning: page.problems
             showDivider: Keybinds.extraCount > 0
             stacked: true
@@ -54,7 +54,7 @@ Column {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Add keybind"
+                    text: Tr.t("Add keybind")
                     variant: "filled"
                     enabled: Keybinds.parseError === ""
                     iconPath: "add"
@@ -62,19 +62,19 @@ Column {
                 }
 
                 M3Button {
-                    text: "Show cheatsheet"
+                    text: Tr.t("Show cheatsheet")
                     variant: "tonal"
                     onClicked: Keybinds.sheetRequested()
                 }
 
                 M3Button {
-                    text: "Edit file"
+                    text: Tr.t("Edit file")
                     variant: "outlined"
                     onClicked: Keybinds.openFile()
                 }
 
                 M3Button {
-                    text: "Reload Hyprland"
+                    text: Tr.t("Reload Hyprland")
                     variant: "text"
                     onClicked: Keybinds.reloadHyprland()
                 }
@@ -85,8 +85,8 @@ Column {
 
         SettingRow {
             visible: Keybinds.extraCount > 0
-            title: "Binds from elsewhere"
-            description: Keybinds.extraCount + (Keybinds.extraCount === 1 ? " more bind is" : " more binds are") + " active in Hyprland than this list holds. They come from hypr-user.lua or another module, so they cannot be changed here — and one on the same keys as a bind below fires alongside it."
+            title: Tr.t("Binds from elsewhere")
+            description: Keybinds.extraCount + (Keybinds.extraCount === 1 ? Tr.t(" more bind is") : Tr.t(" more binds are")) + Tr.t(" active in Hyprland than this list holds. They come from hypr-user.lua or another module, so they cannot be changed here — and one on the same keys as a bind below fires alongside it.")
             showDivider: false
         }
 
@@ -102,7 +102,7 @@ Column {
             anchors.right: found.left
             anchors.rightMargin: found.text === "" ? 0 : Theme.dp(16)
             anchors.verticalCenter: parent.verticalCenter
-            placeholder: "Search by key, action or category"
+            placeholder: Tr.t("Search by key, action or category")
             text: page.query
             onEdited: (v) => {
                 page.query = v;
@@ -115,7 +115,7 @@ Column {
             anchors.right: parent.right
             anchors.rightMargin: Theme.dp(6)
             anchors.verticalCenter: parent.verticalCenter
-            text: page.query.trim() === "" ? "" : page.shownBinds.length + " found"
+            text: page.query.trim() === "" ? "" : page.shownBinds.length + Tr.t(" found")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBodyMd
@@ -126,7 +126,7 @@ Column {
     Text {
         width: parent.width
         visible: page.query.trim() !== "" && page.shownCategories.length === 0
-        text: "No keybind matches “" + page.query.trim() + "”."
+        text: Tr.t("No keybind matches “") + page.query.trim() + "”."
         color: Theme.subtext
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontBodyLg
@@ -173,15 +173,15 @@ Column {
     }
 
     SettingCard {
-        title: "DESKTOP ICONS"
+        title: Tr.t("DESKTOP ICONS")
         visible: page.shownDeskKeys.length > 0
 
         SettingRow {
-            title: "Desktop shortcuts"
-            description: "The keys the desktop icons answer to while the desktop has the keyboard: click an empty spot or an icon first. Apps never see them, and they never fire inside an app, so the usual Ctrl+C and Ctrl+V are safe here." + (Prefs.desktopIcons ? "" : " Desktop icons are off in General.")
+            title: Tr.t("Desktop shortcuts")
+            description: Tr.t("The keys the desktop icons answer to while the desktop has the keyboard: click an empty spot or an icon first. Apps never see them, and they never fire inside an app, so the usual Ctrl+C and Ctrl+V are safe here.") + (Prefs.desktopIcons ? "" : Tr.t(" Desktop icons are off in General."))
 
             M3Button {
-                text: "Reset all"
+                text: Tr.t("Reset all")
                 variant: "text"
                 enabled: Object.keys(DesktopIcons.keyOverrides).length > 0
                 onClicked: Prefs.desktopKeys = "{}"
@@ -212,16 +212,16 @@ Column {
     }
 
     SettingCard {
-        title: "HOW A KEYBIND IS WRITTEN"
+        title: Tr.t("HOW A KEYBIND IS WRITTEN")
 
         SettingRow {
-            title: "Keys"
-            description: "Modifiers and one key joined with +, as in SUPER + SHIFT + T. Key names are Hyprland's: left, Return, Print, comma, F5, XF86AudioRaiseVolume, mouse:272 for a left click, mouse_down for the wheel. Record fills this in by pressing the keys."
+            title: Tr.t("Keys")
+            description: Tr.t("Modifiers and one key joined with +, as in SUPER + SHIFT + T. Key names are Hyprland's: left, Return, Print, comma, F5, XF86AudioRaiseVolume, mouse:272 for a left click, mouse_down for the wheel. Record fills this in by pressing the keys.")
         }
 
         SettingRow {
-            title: "Actions"
-            description: "A command runs through the shell, the same as typing it in a terminal. Lua is for Hyprland's own actions — hl.dsp.window.close(), hl.dsp.focus({ workspace = 3 }) — or function() … end for anything longer, with fn (utils/functions.lua) and seq(a, b) to hand. A Lua mistake only costs that one key: it is marked here and everything else still binds."
+            title: Tr.t("Actions")
+            description: Tr.t("A command runs through the shell, the same as typing it in a terminal. Lua is for Hyprland's own actions — hl.dsp.window.close(), hl.dsp.focus({ workspace = 3 }) — or function() … end for anything longer, with fn (utils/functions.lua) and seq(a, b) to hand. A Lua mistake only costs that one key: it is marked here and everything else still binds.")
             showDivider: false
         }
 

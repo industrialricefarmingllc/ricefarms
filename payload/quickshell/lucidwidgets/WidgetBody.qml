@@ -19,6 +19,11 @@ Item {
     readonly property bool hovered: body.host ? body.host.hovered : false
     // true inside a settings gallery tile: no polling, no network, sample content
     readonly property bool preview: body.host ? body.host.preview === true : false
+    // True on the output the shell treats as its main one. Widgets can be
+    // placed "everywhere"; high-frequency animations and polling should only
+    // run once, on the main output, instead of once per monitor.
+    readonly property bool primaryScreen: body.host && body.host.board
+        ? body.host.board.isPrimary === true : true
     // true only for a card just placed, not one restored from disk
     readonly property bool born: body.host ? body.host.born === true : false
     // true while a grip is held, for bodies that would rather not rebuild mid-drag

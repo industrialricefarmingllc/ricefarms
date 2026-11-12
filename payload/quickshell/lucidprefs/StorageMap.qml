@@ -509,14 +509,14 @@ Item {
                 M3Button {
                     variant: "tonal"
                     visible: map.homeStack !== null && map.homeStack.length > 1
-                    text: map.atHome ? "Whole disk" : "Home"
+                    text: map.atHome ? Tr.t("Whole disk") : Tr.t("Home")
                     iconPath: map.atHome ? "hard_drive" : "home"
                     onClicked: map.atHome ? map.goTo(map.scan.root) : map.goTo(map.scan.home)
                 }
 
                 M3Button {
                     variant: "tonal"
-                    text: "Open"
+                    text: Tr.t("Open")
                     iconPath: "folder_open"
                     enabled: map.currentPath !== ""
                     onClicked: Storage.open(map.currentPath)
@@ -616,7 +616,7 @@ Item {
                 Text {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
-                    text: map.current && map.current.u ? "You are not allowed to look inside this folder." : "Nothing in here takes up any room."
+                    text: map.current && map.current.u ? Tr.t("You are not allowed to look inside this folder.") : Tr.t("Nothing in here takes up any room.")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBodyMd
@@ -644,7 +644,7 @@ Item {
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "Looking closer…"
+                        text: Tr.t("Looking closer…")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodyMd
@@ -822,7 +822,7 @@ Item {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: map.pal ? (kindKey.modelData === 0 ? "Folders and other files" : map.pal.kindName(kindKey.modelData)) : ""
+                        text: map.pal ? (kindKey.modelData === 0 ? Tr.t("Folders and other files") : map.pal.kindName(kindKey.modelData)) : ""
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabelMd
@@ -833,7 +833,7 @@ Item {
             }
 
             Text {
-                text: "Click a folder to go in, right-click anything for more"
+                text: Tr.t("Click a folder to go in, right-click anything for more")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelMd

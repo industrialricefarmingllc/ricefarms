@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import qs
 import qs.lucidui
+import "emojiSearch.js" as EmojiSearch
 
 Item {
     id: face
@@ -147,23 +148,11 @@ Item {
     }
 
     function searchEntries(data, q) {
-        if (q === "")
-            return [];
-
-        var starts = [];
-        var words = [];
-        var rest = [];
-        var anchored = " " + q;
-        for (var i = 0; i < data.length; i++) {
-            var it = data[i];
-            if (it.n.indexOf(q) === 0)
-                starts.push(face.makeEntry(it));
-            else if ((" " + it.n).indexOf(anchored) !== -1)
-                words.push(face.makeEntry(it));
-            else if ((" " + it.s).indexOf(anchored) !== -1)
-                rest.push(face.makeEntry(it));
-        }
-        return starts.concat(words, rest);
+        var found = EmojiSearch.wordStarts(data, q);
+        var out = [];
+        for (var i = 0; i < found.length; i++)
+            out.push(face.makeEntry(found[i]));
+        return out;
     }
 
     function isFav(d) {
@@ -452,7 +441,7 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         x: Theme.dp(2)
-                        text: face.isGif ? "Search GIFs…" : (face.isKaomoji ? "Search text faces…" : "Search emoji…")
+                        text: face.isGif ? Tr.t("Search GIFs…") : (face.isKaomoji ? Tr.t("Search text faces…") : Tr.t("Search emoji…"))
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBody
@@ -886,7 +875,7 @@ Item {
 
                     Text {
                         width: parent.width
-                        text: face.current ? (face.current.n !== "" ? face.current.n : "unnamed") : (face.host && face.host.wtypeAvailable ? "Click to type it into the focused window" : "Click to copy · stays open")
+                        text: face.current ? (face.current.n !== "" ? face.current.n : "unnamed") : (face.host && face.host.wtypeAvailable ? Tr.t("Click to type it into the focused window") : Tr.t("Click to copy · stays open"))
                         color: face.current ? Theme.text : Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBody
@@ -897,7 +886,7 @@ Item {
 
                     Text {
                         width: parent.width
-                        text: face.current && face.current.k !== "" ? face.current.k : "Right-click to favourite · Esc to close"
+                        text: face.current && face.current.k !== "" ? face.current.k : Tr.t("Right-click to favourite · Esc to close")
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(10)

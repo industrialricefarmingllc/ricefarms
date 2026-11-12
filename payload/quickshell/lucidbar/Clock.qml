@@ -174,7 +174,7 @@ BarPill {
                         weight: 660
                         tabular: true
                         color: Theme.fgErrorContainer
-                        text: Capture.state === "paused" ? "Paused" : Capture.clock(Capture.seconds)
+                        text: Capture.state === "paused" ? Tr.t("Paused") : Capture.clock(Capture.seconds)
                     }
 
                 }
@@ -590,7 +590,7 @@ BarPill {
                 LText {
                     role: "bodySmall"
                     color: Theme.subtext
-                    text: Agenda.firing ? Agenda.timeText(Agenda.firing) + (Agenda.ringing.length > 1 ? "  ·  +" + (Agenda.ringing.length - 1) + " more" : "") : ""
+                    text: Agenda.firing ? Agenda.timeText(Agenda.firing) + (Agenda.ringing.length > 1 ? "  ·  +" + (Agenda.ringing.length - 1) + Tr.t(" more") : "") : ""
                 }
 
             }
@@ -606,7 +606,7 @@ BarPill {
                 Button {
                     variant: "tonal"
                     size: "xs"
-                    text: "10 min"
+                    text: Tr.t("10 min")
                     icon: "snooze"
                     onClicked: {
                         if (Agenda.firing)

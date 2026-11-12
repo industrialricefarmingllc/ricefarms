@@ -20,6 +20,10 @@ from pathlib import Path
 
 INDEX_VERSION = 1
 INDEX_LIMIT = 2048
+# Model files are hashed once and then validated by stat identity, exactly like
+# wallpapers. A cold depth/prep run used to read the whole 99 MB / 178 MB model
+# (and seconds for the 1 GB exports) on every process start.
+FILE_INDEX = "file-index-v1.json"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
@@ -130,6 +134,57 @@ def source_info(path: Path, with_size: bool = False) -> tuple[str, int, int]:
                 entries.pop(stale, None)
         write_json(index_path, {"version": INDEX_VERSION, "entries": entries})
     return digest, width, height
+
+
+def _write_file_index(path: Path, entries: dict) -> None:
+    if len(entries) > INDEX_LIMIT:
+        for stale in list(entries)[:len(entries) - INDEX_LIMIT]:
+            entries.pop(stale, None)
+    try:
+        write_json(path, {"version": INDEX_VERSION, "entries": entries})
+    except OSError:
+        pass
+
+
+def store_sha256(path: Path, digest: str) -> None:
+    """Remember a hash that the caller already computed and verified."""
+    path = Path(path)
+    identity = _stat_key(path)
+    if not identity:
+        return
+    index_path = cache_root() / FILE_INDEX
+    entries = _read_index(index_path)
+    key = str(path.resolve())
+    entry = dict(entries.get(key) or {})
+    entry.update(identity)
+    entry["sha256"] = str(digest)
+    entries[key] = entry
+    _write_file_index(index_path, entries)
+
+
+def cached_sha256(path: Path, digest: str | None = None) -> str:
+    """SHA-256 of *path*, validated by stat identity when possible.
+
+    If ``digest`` is supplied it is trusted as already computed (the download
+    path verifies the temp file before installing it).
+    """
+    path = Path(path)
+    identity = _stat_key(path)
+    index_path = cache_root() / FILE_INDEX
+    entries = _read_index(index_path)
+    key = str(path.resolve())
+    entry = entries.get(key)
+    if identity and entry and _matches(entry, identity) and entry.get("sha256"):
+        return str(entry["sha256"])
+
+    value = str(digest) if digest is not None else sha256_file(path)
+    updated = dict(entry) if entry else {}
+    if identity:
+        updated.update(identity)
+    updated["sha256"] = value
+    entries[key] = updated
+    _write_file_index(index_path, entries)
+    return value
 
 
 def png_ihdr(path: Path) -> tuple[int, int, int, int] | None:

@@ -6,8 +6,8 @@ import qs.lucidprefs
 // of it to see it with what is set below
 SettingCard {
     SettingRow {
-        title: "Show the dock"
-        description: Prefs.dockEnabled ? "Off, the dock goes, and the launcher opens from the bottom edge on its own." : "The dock is switched off."
+        title: Tr.t("Show the dock")
+        description: Prefs.dockEnabled ? Tr.t("Off, the dock goes, and the launcher opens from the bottom edge on its own.") : Tr.t("The dock is switched off.")
         showDivider: false
 
         M3Switch {
@@ -20,12 +20,12 @@ SettingCard {
     }
 
     SettingRow {
-        title: "Try the launcher"
-        description: "Opens it out of the dock, so you can see it with the style and sizes below."
+        title: Tr.t("Try the launcher")
+        description: Tr.t("Opens it out of the dock, so you can see it with the style and sizes below.")
         showDivider: false
 
         M3Button {
-            text: "Open"
+            text: Tr.t("Open")
             variant: "tonal"
             onClicked: Edit.launcherRequested()
         }
@@ -33,8 +33,8 @@ SettingCard {
     }
 
     SettingRow {
-        title: "Move it"
-        description: "On the desktop, drag the handle above the dock up to float it higher, or down into the bottom edge to make it a notch."
+        title: Tr.t("Move it")
+        description: Tr.t("On the desktop, drag the handle above the dock up to float it higher, or down into the bottom edge to make it a notch.")
         enabled: Prefs.dockEnabled
         showDivider: false
     }

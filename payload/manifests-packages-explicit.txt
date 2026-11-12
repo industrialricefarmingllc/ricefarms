@@ -2,6 +2,7 @@
 alsa-utils
 alure
 amd-ucode
+an-anime-game-launcher-bin
 android-file-transfer
 android-tools
 android-udev
@@ -23,7 +24,9 @@ cachyos-v3-mirrorlist
 cachyos-v4-mirrorlist
 cage
 carla
+cava
 clang
+cli11
 cliphist
 cmake
 cuda
@@ -146,6 +149,7 @@ qt6-5compat
 qt6ct
 qt6-multimedia
 qt6-shadertools
+qt6-webengine
 quickshell
 realtime-privileges
 retroarch

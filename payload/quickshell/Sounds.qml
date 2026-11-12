@@ -11,6 +11,8 @@ Singleton {
     id: root
 
     readonly property string dir: Quickshell.shellPath("assets/sounds")
+    // the freedesktop terminal bell kitty rings; notifications can use it too
+    readonly property string systemBell: "/usr/share/sounds/freedesktop/stereo/bell.oga"
     // the notification picker's choices, in its order
     readonly property var notifSounds: [
         { "key": "glint", "label": "Glint" },
@@ -20,13 +22,13 @@ Singleton {
         { "key": "orbit", "label": "Orbit" },
         { "key": "halo", "label": "Halo" },
         { "key": "beacon", "label": "Beacon" },
-        { "key": "alert", "label": "Alert" }
+        { "key": "alert", "label": "Alert" },
+        { "key": "bell", "label": "Terminal bell" }
     ]
     readonly property var systemSounds: ["usb-in", "usb-out", "bt-in", "bt-out", "power-in", "power-out", "charged", "battery-low", "battery-critical", "camera-on", "camera-off", "capture", "alarm", "reminder", "volume", "brightness", "caps-on", "caps-off", "mic-on", "mic-off"]
     // the freedesktop names a saved setting can still hold, carried across
     readonly property var legacy: ({
         "message": "pulse",
-        "bell": "glint",
         "complete": "chime",
         "suspend-error": "alert"
     })
@@ -54,7 +56,8 @@ Singleton {
             return ;
 
         root.lastPlayed[key] = now;
-        Quickshell.execDetached(["paplay", "--client-name=Lucid", "--stream-name=" + key, "--property=media.role=event", "--volume=" + root.paVolume(volume === undefined ? 1 : volume), root.dir + "/" + key + ".oga"]);
+        const path = key === "bell" ? root.systemBell : root.dir + "/" + key + ".oga";
+        Quickshell.execDetached(["paplay", "--client-name=Lucid", "--stream-name=" + key, "--property=media.role=event", "--volume=" + root.paVolume(volume === undefined ? 1 : volume), path]);
     }
 
     // a system event: the master switch, the event's own, and their volume.

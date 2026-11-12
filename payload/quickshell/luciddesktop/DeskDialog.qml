@@ -146,7 +146,7 @@ PanelWindow {
 
                     Button {
                         variant: "text"
-                        text: "Cancel"
+                        text: Tr.t("Cancel")
                         onClicked: DesktopIcons.answer(false)
                     }
 

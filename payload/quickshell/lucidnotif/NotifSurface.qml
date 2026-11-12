@@ -123,16 +123,7 @@ Item {
                     return ;
                 }
                 // a lone card behaves like its popup did: open what sent it
-                const n = item.notification;
-                if (!n || !n.actions)
-                    return ;
-
-                for (var i = 0; i < n.actions.length; i++) {
-                    if (n.actions[i].identifier === "default") {
-                        Notifs.invokeAction(n.actions[i]);
-                        return ;
-                    }
-                }
+                Notifs.activate(item.notification);
             }
         }
 

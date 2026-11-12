@@ -170,7 +170,7 @@ Item {
             destructive: true
             enabled: Keybinds.parseError === ""
             iconPath: "delete"
-            onClicked: Prefs.askConfirm("Delete this keybind?", "“" + Keybinds.displayDesc(row.bind) + "” (" + Keybinds.tokens(row.bind.keys).join(" + ") + ") is removed from keybinds.json and Hyprland reloads without it.", "Delete", "keybind-delete:" + row.bindId)
+            onClicked: Prefs.askConfirm(Tr.t("Delete this keybind?"), "“" + Keybinds.displayDesc(row.bind) + "” (" + Keybinds.tokens(row.bind.keys).join(" + ") + Tr.t(") is removed from keybinds.json and Hyprland reloads without it."), Tr.t("Delete"), "keybind-delete:" + row.bindId)
         }
 
     }

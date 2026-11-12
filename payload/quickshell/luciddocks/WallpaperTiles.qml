@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell.Widgets
 import qs
 
 // The wallpaper picker as a grid of rounded tiles: two rows that scroll sideways,
@@ -21,6 +20,7 @@ Item {
     property int itemGap: Theme.dp(10)
     property int hoveredIndex: -1
     property alias currentIndex: view.currentIndex
+    property bool userMoved: false
     property string appliedPath: ""
     // the picker's query, for the explicit "nothing matched" state
     property string filterText: ""
@@ -59,8 +59,10 @@ Item {
 
     // left and right move a column over, up and down a row inside the column
     function step(d) {
-        if (strip.model)
+        if (strip.model) {
+            strip.userMoved = true;
             view.currentIndex = Math.max(0, Math.min(strip.model.count - 1, view.currentIndex + d * strip.rows));
+        }
     }
 
     function stepVertical(d) {
@@ -71,6 +73,7 @@ Item {
         if (next < 0 || next >= strip.model.count || Math.floor(next / strip.rows) !== Math.floor(view.currentIndex / strip.rows))
             return;
 
+        strip.userMoved = true;
         view.currentIndex = next;
     }
 
@@ -206,6 +209,9 @@ Item {
             required property string name
             required property string preview
             required property string kind
+            // optional: not every filtered row carries source dimensions
+            property int srcWidth: 0
+            property int srcHeight: 0
             required property int index
 
             readonly property bool isCurrent: view.currentIndex === slot.index
@@ -224,27 +230,17 @@ Item {
 
             }
 
-            ClippingRectangle {
+            Rectangle {
                 id: card
 
                 anchors.centerIn: parent
                 width: slot.width - strip.itemGap
                 height: slot.height - strip.itemGap
-                // the shell's rounding, which opens up under the pointer or on the pick, kept
-                // in proportion on the small tiles of a many-row grid
-                radius: Math.min((slot.hovered || slot.isCurrent) ? Theme.radiusXl : Theme.radiusMd, Math.round(Math.min(card.width, card.height) * ((slot.hovered || slot.isCurrent) ? 0.34 : 0.26)))
+                radius: 5
                 color: Theme.bgTile
+                clip: true
                 scale: slot.pressed ? 1 - 4 / card.width : ((slot.hovered || slot.isCurrent) ? 1 + 6 / card.width : 1)
                 opacity: (slot.isCurrent || slot.hovered) ? 1 : 0.78
-
-                Behavior on radius {
-                    NumberAnimation {
-                        duration: Theme.ms(300)
-                        easing.type: Easing.Bezier
-                        easing.bezierCurve: Theme.easeEmphasizedDecel
-                    }
-
-                }
 
                 Behavior on scale {
                     NumberAnimation {
@@ -268,8 +264,11 @@ Item {
                     thumb: slot.thumb
                     preview: slot.preview
                     kind: slot.kind
+                    sourceWidth: slot.srcWidth
+                    sourceHeight: slot.srcHeight
                     active: slot.hovered || slot.isCurrent
                     current: slot.isCurrent
+                    preferThumb: true
                     sourceSizeWidth: strip.cellW * 2
                     sourceSizeHeight: strip.tile * 2
                 }
@@ -326,6 +325,7 @@ Item {
                         strip.noteOrigin(card);
                         strip.chosen(slot.path);
                     } else {
+                        strip.userMoved = true;
                         view.currentIndex = slot.index;
                     }
                 }
@@ -402,7 +402,7 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: strip.filterText !== "" ? (strip.live ? "No live wallpapers found" : "No wallpapers found") : (strip.live ? "No videos in this folder" : "No wallpapers in this folder")
+            text: strip.filterText !== "" ? (strip.live ? Tr.t("No live wallpapers found") : Tr.t("No wallpapers found")) : (strip.live ? Tr.t("No videos in this folder") : Tr.t("No wallpapers in this folder"))
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody

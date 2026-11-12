@@ -16,6 +16,8 @@ FocusScope {
     property bool error: false
     property bool clearable: tf.variant === "search"
     property bool password: false
+    property string accessibleName: ""
+    property string accessibleDescription: ""
     property color containerColor: tf.variant === "search" ? Theme.surfaceHigh : Theme.surfaceHighest
     property alias trailing: trailSlot.data
     readonly property bool active: input.activeFocus
@@ -75,6 +77,8 @@ FocusScope {
             role: tf.raised ? "bodySmall" : "bodyLarge"
             text: tf.label
             color: tf.error ? Theme.error : (tf.active ? Theme.primary : Theme.subtext)
+            // the input exposes the same label
+            Accessible.ignored: true
 
             Behavior on y {
                 NumberAnimation {
@@ -107,6 +111,14 @@ FocusScope {
             onTextEdited: tf.textEdited()
             Keys.onEscapePressed: tf.escaped()
 
+            Accessible.name: tf.accessibleName !== "" ? tf.accessibleName : (tf.label !== "" ? tf.label : tf.placeholder)
+            Accessible.description: tf.accessibleDescription !== "" ? tf.accessibleDescription : tf.supporting
+            Accessible.editable: true
+            Accessible.passwordEdit: tf.password
+            Accessible.searchEdit: tf.variant === "search"
+            Accessible.focusable: true
+            Accessible.focused: input.activeFocus
+
             LText {
                 visible: input.text === "" && (tf.label === "" || tf.variant === "search" || tf.active)
                 anchors.verticalCenter: parent.verticalCenter
@@ -114,6 +126,8 @@ FocusScope {
                 text: tf.placeholder
                 color: Theme.subtext
                 opacity: 0.8
+                // the input carries the accessible name; this is decoration
+                Accessible.ignored: true
             }
 
         }
@@ -137,6 +151,7 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
                 icon: "close"
                 size: "xs"
+                accessibleName: Tr.t("Clear")
                 onClicked: {
                     input.text = "";
                     tf.textEdited();

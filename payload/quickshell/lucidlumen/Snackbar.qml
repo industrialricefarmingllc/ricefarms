@@ -13,6 +13,10 @@ Rectangle {
 
     signal acted(var payload)
 
+    Accessible.role: Accessible.AlertMessage
+    Accessible.name: snack.message
+    Accessible.description: snack.action
+
     function show(msg, act, data) {
         snack.message = msg;
         snack.action = act || "";

@@ -220,7 +220,7 @@ Item {
                 Button {
                     anchors.verticalCenter: parent.verticalCenter
                     variant: "tonal"
-                    text: "Open"
+                    text: Tr.t("Open")
                     icon: "open_in_new"
                     onClicked: {
                         DesktopIcons.openSelection();
@@ -360,7 +360,7 @@ Item {
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: ql.isDir
-                    text: ql.peek && ql.peek.count === 0 ? "This folder is empty" : ""
+                    text: ql.peek && ql.peek.count === 0 ? Tr.t("This folder is empty") : ""
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBodyMd

@@ -13,6 +13,8 @@ Item {
     property string iconPath: ""
     property bool enabled: true
     property bool destructive: false
+    property string accessibleName: ""
+    property string accessibleDescription: ""
     readonly property color baseColor: {
         if (btn.variant === "filled")
             return btn.destructive ? Theme.error : Theme.accent;
@@ -33,6 +35,23 @@ Item {
     }
 
     signal clicked()
+
+    function activate() {
+        if (btn.enabled)
+            btn.clicked();
+    }
+
+    activeFocusOnTab: btn.enabled
+    Accessible.role: Accessible.Button
+    Accessible.name: btn.accessibleName !== "" ? btn.accessibleName : A11y.iconName(btn.iconPath, "")
+    Accessible.description: btn.accessibleDescription
+    Accessible.focusable: btn.enabled
+    Accessible.focused: btn.activeFocus
+    Accessible.pressed: area.pressed
+    Accessible.onPressAction: btn.activate()
+    Keys.onSpacePressed: btn.activate()
+    Keys.onReturnPressed: btn.activate()
+    Keys.onEnterPressed: btn.activate()
 
     implicitWidth: btn.size
     implicitHeight: btn.size
@@ -102,8 +121,22 @@ Item {
         hoverEnabled: true
         enabled: btn.enabled
         cursorShape: Qt.PointingHandCursor
-        onClicked: btn.clicked()
+        onClicked: {
+            btn.forceActiveFocus();
+            btn.activate();
+        }
         onPressedChanged: squish.kick(area.pressed ? -0.12 : 0.09)
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: Theme.pill(height + Theme.dp(6))
+        color: "transparent"
+        border.width: btn.activeFocus && btn.enabled ? Theme.dp(2) : 0
+        border.color: Theme.accent
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
     Behavior on opacity {

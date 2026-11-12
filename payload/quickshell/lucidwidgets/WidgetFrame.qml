@@ -38,6 +38,13 @@ Item {
     // whole instead of stopping at the edge of the screen it started on
     readonly property var carry: Widgets.dragRects[frame.uid]
     readonly property bool carried: frame.carry !== undefined && frame.carry !== null
+    // A carried copy exists on every output, but only the output whose part of
+    // the seam it actually covers should draw it. Otherwise a drag wakes the
+    // spatial foreground and glass publisher on every other monitor, which is
+    // a full 3D mesh load per output at the exact moment the drag starts.
+    readonly property bool onBoardNow: frame.board === null ? true
+        : frame.x + frame.width > 0 && frame.x < frame.board.width
+            && frame.y + frame.height > 0 && frame.y < frame.board.height
     readonly property var variantInfo: Widgets.variantAt(frame.wtype, frame.wvariant)
     // a variant that carries its own size: drag any edge instead of picking S/M/L/XL
     readonly property bool resizable: frame.variantInfo !== null && frame.variantInfo.resizable === true
@@ -64,7 +71,16 @@ Item {
     // Liquid glass (liquid-glass-hypr): the compositor draws the card's glass
     // behind it, so the QML container goes transparent. Bare variants have no
     // container either way.
-    readonly property bool externalGlass: Prefs.liquidGlassEnabled && !frame.bare
+    //
+    // While a card is actually moving the glass is not published for it: the
+    // per-frame blur/capture pass on a moving pill is the expensive part of a
+    // drag. The card paints its normal opaque background instead. The hold
+    // after the release keeps that background up until the pill has been
+    // republished and read, so the hand-off cannot flash a transparent gap.
+    readonly property bool moving: frame.dragging || frame.carried
+    property bool glassHold: false
+    readonly property bool glassSuspended: frame.moving || frame.glassHold
+    readonly property bool externalGlass: Prefs.liquidGlassEnabled && !frame.bare && !frame.glassSuspended
     // ... or for nothing at all. never while you are working on the card, and the
     // fade to zero takes it out of the mask on its own, since visible follows opacity
     readonly property bool blanked: body.item !== null && body.item.hidden === true && !frame.dragging && !frame.carried && !frame.resizing && !frame.menuOpen && !frame.selected
@@ -107,6 +123,14 @@ Item {
     // where the card sat when the drag began
     property real homeX: 0
     property real homeY: 0
+    // Snap targets are fixed for the duration of a drag: the cards around this
+    // one do not move, and neither does its own size. Build the candidate
+    // numbers once, then each pointer step only scans two flat arrays. The
+    // previous per-move snapBox built ~30 temporary objects at pointer rate,
+    // which showed up as GC work during long drags.
+    property var snapXs: []
+    property var snapYs: []
+    property var snapResult: ({ "x": 0, "y": 0 })
     // -1 / 0 / 1 for the edge the held grip pulls on
     property int gripH: 0
     property int gripV: 0
@@ -185,22 +209,62 @@ Item {
         return out;
     }
 
+    // flat [value, guide, value, guide, ...] lists, built once per drag
+    function rebuildSnap() {
+        frame.snapXs = [];
+        frame.snapYs = [];
+        if (!Prefs.widgetSnap || !frame.board)
+            return ;
+        var W = frame.board.width;
+        var H = frame.board.height;
+        var w = frame.cardW;
+        var h = frame.cardH;
+        var pad = 20;
+        var gap = 16;
+        var xs = [pad, pad, W - pad - w, W - pad, (W - w) / 2, W / 2];
+        var ys = [pad, pad, H - pad - h, H - pad, (H - h) / 2, H / 2];
+        var others = frame.siblings();
+        for (var i = 0; i < others.length; i++) {
+            var f = others[i];
+            xs.push(f.x, f.x, f.x + f.width - w, f.x + f.width,
+                f.x + (f.width - w) / 2, f.x + f.width / 2,
+                f.x + f.width + gap, -1, f.x - gap - w, -1);
+            ys.push(f.y, f.y, f.y + f.height - h, f.y + f.height,
+                f.y + (f.height - h) / 2, f.y + f.height / 2,
+                f.y + f.height + gap, -1, f.y - gap - h, -1);
+        }
+        frame.snapXs = xs;
+        frame.snapYs = ys;
+    }
+
+    function nearestSnapIndex(pos, list) {
+        var best = -1;
+        var bd = 9;
+        for (var i = 0; i < list.length; i += 2) {
+            var d = Math.abs(pos - list[i]);
+            if (d < bd) {
+                bd = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
     function snapTo(nx, ny) {
-        if (!Prefs.widgetSnap || !frame.board) {
+        if (!Prefs.widgetSnap || !frame.board || frame.snapXs.length === 0) {
             frame.guideX = -1;
             frame.guideY = -1;
-            return ({
-                "x": nx,
-                "y": ny
-            });
+            frame.snapResult.x = nx;
+            frame.snapResult.y = ny;
+            return frame.snapResult;
         }
-        var s = Widgets.snapBox(frame.board.width, frame.board.height, frame.cardW, frame.cardH, nx, ny, frame.siblings());
-        frame.guideX = s.gx;
-        frame.guideY = s.gy;
-        return ({
-            "x": s.x,
-            "y": s.y
-        });
+        var ix = frame.nearestSnapIndex(nx, frame.snapXs);
+        var iy = frame.nearestSnapIndex(ny, frame.snapYs);
+        frame.guideX = ix >= 0 ? frame.snapXs[ix + 1] : -1;
+        frame.guideY = iy >= 0 ? frame.snapYs[iy + 1] : -1;
+        frame.snapResult.x = ix >= 0 ? frame.snapXs[ix] : nx;
+        frame.snapResult.y = iy >= 0 ? frame.snapYs[iy] : ny;
+        return frame.snapResult;
     }
 
     // the card and its crew in the global layout, for the copies on the other
@@ -261,6 +325,7 @@ Item {
             Widgets.raise(c.uid);
         }
         frame.crew = crew;
+        frame.rebuildSnap();
         frame.grabX = mx;
         frame.grabY = my;
         frame.homeX = frame.x;
@@ -586,7 +651,7 @@ Item {
     readonly property real pinBadgeW: pinBadge.width
     readonly property real pinBadgeH: pinBadge.height
 
-    visible: (frame.onThisScreen || frame.carried) && frame.opacity > 0.01
+    visible: (frame.onThisScreen || frame.carried) && frame.onBoardNow && frame.opacity > 0.01
     width: frame.cardW
     height: frame.cardH
     z: frame.zOrder
@@ -598,6 +663,27 @@ Item {
     property bool appeared: false
 
     Component.onCompleted: appearTimer.start()
+    // Hand the glass back once the pill has been republished and read. 90 ms
+    // is well past the 4 ms bridge write and the plugin's 8 ms scan, while
+    // short enough not to be felt after the drop.
+    onMovingChanged: {
+        if (frame.moving) {
+            glassHoldTimer.stop();
+            frame.glassHold = false;
+        } else if (Prefs.liquidGlassEnabled && !frame.bare) {
+            frame.glassHold = true;
+            glassHoldTimer.restart();
+        }
+    }
+
+    Timer {
+        id: glassHoldTimer
+
+        interval: 90
+        repeat: false
+        onTriggered: frame.glassHold = false
+    }
+
     // the box picks cards up and drops them live; letting it go keeps what it held
     onMarkedChanged: {
         if (Widgets.marquee !== null)
@@ -702,6 +788,10 @@ Item {
         anchors.fill: parent
         z: frame.selected ? 7 : 0
         acceptedButtons: Qt.LeftButton
+        // a selected card is being moved as a whole: keep scroll views, lists
+        // and other pointer handlers inside the body from stealing the drag
+        // once it starts (the social feed's Flickable was catching it)
+        preventStealing: frame.selected
         cursorShape: frame.selected ? (frame.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.ArrowCursor
         onPressed: (mouse) => {
             Widgets.raise(frame.uid);
@@ -723,6 +813,11 @@ Item {
         smoothing: Prefs.squircleF
 
         Behavior on fillColor {
+            // instant while the glass is suspended (so the card is never see-
+            // through for a frame); the release hold lets the fill fade back
+            // to glass only after the pill is already published behind it
+            enabled: !frame.glassSuspended
+
             ColorAnimation {
                 duration: Theme.durSlowEffects
             }
@@ -760,6 +855,11 @@ Item {
 
                     anchors.fill: parent
                     asynchronous: false
+                    // a selected card drags as a whole: its own contents must not
+                    // see the pointer, or a DragHandler inside them (the social
+                    // feed's swipe-to-dismiss posts, a Flickable, a button) steals
+                    // the drag once it passes its threshold
+                    enabled: !frame.selected
                     // clock -> ClockWidget.qml, and so on for every category
                     source: frame.wtype === "" ? "" : frame.wtype.charAt(0).toUpperCase() + frame.wtype.slice(1) + "Widget.qml"
 

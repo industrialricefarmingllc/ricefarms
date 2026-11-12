@@ -61,6 +61,10 @@ Item {
         Qt.callLater(card.regroup);
     }
 
+    Accessible.role: Accessible.Grouping
+    Accessible.name: card.prettyTitle
+    Accessible.description: card.subtitle
+
     implicitWidth: parent ? parent.width : Theme.dp(400)
     implicitHeight: header.implicitHeight + inner.implicitHeight
     Component.onCompleted: card.regroupLater()

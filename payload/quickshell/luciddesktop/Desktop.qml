@@ -39,13 +39,18 @@ Variants {
 
         Connections {
             function onRawEvent(event) {
-                if (event.name === "openlayer" && /awww|swww|hyprpaper|swaybg|mpvpaper|wallpaper/i.test(event.data))
+                // a wallpaper daemon maps its own background layer, which often
+                // lands above this one and eats its clicks. skwd-paper is the
+                // backend in use here; remap over it as well as the older ones.
+                if (event.name === "openlayer" && /awww|swww|hyprpaper|swaybg|mpvpaper|wallpaper|skwd/i.test(event.data))
                     liftTimer.restart();
 
             }
 
             target: Hyprland
-            enabled: unit.icons
+            // not only with icons: the desktop menu and the selection box live
+            // on this layer too, and are covered the same way
+            enabled: Prefs.loaded && (Prefs.desktopSelection || Prefs.desktopMenu || unit.icons)
         }
 
         Timer {
@@ -376,33 +381,9 @@ Variants {
                 height: menu.open ? menuLayer.height : 0
             }
 
-            BackgroundEffect.blurRegion: (Theme.blurAmount > 0 && menu.open) ? menuBlur : null
-
-            // one slot per card in the cascade: regions take no repeater
-            Region {
-                id: menuBlur
-
-                MenuBlur {
-                    host: menu
-                    level: 0
-                }
-
-                MenuBlur {
-                    host: menu
-                    level: 1
-                }
-
-                MenuBlur {
-                    host: menu
-                    level: 2
-                }
-
-                MenuBlur {
-                    host: menu
-                    level: 3
-                }
-
-            }
+            // deliberately no BackgroundEffect here: frosting the card's area
+            // blurred every Lucid widget underneath it. the menu stays opaque
+            // instead, so what sits behind it is untouched
 
         }
 

@@ -14,6 +14,8 @@ Item {
     property bool password: false
     property bool reveal: false
     property bool error: false
+    property string accessibleName: ""
+    property string accessibleDescription: ""
 
     signal accepted(string value)
     signal edited(string value)
@@ -76,6 +78,12 @@ Item {
         enabled: field.enabled
         clip: true
         text: field.text
+        Accessible.name: field.accessibleName !== "" ? field.accessibleName : field.placeholder
+        Accessible.description: field.accessibleDescription
+        Accessible.editable: true
+        Accessible.passwordEdit: field.password
+        Accessible.focusable: field.enabled
+        Accessible.focused: input.activeFocus
         onTextChanged: {
             if (input.text !== field.text)
                 field.edited(input.text);
@@ -118,6 +126,7 @@ Item {
         font.variableAxes: Theme.axes(Theme.fontBodyLg, 420, 0)
         elide: Text.ElideRight
         visible: input.text === ""
+        Accessible.ignored: true
     }
 
     M3IconButton {
@@ -128,6 +137,7 @@ Item {
         iconSize: Theme.dp(19)
         visible: field.password
         iconPath: field.reveal ? "visibility" : "visibility_off"
+        accessibleName: field.reveal ? Tr.t("Hide password") : Tr.t("Show password")
         onClicked: {
             field.reveal = !field.reveal;
             input.forceActiveFocus();

@@ -381,8 +381,8 @@ Item {
             readonly property bool jellyWobbling: cardJelly.wobbling
             readonly property bool menuShown: menu.open
 
-            // in: the menu grows out of the click and wobbles; out: m3's quick fade in
-            // place, never shrinking away, and any wobble left plays out under it
+            // in: the menu grows out of the click with a faint settle; out: m3's
+            // quick fade in place, never shrinking away
             onMenuShownChanged: {
                 if (card.menuShown) {
                     vanish.stop();
@@ -392,7 +392,7 @@ Item {
 
                     appear.restart();
                     if (card.index === 0)
-                        cardJelly.kickAfter(Math.min(0.09, Theme.dp(20) / Math.max(1, card.ch)), Math.round(Theme.durEnter * 0.3));
+                        cardJelly.kickAfter(Math.min(0.012, Theme.dp(3) / Math.max(1, card.ch)), Math.round(Theme.durEnter * 0.2));
 
                 } else {
                     appear.stop();
@@ -441,8 +441,10 @@ Item {
             }
             // m3 expressive: the card in focus rounds out, the one it came from squares off a little
             radius: card.focused && menu.levels.length > 1 ? Theme.radiusLg : Theme.radiusMd
-            fillColor: Theme.bg
-            borderWidth: Theme.blurAmount > 0 ? 0 : 1
+            // opaque: the menu no longer frosts the desktop, so a translucent
+            // fill would just let Lucid's widgets show through unblurred
+            fillColor: Theme.bgOpaque
+            borderWidth: 1
             borderColor: Theme.alpha(Theme.text, 0.06)
             smoothing: Prefs.squircleF
             opacity: menu.open ? 1 : 0
@@ -474,7 +476,9 @@ Item {
                     target: card
                     anchorX: card.flipX ? 1 : 0
                     anchorY: card.flipY ? 1 : 0
-                    frequency: 4.4
+                    // a low, heavily damped settle rather than a visible wobble
+                    frequency: 2.2
+                    damping: 0.7
                 },
                 Translate {
                     x: card.slide
@@ -508,7 +512,7 @@ Item {
 
                 onStarted: {
                     enter.lastRow = card.level ? card.level.row : -2;
-                    cardJelly.kickAfter(Math.min(0.07, Theme.dp(14) / Math.max(1, card.ch)), Math.round(Theme.durMedium * 0.3));
+                    cardJelly.kickAfter(Math.min(0.01, Theme.dp(2) / Math.max(1, card.ch)), Math.round(Theme.durMedium * 0.2));
                 }
 
                 NumberAnimation {

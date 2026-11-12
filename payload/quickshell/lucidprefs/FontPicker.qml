@@ -85,7 +85,7 @@ Item {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: Theme.dp(22)
-            text: "Interface font"
+            text: Tr.t("Interface font")
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontHeadlineSm
@@ -136,7 +136,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.dp(12)
                 anchors.verticalCenter: parent.verticalCenter
-                text: "Search " + picker.families.length + " installed fonts"
+                text: Tr.t("Search ") + picker.families.length + Tr.t(" installed fonts")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodyLg

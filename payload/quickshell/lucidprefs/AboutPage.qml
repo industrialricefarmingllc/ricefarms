@@ -74,7 +74,7 @@ Column {
     }
 
     SettingCard {
-        title: "UPDATES"
+        title: Tr.t("UPDATES")
 
         SettingRow {
             title: {
@@ -94,7 +94,7 @@ Column {
 
                 M3Button {
                     visible: !Updates.installing
-                    text: Updates.busy ? "Checking…" : "Check now"
+                    text: Updates.busy ? Tr.t("Checking…") : Tr.t("Check now")
                     variant: "tonal"
                     enabled: !Updates.busy && Updates.current !== ""
                     onClicked: Updates.check()
@@ -102,7 +102,7 @@ Column {
 
                 // what this version brought, in the shell's own sheet
                 M3Button {
-                    text: "What's new"
+                    text: Tr.t("What's new")
                     variant: "outlined"
                     onClicked: Updates.showWhatsNew()
                 }
@@ -110,7 +110,7 @@ Column {
                 // a newer one's notes live on GitHub until it is installed
                 M3Button {
                     visible: Updates.available && !Updates.restartPending
-                    text: "Release notes"
+                    text: Tr.t("Release notes")
                     variant: "outlined"
                     onClicked: Updates.openLatest()
                 }
@@ -118,7 +118,7 @@ Column {
                 // installs it from the release, warning and password first
                 M3Button {
                     visible: Updates.available && !Updates.installing && !Updates.restartPending
-                    text: "Update"
+                    text: Tr.t("Update")
                     variant: "filled"
                     iconPath: "download"
                     onClicked: Updates.startUpdate("release")
@@ -126,14 +126,14 @@ Column {
 
                 M3Button {
                     visible: Updates.installing
-                    text: "Show progress"
+                    text: Tr.t("Show progress")
                     variant: "filled"
                     onClicked: Updates.show()
                 }
 
                 M3Button {
                     visible: Updates.restartPending
-                    text: "Restart now"
+                    text: Tr.t("Restart now")
                     variant: "filled"
                     iconPath: "restart_alt"
                     onClicked: Updates.restartNow()
@@ -144,9 +144,9 @@ Column {
         }
 
         SettingRow {
-            title: "Check for updates"
+            title: Tr.t("Check for updates")
             resetKey: "updateCheck"
-            description: "Once a day Lucid asks GitHub for the newest release, and tells you once when there is one. The request carries nothing about you or this machine."
+            description: Tr.t("Once a day Lucid asks GitHub for the newest release, and tells you once when there is one. The request carries nothing about you or this machine.")
 
             M3Switch {
                 checked: Prefs.updateCheck
@@ -158,10 +158,10 @@ Column {
         }
 
         SettingRow {
-            title: "Beta updates"
+            title: Tr.t("Beta updates")
             resetKey: "updateBeta"
-            description: "Offers the newest commit on main, before it becomes a release. Installing one needs your password, like an update. Turning this off does not roll anything back; the next release replaces the beta."
-            warning: "Critical: beta builds are untested and things may break. The bar, the lock screen or the whole shell can fail to start, and getting back may take a terminal."
+            description: Tr.t("Offers the newest commit on main, before it becomes a release. Installing one needs your password, like an update. Turning this off does not roll anything back; the next release replaces the beta.")
+            warning: Tr.t("Critical: beta builds are untested and things may break. The bar, the lock screen or the whole shell can fail to start, and getting back may take a terminal.")
             showDivider: Prefs.updateBeta
 
             M3Switch {
@@ -175,7 +175,7 @@ Column {
 
         SettingRow {
             visible: Prefs.updateBeta
-            title: Updates.betaAvailable ? "Beta " + Updates.betaShort + " is available" : "Beta build"
+            title: Updates.betaAvailable ? Tr.t("Beta ") + Updates.betaShort + Tr.t(" is available") : Tr.t("Beta build")
             description: Updates.betaStatus
             showDivider: false
 
@@ -183,7 +183,7 @@ Column {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: Updates.betaBusy ? "Checking…" : "Check"
+                    text: Updates.betaBusy ? Tr.t("Checking…") : Tr.t("Check")
                     variant: "tonal"
                     enabled: !Updates.betaBusy
                     onClicked: Updates.checkBeta()
@@ -191,7 +191,7 @@ Column {
 
                 // grey once the newest commit on main is the one installed
                 M3Button {
-                    text: "Install beta"
+                    text: Tr.t("Install beta")
                     variant: "filled"
                     destructive: true
                     enabled: Updates.betaAvailable && !Updates.installing
@@ -205,7 +205,7 @@ Column {
     }
 
     SettingCard {
-        title: "COMMAND LINE"
+        title: Tr.t("COMMAND LINE")
 
         Repeater {
             model: page.commands
@@ -218,7 +218,7 @@ Column {
 
                 title: cmdRow.modelData.cmd
                 monoTitle: true
-                description: cmdRow.modelData.desc
+                description: Tr.t(cmdRow.modelData.desc)
                 showDivider: cmdRow.index < page.commands.length - 1
             }
 
@@ -227,7 +227,7 @@ Column {
     }
 
     SettingCard {
-        title: "COMPONENTS"
+        title: Tr.t("COMPONENTS")
 
         Repeater {
             model: page.components
@@ -239,7 +239,7 @@ Column {
                 required property int index
 
                 title: compRow.modelData.name
-                description: compRow.modelData.desc
+                description: Tr.t(compRow.modelData.desc)
                 showDivider: compRow.index < page.components.length - 1
             }
 
@@ -248,15 +248,15 @@ Column {
     }
 
     SettingCard {
-        title: "CONFIGURATION"
+        title: Tr.t("CONFIGURATION")
 
         SettingRow {
-            title: "Settings file"
-            description: "~/.config/quickshell/lucidprefs/prefs.json"
+            title: Tr.t("Settings file")
+            description: Tr.t("~/.config/quickshell/lucidprefs/prefs.json")
             showDivider: false
 
             M3Button {
-                text: "Open folder"
+                text: Tr.t("Open folder")
                 onClicked: Quickshell.execDetached(["sh", "-c", "xdg-open ~/.config/quickshell/lucidprefs"])
             }
 

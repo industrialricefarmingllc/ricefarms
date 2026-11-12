@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "poll_seconds": 2.0,
+  "capture_seconds": 2.5,
+  "white_threshold": 0.32,
+  "dark_mode_file": "~/.cache/lucid/app-surface.light",
+  "target_file": "~/.cache/lucid/eink-window-target",
+  "cache_dir": "~/.cache/lucid/eink-window",
+  "grim": "grim",
+  "magick": "magick",
+  "hyprctl": "hyprctl"
+}

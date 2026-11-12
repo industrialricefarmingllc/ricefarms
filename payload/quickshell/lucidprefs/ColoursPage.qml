@@ -138,12 +138,12 @@ Column {
     }
 
     SettingCard {
-        title: "GENERATED PALETTES"
-        subtitle: "How Matugen builds a palette from your wallpaper, and Your colour from one colour you pick."
+        title: Tr.t("GENERATED PALETTES")
+        subtitle: Tr.t("How Matugen builds a palette from your wallpaper, and Your colour from one colour you pick.")
 
         SettingRow {
-            title: "Your colour"
-            description: "What the Your colour theme is built from. Pick it from anywhere on screen, type it, or start from one of these."
+            title: Tr.t("Your colour")
+            description: Tr.t("What the Your colour theme is built from. Pick it from anywhere on screen, type it, or start from one of these.")
             stacked: true
 
             ThemeColourPicker {
@@ -159,7 +159,7 @@ Column {
         }
 
         SettingRow {
-            title: "Style"
+            title: Tr.t("Style")
             description: page.styleHint
             enabled: page.generated
             disabledReason: "Only for Matugen and Your colour, which matugen builds; Pywal and the fixed themes bring their own palette."
@@ -178,8 +178,8 @@ Column {
         }
 
         SettingRow {
-            title: "Contrast"
-            description: "How far apart text and surfaces sit. 0 is the design as specified."
+            title: Tr.t("Contrast")
+            description: Tr.t("How far apart text and surfaces sit. 0 is the design as specified.")
             enabled: page.generated
             disabledReason: "Only for Matugen and Your colour, which matugen builds; Pywal and the fixed themes bring their own palette."
             stacked: true
@@ -201,8 +201,8 @@ Column {
         }
 
         SettingRow {
-            title: "Colour from the wallpaper"
-            description: "The colours Matugen finds in the wallpaper, most dominant first, each shown as the accent it gives. The pick holds for this wallpaper; another one starts from its most dominant."
+            title: Tr.t("Colour from the wallpaper")
+            description: Tr.t("The colours Matugen finds in the wallpaper, most dominant first, each shown as the accent it gives. The pick holds for this wallpaper; another one starts from its most dominant.")
             enabled: page.currentTheme === "matugen"
             disabledReason: "Only for Matugen, which builds the palette from the wallpaper."
             showDivider: false
@@ -226,15 +226,15 @@ Column {
     SettingCard {
         id: templatesCard
 
-        title: "APP TEMPLATES"
-        subtitle: "Each template writes the palette into an application's own config whenever the theme or the wallpaper changes, the fixed themes included."
+        title: Tr.t("APP TEMPLATES")
+        subtitle: Tr.t("Each template writes the palette into an application's own config whenever the theme or the wallpaper changes, the fixed themes included.")
 
         SettingRow {
-            title: "Last change"
+            title: Tr.t("Last change")
             description: page.templatesSummary
 
             M3Button {
-                text: Templates.busy === "*" ? "Rendering..." : "Render again"
+                text: Templates.busy === "*" ? Tr.t("Rendering...") : Tr.t("Render again")
                 enabled: Templates.busy === "" && Templates.record.time !== undefined
                 // refresh
                 iconPath: "refresh"
@@ -258,8 +258,8 @@ Column {
     SettingCard {
         id: catalogCard
 
-        title: "ADD AN APP"
-        subtitle: "Installed applications Lucid has a template for that aren't wired up yet."
+        title: Tr.t("ADD AN APP")
+        subtitle: Tr.t("Installed applications Lucid has a template for that aren't wired up yet.")
         visible: Templates.catalog.length > 0
 
         Repeater {
@@ -276,7 +276,7 @@ Column {
                 description: offer.modelData.name + " · " + offer.modelData.output
 
                 M3Button {
-                    text: Templates.busy === offer.modelData.name ? "Adding..." : "Add"
+                    text: Templates.busy === offer.modelData.name ? Tr.t("Adding...") : Tr.t("Add")
                     enabled: Templates.busy === ""
                     iconPath: "add"
                     onClicked: Templates.addFromCatalog(offer.modelData)
@@ -289,11 +289,11 @@ Column {
     }
 
     SettingCard {
-        title: "YOUR OWN TEMPLATE"
+        title: Tr.t("YOUR OWN TEMPLATE")
 
         SettingRow {
-            title: "Add a template"
-            description: "Any text file with matugen's variables where the colours go, like {{colors.primary.default.hex}}. Try it to see what it writes with your colours before adding it."
+            title: Tr.t("Add a template")
+            description: Tr.t("Any text file with matugen's variables where the colours go, like {{colors.primary.default.hex}}. Try it to see what it writes with your colours before adding it.")
             stacked: true
 
             TemplateForm {
@@ -303,8 +303,8 @@ Column {
         }
 
         SettingRow {
-            title: "Colour variables"
-            description: "The roles of the current palette. Click one to copy the variable that writes it."
+            title: Tr.t("Colour variables")
+            description: Tr.t("The roles of the current palette. Click one to copy the variable that writes it.")
             showDivider: false
             stacked: true
 
@@ -315,11 +315,11 @@ Column {
         }
 
         SettingRow {
-            title: "Configuration file"
-            description: "The templates live in ~/.config/matugen/config.toml. Switching one off keeps its block there, commented out."
+            title: Tr.t("Configuration file")
+            description: Tr.t("The templates live in ~/.config/matugen/config.toml. Switching one off keeps its block there, commented out.")
 
             M3Button {
-                text: "Open"
+                text: Tr.t("Open")
                 onClicked: Templates.openFile(Templates.configPath)
             }
 

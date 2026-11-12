@@ -1,0 +1,8 @@
+#!/bin/sh
+# Clear the thumbnail cache. It lives on a tmpfs, so this only frees RAM;
+# contents never touch disk either way. The mountpoint itself is kept.
+
+THUMBS="${XDG_CACHE_HOME:-$HOME/.cache}/thumbnails"
+
+[ -d "$THUMBS" ] || exit 0
+find "$THUMBS" -mindepth 1 -delete 2>/dev/null || true

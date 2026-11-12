@@ -43,23 +43,23 @@ Column {
         visible: Glass.moduleProbed && !Glass.moduleInstalled
 
         SettingRow {
-            title: "Per-app glass is not set up"
-            warning: "The window rules come with Lucid's Hyprland config, and yours does not load it. Run the installer with --with-hypr, or copy modules/glass.lua into your own and require it. The slider below still works: it is the shell's own surfaces and kitty."
+            title: Tr.t("Per-app glass is not set up")
+            warning: Tr.t("The window rules come with Lucid's Hyprland config, and yours does not load it. Run the installer with --with-hypr, or copy modules/glass.lua into your own and require it. The slider below still works: it is the shell's own surfaces and kitty.")
             showDivider: false
         }
 
     }
 
     SettingCard {
-        title: "GLASS"
-        subtitle: "One slider for the whole desktop. Everything below follows it."
+        title: Tr.t("GLASS")
+        subtitle: Tr.t("One slider for the whole desktop. Everything below follows it.")
 
         SettingRow {
-            title: "Glass"
+            title: Tr.t("Glass")
             resetAction: Prefs.resetBlurToken
             resetVisible: Theme.blurAmount !== 0
-            description: "How far the desktop shows through what is in front of it."
-            warning: "Frosting is handled by the compositor, not the shell, and is buggy — expect visual artefacts. Set this to Off to avoid them."
+            description: Tr.t("How far the desktop shows through what is in front of it.")
+            warning: Tr.t("Frosting is handled by the compositor, not the shell, and is buggy — expect visual artefacts. Set this to Off to avoid them.")
             stacked: true
 
             M3Slider {
@@ -77,8 +77,8 @@ Column {
         }
 
         SettingRow {
-            title: "Where it lands"
-            description: "Each surface is let through as far as it can take. A window's opacity dims its text along with its background; kitty's own does not, so the terminal can go all the way."
+            title: Tr.t("Where it lands")
+            description: Tr.t("Each surface is let through as far as it can take. A window's opacity dims its text along with its background; kitty's own does not, so the terminal can go all the way.")
             showDivider: false
             stacked: true
 
@@ -146,16 +146,16 @@ Column {
     }
 
     SettingCard {
-        title: "APPS"
-        subtitle: "kitty is set through its own config. The rest become Hyprland window rules, which fade the whole window, text included, so they sit far shallower."
+        title: Tr.t("APPS")
+        subtitle: Tr.t("kitty is set through its own config. The rest become Hyprland window rules, which fade the whole window, text included, so they sit far shallower.")
 
         SettingRow {
-            title: "Apps under glass"
+            title: Tr.t("Apps under glass")
             resetKey: "glassApps"
             resetAction: Prefs.resetGlassToken
             resetVisible: Prefs.isModified("glassApps") || Prefs.isModified("glassValues")
             resetTitle: "Apps under glass"
-            description: Glass.installed.length > 0 ? "" : "None of the applications Lucid recognises are installed. Anything you have open can still be added below."
+            description: Glass.installed.length > 0 ? "" : Tr.t("None of the applications Lucid recognises are installed. Anything you have open can still be added below.")
             stacked: Glass.installed.length > 0
 
             Column {
@@ -191,7 +191,7 @@ Column {
                 readonly property string route: self ? " Through kitty's own background, so the text stays sharp however far it goes." : ""
 
                 title: Glass.nameOf(modelData)
-                description: (own ? "Set apart from the slider, at " + page.pct(Glass.opacityOf(modelData)) + "." : "Follows Glass — " + page.pct(Glass.followFor(modelData)) + " while it is " + page.blurLabels[page.blurIndex] + ".") + route
+                description: (own ? Tr.t("Set apart from the slider, at ") + page.pct(Glass.opacityOf(modelData)) + "." : Tr.t("Follows Glass — ") + page.pct(Glass.followFor(modelData)) + Tr.t(" while it is ") + page.blurLabels[page.blurIndex] + ".") + route
                 stacked: true
 
                 Row {
@@ -215,7 +215,7 @@ Column {
                         id: follow
 
                         anchors.verticalCenter: parent.verticalCenter
-                        text: own ? "Follow" : "Following"
+                        text: own ? Tr.t("Follow") : Tr.t("Following")
                         variant: own ? "filled" : "tonal"
                         onClicked: Glass.setOpacity(modelData, own ? -1 : Glass.followFor(modelData))
                     }
@@ -229,12 +229,12 @@ Column {
     }
 
     SettingCard {
-        title: "OPEN WINDOWS"
-        subtitle: "Whatever else is running right now, by the class Hyprland knows it as. Adding one keeps it here after the window closes. Another terminal in here is better set through its own opacity setting than from here, the way kitty is."
+        title: Tr.t("OPEN WINDOWS")
+        subtitle: Tr.t("Whatever else is running right now, by the class Hyprland knows it as. Adding one keeps it here after the window closes. Another terminal in here is better set through its own opacity setting than from here, the way kitty is.")
         visible: page.unlisted.length > 0
 
         SettingRow {
-            title: "Add a window"
+            title: Tr.t("Add a window")
             showDivider: false
             stacked: true
 

@@ -216,7 +216,7 @@ Item {
                     LText {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "labelLarge"
-                        text: root.discovering ? "Looking for devices" : "Search for devices"
+                        text: root.discovering ? Tr.t("Looking for devices") : Tr.t("Search for devices")
                         color: root.discovering ? Theme.fgSecondaryContainer : Theme.text
                     }
 
@@ -228,7 +228,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: root.discovering
                     role: "labelMedium"
-                    text: "Stop"
+                    text: Tr.t("Stop")
                     color: Theme.fgSecondaryContainer
                 }
 
@@ -247,7 +247,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 role: "bodyMedium"
                 color: Theme.subtext
-                text: "Visible to other devices"
+                text: Tr.t("Visible to other devices")
             }
 
             Switch {
@@ -271,7 +271,7 @@ Item {
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "Bluetooth is off"
+                text: Tr.t("Bluetooth is off")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(12)
@@ -280,7 +280,7 @@ Item {
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "Turn it on to see nearby devices"
+                text: Tr.t("Turn it on to see nearby devices")
                 color: Theme.outlineStrong
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(10)
@@ -302,7 +302,7 @@ Item {
                 visible: root.connectedDevices.length > 0
 
                 Text {
-                    text: "Connected"
+                    text: Tr.t("Connected")
                     color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -329,7 +329,7 @@ Item {
                 visible: root.pairedDevices.length > 0
 
                 Text {
-                    text: "Paired"
+                    text: Tr.t("Paired")
                     color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -356,7 +356,7 @@ Item {
                 visible: root.nearbyDevices.length > 0
 
                 Text {
-                    text: "Nearby"
+                    text: Tr.t("Nearby")
                     color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -386,7 +386,7 @@ Item {
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.discovering ? "Looking for devices…" : "No devices found"
+                    text: root.discovering ? Tr.t("Looking for devices…") : Tr.t("No devices found")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(12)
@@ -396,7 +396,7 @@ Item {
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: !root.discovering
-                    text: "Tap “Search for devices” to scan"
+                    text: Tr.t("Tap “Search for devices” to scan")
                     color: Theme.outlineStrong
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(10)
@@ -757,7 +757,7 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
-                            text: "Forget"
+                            text: Tr.t("Forget")
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.bold: true
@@ -798,7 +798,7 @@ Item {
 
                 Text {
                     visible: devItem.isPairing
-                    text: "Cancel pairing"
+                    text: Tr.t("Cancel pairing")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(11)
@@ -819,7 +819,7 @@ Item {
                 Text {
                     visible: devItem.actionFailed && !devItem.isConnected && !devItem.isPairing && !devItem.isConnecting
                     width: parent.width - Theme.dp(46)
-                    text: devItem.group === "nearby" ? "Pairing failed. Please try again." : "Failed to connect. The device may be out of range."
+                    text: devItem.group === "nearby" ? Tr.t("Pairing failed. Please try again.") : Tr.t("Failed to connect. The device may be out of range.")
                     color: Theme.error
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(10)
@@ -860,7 +860,7 @@ Item {
                         }
 
                         Text {
-                            text: "Auto-reconnect"
+                            text: Tr.t("Auto-reconnect")
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.bold: true
@@ -907,7 +907,7 @@ Item {
                         }
 
                         Text {
-                            text: "Allow wake"
+                            text: Tr.t("Allow wake")
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.bold: true
@@ -953,7 +953,7 @@ Item {
                         }
 
                         Text {
-                            text: "Block"
+                            text: Tr.t("Block")
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.bold: true
@@ -981,7 +981,7 @@ Item {
                     // connected takes files just the same
                     Text {
                         visible: Bt.canReceiveFiles(devItem.modelData.address)
-                        text: "Send files"
+                        text: Tr.t("Send files")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(11)
@@ -1005,7 +1005,7 @@ Item {
                     }
 
                     Text {
-                        text: "Rename"
+                        text: Tr.t("Rename")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(11)

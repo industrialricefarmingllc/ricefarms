@@ -23,6 +23,7 @@ Variants {
         // wallpaper instead of showing a stale silhouette.
         visible: SpatialWall.enabled && SpatialWall.layeredVisual
             && SpatialWall.sourceKind !== "video" && cards.length > 0
+            && (SpatialWall.renderOnSecondary || modelData === Monitors.mainScreen)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Bottom
         WlrLayershell.namespace: "lucid-spatial-foreground"

@@ -2,6 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import Quickshell.Services.Mpris
+import Quickshell.Wayland
 import qs
 pragma Singleton
 
@@ -97,6 +99,16 @@ Singleton {
     // A local mesh job is using the whole GPU. Drop the 3D wallpaper to the
     // flat one so the shell keeps its framebuffers while that job runs.
     property bool meshBusy: false
+    // True while the launcher (or another shell overlay that covers the
+    // wallpaper) is on screen. SpatialShake uses it to stop the idle 30 Hz
+    // fullscreen 3D repaint; the mesh keeps its last pose, so there is no
+    // snap when the overlay closes.
+    property bool launcherOpen: false
+    // The depth/parallax layer is expensive: each tick repaints a fullscreen
+    // 3D surface on every output. Render it on the main output only; the side
+    // outputs keep the ordinary wallpaper underneath. Set true to restore the
+    // old all-outputs behavior.
+    property bool renderOnSecondary: false
     property bool backendPaused: false
     property string lastPath: ""
     // Bumped by compositor focus/window events. Surfaces use it to pause their
@@ -113,6 +125,24 @@ Singleton {
     // rebuilt, and the apply only samples the published file once: without a
     // latch it can miss the ready window and open the iris too early.
     property bool readyLatched: false
+    // Hyprland has no DPMS event on its socket, and Quickshell's cached
+    // monitor objects do not necessarily refresh on a DPMS change. A 0.5 Hz
+    // query of the real `hyprctl monitors` state is the only reliable source.
+    // The 30 Hz scene timers read this and stop when every output is off.
+    property bool dpmsAwake: true
+    // The idle daemon powers the outputs down after 60 s. Mirror that timeout
+    // so a stale DPMS field cannot keep the 30 Hz scene alive; playback keeps
+    // the guard from freezing a video that is deliberately holding the screen.
+    readonly property bool mediaPlaying: {
+        const players = Mpris.players ? Mpris.players.values : [];
+        for (let i = 0; i < players.length; i++) {
+            if (players[i].isPlaying)
+                return true;
+        }
+        return false;
+    }
+    readonly property bool displaysAwake: root.dpmsAwake
+        && !(idleTimeout.isIdle && !root.mediaPlaying)
 
     readonly property bool hasVisual: root.motionPath !== "" && root.depthPath !== ""
     // The 3D layer only covers the wallpaper it was built for. While the next
@@ -137,7 +167,14 @@ Singleton {
         if (!screens || screens.length === 0)
             return false;
         for (let i = 0; i < screens.length; i++) {
-            if (root.surfaceReady[screens[i].name] !== true)
+            const screen = screens[i];
+            // Side outputs do not draw the 3D layer while renderOnSecondary is
+            // off (SpatialWindows keeps their layer unmapped), so they have no
+            // first frame to wait for. Requiring them here left ready=false on
+            // every apply and held the iris until the spatial-wait timeout.
+            if (!root.renderOnSecondary && screen !== Monitors.mainScreen)
+                continue;
+            if (root.surfaceReady[screen.name] !== true)
                 return false;
         }
         return true;
@@ -160,15 +197,22 @@ Singleton {
         return "file://" + value.split("/").map(encodeURIComponent).join("/");
     }
 
-    // True when the compositor's focused client window is visible on this
-    // screen. A layer-shell surface (launcher, dock, widgets) does not become
-    // activeToplevel, so opening those never unpauses the wallpaper.
+    // True when the focused client window actually hides the wallpaper on this
+    // screen (fullscreen or effectively full-bleed). A small focused terminal
+    // used to freeze the whole scene even though most of the wallpaper was
+    // still visible. A layer-shell surface (launcher, dock, widgets) does not
+    // become activeToplevel, so opening those never pauses the wallpaper.
     function screenHasFocusedWindow(screen) {
         root.focusRevision;
         if (!screen || !Hyprland.activeToplevel)
             return false;
         const info = Hyprland.activeToplevel.lastIpcObject || ({});
         if (!info.size || info.size[0] <= 0 || info.mapped === false || info.hidden)
+            return false;
+        const fullscreen = Number(info.fullscreen || 0);
+        const covers = info.size[0] >= screen.width * 0.98
+            && info.size[1] >= screen.height * 0.98;
+        if (fullscreen < 2 && !covers)
             return false;
         const monitor = Hyprland.monitorFor(screen);
         if (!monitor)
@@ -572,6 +616,57 @@ Singleton {
         interval: 16
         repeat: false
         onTriggered: Hyprland.refreshToplevels()
+    }
+
+    IdleMonitor {
+        id: idleTimeout
+
+        enabled: root.enabled
+        timeout: 60
+        respectInhibitors: true
+    }
+
+    Timer {
+        id: dpmsPoll
+
+        interval: 2000
+        repeat: true
+        running: root.enabled
+        onTriggered: {
+            if (!dpmsProbe.running)
+                dpmsProbe.running = true;
+        }
+    }
+
+    Process {
+        id: dpmsProbe
+
+        command: ["hyprctl", "monitors", "-j"]
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var list = null;
+                try {
+                    list = JSON.parse(text());
+                } catch (e) {
+                    return ;
+                }
+                if (!list || list.length === undefined || list.length === 0)
+                    return ;
+                var known = false;
+                var awake = false;
+                for (var i = 0; i < list.length; i++) {
+                    const monitor = list[i];
+                    if (typeof monitor.dpmsStatus !== "boolean")
+                        continue;
+                    known = true;
+                    if (monitor.dpmsStatus)
+                        awake = true;
+                }
+                if (known)
+                    root.dpmsAwake = awake;
+            }
+        }
     }
 
     FileView {

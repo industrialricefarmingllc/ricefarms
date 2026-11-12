@@ -49,7 +49,7 @@ Item {
         IconButton {
             anchors.verticalCenter: parent.verticalCenter
             icon: bar.editing ? "close" : "grid_view"
-            tooltip: bar.editing ? "Done editing (Esc)" : "All pictures (G)"
+            tooltip: bar.editing ? Tr.t("Done editing (Esc)") : Tr.t("All pictures (G)")
             checkable: !bar.editing
             checked: bar.win.overview
 
@@ -72,7 +72,7 @@ Item {
             LText {
                 width: parent.width
                 role: "titleMedium"
-                text: bar.editing ? "Edit" : (bar.cur ? bar.cur.name : "Lens")
+                text: bar.editing ? Tr.t("Edit") : (bar.cur ? bar.cur.name : Tr.t("Lens"))
                 elide: Text.ElideMiddle
             }
 
@@ -80,7 +80,7 @@ Item {
                 width: parent.width
                 role: "bodySmall"
                 color: Theme.subtext
-                text: bar.editing ? (bar.cur ? bar.cur.name : "") : (bar.win.pasted ? "Pasted from the clipboard  ·  save a copy to keep it" : bar.facts)
+                text: bar.editing ? (bar.cur ? bar.cur.name : "") : (bar.win.pasted ? Tr.t("Pasted from the clipboard  ·  save a copy to keep it") : bar.facts)
                 elide: Text.ElideMiddle
                 visible: text !== ""
                 tabular: true
@@ -109,7 +109,7 @@ Item {
                 visible: bar.win.dirty
                 variant: "text"
                 size: "s"
-                text: "Discard"
+                text: Tr.t("Discard")
                 onClicked: bar.win.revert()
             }
 
@@ -117,7 +117,7 @@ Item {
                 variant: "tonal"
                 size: "s"
                 icon: "save"
-                text: bar.win.busy ? "Saving…" : bar.win.pasted ? "Save a copy" : "Save"
+                text: bar.win.busy ? Tr.t("Saving…") : bar.win.pasted ? Tr.t("Save a copy") : Tr.t("Save")
                 disabled: bar.win.busy
                 onClicked: bar.win.save(bar.win.pasted)
             }
@@ -136,7 +136,7 @@ Item {
 
             IconButton {
                 icon: "zoom_out"
-                tooltip: "Zoom out (−)"
+                tooltip: Tr.t("Zoom out (−)")
                 disabled: !bar.stage.zoomed
 
                 Tip {
@@ -184,7 +184,7 @@ Item {
 
             IconButton {
                 icon: "zoom_in"
-                tooltip: "Zoom in (+)"
+                tooltip: Tr.t("Zoom in (+)")
 
                 Tip {
                 }
@@ -202,7 +202,7 @@ Item {
         IconButton {
             visible: !bar.editing && wide.ok
             icon: "rotate_left"
-            tooltip: "Rotate left (Shift+R)"
+            tooltip: Tr.t("Rotate left (Shift+R)")
             disabled: !bar.win.canTurn
 
             Tip {
@@ -214,7 +214,7 @@ Item {
         IconButton {
             visible: !bar.editing && wide.ok
             icon: "rotate_right"
-            tooltip: "Rotate right (R)"
+            tooltip: Tr.t("Rotate right (R)")
             disabled: !bar.win.canTurn
 
             Tip {
@@ -233,7 +233,7 @@ Item {
         IconButton {
             visible: !bar.editing && bar.win.isVideo
             icon: "content_cut"
-            tooltip: "Trim (E)"
+            tooltip: Tr.t("Trim (E)")
             checkable: true
             checked: bar.win.trimming
             disabled: bar.cur !== null && bar.cur.broken === true
@@ -247,7 +247,7 @@ Item {
         IconButton {
             visible: !bar.editing && !bar.win.isVideo
             icon: "crop"
-            tooltip: "Crop (C)"
+            tooltip: Tr.t("Crop (C)")
             disabled: !bar.win.canEdit
 
             Tip {
@@ -259,7 +259,7 @@ Item {
         IconButton {
             visible: !bar.editing && !bar.win.isVideo
             icon: "tune"
-            tooltip: "Edit (E)"
+            tooltip: Tr.t("Edit (E)")
             disabled: !bar.win.canEdit
 
             Tip {
@@ -271,7 +271,7 @@ Item {
         IconButton {
             visible: !bar.editing && !bar.win.isVideo
             icon: "draw"
-            tooltip: "Draw (D)"
+            tooltip: Tr.t("Draw (D)")
             disabled: !bar.win.canEdit
 
             Tip {
@@ -283,7 +283,7 @@ Item {
         IconButton {
             visible: !bar.editing
             icon: "info"
-            tooltip: bar.win.showInfo ? "Hide details (I)" : "Details (I)"
+            tooltip: bar.win.showInfo ? Tr.t("Hide details (I)") : Tr.t("Details (I)")
             checkable: true
             checked: bar.win.showInfo
 
@@ -298,7 +298,7 @@ Item {
 
             visible: !bar.editing
             icon: "more_vert"
-            tooltip: "More"
+            tooltip: Tr.t("More")
 
             Tip {
             }
@@ -313,7 +313,7 @@ Item {
         IconButton {
             visible: bar.editing
             icon: "undo"
-            tooltip: "Undo (Ctrl+Z)"
+            tooltip: Tr.t("Undo (Ctrl+Z)")
             disabled: bar.win.stepsHere.past.length === 0
 
             Tip {
@@ -325,7 +325,7 @@ Item {
         IconButton {
             visible: bar.editing
             icon: "redo"
-            tooltip: "Redo (Ctrl+Y)"
+            tooltip: Tr.t("Redo (Ctrl+Y)")
             disabled: bar.win.stepsHere.future.length === 0
 
             Tip {
@@ -339,7 +339,7 @@ Item {
 
             visible: bar.editing
             icon: "compare"
-            tooltip: bar.win.dirty ? "Hold to see it without these edits (\\)" : "Hold to see the original (\\)"
+            tooltip: bar.win.dirty ? Tr.t("Hold to see it without these edits (\\)") : Tr.t("Hold to see the original (\\)")
             checkable: true
             checked: bar.win.comparing
             disabled: !bar.win.dirty && !bar.win.kept
@@ -368,7 +368,7 @@ Item {
             visible: bar.editing && !bar.win.narrow
             anchors.verticalCenter: parent.verticalCenter
             variant: "text"
-            text: !bar.win.dirty && bar.win.kept ? "Revert to original" : "Reset"
+            text: !bar.win.dirty && bar.win.kept ? Tr.t("Revert to original") : Tr.t("Reset")
             disabled: bar.win.busy || (!bar.win.dirty && !bar.win.kept)
             onClicked: bar.win.dirty ? bar.win.revert() : bar.win.revertOriginal()
         }
@@ -377,7 +377,7 @@ Item {
             visible: bar.editing
             anchors.verticalCenter: parent.verticalCenter
             variant: "tonal"
-            text: "Save copy"
+            text: Tr.t("Save copy")
             disabled: !bar.win.dirty || bar.win.busy
             onClicked: bar.win.save(true)
         }
@@ -393,7 +393,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             variant: "filled"
             icon: "save"
-            text: bar.win.busy ? "Saving…" : "Save"
+            text: bar.win.busy ? Tr.t("Saving…") : Tr.t("Save")
             disabled: !bar.win.dirty || bar.win.busy || bar.win.pasted
             onClicked: bar.win.save(false)
         }

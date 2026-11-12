@@ -127,7 +127,10 @@ Variants {
                     var out = [];
                     for (var i = 0; i < rep.count; i++) {
                         var f = rep.itemAt(i);
-                        if (!f || !f.visible || f.closing || f.blanked || f.bare)
+                        // a card in hand paints its normal opaque background
+                        // (see WidgetFrame.glassSuspended) instead of asking the
+                        // plugin for a per-frame blur of a moving pill
+                        if (!f || !f.visible || f.closing || f.blanked || f.bare || f.moving)
                             continue;
 
                         var s = f.scale > 0 ? f.scale : 1;
@@ -373,7 +376,8 @@ Variants {
 
                     interval: 33
                     repeat: true
-                    running: SpatialWall.enabled && layer.visible && !layer.captureScreen
+                    running: SpatialWall.enabled && SpatialWall.displaysAwake
+                        && layer.visible && !layer.captureScreen
                     onRunningChanged: {
                         if (!spatialCards.running) {
                             deck.spatialSig = "";
@@ -393,10 +397,19 @@ Variants {
                             var frame = deck.frameAt(i);
                             if (!frame || !frame.visible || frame.closing || frame.blanked)
                                 continue;
-                            var fx = Math.round(frame.x);
-                            var fy = Math.round(frame.y);
-                            var fw = Math.round(frame.width);
-                            var fh = Math.round(frame.height);
+                            // The cutout must sit on the *rendered* card: hover
+                            // lifts it to 1.0125 and a drag carries it at 1.025,
+                            // so the unscaled x/y/w/h would leave the subject
+                            // overlap on the card's outer few pixels. Same
+                            // mapped+scaled rect as the glass pills, rounded
+                            // outward so the covered area can never be smaller
+                            // than the glass it hides.
+                            var s = frame.scale > 0 ? frame.scale : 1;
+                            var at = frame.mapToItem(deck, 0, 0);
+                            var fx = Math.floor(at.x) - 1;
+                            var fy = Math.floor(at.y) - 1;
+                            var fw = Math.ceil(at.x + frame.width * s) + 1 - fx;
+                            var fh = Math.ceil(at.y + frame.height * s) + 1 - fy;
                             out.push({
                                 "uid": frame.uid,
                                 "x": fx,

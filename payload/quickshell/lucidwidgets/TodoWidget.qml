@@ -232,14 +232,14 @@ WidgetBody {
                 role: "titleMedium"
                 weight: 620
                 color: w.ink
-                text: w.focusOnly ? "Up next" : "To-do"
+                text: w.focusOnly ? Tr.t("Up next") : Tr.t("To-do")
             }
 
             LText {
                 visible: w.items.length > 0
                 role: "labelSmall"
                 color: w.inkDim
-                text: w.focusOnly ? (w.openCount === 0 ? "all done" : w.openCount + " left") : w.doneCount + " of " + w.items.length + " done"
+                text: w.focusOnly ? (w.openCount === 0 ? Tr.t("all done") : w.openCount + Tr.t(" left")) : w.doneCount + Tr.t(" of ") + w.items.length + Tr.t(" done")
             }
 
         }
@@ -251,7 +251,7 @@ WidgetBody {
             variant: "text"
             size: "xs"
             icon: "done_all"
-            text: "Clear"
+            text: Tr.t("Clear")
             contentOverride: w.inkAccent
             onClicked: w.clearDone()
         }
@@ -363,7 +363,7 @@ WidgetBody {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "bodyMedium"
                 color: w.inkDim
-                text: w.items.length ? "Everything's done" : "Nothing on the list"
+                text: w.items.length ? Tr.t("Everything's done") : Tr.t("Nothing on the list")
             }
 
         }
@@ -392,7 +392,7 @@ WidgetBody {
             role: "headlineSmall"
             weight: 560
             color: w.nextUp ? w.ink : w.inkDim
-            text: w.nextUp ? w.nextUp.t : (w.items.length ? "All clear." : "Add the one thing that matters next.")
+            text: w.nextUp ? w.nextUp.t : (w.items.length ? Tr.t("All clear.") : Tr.t("Add the one thing that matters next."))
             wrapMode: Text.Wrap
             maximumLineCount: 3
             elide: Text.ElideRight
@@ -412,7 +412,7 @@ WidgetBody {
                 variant: "filled"
                 size: "xs"
                 icon: "check"
-                text: "Done"
+                text: Tr.t("Done")
                 containerOverride: w.inkAccent
                 contentOverride: w.fgInkAccent
                 onClicked: w.toggleAt(w.nextUp.at)
@@ -423,7 +423,7 @@ WidgetBody {
                 variant: "tonal"
                 size: "xs"
                 icon: "schedule"
-                text: "Later"
+                text: Tr.t("Later")
                 containerOverride: Theme.alpha(w.ink, 0.1)
                 contentOverride: w.ink
                 onClicked: w.later(w.nextUp.at)
@@ -511,7 +511,7 @@ WidgetBody {
             anchors.verticalCenter: parent.verticalCenter
             role: "bodyMedium"
             color: w.inkFaint
-            text: w.editing ? "Type, then Enter" : "Add a task"
+            text: w.editing ? Tr.t("Type, then Enter") : Tr.t("Add a task")
             visible: adder.text === ""
         }
 

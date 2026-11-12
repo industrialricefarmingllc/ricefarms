@@ -900,6 +900,12 @@ void CGlassLayer::ensureRing() {
     m_ru.shA = loc(rp, "uShadowA");
     m_ru.shOff = loc(rp, "uShadowOff");
     m_ru.shBlur = loc(rp, "uShadowBlur");
+    m_ru.rimLight = loc(rp, "uRimLight");
+    m_ru.rimStrength = loc(rp, "uRimStrength");
+    m_ru.rimWidth = loc(rp, "uRimWidth");
+    m_ru.rimAngle = loc(rp, "uRimAngle");
+    m_ru.rimSplay = loc(rp, "uRimSplay");
+    m_ru.rimShade = loc(rp, "uRimShade");
     m_ringOk = true;
 }
 
@@ -1004,6 +1010,24 @@ void CGlassLayer::kawaseUp(const SP<Render::IFramebuffer>& src, const SP<Render:
     glBindVertexArray(0);
 }
 
+void CGlassLayer::damageRim() {
+    if (!m_boundsOk || m_boundsLog.w <= 0.0 || m_boundsLog.h <= 0.0)
+        return;
+    const float pad = 12.0f;
+    const float x = (float)m_lastMonPos.x + (float)m_boundsLog.x;
+    const float y = (float)m_lastMonPos.y + (float)m_boundsLog.y;
+    const float w = (float)m_boundsLog.w;
+    const float h = (float)m_boundsLog.h;
+    // The rim line is INSIDE the glass silhouette; damage inside bands (a
+    // little overlap into the interior) or the glass pass never intersects
+    // the pointer move. The capture-coverage guard will widen this to the
+    // full capture when needed, which is fine.
+    g_pHyprRenderer->damageBox(CBox{x, y, w, pad});
+    g_pHyprRenderer->damageBox(CBox{x, y + h - pad, w, pad});
+    g_pHyprRenderer->damageBox(CBox{x, y, pad, h});
+    g_pHyprRenderer->damageBox(CBox{x + w - pad, y, pad, h});
+}
+
 // --- frame -----------------------------------------------------------------
 
 void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
@@ -1018,6 +1042,7 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
     surfBox.scale(monitor->m_scale).round().noNegativeSize();
     if (!std::isfinite(surfBox.x) || !std::isfinite(surfBox.y) || surfBox.w <= 0 || surfBox.h <= 0)
         return;
+    m_lastMonPos = monitor->m_position;
 
     const uint64_t tuneGen = lg::tuneGeneration();
     const auto& geoDirStr = geoDir();
@@ -1241,7 +1266,10 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
     // m_transformedSize straight in). Do NOT divide by scale: that was
     // shrinking every quad 1.6x toward the corner AND desyncing it from
     // the fb-px uBox/uRadii shape math (=> effectively invisible).
-    for (const auto& lp : pills) {
+    for (size_t pillIdx = 0; pillIdx < pills.size(); ++pillIdx) {
+        const auto& lp = pills[pillIdx];
+        if (m_rimFollow.size() <= pillIdx)
+            m_rimFollow.resize(pillIdx + 1);
         const int px0 = (int)std::floor(lp.x);
         const int py0 = (int)std::floor(lp.y);
         const int px1 = (int)std::ceil(lp.x + lp.w);
@@ -1328,7 +1356,7 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         if (passes > 0)
             ensureChain(hw, hh, source->m_drmFormat);
         if (bokehOn)
-            ensureBokeh(hw, hh, source->m_drmFormat);
+            ensureBokeh(std::max(1, hw / 2), std::max(1, hh / 2), source->m_drmFormat);
         if (!m_halfA || !m_halfA->getTexture()
             || (passes > 0 && (!m_halfB || !m_halfC || !m_halfB->getTexture() || !m_halfC->getTexture()))
             || (bokehOn && (!m_halfT || !m_halfT->getTexture())))
@@ -1407,7 +1435,11 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             glUniform1f(m_gu.rimBlur, 0.0f); // pills: regular user-blur path
             glUniform2f(m_gu.capOrigin, ox, oy);
             glUniform2f(m_gu.capScale, sx, sy);
-            glUniform2f(m_gu.texel, 1.0f / (float)uBlurFb->m_size.x, 1.0f / (float)uBlurFb->m_size.y);
+            // Dither/CA steps are in CAPTURE space. Use L0 even when the bokeh
+            // texture is half-res, or enabling bokeh would double the grain
+            // and CA tap spacing (bokeh shares L0's UV contract, not its
+            // texel density).
+            glUniform2f(m_gu.texel, 1.0f / (float)m_halfA->m_size.x, 1.0f / (float)m_halfA->m_size.y);
             glUniform3f(m_gu.baseColor, ((T.tint >> 24) & 0xFF) / 255.f, ((T.tint >> 16) & 0xFF) / 255.f,
                         ((T.tint >> 8) & 0xFF) / 255.f);
             glUniform1f(m_gu.power, T.power);
@@ -1424,11 +1456,25 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             glUniform1f(m_gu.glowE1, T.glowE1);
             glUniform1f(m_gu.glowT, T.glowT);
             // Apple rim light on the glass body (shared material with the
-            // window-border ring). Width is logical px -> fb px here.
-            glUniform1f(m_gu.rimLight, (float)lg::getInt("plugin:liquidglass:glass_rim", 1));
+            // window-border ring). Width is logical px -> fb px here. The
+            // angle follows the cursor per pill, slowly and mirrored in x.
+            const bool rimOn = lg::getInt("plugin:liquidglass:glass_rim", 1) == 1;
+            float rimAngle = lg::getFloat("plugin:liquidglass:rim_angle", 135.0f);
+            const float rimPrev = m_rimFollow[pillIdx].angle;
+            if (rimOn) {
+                rimAngle = lg::rimAngleFor(CBox{lp.x, lp.y, lp.w, lp.h}, lg::cursorLocal(monitor), rimAngle, m_rimFollow[pillIdx]);
+                if (m_rimFollow[pillIdx].init && std::isfinite(rimPrev) && std::abs(rimAngle - rimPrev) > 0.01f) {
+                    const float inv = 1.0f / monitor->m_scale;
+                    const float pad = 10.0f;
+                    g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + (lp.x - pad) * inv,
+                                                    monitor->m_position.y + (lp.y - pad) * inv,
+                                                    (lp.w + pad * 2.0f) * inv, (lp.h + pad * 2.0f) * inv});
+                }
+            }
+            glUniform1f(m_gu.rimLight, rimOn ? 1.0f : 0.0f);
             glUniform1f(m_gu.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
             glUniform1f(m_gu.rimWidth, std::max(0.75f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f) * (float)monitor->m_scale));
-            glUniform1f(m_gu.rimAngle, lg::getFloat("plugin:liquidglass:rim_angle", 135.0f));
+            glUniform1f(m_gu.rimAngle, rimAngle);
             glUniform1f(m_gu.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
             glUniform1f(m_gu.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
             glUniform1f(m_gu.usePill, T.usePill);
@@ -1591,6 +1637,246 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
     }
 
     // Blend state left as set above (Hyprland re-sets its own per draw).
+    glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
+    g_pHyprRenderer->setViewport(0, 0, (int)callerSize.x, (int)callerSize.y);
+}
+
+// --- rim-only widgets (master switch off) ---------------------------------
+//
+// The glass body is off, but the Apple rim is an independent edge treatment.
+// captureRim() runs before the layer content (same slot as the glass body)
+// and keeps a quarter-res copy of the backdrop; drawRim() runs after the
+// content and stamps just the rim on top, so the QML fallback background
+// cannot bury it. No blur chain, bokeh, body tint or shadow runs here.
+
+void CGlassLayer::captureRim(Render::CRenderContext& ctx, PHLMONITOR monitor) {
+    m_rimReady = false;
+    const auto surf = m_surface.lock();
+    if (!surf || !monitor)
+        return;
+
+    CBox surfBox{surf->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT),
+                 surf->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT)};
+    surfBox.translate(-monitor->m_position);
+    surfBox.scale(monitor->m_scale).round().noNegativeSize();
+    if (!std::isfinite(surfBox.x) || !std::isfinite(surfBox.y) || surfBox.w <= 0 || surfBox.h <= 0)
+        return;
+    m_lastMonPos = monitor->m_position;
+
+    std::vector<SPill> pills;
+    if (!loadGeometry(monitor, surfBox, surf->m_namespace, pills) || pills.empty())
+        return;
+    // Circular iris clip (launcher open): the ring shader has no mask mode,
+    // so don't paint a square rim over the animating circle.
+    if (m_mask.on)
+        return;
+
+    float x0 = pills[0].x, y0 = pills[0].y, x1 = pills[0].x + pills[0].w, y1 = pills[0].y + pills[0].h;
+    for (const auto& p : pills) {
+        x0 = std::min(x0, p.x);
+        y0 = std::min(y0, p.y);
+        x1 = std::max(x1, p.x + p.w);
+        y1 = std::max(y1, p.y + p.h);
+    }
+
+    // Bounds for damageRim()/glassBounds() (monitor-local LOGICAL px).
+    const double inv = 1.0 / (double)monitor->m_scale;
+    const double PAD_LOG = 12.0 * inv;
+    m_boundsLog = CBox{x0 * inv - PAD_LOG, y0 * inv - PAD_LOG, (x1 - x0) * inv + 2 * PAD_LOG,
+                       (y1 - y0) * inv + 2 * PAD_LOG};
+    m_boundsOk = true;
+
+    // Only the edge bands need repainting. Damage wholly inside the pill
+    // interior (typing, video, cursor inside a widget) never touches the rim.
+    const CBox dmg = ctx.m_data.damage.getExtents();
+    if (dmg.w <= 0 || dmg.h <= 0)
+        return;
+    const double pad = 16.0;
+    const double plate = 12.0 * (double)monitor->m_scale;
+    if (dmg.x >= x0 + plate && dmg.y >= y0 + plate && dmg.x + dmg.w <= x1 - plate && dmg.y + dmg.h <= y1 - plate)
+        return;
+    if (dmg.x + dmg.w <= x0 - pad || dmg.y + dmg.h <= y0 - pad || dmg.x >= x1 + pad || dmg.y >= y1 + pad)
+        return;
+
+    const auto source = ctx.m_data.currentFB;
+    if (!source)
+        return;
+    const int srcW = (int)source->m_size.x, srcH = (int)source->m_size.y;
+    const int rx0 = std::max(0, (int)std::floor(x0 - pad));
+    const int ry0 = std::max(0, (int)std::floor(y0 - pad));
+    const int rx1 = std::min(srcW, (int)std::ceil(x1 + pad));
+    const int ry1 = std::min(srcH, (int)std::ceil(y1 + pad));
+    const int rw = rx1 - rx0, rh = ry1 - ry0;
+    if (rw < 8 || rh < 8)
+        return;
+
+    const int hw = std::max(1, rw / 4), hh = std::max(1, rh / 4);
+    ensureKawase(hw, hh, source->m_drmFormat);
+    if (!m_halfA || !m_halfA->getTexture())
+        return;
+    ensureShaders();
+    ensureRing();
+    if (!m_shadersOk || !m_ringOk)
+        return;
+
+    g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbId(m_halfA));
+    g_pHyprRenderer->setViewport(0, 0, hw, hh);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbId(source));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbId(m_halfA));
+    glBlitFramebuffer(rx0, ry0, rx1, ry1, 0, 0, hw, hh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbId(source));
+    g_pHyprRenderer->setViewport(0, 0, srcW, srcH);
+
+    m_rimPills = std::move(pills);
+    m_rimCapBox = CBox{(double)rx0, (double)ry0, (double)rw, (double)rh};
+    m_rimReady = true;
+}
+
+void CGlassLayer::drawRim(Render::CRenderContext& ctx, PHLMONITOR monitor) {
+    if (!m_rimReady || m_rimPills.empty() || !monitor)
+        return;
+    const auto caller = ctx.m_data.currentFB;
+    if (!caller)
+        return;
+    const auto callerSize = caller->m_size;
+    const int rw = (int)m_rimCapBox.w, rh = (int)m_rimCapBox.h;
+    if (rw < 8 || rh < 8 || !m_halfA || !m_halfA->getTexture())
+        return;
+
+    ensureRing();
+    if (!m_ringOk)
+        return;
+
+    float ibR = 0.19f, ibG = 0.20f, ibB = 0.27f;
+    float tmpR = 0, tmpG = 0, tmpB = 0;
+    if (inactiveBorderRGB(tmpR, tmpG, tmpB)) {
+        ibR = tmpR;
+        ibG = tmpG;
+        ibB = tmpB;
+    }
+
+    const auto transform = Math::wlTransformToHyprutils(Math::invertTransform(monitor->m_transform));
+    Mat3x3 proj = g_pHyprRenderer->projectBoxToTarget(ctx, m_rimCapBox, transform);
+
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
+    g_pHyprRenderer->setViewport(0, 0, (int)callerSize.x, (int)callerSize.y);
+    glActiveTexture(GL_TEXTURE0);
+    m_halfA->getTexture()->bind();
+    m_halfA->getTexture()->setTexParameter(GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    m_halfA->getTexture()->setTexParameter(GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+    auto shader = g_pHyprOpenGL->useShader(m_ring);
+
+    const float shapeW = lg::getFloat("plugin:liquidglass:shape_width", 3.5f);
+    const float shapeH = lg::getFloat("plugin:liquidglass:shape_height", 3.5f);
+    const float lA = lg::getFloat("plugin:liquidglass:a", 0.7f);
+    const float lB = lg::getFloat("plugin:liquidglass:b", 2.3f);
+    const float lC = lg::getFloat("plugin:liquidglass:c", 5.2f);
+    const float lD = lg::getFloat("plugin:liquidglass:border_d", 30.0f);
+    const float lFPower = lg::getFloat("plugin:liquidglass:fpower", 1.0f);
+    const float opacity = lg::getFloat("plugin:liquidglass:opacity", 0.23f);
+    const float squircleF = lg::getFloat("plugin:liquidglass:squircle_f", 0.5f);
+    const float rimStrength = std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f));
+    const float rimSplay = std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f);
+    const float rimShade = std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f);
+    const float rimLogical = std::max(0.0f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f));
+    const float rimPx = std::max(0.75f, rimLogical * (float)monitor->m_scale);
+    const int thick = std::max(1, (int)std::ceil(rimPx));
+    const bool follow = lg::getInt("plugin:liquidglass:rim_follow", 1) != 0;
+
+    for (size_t i = 0; i < m_rimPills.size(); ++i) {
+        const auto& lp = m_rimPills[i];
+        if (lp.unionOn) // unions animate through the full glass path; no stable rim outline
+            continue;
+        if (lp.w <= 2.0f * (float)thick || lp.h <= 2.0f * (float)thick)
+            continue;
+        if (m_rimFollow.size() <= i)
+            m_rimFollow.resize(i + 1);
+
+        float rimAngle = lg::getFloat("plugin:liquidglass:rim_angle", 135.0f);
+        const float prev = m_rimFollow[i].angle;
+        if (follow) {
+            rimAngle = lg::rimAngleFor(CBox{lp.x, lp.y, lp.w, lp.h}, lg::cursorLocal(monitor), rimAngle, m_rimFollow[i]);
+            if (m_rimFollow[i].init && std::isfinite(prev) && std::abs(rimAngle - prev) > 0.01f) {
+                const float invS = 1.0f / (float)monitor->m_scale;
+                const float pad = 12.0f;
+                g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + (lp.x - pad) * invS,
+                                                monitor->m_position.y + (lp.y - pad) * invS,
+                                                (lp.w + pad * 2.0f) * invS, (lp.h + pad * 2.0f) * invS});
+            }
+        }
+
+        const float ix = lp.x - (float)m_rimCapBox.x;
+        const float iy = lp.y - (float)m_rimCapBox.y;
+        // Rim lives INSIDE the pill silhouette (same place as the in-glass
+        // rim). ring.frag puts the band from uInner to uInner + uThick, so
+        // shrink uInner by the band width and keep uThick for the outer edge.
+        const float band = (float)thick;
+
+        glUniformMatrix3fv(m_ru.proj, 1, GL_TRUE, proj.getMatrix().data());
+        glUniform1i(m_ru.blur, 0);
+        glUniform4f(m_ru.inner, ix + band, iy + band, lp.w - 2.0f * band, lp.h - 2.0f * band);
+        glUniform2f(m_ru.quad, (float)rw, (float)rh);
+        glUniform1f(m_ru.thick, band);
+        glUniform1f(m_ru.round, lp.r[0]);
+        glUniform3f(m_ru.tint, ibR, ibG, ibB);
+        glUniform3f(m_ru.tint2, ibR, ibG, ibB);
+        glUniform1f(m_ru.lerp, 0.0f);
+        glUniform1f(m_ru.tintMix, opacity);
+        glUniform1f(m_ru.a, 1.0f);
+        glUniform2f(m_ru.winSize, lp.w, lp.h);
+        glUniform1f(m_ru.winR, (lp.r[0] + lp.r[1] + lp.r[2] + lp.r[3]) * 0.25f);
+        glUniform2f(m_ru.shape, shapeW, shapeH);
+        glUniform1f(m_ru.lA, lA);
+        glUniform1f(m_ru.lB, lB);
+        glUniform1f(m_ru.lC, lC);
+        glUniform1f(m_ru.lD, lD);
+        glUniform1f(m_ru.lFPower, lFPower);
+        glUniform1f(m_ru.logCME, lC > 0.001f ? std::log(lC * 2.718281828459045f) : 0.0f);
+        glUniform1f(m_ru.glowW, 0.0f);
+        glUniform1f(m_ru.glowE0, 0.5f);
+        glUniform1f(m_ru.glowE1, -0.5f);
+        glUniform1f(m_ru.glowT, 0.5f);
+        glUniform1f(m_ru.glowBias, 0.0f);
+        glUniform1f(m_ru.throwMax, std::min(24.0f, (float)thick * 1.5f));
+        glUniform1f(m_ru.useRadii, 1.0f);
+        glUniform4f(m_ru.radii, lp.r[0], lp.r[1], lp.r[2], lp.r[3]);
+        glUniform4f(m_ru.winRadii, lp.r[0], lp.r[1], lp.r[2], lp.r[3]);
+        glUniform2f(m_ru.flare, lp.fl[0], lp.fl[1]);
+        glUniform1f(m_ru.squircleF, lp.sq >= 0.0f ? lp.sq : squircleF);
+        glUniform1f(m_ru.push, 0.0f);
+        glUniform1f(m_ru.fadeTop, 1.0f);
+        glUniform1f(m_ru.fadeMid, 1.0f);
+        glUniform1f(m_ru.fadeBottom, 1.0f);
+        glUniform1f(m_ru.fadeAng, 0.0f);
+        glUniform1f(m_ru.frameEnable, 0.0f);
+        glUniform1f(m_ru.frameScale, 1.0f);
+        glUniform1f(m_ru.seed, 0.37f);
+        glUniform1f(m_ru.frieze, 0.0f);
+        glUniform1f(m_ru.gilt, 0.0f);
+        glUniform1f(m_ru.relief, 0.0f);
+        glUniform3f(m_ru.shCol, 0.0f, 0.0f, 0.0f);
+        glUniform1f(m_ru.shA, 0.0f);
+        glUniform2f(m_ru.shOff, 0.0f, 0.0f);
+        glUniform1f(m_ru.shBlur, 1.0f);
+        glUniform1f(m_ru.rimLight, 1.0f);
+        glUniform1f(m_ru.rimStrength, rimStrength);
+        glUniform1f(m_ru.rimWidth, rimPx);
+        glUniform1f(m_ru.rimAngle, rimAngle);
+        glUniform1f(m_ru.rimSplay, rimSplay);
+        glUniform1f(m_ru.rimShade, rimShade);
+
+        glBindVertexArray(m_vao);
+        lg::drawPerDamageRect(ctx, m_rimCapBox, [] { glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); });
+        glBindVertexArray(0);
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, fbId(caller));
     g_pHyprRenderer->setViewport(0, 0, (int)callerSize.x, (int)callerSize.y);
 }

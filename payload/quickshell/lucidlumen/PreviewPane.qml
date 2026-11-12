@@ -264,7 +264,7 @@ Item {
                     LText {
                         width: parent.width
                         role: "titleMedium"
-                        text: prev.kind === "many" ? prev.items.length + " items" : prev.one ? prev.one.label : prev.folderSelf ? prev.tab.title : "Nothing to preview"
+                        text: prev.kind === "many" ? prev.items.length + Tr.t(" items") : prev.one ? prev.one.label : prev.folderSelf ? prev.tab.title : Tr.t("Nothing to preview")
                         color: Theme.text
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                         maximumLineCount: 3
@@ -275,7 +275,7 @@ Item {
                         width: parent.width
                         visible: text !== ""
                         role: "bodyMedium"
-                        text: prev.kind === "none" ? "Pick something to see it here" : prev.kind === "many" ? "Selected" : prev.folderSelf ? "This folder" : ""
+                        text: prev.kind === "none" ? Tr.t("Pick something to see it here") : prev.kind === "many" ? Tr.t("Selected") : prev.folderSelf ? Tr.t("This folder") : ""
                         color: Theme.subtext
                     }
 
@@ -322,7 +322,7 @@ Item {
 
                     Button {
                         variant: "tonal"
-                        text: "Open"
+                        text: Tr.t("Open")
                         icon: "open_in_new"
                         onClicked: prev.win.openSelection(false)
                     }
@@ -330,7 +330,7 @@ Item {
                     IconButton {
                         visible: prev.one !== null && prev.one.kind !== "dir"
                         icon: "apps"
-                        tooltip: "Open with…"
+                        tooltip: Tr.t("Open with…")
                         onClicked: prev.win.runItem("openWith", prev.one, prev.items)
 
                         Tip {
@@ -340,7 +340,7 @@ Item {
 
                     IconButton {
                         icon: "info"
-                        tooltip: "Properties"
+                        tooltip: Tr.t("Properties")
                         onClicked: prev.win.runItem("properties", prev.one, prev.items)
 
                         Tip {
@@ -601,7 +601,7 @@ Item {
                 variant: "filled"
                 size: "m"
                 icon: "play_arrow"
-                tooltip: "Play"
+                tooltip: Tr.t("Play")
                 onClicked: vv.playing = true
             }
 
@@ -617,7 +617,7 @@ Item {
                 checkable: true
                 checked: true
                 icon: checked ? "volume_off" : "volume_up"
-                tooltip: checked ? "Sound on" : "Mute"
+                tooltip: checked ? Tr.t("Sound on") : Tr.t("Mute")
                 onClicked: checked = !checked
             }
 
@@ -666,7 +666,7 @@ Item {
                 anchors.bottomMargin: Theme.dp(12)
                 variant: "filled"
                 icon: sound.item && sound.item.playbackState === MediaPlayer.PlayingState ? "pause" : "play_arrow"
-                tooltip: sound.item && sound.item.playbackState === MediaPlayer.PlayingState ? "Pause" : "Play"
+                tooltip: sound.item && sound.item.playbackState === MediaPlayer.PlayingState ? Tr.t("Pause") : Tr.t("Play")
                 onClicked: {
                     if (!av.started)
                         av.started = true;

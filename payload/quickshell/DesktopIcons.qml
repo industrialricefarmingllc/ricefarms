@@ -1539,11 +1539,11 @@ Singleton {
         if (d.action.op === "delete") {
             root.flyAll(d.action.keys, null);
             root.run(["python3", root.script, "delete"].concat(d.action.paths));
-            root.notify(d.action.paths.length === 1 ? "Deleted “" + d.action.name + "”" : "Deleted " + d.action.paths.length + " items", false);
+            root.notify(d.action.paths.length === 1 ? Tr.t("Deleted “") + d.action.name + "”" : Tr.t("Deleted ") + d.action.paths.length + Tr.t(" items"), false);
             root.clearSelection();
         } else if (d.action.op === "empty") {
             root.run(["gio", "trash", "--empty"]);
-            root.notify("Emptied the Trash", false);
+            root.notify(Tr.t("Emptied the Trash"), false);
         }
     }
 
@@ -1603,6 +1603,43 @@ Singleton {
         Quickshell.execDetached(cmd);
     }
 
+    // where the icon is, in screen coordinates, for the launch placeholder
+    function iconRectFor(key) {
+        var c = root.centreOf(key);
+        if (!c)
+            return null;
+
+        var w = Math.max(Theme.dp(32), root.wellSize);
+        var s = root.screen;
+        return {
+            "x": (s ? s.x : 0) + c.x - w / 2,
+            "y": (s ? s.y : 0) + c.y - w / 2,
+            "width": w,
+            "height": w
+        };
+    }
+
+    function iconOf(it) {
+        var p = it && it.icon ? String(it.icon) : "";
+        if (p === "")
+            return "";
+        return p.indexOf("/") === 0 ? "file://" + p : p;
+    }
+
+    // an app (or an app a file opens) starts through the same held tile as the
+    // launcher's picks; the plain command is only the fallback
+    function launchArgv(argv, it, key, timeoutMs) {
+        var opts = {
+            "title": it ? (it.label || it.name || "") : "",
+            "icon": root.iconOf(it),
+            "rect": root.iconRectFor(key),
+            "screen": root.screen,
+            "timeoutMs": timeoutMs || 10000
+        };
+        if (!Launch.runArgv(argv, opts))
+            root.run(argv);
+    }
+
     function open(key) {
         var it = root.byKey[key];
         if (!it)
@@ -1619,11 +1656,11 @@ Singleton {
         root.launched = key;
         root.launchTick++;
         if (it.kind === "app")
-            root.run(["gio", "launch", it.path]);
+            root.launchArgv(["gio", "launch", it.path], it, key, 10000);
         else if (it.kind === "trash")
-            root.run(["python3", root.script, "open-trash"]);
+            root.launchArgv(["python3", root.script, "open-trash"], it, key, 3000);
         else
-            root.run(["python3", root.script, "open", it.uri]);
+            root.launchArgv(["python3", root.script, "open", it.uri], it, key, 3000);
     }
 
     function openSelection() {
@@ -1675,7 +1712,7 @@ Singleton {
             "paths": root.pathsOf(f),
             "tags": tags
         });
-        root.notify(root.named(f, "Moved %1 to the Trash", "Moved %n items to the Trash"), true);
+        root.notify(root.named(f, Tr.t("Moved %1 to the Trash"), Tr.t("Moved %n items to the Trash")), true);
         root.clearSelection();
     }
 
@@ -1715,7 +1752,10 @@ Singleton {
     }
 
     function openTerminal(dir) {
-        root.run(["xdg-terminal-exec", "--dir=" + dir]);
+        root.launchArgv(["xdg-terminal-exec", "--dir=" + dir], {
+            "label": "Terminal",
+            "icon": "utilities-terminal"
+        }, "", 10000);
     }
 
     // a copy into one of the home folders (documents, downloads...), from send to
@@ -1742,13 +1782,13 @@ Singleton {
             return e.kind !== "dir";
         });
         if (f.length === 0) {
-            root.notify("Folders can't be sent to a phone", false);
+            root.notify(Tr.t("Folders can't be sent to a phone"), false);
             return ;
         }
         KdeConnect.shareFiles(id, f.map((e) => {
             return e.uri;
         }));
-        root.notify(root.named(f, "Sending %1 to " + name, "Sending %n files to " + name), false);
+        root.notify(root.named(f, Tr.t("Sending %1 to ") + name, Tr.t("Sending %n files to ") + name), false);
     }
 
     // object push carries files, not folders
@@ -1757,7 +1797,7 @@ Singleton {
             return e.kind === "file";
         });
         if (f.length === 0) {
-            root.notify("Only files can be sent over Bluetooth", false);
+            root.notify(Tr.t("Only files can be sent over Bluetooth"), false);
             return ;
         }
         var dev = Bt.deviceAt(address);
@@ -1811,7 +1851,7 @@ Singleton {
         p.command = ["python3", root.script, op].concat(root.pathsOf(op === "extract" ? [f[0]] : f));
         p.running = true;
         if (op === "compress" || op === "extract")
-            root.notify(op === "compress" ? root.named(f, "Compressing %1…", "Compressing %n items…") : "Extracting “" + f[0].label + "”…", false);
+            root.notify(op === "compress" ? root.named(f, Tr.t("Compressing %1…"), Tr.t("Compressing %n items…")) : Tr.t("Extracting “") + f[0].label + "”…", false);
 
     }
 
@@ -2054,7 +2094,7 @@ Singleton {
     function openWith(appKey, uris) {
         var app = root.byKey[appKey];
         if (app && app.kind === "app" && app.exec)
-            root.run(["gio", "launch", app.path].concat(root.localPaths(uris)));
+            root.launchArgv(["gio", "launch", app.path].concat(root.localPaths(uris)), app, appKey, 10000);
 
     }
 
@@ -2074,7 +2114,7 @@ Singleton {
             "kind": "trash",
             "paths": paths
         });
-        root.notify(paths.length === 1 ? "Moved “" + root.baseOf(paths[0]) + "” to the Trash" : "Moved " + paths.length + " items to the Trash", true);
+        root.notify(paths.length === 1 ? Tr.t("Moved “") + root.baseOf(paths[0]) + Tr.t("” to the Trash") : Tr.t("Moved ") + paths.length + Tr.t(" items to the Trash"), true);
     }
 
     function rename(key, name) {
@@ -2690,7 +2730,10 @@ Singleton {
             var app = root.openWithApps[parseInt(id.substring(4))];
             var f = root.filesOf(keys);
             if (app && f.length > 0)
-                root.run(["gio", "launch", app.file].concat(root.pathsOf(f)));
+                root.launchArgv(["gio", "launch", app.file].concat(root.pathsOf(f)), {
+                    "label": app.name,
+                    "icon": app.icon
+                }, one ? one.key : "", 10000);
 
         } else if (id === "icon:look") {
             if (one)
@@ -3174,11 +3217,11 @@ Singleton {
                         "paths": mp.made
                     });
                     if (mp.what === "compress")
-                        root.notify("Compressed to “" + root.baseOf(mp.made[0]) + "”", true);
+                        root.notify(Tr.t("Compressed to “") + root.baseOf(mp.made[0]) + "”", true);
                     else if (mp.what === "extract")
-                        root.notify("Extracted “" + root.baseOf(mp.made[0]) + "”", true);
+                        root.notify(Tr.t("Extracted “") + root.baseOf(mp.made[0]) + "”", true);
                 } else if (code !== 0 && mp.what !== "") {
-                    root.notify(mp.what === "image" ? "There's no picture on the clipboard" : "That didn't work", false);
+                    root.notify(mp.what === "image" ? Tr.t("There's no picture on the clipboard") : Tr.t("That didn't work"), false);
                 }
                 mp.destroy();
             }
@@ -3247,7 +3290,7 @@ Singleton {
                     if (!proc.intoDesktop) {
                         var n = proc.moved.length;
                         var verb = proc.mode === "copy" ? "Copied" : (proc.mode === "link" ? "Linked" : "Moved");
-                        root.notify(verb + " " + (n === 1 ? "“" + root.baseOf(proc.moved[0][0]) + "”" : n + " items") + " to " + proc.destLabel, true);
+                        root.notify(verb + " " + (n === 1 ? "“" + root.baseOf(proc.moved[0][0]) + "”" : n + Tr.t(" items")) + Tr.t(" to ") + proc.destLabel, true);
                         if (proc.destKey !== "") {
                             root.received = proc.destKey;
                             root.receiveTick++;

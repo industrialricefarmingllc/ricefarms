@@ -108,7 +108,7 @@ Item {
 
                     Text {
                         anchors.baseline: usedText.baseline
-                        text: ov.vol ? "of " + Storage.size(ov.capacity) : ""
+                        text: ov.vol ? Tr.t("of ") + Storage.size(ov.capacity) : ""
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodyLg
@@ -334,7 +334,7 @@ Item {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 variant: ov.scanning ? "text" : (ov.scan ? "tonal" : "filled")
-                text: ov.scanning ? "Stop" : (ov.scan ? "Scan again" : "Scan")
+                text: ov.scanning ? Tr.t("Stop") : (ov.scan ? Tr.t("Scan again") : Tr.t("Scan"))
                 iconPath: ov.scanning ? "close" : "refresh"
                 enabled: ov.vol !== null && (ov.scanning || !Storage.scanning)
                 onClicked: ov.scanning ? Storage.cancelScan() : Storage.scan(ov.vol.mount)

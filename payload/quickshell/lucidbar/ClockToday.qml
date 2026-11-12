@@ -230,7 +230,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "bodyMedium"
                 color: Theme.subtext
-                text: WeatherSource.lastError !== "" ? "Weather is unavailable — " + WeatherSource.lastError : "Fetching the forecast"
+                text: WeatherSource.lastError !== "" ? Tr.t("Weather is unavailable — ") + WeatherSource.lastError : Tr.t("Fetching the forecast")
             }
 
         }
@@ -371,7 +371,7 @@ Item {
                             anchors.horizontalCenter: parent.horizontalCenter
                             role: "labelSmall"
                             color: index === 0 ? Theme.primary : Theme.subtext
-                            text: index === 0 ? "Now" : new Date(modelData.time).toLocaleTimeString(Qt.locale(), Prefs.clock24h ? "HH" : "h AP").replace(":00", "")
+                            text: index === 0 ? Tr.t("Now") : new Date(modelData.time).toLocaleTimeString(Qt.locale(), Prefs.clock24h ? "HH" : "h AP").replace(":00", "")
                         }
 
                         WeatherIcon {
@@ -427,7 +427,7 @@ Item {
 
                             LText {
                                 role: "labelMedium"
-                                text: new Date(modelData.date + "T12:00").toLocaleDateString(Qt.locale(), "ddd")
+                                text: new Date(modelData.date + Tr.t("T12:00")).toLocaleDateString(Qt.locale(), "ddd")
                             }
 
                             LText {
@@ -500,13 +500,13 @@ Item {
 
                 LText {
                     role: "titleSmall"
-                    text: Agenda.next ? Agenda.next.item.name : "Nothing coming up"
+                    text: Agenda.next ? Agenda.next.item.name : Tr.t("Nothing coming up")
                 }
 
                 LText {
                     role: "bodySmall"
                     color: Theme.subtext
-                    text: Agenda.next ? Agenda.next.at.toLocaleDateString(Qt.locale(), "ddd d MMM") + " · " + Agenda.timeText(Agenda.next.item) + " · " + Agenda.untilText(Agenda.next.at) : "Reminders you add show up here"
+                    text: Agenda.next ? Agenda.next.at.toLocaleDateString(Qt.locale(), "ddd d MMM") + " · " + Agenda.timeText(Agenda.next.item) + " · " + Agenda.untilText(Agenda.next.at) : Tr.t("Reminders you add show up here")
                 }
 
             }
@@ -519,7 +519,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             variant: "tonal"
             icon: "add"
-            text: "Reminder"
+            text: Tr.t("Reminder")
             onClicked: page.addRequested()
         }
 

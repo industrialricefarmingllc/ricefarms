@@ -19,10 +19,36 @@ Item {
     property color tintOverride: "transparent"
     property color containerOverride: "transparent"
     property string tooltip: ""
+    property string accessibleName: ""
+    property string accessibleDescription: ""
 
     signal clicked()
     signal rightClicked()
     signal toggled(bool value)
+
+    function activate() {
+        if (ib.disabled)
+            return ;
+
+        if (ib.checkable)
+            ib.toggled(!ib.checked);
+
+        ib.clicked();
+    }
+
+    activeFocusOnTab: !ib.disabled
+    Accessible.role: ib.checkable ? Accessible.CheckBox : Accessible.Button
+    Accessible.name: ib.accessibleName !== "" ? ib.accessibleName : (ib.tooltip !== "" ? ib.tooltip : A11y.iconName(ib.icon, ""))
+    Accessible.description: ib.accessibleDescription
+    Accessible.checkable: ib.checkable
+    Accessible.checked: ib.checkable ? ib.checked : false
+    Accessible.pressed: area.pressed
+    Accessible.focusable: !ib.disabled
+    Accessible.focused: ib.activeFocus
+    Accessible.onPressAction: ib.activate()
+    Keys.onSpacePressed: ib.activate()
+    Keys.onReturnPressed: ib.activate()
+    Keys.onEnterPressed: ib.activate()
 
     readonly property int btnH: ib.size === "xs" ? Theme.dp(30) : (ib.size === "m" ? Theme.dp(48) : Theme.dp(36))
     readonly property int iconPx: ib.size === "xs" ? Theme.dp(18) : (ib.size === "m" ? Theme.dp(24) : Theme.dp(20))
@@ -112,13 +138,22 @@ Item {
                     ib.rightClicked();
                     return ;
                 }
-                if (ib.checkable)
-                    ib.toggled(!ib.checked);
-
-                ib.clicked();
+                ib.forceActiveFocus();
+                ib.activate();
             }
         }
 
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: box.radius + Theme.dp(3)
+        color: "transparent"
+        border.width: ib.activeFocus && !ib.disabled ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
     Icon {

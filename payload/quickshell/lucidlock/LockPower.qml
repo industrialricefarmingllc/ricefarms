@@ -195,7 +195,7 @@ Rectangle {
                 id: cancelText
 
                 anchors.centerIn: parent
-                text: "Cancel"
+                text: Tr.t("Cancel")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelLg

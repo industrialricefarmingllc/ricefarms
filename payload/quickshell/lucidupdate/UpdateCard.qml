@@ -357,7 +357,7 @@ Rectangle {
                     anchors.rightMargin: Theme.dp(16)
                     anchors.top: parent.top
                     anchors.topMargin: Theme.dp(14)
-                    text: "<b>Things may break.</b> Beta builds are untested: the bar, the lock screen or the whole shell can fail to start. If that happens, move the backup back over ~/.config/quickshell from a terminal."
+                    text: Tr.t("<b>Things may break.</b> Beta builds are untested: the bar, the lock screen or the whole shell can fail to start. If that happens, move the backup back over ~/.config/quickshell from a terminal.")
                     textFormat: Text.StyledText
                     color: Theme.fgErrorContainer
                     font.family: Theme.fontFamily
@@ -381,7 +381,7 @@ Rectangle {
                     width: parent.width
                     error: card.authAsk && card.ask.retry && authField.text === ""
                     busy: !card.authAsk
-                    placeholder: card.authAsk ? "Password for " + Quickshell.env("USER") : "Getting ready…"
+                    placeholder: card.authAsk ? Tr.t("Password for ") + Quickshell.env("USER") : Tr.t("Getting ready…")
                     onAccepted: card.submitAuth()
                 }
 
@@ -501,7 +501,7 @@ Rectangle {
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: card.runAsk && card.ask.kind === "password" ? "sudo needs your password again" : "The installer asks"
+                            text: card.runAsk && card.ask.kind === "password" ? Tr.t("sudo needs your password again") : Tr.t("The installer asks")
                             color: Theme.accent
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontLabelMd
@@ -545,7 +545,7 @@ Rectangle {
                         width: parent.width
                         visible: card.runAsk && card.ask.kind === "password"
                         error: card.runAsk && card.ask.retry === true && askField.text === ""
-                        placeholder: card.runAsk && card.ask.retry ? "Wrong password, try again" : "Password for " + Quickshell.env("USER")
+                        placeholder: card.runAsk && card.ask.retry ? Tr.t("Wrong password, try again") : Tr.t("Password for ") + Quickshell.env("USER")
                         onAccepted: card.submitAsk()
                     }
 
@@ -580,21 +580,21 @@ Rectangle {
 
                         M3Button {
                             visible: card.runAsk && card.ask.kind === "yesno"
-                            text: "No"
+                            text: Tr.t("No")
                             variant: card.runAsk && card.ask.def === "n" ? "filled" : "outlined"
                             onClicked: Updates.answer("n")
                         }
 
                         M3Button {
                             visible: card.runAsk && card.ask.kind === "yesno"
-                            text: "Yes"
+                            text: Tr.t("Yes")
                             variant: card.runAsk && card.ask.def === "n" ? "outlined" : "filled"
                             onClicked: Updates.answer("y")
                         }
 
                         M3Button {
                             visible: card.runAsk && card.ask.kind !== "yesno"
-                            text: "Send"
+                            text: Tr.t("Send")
                             variant: "filled"
                             enabled: card.runAsk && (card.ask.kind === "text" || askField.text !== "")
                             onClicked: card.submitAsk()
@@ -633,7 +633,7 @@ Rectangle {
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "Details"
+                            text: Tr.t("Details")
                             color: Theme.subtextDim
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodySm
@@ -674,14 +674,14 @@ Rectangle {
                     // confirm
                     M3Button {
                         visible: card.view === "confirm" || card.view === "auth"
-                        text: "Cancel"
+                        text: Tr.t("Cancel")
                         variant: "text"
                         onClicked: Updates.cancel()
                     }
 
                     M3Button {
                         visible: card.view === "confirm"
-                        text: "OK"
+                        text: Tr.t("OK")
                         variant: "filled"
                         destructive: card.beta
                         onClicked: Updates.confirmUpdate()
@@ -690,7 +690,7 @@ Rectangle {
                     // auth
                     M3Button {
                         visible: card.view === "auth"
-                        text: "Continue"
+                        text: Tr.t("Continue")
                         variant: "filled"
                         enabled: card.authAsk && authField.text !== ""
                         onClicked: card.submitAuth()
@@ -700,7 +700,7 @@ Rectangle {
                     M3Button {
                         visible: card.view === "running"
                         enabled: Updates.phase !== "stopping"
-                        text: card.stopArmed ? "Stop now" : "Stop"
+                        text: card.stopArmed ? Tr.t("Stop now") : Tr.t("Stop")
                         variant: card.stopArmed ? "tonal" : "text"
                         destructive: true
                         onClicked: {
@@ -716,7 +716,7 @@ Rectangle {
 
                     M3Button {
                         visible: card.view === "running"
-                        text: "Hide"
+                        text: Tr.t("Hide")
                         variant: "tonal"
                         onClicked: Updates.hide()
                     }
@@ -724,14 +724,14 @@ Rectangle {
                     // restart
                     M3Button {
                         visible: card.view === "restart"
-                        text: "Cancel"
+                        text: Tr.t("Cancel")
                         variant: "text"
                         onClicked: Updates.closeEnd()
                     }
 
                     M3Button {
                         visible: card.view === "restart"
-                        text: "Remind me later"
+                        text: Tr.t("Remind me later")
                         variant: "tonal"
                         iconPath: "snooze"
                         onClicked: Updates.remindLater()
@@ -739,7 +739,7 @@ Rectangle {
 
                     M3Button {
                         visible: card.view === "restart"
-                        text: "Restart now"
+                        text: Tr.t("Restart now")
                         variant: "filled"
                         iconPath: "restart_alt"
                         onClicked: Updates.restartNow()
@@ -748,21 +748,21 @@ Rectangle {
                     // failed
                     M3Button {
                         visible: card.view === "failed"
-                        text: "Open log"
+                        text: Tr.t("Open log")
                         variant: "text"
                         onClicked: Updates.openLog()
                     }
 
                     M3Button {
                         visible: card.canRetry
-                        text: "Try again"
+                        text: Tr.t("Try again")
                         variant: "tonal"
                         onClicked: Updates.retry()
                     }
 
                     M3Button {
                         visible: card.view === "failed"
-                        text: "Close"
+                        text: Tr.t("Close")
                         variant: "filled"
                         onClicked: Updates.closeEnd()
                     }

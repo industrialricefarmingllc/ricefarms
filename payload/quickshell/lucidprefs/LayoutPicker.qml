@@ -151,7 +151,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.dp(12)
                 anchors.verticalCenter: parent.verticalCenter
-                text: "Search " + picker.items.length + " layouts and variants"
+                text: Tr.t("Search ") + picker.items.length + Tr.t(" layouts and variants")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodyLg
@@ -163,7 +163,7 @@ Item {
         Text {
             anchors.centerIn: parent
             width: card.width - Theme.dp(60)
-            text: picker.items.length === 0 ? "The layout list could not be read" : "No layouts match “" + picker.filter + "”"
+            text: picker.items.length === 0 ? Tr.t("The layout list could not be read") : Tr.t("No layouts match “") + picker.filter + "”"
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBodyLg

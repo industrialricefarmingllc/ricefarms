@@ -244,7 +244,7 @@ WidgetBody {
 
             RateCell {
                 icon: "down"
-                label: "DOWN"
+                label: Tr.t("DOWN")
                 value: w.rate(w.down)
                 tint: Theme.accent
             }
@@ -404,7 +404,7 @@ WidgetBody {
         RateCell {
             width: compact.width / 2
             icon: "down"
-            label: "DOWN"
+            label: Tr.t("DOWN")
             value: w.rate(w.down)
             tint: Theme.accent
             big: Theme.dp(20)

@@ -16,7 +16,7 @@ void MAIN()
         // those pixels instead of tinting them.
         vec3 oldBackground = texture(backgroundTexture, subjectUv).rgb;
         vec3 fused = captured * alpha + oldBackground * (1.0 - alpha);
-        float cover = smoothstep(0.25, 0.50, alpha);
+        float cover = smoothstep(0.05, 0.15, alpha);
         FRAGCOLOR = vec4(fused * cover * fade, cover * fade);
         return;
     }

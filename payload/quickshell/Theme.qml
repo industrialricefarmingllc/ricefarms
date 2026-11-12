@@ -91,7 +91,11 @@ Singleton {
     readonly property color surfaceTintSource: surfaceAdapter.hue >= 0 ? Qt.hsla(surfaceAdapter.hue / 360, Math.max(0.35, Math.min(0.8, surfaceAdapter.saturation > 0 ? surfaceAdapter.saturation : 0.4)), 0.55, 1) : root.cPrimary
     property real accentPunch: pf.accentPunch
     readonly property real motionBaseline: 1.125
-    readonly property real motionScale: pf.motionScale * root.motionBaseline
+    readonly property real motionScale: pf.a11yReduceMotion ? 0 : pf.motionScale * root.motionBaseline
+    // squash-stretch strength for Jelly (0 disables it). Restored after the
+    // local rebase dropped the token: Jelly.qml:28 and NotifPopupCard.qml
+    // still consume it, and without it every kick() ran on NaN.
+    readonly property real jelly: root.motionScale > 0 ? 1 : 0
     // the ramp below is authored a step large; 1.00x renders it at 0.9
     readonly property real typeBaseline: 0.9
     // the interface size setting. every authored pixel in the shell goes
@@ -794,6 +798,7 @@ Singleton {
             property real surfaceDarkness: -1
             property real surfaceTint: -1
             property real motionScale: 1
+            property bool a11yReduceMotion: false
             property real barMotionScale: 1.35
             property int barHeight: 37
             property string fontFamily: "Google Sans"

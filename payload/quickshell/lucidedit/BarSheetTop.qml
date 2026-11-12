@@ -26,8 +26,8 @@ Column {
         width: parent.width
 
         SettingRow {
-            title: "Show the bar"
-            description: Prefs.barEnabled ? "Off, the bar and everything on it goes, and windows take its space." : "The bar is switched off."
+            title: Tr.t("Show the bar")
+            description: Prefs.barEnabled ? Tr.t("Off, the bar and everything on it goes, and windows take its space.") : Tr.t("The bar is switched off.")
             showDivider: false
 
             M3Switch {
@@ -43,8 +43,8 @@ Column {
 
     SettingCard {
         width: parent.width
-        title: "MODULES"
-        subtitle: "On the bar itself, drag a module to move it, or pull it down off the bar to take it out. The link between two neighbours joins them."
+        title: Tr.t("MODULES")
+        subtitle: Tr.t("On the bar itself, drag a module to move it, or pull it down off the bar to take it out. The link between two neighbours joins them.")
         visible: Prefs.barEnabled
 
         Repeater {
@@ -84,12 +84,12 @@ Column {
         }
 
         SettingRow {
-            title: "Start over"
-            description: "Every module goes back where it ships, switched on or off the way it ships, and every join comes apart. Undo on the toolbar takes it back."
+            title: Tr.t("Start over")
+            description: Tr.t("Every module goes back where it ships, switched on or off the way it ships, and every join comes apart. Undo on the toolbar takes it back.")
             showDivider: false
 
             M3Button {
-                text: "Reset"
+                text: Tr.t("Reset")
                 variant: "text"
                 destructive: true
                 onClicked: Prefs.setBarDefaults()

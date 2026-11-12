@@ -16,10 +16,20 @@ ROOTS = [
     (os.path.join(HOME, ".steam/steam"), False),
     (os.path.join(HOME, ".var/app", FLATPAK_ID, ".local/share/Steam"), True),
 ]
-# runtimes and compatibility layers install like games but are not ones
+# runtimes, compatibility layers, editors and other desktop tools install like
+# games but are not ones. add title prefixes here for anything else.
 TOOLS = re.compile(
-    r"^(Proton\b|Steam Linux Runtime|Steamworks Common Redistributables|SteamVR\b)",
+    r"^(Proton\b|Steam Linux Runtime|Steamworks Common Redistributables|SteamVR\b|"
+    r"Wallpaper Engine\b|Source Filmmaker\b|Destinations Workshop Tools\b|"
+    r"Steam Link\b|Steam Remote Play\b|Steam 360 Video Player\b|"
+    r"Steamworks SDK Redistributable\b)",
     re.I)
+# ids catch tools whose manifest name is localised or renamed
+TOOL_IDS = {
+    "431960",   # Wallpaper Engine
+    "250820",   # SteamVR
+    "228980",   # Steamworks Common Redistributables
+}
 TOKEN = re.compile(r'"((?:[^"\\]|\\.)*)"|([{}])')
 
 
@@ -160,7 +170,7 @@ def main():
             # bit 4 is "fully installed"; anything else is mid-download or broken
             if not appid or not title or not to_int(state.get("stateflags")) & 4:
                 continue
-            if TOOLS.match(title) or appid in games:
+            if TOOLS.match(title) or appid in TOOL_IDS or appid in games:
                 continue
             last, minutes = played.get(appid, (0, 0))
             game = {

@@ -22,7 +22,7 @@ Item {
     property string resetAction: row.resetKey
     property bool resetVisible: row.resetKey !== "" && Prefs.isModified(row.resetKey)
     property string resetTitle: row.title
-    property string resetBody: "This puts \"" + row.resetTitle + "\" back to the value it ships with."
+    property string resetBody: Tr.fmt("This puts \"%1\" back to the value it ships with.", row.resetTitle)
     property string warning: ""
     default property alias control: holder.data
     readonly property string activeDescription: (!row.enabled && row.disabledReason !== "") ? row.disabledReason : row.description
@@ -56,6 +56,21 @@ Item {
     function flash() {
         flashPulse.restart();
     }
+
+    // the row's title is the control's label for assistive technology
+    function labelControls() {
+        for (var i = 0; i < holder.children.length; i++) {
+            var c = holder.children[i];
+            if (c && c.accessibleName !== undefined && c.accessibleName === "" && row.title !== "")
+                c.accessibleName = row.title;
+
+        }
+    }
+
+    Accessible.role: Accessible.Grouping
+    Accessible.name: row.title
+    Accessible.description: row.activeDescription
+    Component.onCompleted: Qt.callLater(row.labelControls)
 
     implicitWidth: parent ? parent.width : Theme.dp(400)
     implicitHeight: Math.max(Theme.dp(60), (row.stackHere ? labels.implicitHeight + holder.implicitHeight + Theme.dp(14) : Math.max(labels.implicitHeight, holder.implicitHeight)) + row.padV * 2)
@@ -223,7 +238,7 @@ Item {
                     if (row.inSheet && Prefs.defaults[row.resetAction] !== undefined)
                         Prefs.set(row.resetAction, Prefs.defaults[row.resetAction]);
                     else
-                        Prefs.askReset("Reset " + row.resetTitle.toLowerCase() + "?", row.resetBody, row.resetAction);
+                        Prefs.askReset(Tr.t("Reset ") + row.resetTitle.toLowerCase() + "?", row.resetBody, row.resetAction);
                 }
 
                 Behavior on width {
@@ -310,6 +325,7 @@ Item {
         anchors.top: row.stackHere ? labels.bottom : undefined
         anchors.topMargin: row.stackHere ? Theme.dp(12) : 0
         anchors.verticalCenter: row.stackHere ? undefined : parent.verticalCenter
+        onChildrenChanged: Qt.callLater(row.labelControls)
     }
 
 }

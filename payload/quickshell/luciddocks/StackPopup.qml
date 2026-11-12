@@ -375,7 +375,7 @@ Item {
                     anchors.top: openHereCard.bottom
                     anchors.topMargin: Theme.dp(7)
                     anchors.horizontalCenter: openHereCard.horizontalCenter
-                    text: "Open here"
+                    text: Tr.t("Open here")
                     color: openHereEntry.hovered ? Theme.text : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabel

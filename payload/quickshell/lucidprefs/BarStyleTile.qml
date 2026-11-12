@@ -93,7 +93,7 @@ Item {
             anchors.leftMargin: Theme.dp(14)
             anchors.rightMargin: Theme.dp(14)
             anchors.topMargin: Theme.dp(8)
-            text: tile.style ? tile.style.name : ""
+            text: tile.style ? Tr.t(tile.style.name) : ""
             color: tile.picked ? Theme.fgAccentContainer : Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody

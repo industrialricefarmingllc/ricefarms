@@ -53,7 +53,10 @@ void main() {
     if (bodyA <= 0.001)
         discard;
     float fillA = 1.0 - smoothstep(-aa, aa, sd + borderWidth);
-    vec3 rgb = mix(borderColor.rgb, fillColor.rgb, fillA);
-    float a = bodyA * mix(borderColor.a, fillColor.a, fillA);
-    fragColor = vec4(rgb * a, a) * qt_Opacity;
+    // Premultiplied fill + border ring (see ../../../../squircle/squircle_rect.frag):
+    // mixing straight RGB toward a transparent border darkens the edge.
+    float borderCov = max(bodyA - fillA, 0.0);
+    vec4 col = vec4(fillColor.rgb * fillColor.a, fillColor.a) * fillA
+             + vec4(borderColor.rgb * borderColor.a, borderColor.a) * borderCov;
+    fragColor = col * qt_Opacity;
 }

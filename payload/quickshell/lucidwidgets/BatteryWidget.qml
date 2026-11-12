@@ -374,7 +374,7 @@ WidgetBody {
                     rounded: 100
                     tabular: true
                     color: w.level > 0.25 ? (w.low ? Theme.fgError : w.fgInkAccent) : w.ink
-                    text: w.present ? w.percent + "%" : "No battery"
+                    text: w.present ? w.percent + "%" : Tr.t("No battery")
                 }
 
             }
@@ -523,7 +523,7 @@ WidgetBody {
             first: true
             last: w.others.length === 0
             glyph: "laptop_chromebook"
-            label: "This computer"
+            label: Tr.t("This computer")
             value: w.level
             plugged: w.charging || w.held || w.full
         }
@@ -538,7 +538,7 @@ WidgetBody {
                 first: !w.present && index === 0
                 last: index === Math.min(3, w.others.length) - 1
                 glyph: w.glyphFor(modelData)
-                label: modelData.model || "Device"
+                label: modelData.model || Tr.t("Device")
                 value: modelData.percentage
                 plugged: modelData.state === UPowerDeviceState.Charging
             }
@@ -552,7 +552,7 @@ WidgetBody {
             horizontalAlignment: Text.AlignHCenter
             role: "labelMedium"
             color: w.inkFaint
-            text: "Wireless devices show up here when they report a charge"
+            text: Tr.t("Wireless devices show up here when they report a charge")
             wrapMode: Text.Wrap
         }
 

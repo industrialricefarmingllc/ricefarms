@@ -300,7 +300,7 @@ WidgetBody {
             LText {
                 role: "labelLarge"
                 color: w.inkDim
-                text: "Processor"
+                text: Tr.t("Processor")
             }
 
             LText {
@@ -319,7 +319,7 @@ WidgetBody {
             anchors.top: parent.top
             role: "labelMedium"
             color: w.inkFaint
-            text: w.preview ? "load 1.2" : "load " + Sys.load1.toFixed(1)
+            text: w.preview ? Tr.t("load 1.2") : Tr.t("load ") + Sys.load1.toFixed(1)
         }
 
         Spark {

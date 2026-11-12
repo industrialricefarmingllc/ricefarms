@@ -29,6 +29,30 @@ is_video() {
 
 MISSING=()
 PREVIEW_MISSING=()
+# Read every sidecar once. The listing used to start two jq processes per
+# Wallhaven image (314 here, ~0.9 s for 391 files); one interpreter is a few ms.
+declare -A META_NAME=()
+declare -A META_TAGS=()
+if command -v python3 >/dev/null 2>&1; then
+    while IFS=$'\t' read -r meta name tags; do
+        [[ -n "$meta" ]] || continue
+        META_NAME["$meta"]="$name"
+        META_TAGS["$meta"]="$tags"
+    done < <(python3 - "$DIR" <<'PY'
+import glob, json, os, sys
+
+for meta in glob.glob(os.path.join(sys.argv[1], "wallhaven-*.json")):
+    try:
+        with open(meta, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        continue
+    name = str(data.get("name") or "").replace("\t", " ").replace("\n", " ")
+    tags = json.dumps(data.get("tags") or [], ensure_ascii=False, separators=(",", ":"))
+    print(meta, name, tags, sep="\t")
+PY
+)
+fi
 while IFS=$'\t' read -r path key; do
     [[ -n "$path" ]] || continue
     thumb="$THUMBS/$key.jpg"
@@ -39,10 +63,19 @@ while IFS=$'\t' read -r path key; do
         preview="$PREVIEWS/$key.webp"
         [[ -s "$preview" ]] || PREVIEW_MISSING+=("$path" "$preview")
     fi
+    # A downloaded Wallhaven picture carries its tags and readable name in a
+    # sidecar beside it; other pictures fall back to their file name.
+    name=""
+    tags="[]"
+    meta="${path%.*}.json"
+    if [[ -n "${META_NAME[$meta]+x}" ]]; then
+        name="${META_NAME[$meta]}"
+        tags="${META_TAGS[$meta]}"
+    fi
     if [[ -f "$thumb" ]]; then
-        printf '%s\t%s\t%s\t%s\n' "$path" "$thumb" "$kind" "$preview"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$path" "$thumb" "$kind" "$preview" "$name" "$tags"
     else
-        printf '%s\t%s\t%s\t%s\n' "$path" "" "$kind" "$preview"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$path" "" "$kind" "$preview" "$name" "$tags"
         MISSING+=("$path" "$thumb")
     fi
 done < <(find "$DIR" -maxdepth 1 -type f \( "${NAMES[@]}" \) \

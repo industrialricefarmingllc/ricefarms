@@ -549,7 +549,7 @@ Item {
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: pane.mode === "results" ? pane.resultsTitle : (pane.loading ? "Loading…" : "Browse")
+                text: pane.mode === "results" ? pane.resultsTitle : (pane.loading ? Tr.t("Loading…") : Tr.t("Browse"))
                 color: pane.errorText !== "" ? Theme.error : Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabel
@@ -846,7 +846,7 @@ Item {
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: "Add a Giphy key for Trending and search"
+                text: Tr.t("Add a Giphy key for Trending and search")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabel
@@ -858,7 +858,7 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "developers.giphy.com → config.json as \"giphyKey\""
+            text: Tr.t("developers.giphy.com → config.json as \"giphyKey\"")
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(10)
@@ -915,7 +915,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             visible: !pane.hasKey
-            text: "Get one at developers.giphy.com (email only, no card),\nthen put it in lucidmoji/config.json as \"giphyKey\""
+            text: Tr.t("Get one at developers.giphy.com (email only, no card),\nthen put it in lucidmoji/config.json as \"giphyKey\"")
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(10)

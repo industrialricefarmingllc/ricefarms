@@ -1,15 +1,15 @@
 # matugen foot colors - import via include=~/.config/foot/foot.ini.matugen
 [cursor]
-color=0e1415 81d4dd
+color=1a1110 ffb4aa
 
 [colors]
-background=0e1415
-foreground=dee4e4
-regular0=3f484a
+background=1a1110
+foreground=f1dedc
+regular0=534341
 regular1=ffb4ab
-regular2=81d4dd
-regular3=b8c6ea
-regular4=81d4dd
-regular5=b1cbce
-bright0=899294
+regular2=ffb4aa
+regular3=dfc38c
+regular4=ffb4aa
+regular5=e7bdb7
+bright0=a08c8a
 bright1=ffb4ab

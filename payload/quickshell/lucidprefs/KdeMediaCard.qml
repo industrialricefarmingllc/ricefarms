@@ -29,7 +29,7 @@ SettingCard {
         return m + ":" + String(total % 60).padStart(2, "0");
     }
 
-    title: "PLAYING ON THE PHONE"
+    title: Tr.t("PLAYING ON THE PHONE")
 
     // the phone only reports position when something moves it, so run the clock here
     Timer {

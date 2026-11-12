@@ -918,7 +918,7 @@ FocusScope {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             role: "titleMedium"
-            text: !pane.tab ? "" : pane.tab.connectUri !== "" ? "This share isn't connected" : pane.tab.error !== "" ? "This folder can't be opened" : pane.tab.isNetwork ? "No computers found nearby" : pane.tab.searching ? "Nothing matches “" + pane.tab.searchQuery + "”" : pane.tab.filter !== "" ? "Nothing here matches “" + pane.tab.filter + "”" : pane.tab.isTrash ? "Trash is empty" : pane.tab.isRecent ? "No recent files" : "This folder is empty"
+            text: !pane.tab ? "" : pane.tab.connectUri !== "" ? Tr.t("This share isn't connected") : pane.tab.error !== "" ? Tr.t("This folder can't be opened") : pane.tab.isNetwork ? Tr.t("No computers found nearby") : pane.tab.searching ? Tr.t("Nothing matches “") + pane.tab.searchQuery + "”" : pane.tab.filter !== "" ? Tr.t("Nothing here matches “") + pane.tab.filter + "”" : pane.tab.isTrash ? Tr.t("Trash is empty") : pane.tab.isRecent ? Tr.t("No recent files") : Tr.t("This folder is empty")
             color: Theme.text
             wrapMode: Text.Wrap
         }
@@ -928,7 +928,7 @@ FocusScope {
             horizontalAlignment: Text.AlignHCenter
             role: "bodySmall"
             visible: text !== ""
-            text: !pane.tab ? "" : pane.tab.error !== "" ? pane.tab.error : pane.tab.isNetwork ? (pane.app.canDiscover ? "Computers sharing folders show up here as they're found." : "Finding them needs gvfs-dnssd with Avahi running, or gvfs-wsdd for Windows computers.") : pane.tab.searching ? "Searched every folder below " + pane.app.titleFor(pane.tab.path) + "." : pane.tab.isSpecial || pane.tab.filter !== "" ? "" : "Drop files here, or right-click to make something."
+            text: !pane.tab ? "" : pane.tab.error !== "" ? pane.tab.error : pane.tab.isNetwork ? (pane.app.canDiscover ? Tr.t("Computers sharing folders show up here as they're found.") : Tr.t("Finding them needs gvfs-dnssd with Avahi running, or gvfs-wsdd for Windows computers.")) : pane.tab.searching ? Tr.t("Searched every folder below ") + pane.app.titleFor(pane.tab.path) + "." : pane.tab.isSpecial || pane.tab.filter !== "" ? "" : Tr.t("Drop files here, or right-click to make something.")
             color: Theme.subtext
             wrapMode: Text.Wrap
         }
@@ -938,7 +938,7 @@ FocusScope {
             visible: pane.tab !== null && pane.tab.connectUri !== ""
             variant: "tonal"
             icon: "login"
-            text: "Connect"
+            text: Tr.t("Connect")
             onClicked: pane.win.reconnect(pane.tab)
         }
 
@@ -958,7 +958,7 @@ FocusScope {
         anchors.horizontalCenter: parent.horizontalCenter
         visible: waiting.visible && pane.tab.connecting
         role: "bodyMedium"
-        text: pane.tab ? "Connecting to " + pane.app.hostOf(pane.tab.connectUri || pane.tab.path) + "…" : ""
+        text: pane.tab ? Tr.t("Connecting to ") + pane.app.hostOf(pane.tab.connectUri || pane.tab.path) + "…" : ""
         color: Theme.subtext
     }
 

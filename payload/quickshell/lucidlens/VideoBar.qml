@@ -100,7 +100,7 @@ Item {
             x: Theme.dp(8)
             anchors.verticalCenter: parent.verticalCenter
             icon: vb.movie && vb.movie.playing ? "pause" : "play_arrow"
-            tooltip: vb.movie && vb.movie.playing ? "Pause (Space)" : "Play (Space)"
+            tooltip: vb.movie && vb.movie.playing ? Tr.t("Pause (Space)") : Tr.t("Play (Space)")
 
             Tip {
             }
@@ -252,7 +252,7 @@ Item {
             visible: vb.movie !== null && vb.movie.failed
             role: "bodyMedium"
             color: Theme.subtext
-            text: vb.movie ? "Can't play it here" + (vb.movie.why ? ": " + vb.movie.why : "") : ""
+            text: vb.movie ? Tr.t("Can't play it here") + (vb.movie.why ? ": " + vb.movie.why : "") : ""
             elide: Text.ElideRight
         }
 
@@ -269,7 +269,7 @@ Item {
 
                 anchors.verticalCenter: parent.verticalCenter
                 icon: vb.prefs.muted || vb.prefs.volume <= 0 ? "volume_off" : (vb.prefs.volume < 0.5 ? "volume_down" : "volume_up")
-                tooltip: vb.prefs.muted ? "Unmute (M)" : "Mute (M)"
+                tooltip: vb.prefs.muted ? Tr.t("Unmute (M)") : Tr.t("Mute (M)")
                 disabled: vb.movie !== null && !vb.movie.hasAudio && vb.movie.duration > 0
 
                 Tip {
@@ -351,7 +351,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: bar.width >= Theme.dp(520)
                 icon: "repeat"
-                tooltip: vb.prefs.loopVideos ? "Stop playing it round" : "Play it round and round"
+                tooltip: vb.prefs.loopVideos ? Tr.t("Stop playing it round") : Tr.t("Play it round and round")
                 checkable: true
                 checked: vb.prefs.loopVideos
 
@@ -365,7 +365,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: bar.width >= Theme.dp(480)
                 icon: "photo_camera"
-                tooltip: "Save this frame as a picture"
+                tooltip: Tr.t("Save this frame as a picture")
 
                 Tip {
                 }
@@ -376,7 +376,7 @@ Item {
             IconButton {
                 anchors.verticalCenter: parent.verticalCenter
                 icon: vb.win.immersive ? "fullscreen_exit" : "fullscreen"
-                tooltip: vb.win.immersive ? "Leave full screen (F)" : "Full screen (F)"
+                tooltip: vb.win.immersive ? Tr.t("Leave full screen (F)") : Tr.t("Full screen (F)")
 
                 Tip {
                 }

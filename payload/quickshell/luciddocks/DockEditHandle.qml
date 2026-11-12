@@ -68,7 +68,7 @@ Item {
             id: readout
 
             anchors.centerIn: parent
-            text: !handle.dock ? "" : (handle.dock.editNotch ? "Notch" : Math.round(handle.dock.editMargin / Theme.uiScale) + " px from the edge")
+            text: !handle.dock ? "" : (handle.dock.editNotch ? Tr.t("Notch") : Math.round(handle.dock.editMargin / Theme.uiScale) + Tr.t(" px from the edge"))
             color: Theme.fgInverseSurface
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontLabelLg

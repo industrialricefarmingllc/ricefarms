@@ -1,4 +1,5 @@
 import QtQuick
+import qs
 import Quickshell
 import Quickshell.Io
 import "translate/components"
@@ -233,7 +234,7 @@ Item {
 
     function pasteImage() {
         if (pane.busy) {
-            pane.appendError("Wait for the current translation to finish.");
+            pane.appendError(Tr.t("Wait for the current translation to finish."));
             return true;
         }
         if (clipboardTypes.running || clipboardSave.running)
@@ -437,7 +438,7 @@ Item {
 
     function submitMeta(meta) {
         if (meta === "") {
-            pane.appendError("Type a question or refinement after >.");
+            pane.appendError(Tr.t("Type a question or refinement after >."));
             return;
         }
 
@@ -471,7 +472,7 @@ Item {
             pane.busyDirect = false;
             pane.pendingId = 0;
             pane.clearPending();
-            pane.appendError("The persistent translator is not running; image input needs it.");
+            pane.appendError(Tr.t("The persistent translator is not running; image input needs it."));
         } else {
             pane.busyDirect = false;
             pane.pendingId = 0;
@@ -538,7 +539,7 @@ Item {
         pane.clearPending();
 
         if (translated === "") {
-            pane.appendError("The translation service returned no text.");
+            pane.appendError(Tr.t("The translation service returned no text."));
             return;
         }
 
@@ -585,14 +586,14 @@ Item {
         body = body.replace(/^\*\*\s*/, "").replace(/\s*\*\*$/, "").trim();
         pane.clearPending();
         if (body === "") {
-            pane.appendError("The model returned an empty reply.");
+            pane.appendError(Tr.t("The model returned an empty reply."));
             return;
         }
 
         if (kind === "translation" && pane.lastTranslation !== "") {
             var refined = pane.cleanTranslation(body);
             if (refined === "") {
-                pane.appendError("The model returned no refined translation.");
+                pane.appendError(Tr.t("The model returned no refined translation."));
                 return;
             }
             messages.append({
@@ -811,7 +812,7 @@ Item {
             translator.stdinEnabled = false;
             if (pane.busyDirect) {
                 pane.clearPending();
-                pane.appendError("The translation helper stopped (code " + code + ").");
+                pane.appendError(Tr.t("The translation helper stopped (code ") + code + ").");
             }
             if (pane.providerKey !== "" && pane.translatorRestarts < 5) {
                 pane.translatorRestarts++;
@@ -878,7 +879,7 @@ Item {
             if (pane.busyDirect) {
                 pane.clearPending();
                 translator.running = false;
-                pane.appendError("The translation timed out.");
+                pane.appendError(Tr.t("The translation timed out."));
                 return;
             }
 
@@ -887,7 +888,7 @@ Item {
 
             fallback.running = false;
             pane.clearPending();
-            pane.appendError("The translation timed out. Is the OpenCode service running?");
+            pane.appendError(Tr.t("The translation timed out. Is the OpenCode service running?"));
         }
     }
 
@@ -1016,7 +1017,7 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.dp(42)
                     anchors.verticalCenter: parent.verticalCenter
-                    text: pane.pendingKind === "meta" ? "Thinking" : "Translating"
+                    text: pane.pendingKind === "meta" ? Tr.t("Thinking") : Tr.t("Translating")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(12)
@@ -1069,7 +1070,7 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        text: "×"
+                        text: Tr.t("×")
                         color: "#ffffff"
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(14)
@@ -1096,7 +1097,7 @@ Item {
         visible: messages.count === 0 && !pane.busy && !pane.hasAttachment
         anchors.centerIn: list
         width: Math.max(0, list.width - Theme.dp(40))
-        text: "Type a sentence and press Enter.\nUse > for a question or refinement."
+        text: Tr.t("Type a sentence and press Enter.\nUse > for a question or refinement.")
         color: Theme.subtext
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap

@@ -150,7 +150,7 @@ WidgetBody {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "labelMedium"
                 color: w.inkDim
-                text: w.next === "set" ? "Sunset in" : "Sunrise in"
+                text: w.next === "set" ? Tr.t("Sunset in") : Tr.t("Sunrise in")
             }
 
             LText {
@@ -172,7 +172,7 @@ WidgetBody {
             LText {
                 role: "labelMedium"
                 color: w.inkDim
-                text: "Sunrise"
+                text: Tr.t("Sunrise")
             }
 
             LText {
@@ -195,7 +195,7 @@ WidgetBody {
                 anchors.right: parent.right
                 role: "labelMedium"
                 color: w.inkDim
-                text: "Sunset"
+                text: Tr.t("Sunset")
             }
 
             LText {
@@ -226,7 +226,7 @@ WidgetBody {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "labelSmall"
                 color: w.inkFaint
-                text: "of daylight"
+                text: Tr.t("of daylight")
             }
 
         }
@@ -278,7 +278,7 @@ WidgetBody {
                         elide: Text.ElideRight
                         role: "labelLarge"
                         color: srow.isNext ? w.inkAccent : w.inkDim
-                        text: (srow.rise ? "Sunrise" : "Sunset") + (srow.isNext ? " · in " + w.span(w.nextIn) : "")
+                        text: (srow.rise ? Tr.t("Sunrise") : Tr.t("Sunset")) + (srow.isNext ? Tr.t(" · in ") + w.span(w.nextIn) : "")
                     }
 
                     LText {
@@ -336,7 +336,7 @@ WidgetBody {
             LText {
                 role: "labelLarge"
                 color: w.inkDim
-                text: (w.next === "rise" ? "Sunrise" : "Sunset") + " · in " + w.span(w.nextIn)
+                text: (w.next === "rise" ? Tr.t("Sunrise") : Tr.t("Sunset")) + Tr.t(" · in ") + w.span(w.nextIn)
             }
 
             LText {

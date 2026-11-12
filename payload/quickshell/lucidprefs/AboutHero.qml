@@ -625,7 +625,7 @@ Rectangle {
             role: "bodyLarge"
             color: Theme.subtext
             wrapMode: Text.WordWrap
-            text: "The brightest thing in your setup."
+            text: Tr.t("The brightest thing in your setup.")
             opacity: hero.outCubic(tagline.k)
 
             transform: Translate {
@@ -651,7 +651,7 @@ Rectangle {
 
                 kind: "assist"
                 icon: hero.copied ? "check" : "deployed_code"
-                text: hero.copied ? "Copied" : Updates.currentLabel
+                text: hero.copied ? Tr.t("Copied") : Updates.currentLabel
                 opacity: hero.outCubic(versionChip.k)
                 onClicked: {
                     Quickshell.execDetached(["wl-copy", "Lucid " + Updates.currentLabel]);
@@ -684,7 +684,7 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     x: Theme.dp(14)
                     role: "labelLarge"
-                    text: "Beta"
+                    text: Tr.t("Beta")
                     color: Theme.fgTertiaryContainer
                 }
 

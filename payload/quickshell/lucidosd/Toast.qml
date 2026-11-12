@@ -13,6 +13,12 @@ PanelWindow {
     property string iconPath: ""
     // a single character a script sent in place of an icon
     property string iconGlyph: ""
+    // a remote/local image (a server emoji) in place of the icon
+    property string iconImage: ""
+    property bool iconAnimated: false
+    property bool iconImageFailed: false
+    readonly property bool imageIcon: iconImage !== "" && !iconImageFailed
+    readonly property int leadSize: imageIcon ? Theme.dp(26) : glyphSize
     property string label: ""
     // a quieter second part, after the label
     property string detail: ""
@@ -48,10 +54,12 @@ PanelWindow {
     // the same surface as the osd and the panels, so it follows the mode like they do
     readonly property color warnTone: Theme.error
 
-    // entry: { icon, label, detail, warn, swatch, key, ms }. icon is a name from
-    // the list above, raw svg path data, or a single glyph
+    // entry: { icon, image, label, detail, warn, swatch, key, ms }. icon is a
+    // name from the list above, raw svg path data, or a single glyph; image is
+    // a URL and wins over both.
     function present(entry) {
         const icon = entry.icon || "";
+        const image = String(entry.image || "");
         // a short name from the list, or any material symbol by its own name
         const named = toastWindow.icons[icon] || (/^[a-z0-9_]{3,}$/.test(icon) ? icon : undefined);
         const isPath = named !== undefined || /^[Mm][\d\s.,-]/.test(icon);
@@ -61,8 +69,11 @@ PanelWindow {
         if (entry.swatch !== undefined)
             toastWindow.swatch = entry.swatch;
 
-        toastWindow.iconPath = named || (isPath ? icon : (isGlyph ? "" : toastWindow.icons["info"]));
-        toastWindow.iconGlyph = isGlyph ? icon : "";
+        toastWindow.iconImage = image;
+        toastWindow.iconAnimated = image !== "" && entry.animated === true;
+        toastWindow.iconImageFailed = false;
+        toastWindow.iconPath = image !== "" ? toastWindow.icons["copy"] : (named || (isPath ? icon : (isGlyph ? "" : toastWindow.icons["info"])));
+        toastWindow.iconGlyph = image === "" && isGlyph ? icon : "";
         toastWindow.label = entry.label || "";
         toastWindow.detail = entry.detail || "";
         toastWindow.warn = entry.warn === true;
@@ -132,7 +143,10 @@ PanelWindow {
         pillPop.easing.overshoot = Theme.emphasizedOvershoot;
         toastWindow.shown = true;
         hideTimer.restart();
-        pillJelly.kickAfter(0.14, Math.round(Theme.durEnter * 0.35));
+        // the layout toast fires on every switch; give it a much quieter settle
+        // than the one-off system toasts
+        const soft = toastWindow.currentKey === "layout";
+        pillJelly.kickAfter(soft ? 0.045 : 0.14, Math.round(Theme.durEnter * (soft ? 0.25 : 0.35)));
     }
 
     function popOut() {
@@ -218,7 +232,9 @@ PanelWindow {
 
             target: pill
             anchorY: 0
-            frequency: 4.6
+            // layout switches come in quick succession: slower and better damped
+            frequency: toastWindow.currentKey === "layout" ? 3.0 : 4.6
+            damping: toastWindow.currentKey === "layout" ? 0.5 : 0.22
         }
 
         TextMetrics {
@@ -278,8 +294,46 @@ PanelWindow {
             anchors.left: parent.left
             anchors.leftMargin: toastWindow.pillPad
             anchors.verticalCenter: parent.verticalCenter
-            width: toastWindow.glyphSize
-            height: toastWindow.glyphSize
+            width: toastWindow.leadSize
+            height: toastWindow.leadSize
+
+            Image {
+                visible: toastWindow.imageIcon && !toastWindow.iconAnimated
+                anchors.centerIn: parent
+                width: toastWindow.leadSize
+                height: toastWindow.leadSize
+                source: toastWindow.iconAnimated ? "" : toastWindow.iconImage
+                sourceSize.width: 64
+                sourceSize.height: 64
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+                asynchronous: true
+                onStatusChanged: {
+                    if (status === Image.Error)
+                        toastWindow.iconImageFailed = true;
+
+                }
+            }
+
+            AnimatedImage {
+                visible: toastWindow.imageIcon && toastWindow.iconAnimated
+                anchors.centerIn: parent
+                width: toastWindow.leadSize
+                height: toastWindow.leadSize
+                source: toastWindow.iconAnimated ? toastWindow.iconImage : ""
+                sourceSize.width: 64
+                sourceSize.height: 64
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                asynchronous: true
+                playing: toastWindow.shown
+                onStatusChanged: {
+                    if (status === AnimatedImage.Error)
+                        toastWindow.iconImageFailed = true;
+
+                }
+            }
 
             Rectangle {
                 visible: toastWindow.hasSwatch
@@ -294,7 +348,7 @@ PanelWindow {
             }
 
             Icon {
-                visible: !toastWindow.hasSwatch && /^[a-z0-9_]+$/.test(toastWindow.iconPath)
+                visible: !toastWindow.imageIcon && !toastWindow.hasSwatch && /^[a-z0-9_]+$/.test(toastWindow.iconPath)
                 anchors.centerIn: parent
                 name: visible ? toastWindow.iconPath : ""
                 size: toastWindow.glyphSize + Theme.dp(2)
@@ -303,7 +357,7 @@ PanelWindow {
             }
 
             Text {
-                visible: !toastWindow.hasSwatch && toastWindow.iconGlyph !== ""
+                visible: !toastWindow.imageIcon && !toastWindow.hasSwatch && toastWindow.iconGlyph !== ""
                 anchors.centerIn: parent
                 text: toastWindow.iconGlyph
                 color: toastWindow.warn ? toastWindow.warnTone : Theme.accent
@@ -312,7 +366,7 @@ PanelWindow {
             }
 
             Shape {
-                visible: !toastWindow.hasSwatch && toastWindow.iconGlyph === "" && !/^[a-z0-9_]+$/.test(toastWindow.iconPath)
+                visible: !toastWindow.imageIcon && !toastWindow.hasSwatch && toastWindow.iconGlyph === "" && !/^[a-z0-9_]+$/.test(toastWindow.iconPath)
                 width: 24
                 height: 24
                 scale: toastWindow.glyphSize / 24

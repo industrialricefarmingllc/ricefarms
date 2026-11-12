@@ -76,10 +76,10 @@ Column {
     }
 
     SettingCard {
-        title: "OUTPUT"
+        title: Tr.t("OUTPUT")
 
         SettingRow {
-            title: "Volume"
+            title: Tr.t("Volume")
             description: page.outputSummary
             enabled: !!page.sink
             disabledReason: page.outputSummary
@@ -134,10 +134,10 @@ Column {
         }
 
         SettingRow {
-            title: "Balance"
+            title: Tr.t("Balance")
             enabled: page.sinkBalance
             disabledReason: page.sink ? "This output has a single channel." : "There is no output."
-            description: "Lean the sound towards the left or the right side."
+            description: Tr.t("Lean the sound towards the left or the right side.")
             stacked: true
 
             Row {
@@ -175,10 +175,10 @@ Column {
         }
 
         SettingRow {
-            title: "Test"
+            title: Tr.t("Test")
             enabled: !!page.sink
             disabledReason: "There is no output to test."
-            description: page.sinkBalance ? "A voice names each side, so you can tell they are the right way round." : "Play a short voice clip on this output."
+            description: page.sinkBalance ? Tr.t("A voice names each side, so you can tell they are the right way round.") : Tr.t("Play a short voice clip on this output.")
 
             Row {
                 spacing: Theme.dp(8)
@@ -186,14 +186,14 @@ Column {
                 M3Button {
                     variant: "tonal"
                     enabled: !!page.sink
-                    text: page.sinkBalance ? "Left" : "Play"
+                    text: page.sinkBalance ? Tr.t("Left") : Tr.t("Play")
                     onClicked: Audio.testSide(page.sink, page.sinkBalance ? "FL" : "")
                 }
 
                 M3Button {
                     variant: "tonal"
                     visible: page.sinkBalance
-                    text: "Right"
+                    text: Tr.t("Right")
                     onClicked: Audio.testSide(page.sink, "FR")
                 }
 
@@ -202,9 +202,9 @@ Column {
         }
 
         SettingRow {
-            title: "Level meters"
+            title: Tr.t("Level meters")
             resetKey: "audioMeters"
-            description: "A live meter under the output and the microphone volume, so a dead microphone reads apart from a quiet one. They only listen while this page is open."
+            description: Tr.t("A live meter under the output and the microphone volume, so a dead microphone reads apart from a quiet one. They only listen while this page is open.")
 
             M3Switch {
                 checked: Prefs.audioMeters
@@ -216,9 +216,9 @@ Column {
         }
 
         SettingRow {
-            title: "Move playing apps with the output"
+            title: Tr.t("Move playing apps with the output")
             resetKey: "audioMoveStreams"
-            description: "Picking a different output carries anything already playing across to it. With this off, only apps that have no device of their own follow the change."
+            description: Tr.t("Picking a different output carries anything already playing across to it. With this off, only apps that have no device of their own follow the change.")
 
             M3Switch {
                 checked: Prefs.audioMoveStreams
@@ -230,11 +230,11 @@ Column {
         }
 
         SettingRow {
-            title: "Play through several at once"
+            title: Tr.t("Play through several at once")
             resetKey: "audioCombine"
             enabled: page.combineChoices.length >= 2
             disabledReason: "This needs two or more outputs."
-            description: "Tick two or more and a Combined output joins the list below, playing on all of them together. Its volume leads, and the slider under each ticked device sets how loud that one plays beside the others. Devices that keep time apart, like the built-in card and a USB or Bluetooth one, can drift a few milliseconds from each other."
+            description: Tr.t("Tick two or more and a Combined output joins the list below, playing on all of them together. Its volume leads, and the slider under each ticked device sets how loud that one plays beside the others. Devices that keep time apart, like the built-in card and a USB or Bluetooth one, can drift a few milliseconds from each other.")
             showDivider: false
             stacked: true
 
@@ -259,7 +259,7 @@ Column {
                         spacing: Theme.dp(6)
 
                         CheckLine {
-                            label: choice.modelData.present ? choice.modelData.label : choice.modelData.label + " — not connected"
+                            label: choice.modelData.present ? choice.modelData.label : choice.modelData.label + Tr.t(" — not connected")
                             checked: choice.member
                             onToggled: Audio.setCombineMember(choice.modelData.name, !checked)
                         }
@@ -313,7 +313,7 @@ Column {
             spacing: Theme.dp(2)
 
             GroupLabel {
-                text: "Play sound through"
+                text: Tr.t("Play sound through")
                 visible: Audio.outputs.length > 0
             }
 
@@ -333,7 +333,7 @@ Column {
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: Theme.dp(18)
                 bottomPadding: Theme.dp(18)
-                text: "No outputs. A card switched off in its mode below offers none, and a Bluetooth speaker has to be connected on the Bluetooth page first."
+                text: Tr.t("No outputs. A card switched off in its mode below offers none, and a Bluetooth speaker has to be connected on the Bluetooth page first.")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBody
@@ -346,10 +346,10 @@ Column {
     }
 
     SettingCard {
-        title: "INPUT"
+        title: Tr.t("INPUT")
 
         SettingRow {
-            title: "Microphone volume"
+            title: Tr.t("Microphone volume")
             description: page.inputSummary
             enabled: !!page.source
             disabledReason: page.inputSummary
@@ -412,7 +412,7 @@ Column {
                         anchors.right: listenBtn.left
                         anchors.rightMargin: Theme.dp(12)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: page.btListen ? "Listening. The headset plays at call quality until you stop." : "The meter waits here: listening to a Bluetooth headset's microphone switches it to call-quality sound."
+                        text: page.btListen ? Tr.t("Listening. The headset plays at call quality until you stop.") : Tr.t("The meter waits here: listening to a Bluetooth headset's microphone switches it to call-quality sound.")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodyMd
@@ -425,7 +425,7 @@ Column {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         variant: page.btListen ? "filled" : "tonal"
-                        text: page.btListen ? "Stop" : "Listen"
+                        text: page.btListen ? Tr.t("Stop") : Tr.t("Listen")
                         onClicked: page.btListen = !page.btListen
                     }
 
@@ -442,7 +442,7 @@ Column {
             spacing: Theme.dp(2)
 
             GroupLabel {
-                text: "Record from"
+                text: Tr.t("Record from")
                 visible: Audio.inputs.length > 0
             }
 
@@ -462,7 +462,7 @@ Column {
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: Theme.dp(18)
                 bottomPadding: Theme.dp(18)
-                text: "Nothing to record from. A headset has to be in a mode that includes its microphone before it shows up here."
+                text: Tr.t("Nothing to record from. A headset has to be in a mode that includes its microphone before it shows up here.")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBody
@@ -475,8 +475,8 @@ Column {
     }
 
     SettingCard {
-        title: "APPLICATIONS"
-        subtitle: "Everything making or taking sound right now. Each one keeps its own volume and can be sent to a device of its own."
+        title: Tr.t("APPLICATIONS")
+        subtitle: Tr.t("Everything making or taking sound right now. Each one keeps its own volume and can be sent to a device of its own.")
 
         Column {
             width: parent.width
@@ -485,7 +485,7 @@ Column {
             spacing: Theme.dp(2)
 
             GroupLabel {
-                text: "Playing"
+                text: Tr.t("Playing")
                 visible: Audio.playbackStreams.length > 0
             }
 
@@ -500,7 +500,7 @@ Column {
             }
 
             GroupLabel {
-                text: "Recording"
+                text: Tr.t("Recording")
                 visible: Audio.recordStreams.length > 0
             }
 
@@ -520,7 +520,7 @@ Column {
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: Theme.dp(18)
                 bottomPadding: Theme.dp(18)
-                text: "Nothing is playing or recording."
+                text: Tr.t("Nothing is playing or recording.")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBody
@@ -532,44 +532,44 @@ Column {
     }
 
     SettingCard {
-        title: "BEHAVIOUR"
-        subtitle: "Kept by WirePlumber, so they hold for every application and survive a restart."
+        title: Tr.t("BEHAVIOUR")
+        subtitle: Tr.t("Kept by WirePlumber, so they hold for every application and survive a restart.")
 
         WpSwitchRow {
             wpKey: "node.stream.restore-props"
-            title: "Remember each application's volume"
-            description: "An application starts at the volume and mute it had the last time."
+            title: Tr.t("Remember each application's volume")
+            description: Tr.t("An application starts at the volume and mute it had the last time.")
         }
 
         WpSwitchRow {
             wpKey: "node.stream.restore-target"
-            title: "Remember where each application plays"
-            description: "An application you sent to another device goes back there the next time it starts."
+            title: Tr.t("Remember where each application plays")
+            description: Tr.t("An application you sent to another device goes back there the next time it starts.")
         }
 
         WpSwitchRow {
             wpKey: "linking.follow-default-target"
-            title: "Move sound along with the default device"
-            description: "Applications playing on the default device follow it when you choose another one."
+            title: Tr.t("Move sound along with the default device")
+            description: Tr.t("Applications playing on the default device follow it when you choose another one.")
         }
 
         WpSwitchRow {
             wpKey: "linking.pause-playback"
-            title: "Pause media when its device goes away"
-            description: "Players pause when headphones are unplugged or a headset disconnects, instead of carrying on through the speakers."
+            title: Tr.t("Pause media when its device goes away")
+            description: Tr.t("Players pause when headphones are unplugged or a headset disconnects, instead of carrying on through the speakers.")
         }
 
         WpSwitchRow {
             wpKey: "bluetooth.autoswitch-to-headset-profile"
-            title: "Switch headsets to call mode for their microphone"
-            description: "When an application records from a Bluetooth headset, it changes to the headset profile: the microphone works, and playback drops to call quality until the recording stops."
+            title: Tr.t("Switch headsets to call mode for their microphone")
+            description: Tr.t("When an application records from a Bluetooth headset, it changes to the headset profile: the microphone works, and playback drops to call quality until the recording stops.")
         }
 
         SettingRow {
-            title: "Bluetooth headsets favour"
+            title: Tr.t("Bluetooth headsets favour")
             enabled: Audio.wp["bluetooth.profile-preference"] !== undefined
             disabledReason: Audio.wpRead ? "This version of WirePlumber does not have this setting." : "WirePlumber's settings could not be read. They need wpctl from WirePlumber 0.5 or newer."
-            description: "What WirePlumber leans towards when it picks a headset's mode by itself."
+            description: Tr.t("What WirePlumber leans towards when it picks a headset's mode by itself.")
 
             M3Segmented {
                 width: Theme.dp(240)
@@ -591,21 +591,21 @@ Column {
 
         WpSwitchRow {
             wpKey: "node.features.audio.mono"
-            title: "Mono audio"
-            description: "Play the left and right channels together on every speaker and headphone. Every output restarts for a moment when this changes."
+            title: Tr.t("Mono audio")
+            description: Tr.t("Play the left and right channels together on every speaker and headphone. Every output restarts for a moment when this changes.")
             showDivider: false
         }
 
     }
 
     SettingCard {
-        title: "SYSTEM SOUNDS"
-        subtitle: "Short tones for what happens to the machine itself. They keep quiet while notifications are silenced, apart from the battery warnings and the ticks answering a key you pressed."
+        title: Tr.t("SYSTEM SOUNDS")
+        subtitle: Tr.t("Short tones for what happens to the machine itself. They keep quiet while notifications are silenced, apart from the battery warnings and the ticks answering a key you pressed.")
 
         SettingRow {
-            title: "Play system sounds"
+            title: Tr.t("Play system sounds")
             resetKey: "sysSounds"
-            description: "Lucid's own set, made for it. The notification sound and the timer's alarm have switches of their own."
+            description: Tr.t("Lucid's own set, made for it. The notification sound and the timer's alarm have switches of their own.")
 
             M3Switch {
                 checked: Prefs.sysSounds
@@ -617,11 +617,11 @@ Column {
         }
 
         SettingRow {
-            title: "Volume"
+            title: Tr.t("Volume")
             resetKey: "sysSoundVolume"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "Relative to the output's own volume."
+            description: Tr.t("Relative to the output's own volume.")
             stacked: true
 
             M3Slider {
@@ -640,11 +640,11 @@ Column {
         }
 
         SettingRow {
-            title: "USB devices"
+            title: Tr.t("USB devices")
             resetKey: "soundOnUsb"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "A rising pair as something is plugged in, a falling one as it comes out. The machine's built-in parts stay quiet."
+            description: Tr.t("A rising pair as something is plugged in, a falling one as it comes out. The machine's built-in parts stay quiet.")
 
             SoundToggle {
                 prefKey: "soundOnUsb"
@@ -654,11 +654,11 @@ Column {
         }
 
         SettingRow {
-            title: "Bluetooth devices"
+            title: Tr.t("Bluetooth devices")
             resetKey: "soundOnBluetooth"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "A device connecting or dropping away. Switching Bluetooth off stays quiet."
+            description: Tr.t("A device connecting or dropping away. Switching Bluetooth off stays quiet.")
 
             SoundToggle {
                 prefKey: "soundOnBluetooth"
@@ -668,11 +668,11 @@ Column {
         }
 
         SettingRow {
-            title: "Charger"
+            title: Tr.t("Charger")
             resetKey: "soundOnCharger"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "Plugging in, unplugging, and a full charge."
+            description: Tr.t("Plugging in, unplugging, and a full charge.")
 
             SoundToggle {
                 prefKey: "soundOnCharger"
@@ -682,11 +682,11 @@ Column {
         }
 
         SettingRow {
-            title: "Battery warnings"
+            title: Tr.t("Battery warnings")
             resetKey: "soundOnBattery"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "At 20 and 10 %, and a more urgent one at 5 %. These play even while you are silenced."
+            description: Tr.t("At 20 and 10 %, and a more urgent one at 5 %. These play even while you are silenced.")
 
             SoundToggle {
                 prefKey: "soundOnBattery"
@@ -696,11 +696,11 @@ Column {
         }
 
         SettingRow {
-            title: "Camera"
+            title: Tr.t("Camera")
             resetKey: "soundOnCamera"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "An app starting to use the camera, and letting it go."
+            description: Tr.t("An app starting to use the camera, and letting it go.")
 
             SoundToggle {
                 prefKey: "soundOnCamera"
@@ -710,11 +710,11 @@ Column {
         }
 
         SettingRow {
-            title: "Screenshots"
+            title: Tr.t("Screenshots")
             resetKey: "soundOnCapture"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "As a capture is saved."
+            description: Tr.t("As a capture is saved.")
 
             SoundToggle {
                 prefKey: "soundOnCapture"
@@ -724,11 +724,11 @@ Column {
         }
 
         SettingRow {
-            title: "Volume"
+            title: Tr.t("Volume")
             resetKey: "soundOnVolume"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "A tiny tick at the level you just set. A drag or a held key ticks where it starts and where it stops, not at every step."
+            description: Tr.t("A tiny tick at the level you just set. A drag or a held key ticks where it starts and where it stops, not at every step.")
 
             SoundToggle {
                 prefKey: "soundOnVolume"
@@ -738,11 +738,11 @@ Column {
         }
 
         SettingRow {
-            title: "Brightness"
+            title: Tr.t("Brightness")
             resetKey: "soundOnBrightness"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "The same, a shade brighter. Dimming while you are away stays quiet."
+            description: Tr.t("The same, a shade brighter. Dimming while you are away stays quiet.")
 
             SoundToggle {
                 prefKey: "soundOnBrightness"
@@ -752,11 +752,11 @@ Column {
         }
 
         SettingRow {
-            title: "Caps Lock"
+            title: Tr.t("Caps Lock")
             resetKey: "soundOnCaps"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "Up as it goes on, down as it goes off."
+            description: Tr.t("Up as it goes on, down as it goes off.")
 
             SoundToggle {
                 prefKey: "soundOnCaps"
@@ -766,11 +766,11 @@ Column {
         }
 
         SettingRow {
-            title: "Microphone"
+            title: Tr.t("Microphone")
             resetKey: "soundOnMic"
             enabled: Prefs.sysSounds
             disabledReason: "System sounds are switched off."
-            description: "A blip as it is muted or unmuted, from a key, the bar or anywhere else."
+            description: Tr.t("A blip as it is muted or unmuted, from a key, the bar or anywhere else.")
             showDivider: false
 
             SoundToggle {

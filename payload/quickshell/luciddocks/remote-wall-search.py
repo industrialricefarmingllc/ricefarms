@@ -69,6 +69,9 @@ def wallhaven(query: str, page: int, key: str, purity: str, top_range: str = "")
         "categories": "110",
         "purity": purity or "110",
         "sorting": "toplist" if top_range else "date_added",
+        # phone wallpapers are portrait; everything the picker shows is a
+        # desktop crop. Wallhaven accepts the named "landscape" preset.
+        "ratios": "landscape",
         "page": str(page),
     }
     if top_range:
@@ -83,6 +86,12 @@ def wallhaven(query: str, page: int, key: str, purity: str, top_range: str = "")
     ))
     items = []
     for w in data.get("data") or []:
+        width = int(w.get("dimension_x") or 0)
+        height = int(w.get("dimension_y") or 0)
+        # The named ratio filter already drops portrait uploads, but never let
+        # a mobile wallpaper through if the API falls back to an older page.
+        if width > 0 and height > width:
+            continue
         thumbs = w.get("thumbs") or {}
         thumb = thumbs.get("large") or thumbs.get("original") or thumbs.get("small") or ""
         if not thumb:
@@ -98,8 +107,8 @@ def wallhaven(query: str, page: int, key: str, purity: str, top_range: str = "")
             "kind": "wallhaven",
             "source": "wallhaven",
             "file": w.get("path") or "",
-            "width": w.get("dimension_x") or 0,
-            "height": w.get("dimension_y") or 0,
+            "width": width,
+            "height": height,
             "resolution": w.get("resolution") or "",
             "fileSize": w.get("file_size") or 0,
             "fileType": w.get("file_type") or "",

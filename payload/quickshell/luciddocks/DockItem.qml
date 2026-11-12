@@ -43,6 +43,46 @@ Item {
         return Math.round(v * dockItem.slotScale);
     }
 
+    function activate() {
+        if (dockItem.isToggle) {
+            dockItem.requestToggle();
+            return ;
+        }
+        if (dockItem.active && dockItem.matchingClient) {
+            if (!dockItem.specificInstance && (dockItem.distinctWorkspaceCount >= 2 || dockItem.windowCount >= 2)) {
+                dockItem.requestStackPopup();
+                return ;
+            }
+            if (dockItem.matchingClient.address) {
+                if (dockItem.matchInstance)
+                    dockItem.requestFocusOrLaunch();
+                else
+                    Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + dockItem.matchingClient.address + "\" })");
+
+                return ;
+            }
+        }
+        dockItem.launch();
+    }
+
+    activeFocusOnTab: true
+    Accessible.role: Accessible.Button
+    Accessible.name: dockItem.displayName !== "" ? dockItem.displayName : dockItem.appId
+    Accessible.description: dockItem.windowCount > 0 ? dockItem.windowCount + (dockItem.windowCount === 1 ? Tr.t(" window") : Tr.t(" windows")) : ""
+    Accessible.pressed: dockItem.pressed
+    Accessible.focusable: true
+    Accessible.focused: dockItem.activeFocus
+    Accessible.onPressAction: dockItem.activate()
+    Keys.onSpacePressed: dockItem.activate()
+    Keys.onReturnPressed: dockItem.activate()
+    Keys.onEnterPressed: dockItem.activate()
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Menu) {
+            dockItem.requestContextMenu();
+            event.accepted = true;
+        }
+    }
+
     readonly property var clientStats: {
         var stats = {
             "matching": null,
@@ -312,7 +352,7 @@ Item {
         id: tooltip
 
         label: dockItem.displayName
-        detail: dockItem.windowCount > 1 ? dockItem.windowCount + " windows" : (dockItem.windowCount === 1 ? "1 window" : "")
+        detail: dockItem.windowCount > 1 ? dockItem.windowCount + Tr.t(" windows") : (dockItem.windowCount === 1 ? Tr.t("1 window") : "")
         open: Prefs.dockShowTooltips && dockItem.tooltipReady && dockItem.displayName !== ""
         lift: dockItem.hovered ? Theme.dp(4) : 0
     }
@@ -372,37 +412,14 @@ Item {
         id: tapHandler
 
         onTapped: (point) => {
-            if (dockItem.isToggle) {
-                dockItem.requestToggle();
-                return;
-            }
-
+            dockItem.forceActiveFocus();
             // Shift/Ctrl always asks for a second instance
             if ((point.modifiers & (Qt.ShiftModifier | Qt.ControlModifier)) !== 0) {
                 dockItem.launch();
                 return;
             }
 
-            if (dockItem.active && dockItem.matchingClient) {
-                // several windows: let the stack chooser pick one, unless this
-                // pin stands for one specific install
-                if (!dockItem.specificInstance && (dockItem.distinctWorkspaceCount >= 2 || dockItem.windowCount >= 2)) {
-                    dockItem.requestStackPopup();
-                    return;
-                }
-
-                // one window: a pinned entry checks that the window belongs to
-                // its own instance (Discord alt dirs share one class); a
-                // running row simply goes to the window
-                if (dockItem.matchingClient.address) {
-                    if (dockItem.matchInstance)
-                        dockItem.requestFocusOrLaunch();
-                    else
-                        Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + dockItem.matchingClient.address + "\" })");
-                    return;
-                }
-            }
-            dockItem.launch();
+            dockItem.activate();
         }
     }
 
@@ -436,6 +453,17 @@ Item {
             easing.overshoot: 0.6
         }
 
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: Prefs.dockItemRadius + Theme.dp(3)
+        color: "transparent"
+        border.width: dockItem.activeFocus ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 50
     }
 
 }

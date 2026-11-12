@@ -342,10 +342,10 @@ Column {
     }
 
     SettingCard {
-        title: "THEME"
+        title: Tr.t("THEME")
 
         SettingRow {
-            title: "Light or dark"
+            title: Tr.t("Light or dark")
             description: page.modeHint
 
             M3Segmented {
@@ -360,8 +360,8 @@ Column {
         }
 
         SettingRow {
-            title: "Follow the wallpaper"
-            description: "Picks light for a bright wallpaper and dark for a dark one, every time the wallpaper changes. A hand-picked mode holds until the wallpaper changes next."
+            title: Tr.t("Follow the wallpaper")
+            description: Tr.t("Picks light for a bright wallpaper and dark for a dark one, every time the wallpaper changes. A hand-picked mode holds until the wallpaper changes next.")
 
             M3Switch {
                 checked: Prefs.autoColorMode
@@ -373,8 +373,8 @@ Column {
         }
 
         SettingRow {
-            title: "Colour scheme"
-            description: "Switching also swaps the wallpaper folder below to that theme's own."
+            title: Tr.t("Colour scheme")
+            description: Tr.t("Switching also swaps the wallpaper folder below to that theme's own.")
             showDivider: false
             stacked: true
 
@@ -606,9 +606,9 @@ Column {
                                 onTapped: {
                                     // a built-in theme has nothing on disk to delete, it only leaves the list
                                     if (!swatch.isUser)
-                                        Prefs.askConfirm("Remove this theme?", "\"" + swatch.themeName + "\" leaves the theme list and the launcher." + (swatch.selected ? " The palette switches to Matugen." : "") + " Use it again from Colours to bring it back.", "Remove", "theme-hide:" + swatch.themeId);
+                                        Prefs.askConfirm(Tr.t("Remove this theme?"), "\"" + swatch.themeName + Tr.t("\" leaves the theme list and the launcher.") + (swatch.selected ? Tr.t(" The palette switches to Matugen.") : "") + Tr.t(" Use it again from Colours to bring it back."), Tr.t("Remove"), "theme-hide:" + swatch.themeId);
                                     else
-                                        Prefs.askConfirm("Remove this theme?", "\"" + swatch.themeName + "\" and its generated palette are deleted. The wallpaper folder is left alone.", "Remove", "theme:" + swatch.themeId);
+                                        Prefs.askConfirm(Tr.t("Remove this theme?"), "\"" + swatch.themeName + Tr.t("\" and its generated palette are deleted. The wallpaper folder is left alone."), Tr.t("Remove"), "theme:" + swatch.themeId);
                                 }
                             }
 
@@ -625,14 +625,14 @@ Column {
     }
 
     SettingCard {
-        title: "MORE ON COLOUR"
+        title: Tr.t("MORE ON COLOUR")
 
         SettingRow {
-            title: "Palettes and applications"
-            description: "How Matugen and Your colour build a palette, which applications follow it, and templates of your own."
+            title: Tr.t("Palettes and applications")
+            description: Tr.t("How Matugen and Your colour build a palette, which applications follow it, and templates of your own.")
 
             M3Button {
-                text: "Colours"
+                text: Tr.t("Colours")
                 variant: "tonal"
                 onClicked: Prefs.settingsRequested("colours")
             }
@@ -640,12 +640,12 @@ Column {
         }
 
         SettingRow {
-            title: "More themes"
-            description: "A gallery of hundreds of schemes, and importing one from a repo or a file."
+            title: Tr.t("More themes")
+            description: Tr.t("A gallery of hundreds of schemes, and importing one from a repo or a file.")
             showDivider: false
 
             M3Button {
-                text: "Palettes"
+                text: Tr.t("Palettes")
                 variant: "tonal"
                 onClicked: Prefs.settingsRequested("palettes")
             }
@@ -655,11 +655,11 @@ Column {
     }
 
     SettingCard {
-        title: "WALLPAPER"
+        title: Tr.t("WALLPAPER")
 
         SettingRow {
-            title: "skwd-wall engine"
-            description: SkwdWall.available ? "Images, videos and Wallpaper Engine scenes come from skwd-wall, with its animated previews. Turn this off to go back to awww and lucid's own player." : "skwd-wall is not installed; lucid uses awww and its own live wallpaper player."
+            title: Tr.t("skwd-wall engine")
+            description: SkwdWall.available ? Tr.t("Images, videos and Wallpaper Engine scenes come from skwd-wall, with its animated previews. Turn this off to go back to awww and lucid's own player.") : Tr.t("skwd-wall is not installed; lucid uses awww and its own live wallpaper player.")
             visible: SkwdWall.probed
 
             Row {
@@ -677,7 +677,7 @@ Column {
 
                 M3Button {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Open skwd-wall"
+                    text: Tr.t("Open skwd-wall")
                     variant: "tonal"
                     visible: SkwdWall.available
                     onClicked: SkwdWall.openPicker()
@@ -688,8 +688,8 @@ Column {
         }
 
         SettingRow {
-            title: "Wallpaper strip"
-            description: wallpapers.count + " in " + page.wallpaperDir.replace(page.home, "~")
+            title: Tr.t("Wallpaper strip")
+            description: wallpapers.count + Tr.t(" in ") + page.wallpaperDir.replace(page.home, "~")
             stacked: true
 
             Column {
@@ -715,7 +715,7 @@ Column {
                 }
 
                 Text {
-                    text: "No images in this folder yet - add one below."
+                    text: Tr.t("No images in this folder yet - add one below.")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBody
@@ -727,7 +727,7 @@ Column {
                     spacing: Theme.dp(10)
 
                     M3Button {
-                        text: "Add wallpaper..."
+                        text: Tr.t("Add wallpaper...")
                         variant: "filled"
                         iconPath: "add"
                         onClicked: {
@@ -737,12 +737,12 @@ Column {
                     }
 
                     M3Button {
-                        text: "Open folder"
+                        text: Tr.t("Open folder")
                         onClicked: Quickshell.execDetached(["sh", "-c", "xdg-open '" + page.wallpaperDir + "'"])
                     }
 
                     M3Button {
-                        text: "Rescan"
+                        text: Tr.t("Rescan")
                         variant: "text"
                         onClicked: wallpaperScan.restart()
                     }
@@ -754,8 +754,8 @@ Column {
         }
 
         SettingRow {
-            title: "Live wallpapers"
-            description: liveWalls.count + (liveWalls.count === 1 ? " moving wallpaper" : " moving wallpapers") + " in the same folder, played behind the desktop"
+            title: Tr.t("Live wallpapers")
+            description: liveWalls.count + (liveWalls.count === 1 ? Tr.t(" moving wallpaper") : Tr.t(" moving wallpapers")) + Tr.t(" in the same folder, played behind the desktop")
             visible: Prefs.liveWallpapers
             stacked: true
 
@@ -783,7 +783,7 @@ Column {
                 }
 
                 Text {
-                    text: "No videos in this folder yet - add an mp4, webm or mkv below."
+                    text: Tr.t("No videos in this folder yet - add an mp4, webm or mkv below.")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBody
@@ -792,7 +792,7 @@ Column {
                 }
 
                 M3Button {
-                    text: "Add live wallpaper..."
+                    text: Tr.t("Add live wallpaper...")
                     variant: "filled"
                     iconPath: "add"
                     onClicked: {
@@ -806,14 +806,14 @@ Column {
         }
 
         SettingRow {
-            title: "Custom folder"
-            description: "Leave empty to follow the current theme's own wallpaper folder."
+            title: Tr.t("Custom folder")
+            description: Tr.t("Leave empty to follow the current theme's own wallpaper folder.")
             showDivider: false
 
             M3TextField {
                 width: Theme.dp(260)
                 text: Prefs.wallpaperFolder
-                placeholder: "~/Pictures/wallpapers/" + page.currentTheme
+                placeholder: Tr.t("~/Pictures/wallpapers/") + page.currentTheme
                 onAccepted: (v) => {
                     return Prefs.wallpaperFolder = v.trim().replace("~", page.home);
                 }
@@ -824,11 +824,11 @@ Column {
     }
 
     SettingCard {
-        title: "WEB WALLPAPERS"
+        title: Tr.t("WEB WALLPAPERS")
 
         SettingRow {
-            title: "Search Wallhaven and the Workshop"
-            description: "Typing in the launcher's wallpaper field also asks Wallhaven and the most popular Wallpaper Engine Workshop scenes. Local matches stay first; web results preview with their own thumbnails and are only downloaded or subscribed when you pick one."
+            title: Tr.t("Search Wallhaven and the Workshop")
+            description: Tr.t("Typing in the launcher's wallpaper field also asks Wallhaven and the most popular Wallpaper Engine Workshop scenes. Local matches stay first; web results preview with their own thumbnails and are only downloaded or subscribed when you pick one.")
 
             M3Switch {
                 checked: Prefs.webWallpapers
@@ -840,8 +840,8 @@ Column {
         }
 
         SettingRow {
-            title: "Wallhaven"
-            description: "The API key is used for search and for the full-size image when a result is picked. Latest matches are sorted by date added; the picker keeps a local copy after the first apply."
+            title: Tr.t("Wallhaven")
+            description: Tr.t("The API key is used for search and for the full-size image when a result is picked. Latest matches are sorted by date added; the picker keeps a local copy after the first apply.")
             visible: Prefs.webWallpapers
             stacked: true
 
@@ -852,7 +852,7 @@ Column {
                 M3TextField {
                     width: Math.min(parent.width, Theme.dp(420))
                     text: Prefs.wallhavenApiKey
-                    placeholder: "Wallhaven API key"
+                    placeholder: Tr.t("Wallhaven API key")
                     password: true
                     onAccepted: (v) => {
                         return Prefs.wallhavenApiKey = v.trim();
@@ -876,7 +876,7 @@ Column {
 
                 Text {
                     width: parent.width
-                    text: "NSFW needs the key and is only fetched when that chip is selected. The same choice also unlocks Mature Workshop scenes. Nothing is written to the wallpaper folder until a card is picked."
+                    text: Tr.t("NSFW needs the key and is only fetched when that chip is selected. The same choice also unlocks Mature Workshop scenes. Nothing is written to the wallpaper folder until a card is picked.")
                     color: Theme.subtext
                     wrapMode: Text.WordWrap
                     font.family: Theme.fontFamily
@@ -889,8 +889,8 @@ Column {
         }
 
         SettingRow {
-            title: "Workshop"
-            description: "Scenes are sorted by Steam's most popular today, not filtered to Wallpaper Engine's Approved tag. Mature scenes follow the NSFW chip above; Steam has no sketchy tier, so the sketchy chip only affects Wallhaven. A scene that is not installed is installed through skwd's Steam backend when available; otherwise it opens its Steam page and applies when the download finishes."
+            title: Tr.t("Workshop")
+            description: Tr.t("Scenes are sorted by Steam's most popular today, not filtered to Wallpaper Engine's Approved tag. Mature scenes follow the NSFW chip above; Steam has no sketchy tier, so the sketchy chip only affects Wallhaven. A scene that is not installed is installed through skwd's Steam backend when available; otherwise it opens its Steam page and applies when the download finishes.")
             visible: Prefs.webWallpapers
             showDivider: false
 
@@ -899,11 +899,11 @@ Column {
     }
 
     SettingCard {
-        title: "SPATIAL WALLPAPERS"
+        title: Tr.t("SPATIAL WALLPAPERS")
 
         SettingRow {
-            title: "Depth parallax"
-            description: "A local depth model gives stills, videos and Wallpaper Engine previews a slow pointer-driven parallax. The depth map is cached; the model runs on the CPU and only when a wallpaper changes."
+            title: Tr.t("Depth parallax")
+            description: Tr.t("A local depth model gives stills, videos and Wallpaper Engine previews a slow pointer-driven parallax. The depth map is cached; the model runs on the CPU and only when a wallpaper changes.")
 
             M3Switch {
                 checked: Prefs.spatialWallpapers
@@ -915,8 +915,8 @@ Column {
         }
 
         SettingRow {
-            title: "Depth model"
-            description: "Which local model builds the depth map. V2 ViT-S is the lightest; DA3 Base and DA3 Mono-Large hold hair, foliage and thin structures better; Depth Pro has the sharpest boundaries but needs a GPU — about two minutes per new still on this CPU. Each wallpaper is cached per model, so switching back is free."
+            title: Tr.t("Depth model")
+            description: Tr.t("Which local model builds the depth map. V2 ViT-S is the lightest; DA3 Base and DA3 Mono-Large hold hair, foliage and thin structures better; Depth Pro has the sharpest boundaries but needs a GPU — about two minutes per new still on this CPU. Each wallpaper is cached per model, so switching back is free.")
             visible: Prefs.spatialWallpapers
             stacked: true
 
@@ -942,8 +942,8 @@ Column {
         }
 
         SettingRow {
-            title: "Depth engine"
-            description: SpatialWall.error !== "" ? SpatialWall.error : (SpatialWall.status !== "" ? SpatialWall.status : (SpatialWall.ready ? "Ready — " + SpatialWall.motionKind + " source" : "Waiting for a wallpaper"))
+            title: Tr.t("Depth engine")
+            description: SpatialWall.error !== "" ? SpatialWall.error : (SpatialWall.status !== "" ? SpatialWall.status : (SpatialWall.ready ? Tr.t("Ready — ") + SpatialWall.motionKind + Tr.t(" source") : Tr.t("Waiting for a wallpaper")))
             visible: Prefs.spatialWallpapers
             showDivider: false
 
@@ -952,11 +952,11 @@ Column {
     }
 
     SettingCard {
-        title: "LIVE WALLPAPERS"
+        title: Tr.t("LIVE WALLPAPERS")
 
         SettingRow {
-            title: "Live wallpapers"
-            description: "Videos in the wallpaper folder (mp4, webm, mkv) get a Live tab in the launcher and play behind the desktop. The colours come from the first frame."
+            title: Tr.t("Live wallpapers")
+            description: Tr.t("Videos in the wallpaper folder (mp4, webm, mkv) get a Live tab in the launcher and play behind the desktop. The colours come from the first frame.")
             showDivider: Prefs.liveWallpapers
 
             M3Switch {
@@ -969,8 +969,8 @@ Column {
         }
 
         SettingRow {
-            title: "Decoder"
-            description: "What decodes the video. Automatic tries the integrated GPU first, so a laptop does not wake its graphics card for a wallpaper, then NVIDIA. The CPU always works, and costs the most."
+            title: Tr.t("Decoder")
+            description: Tr.t("What decodes the video. Automatic tries the integrated GPU first, so a laptop does not wake its graphics card for a wallpaper, then NVIDIA. The CPU always works, and costs the most.")
             visible: Prefs.liveWallpapers
             stacked: true
 
@@ -996,8 +996,8 @@ Column {
         }
 
         SettingRow {
-            title: "Pause under windows"
-            description: "Hold the video still on a screen whose workspace has windows, or only behind a fullscreen one."
+            title: Tr.t("Pause under windows")
+            description: Tr.t("Hold the video still on a screen whose workspace has windows, or only behind a fullscreen one.")
             visible: Prefs.liveWallpapers
             stacked: true
 
@@ -1020,8 +1020,8 @@ Column {
         }
 
         SettingRow {
-            title: "In game mode"
-            description: "Keep playing, pause, or stop the player and leave the first frame, which frees what the video was using."
+            title: Tr.t("In game mode")
+            description: Tr.t("Keep playing, pause, or stop the player and leave the first frame, which frees what the video was using.")
             visible: Prefs.liveWallpapers
             showDivider: false
             stacked: true
@@ -1047,11 +1047,11 @@ Column {
     }
 
     SettingCard {
-        title: "WALLPAPER PICKER"
+        title: Tr.t("WALLPAPER PICKER")
 
         SettingRow {
-            title: "Picker style"
-            description: "How the wallpapers are laid out when you open the picker from the launcher."
+            title: Tr.t("Picker style")
+            description: Tr.t("How the wallpapers are laid out when you open the picker from the launcher.")
             stacked: true
 
             Flow {
@@ -1060,22 +1060,22 @@ Column {
 
                 WallpaperStyleThumb {
                     styleId: "strip"
-                    label: "Strip"
+                    label: Tr.t("Strip")
                 }
 
                 WallpaperStyleThumb {
                     styleId: "pills"
-                    label: "Pills"
+                    label: Tr.t("Pills")
                 }
 
                 WallpaperStyleThumb {
                     styleId: "tiles"
-                    label: "Tiles"
+                    label: Tr.t("Tiles")
                 }
 
                 WallpaperStyleThumb {
                     styleId: "bento"
-                    label: "Bento"
+                    label: Tr.t("Bento")
                 }
 
             }
@@ -1083,8 +1083,8 @@ Column {
         }
 
         SettingRow {
-            title: "Arrow keys"
-            description: Prefs.wallpaperPickerStyle === "tiles" ? "Tiles is a grid, so it takes all four arrows. In the other styles, which pair changes the wallpaper; the other pair moves through the search field." : "Which pair changes the wallpaper. The other pair moves through the search field, to edit what you typed."
+            title: Tr.t("Arrow keys")
+            description: (Prefs.wallpaperPickerStyle === "tiles" ? Tr.t("Tiles is a grid, so it takes all four arrows. In the other styles, which pair changes the wallpaper; the other pair moves through the search field.") : Tr.t("Which pair changes the wallpaper. The other pair moves through the search field, to edit what you typed.")) + Tr.t(" Shift+R focuses a random wallpaper without applying it.")
             stacked: true
 
             M3Segmented {
@@ -1103,8 +1103,8 @@ Column {
         }
 
         SettingRow {
-            title: "Pill shape"
-            description: "How tall the pills are around the open one: all alike, the full height of the panel, or rising to a peak."
+            title: Tr.t("Pill shape")
+            description: Tr.t("How tall the pills are around the open one: all alike, the full height of the panel, or rising to a peak.")
             visible: Prefs.wallpaperPickerStyle === "pills"
             showDivider: false
             stacked: true
@@ -1128,8 +1128,8 @@ Column {
         }
 
         SettingRow {
-            title: "Step"
-            description: "How quickly the cards shrink away from the middle one."
+            title: Tr.t("Step")
+            description: Tr.t("How quickly the cards shrink away from the middle one.")
             visible: Prefs.wallpaperPickerStyle === "strip"
             stacked: true
 
@@ -1152,8 +1152,8 @@ Column {
         }
 
         SettingRow {
-            title: "Neighbours"
-            description: "How many cards show on each side of the middle one."
+            title: Tr.t("Neighbours")
+            description: Tr.t("How many cards show on each side of the middle one.")
             visible: Prefs.wallpaperPickerStyle === "strip"
             showDivider: false
             stacked: true
@@ -1174,8 +1174,8 @@ Column {
         }
 
         SettingRow {
-            title: "Rows"
-            description: "How many rows of tiles the picker shows."
+            title: Tr.t("Rows")
+            description: Tr.t("How many rows of tiles the picker shows.")
             visible: Prefs.wallpaperPickerStyle === "tiles"
             stacked: true
 
@@ -1201,8 +1201,8 @@ Column {
         }
 
         SettingRow {
-            title: "Tile shape"
-            description: "Square tiles, or wide ones that show more of each picture."
+            title: Tr.t("Tile shape")
+            description: Tr.t("Square tiles, or wide ones that show more of each picture.")
             visible: Prefs.wallpaperPickerStyle === "tiles"
             showDivider: false
             stacked: true
@@ -1223,8 +1223,8 @@ Column {
         }
 
         SettingRow {
-            title: "Main wallpaper"
-            description: "How much of the panel the selected wallpaper takes."
+            title: Tr.t("Main wallpaper")
+            description: Tr.t("How much of the panel the selected wallpaper takes.")
             visible: Prefs.wallpaperPickerStyle === "bento"
             stacked: true
 
@@ -1247,8 +1247,8 @@ Column {
         }
 
         SettingRow {
-            title: "Show previous"
-            description: "Keep the two wallpapers before the selected one at the edge, or give their room to the rest."
+            title: Tr.t("Show previous")
+            description: Tr.t("Keep the two wallpapers before the selected one at the edge, or give their room to the rest.")
             visible: Prefs.wallpaperPickerStyle === "bento"
             showDivider: false
 
@@ -1269,11 +1269,11 @@ Column {
         readonly property string type: Prefs.wallTransType
         readonly property bool fades: transCard.type === "none" || transCard.type === "simple"
 
-        title: "WALLPAPER TRANSITION"
+        title: Tr.t("WALLPAPER TRANSITION")
 
         SettingRow {
-            title: "Presets"
-            description: "A starting point; changing anything below makes it your own."
+            title: Tr.t("Presets")
+            description: Tr.t("A starting point; changing anything below makes it your own.")
             stacked: true
 
             Flow {
@@ -1296,8 +1296,8 @@ Column {
         }
 
         SettingRow {
-            title: "Effect"
-            description: "Fade and Simple blend the two pictures; the others reveal the new one from a side, a line or a circle."
+            title: Tr.t("Effect")
+            description: Tr.t("Fade and Simple blend the two pictures; the others reveal the new one from a side, a line or a circle.")
             stacked: true
 
             M3Chips {
@@ -1346,7 +1346,7 @@ Column {
         }
 
         SettingRow {
-            title: "Duration"
+            title: Tr.t("Duration")
             visible: !transCard.fades
             stacked: true
 
@@ -1364,8 +1364,8 @@ Column {
         }
 
         SettingRow {
-            title: "Angle"
-            description: "0° sweeps right to left, 90° top to bottom."
+            title: Tr.t("Angle")
+            description: Tr.t("0° sweeps right to left, 90° top to bottom.")
             visible: transCard.type === "wipe" || transCard.type === "wave"
             stacked: true
 
@@ -1382,7 +1382,7 @@ Column {
         }
 
         SettingRow {
-            title: "Wave size"
+            title: Tr.t("Wave size")
             visible: transCard.type === "wave"
             stacked: true
 
@@ -1399,8 +1399,8 @@ Column {
         }
 
         SettingRow {
-            title: "Starts from"
-            description: "Where the circle opens. \"Chosen card\" grows it from the wallpaper you are previewing in the picker."
+            title: Tr.t("Starts from")
+            description: Tr.t("Where the circle opens. \"Chosen card\" grows it from the wallpaper you are previewing in the picker.")
             visible: transCard.type === "grow" || transCard.type === "outer"
             stacked: true
 
@@ -1423,8 +1423,8 @@ Column {
         }
 
         SettingRow {
-            title: "Curve"
-            description: "How the change speeds up and slows down."
+            title: Tr.t("Curve")
+            description: Tr.t("How the change speeds up and slows down.")
             visible: !transCard.fades
             stacked: true
 
@@ -1450,8 +1450,8 @@ Column {
         }
 
         SettingRow {
-            title: "Save as preset"
-            description: "Keep the settings above under a name of your own."
+            title: Tr.t("Save as preset")
+            description: Tr.t("Keep the settings above under a name of your own.")
 
             Row {
                 spacing: Theme.dp(10)
@@ -1460,7 +1460,7 @@ Column {
                     id: presetName
 
                     width: Theme.dp(200)
-                    placeholder: "Preset name"
+                    placeholder: Tr.t("Preset name")
                     onAccepted: (v) => {
                         WallTransitions.saveCurrent(v);
                         presetName.text = "";
@@ -1468,7 +1468,7 @@ Column {
                 }
 
                 M3Button {
-                    text: "Save"
+                    text: Tr.t("Save")
                     variant: "tonal"
                     onClicked: {
                         WallTransitions.saveCurrent(presetName.text);
@@ -1481,12 +1481,12 @@ Column {
         }
 
         SettingRow {
-            title: "Try it"
-            description: "Plays the transition from a flat colour taken from your wallpaper into it."
+            title: Tr.t("Try it")
+            description: Tr.t("Plays the transition from a flat colour taken from your wallpaper into it.")
             showDivider: false
 
             M3Button {
-                text: "Try transition"
+                text: Tr.t("Try transition")
                 variant: "tonal"
                 onClicked: {
                     if (page.appliedWallpaper !== "")

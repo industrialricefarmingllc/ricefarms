@@ -1,0 +1,1 @@
+/home/nicerice/src/lucid-gate/qml/GateWidget.qml

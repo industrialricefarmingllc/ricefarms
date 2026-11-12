@@ -3,6 +3,9 @@
 
 local home       = os.getenv("HOME") or "/home/nicerice"
 local shader_dir = home .. "/.config/hypr/shaders/"
+local ambient_dir = home .. "/.cache/lucid/ambient-eink"
+local auto_shader_file = ambient_dir .. "/auto_shader"
+local reading_shader_file = ambient_dir .. "/reading_shader"
 
 -- Cache files (kept for persistence across reloads)
 local cache_dir       = home .. "/.cache/quickshell"
@@ -43,6 +46,19 @@ local function read_file(path, fallback)
     return (content ~= "") and content or fallback
 end
 
+-- The ambient service publishes the current auto and full-e-ink shader paths.
+-- Reading Mode uses the latter with the same daytime black dimming; leaving it
+-- returns to the former instead of falling back to a shaderless main.
+local function ambient_shader(reading)
+    local p = read_file(reading and reading_shader_file or auto_shader_file, "")
+    if p ~= "" then return p end
+    return shader_dir .. (reading and "reading_mode.glsl" or "main.glsl")
+end
+
+local function sync_ambient(reading)
+    hl.exec_cmd(home .. "/.local/bin/lucid-ambient-eink --reading " .. (reading and "on" or "off"))
+end
+
 M.simple_shaders = {
     ["Main"] = "main.glsl",
 }
@@ -58,25 +74,28 @@ M.complex_modes = {
                     dim_inactive = false,
                     shadow       = { enabled = false },
                     blur         = { enabled = false },
-                    screen_shader = shader_path,
+                    screen_shader = ambient_shader(true),
                 },
                 animations = { enabled = false },
             })
+            sync_ambient(true)
         end,
         deactivate = function()
             write_file(rm_state_file, "off")
-            -- restore shadow/blur/animations, keep tiling intact
+            -- restore shadow/blur/animations, keep tiling intact, and go back
+            -- to the ambient auto shader rather than a shaderless main.
             hl.config({
                 decoration = {
                     dim_inactive = M.defaults.dim_inactive,
                     dim_around   = M.defaults.dim_around,
                     shadow       = { enabled = M.defaults.shadow },
                     blur         = { enabled = M.defaults.blur },
+                    screen_shader = ambient_shader(false),
                 },
                 animations = { enabled = M.defaults.animations },
                 debug      = { damage_tracking = M.defaults.damage_tracking },
             })
-            hl.config({ decoration = { screen_shader = shader_dir .. "main.glsl" } })
+            sync_ambient(false)
         end,
     },
 }
@@ -132,7 +151,7 @@ function M.toggle(name)
             M.complex_modes[name].deactivate()
             M.active_mode = nil
             M.current_shader = "Main"
-            hl.config({ decoration = { screen_shader = shader_dir .. "main.glsl" } })
+            -- deactivate() already restored the ambient auto shader
             persist_state()
             return
         end
@@ -173,9 +192,10 @@ hl.on("config.reloaded", function()
         M.active_mode = "Reading Mode"
         M.current_shader = "Reading Mode"
         hl.config({
-            decoration = { dim_inactive=false, shadow={enabled=false}, blur={enabled=false}, screen_shader = shader_dir .. "reading_mode.glsl" },
+            decoration = { dim_inactive=false, shadow={enabled=false}, blur={enabled=false}, screen_shader = ambient_shader(true) },
             animations = { enabled=false },
         })
+        sync_ambient(true)
         return
     end
     local persisted = read_file(shader_state_file, "none")
@@ -204,6 +224,14 @@ hl.on("config.reloaded", function()
             M.current_shader = "Main"
             persist_state()
         end
+    end
+
+    -- A reload rewrites screen_shader from the main config. If we are on the
+    -- default view, put the ambient auto shader back at once and wake the
+    -- service so it can retarget; don't leave the desktop shaderless.
+    if persisted == "none" or persisted == "" or persisted == "Main" then
+        hl.config({ decoration = { screen_shader = ambient_shader(false) } })
+        sync_ambient(false)
     end
 end)
 

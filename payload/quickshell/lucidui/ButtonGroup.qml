@@ -16,6 +16,8 @@ Item {
 
     signal picked(var key)
 
+    Accessible.role: Accessible.Grouping
+
     readonly property int h: grp.size === "xs" ? Theme.dp(30) : (grp.size === "m" ? Theme.dp(48) : Theme.dp(36))
     readonly property int gap: Theme.dp(2)
     readonly property real inner: grp.size === "m" ? Theme.dp(8) : Theme.dp(6)
@@ -69,6 +71,27 @@ Item {
 
                 width: grp.equalWidth ? (row.width - grp.gap * (rep.count - 1)) / Math.max(1, rep.count) : seg.natural
                 height: grp.h
+
+                activeFocusOnTab: true
+                Accessible.role: Accessible.RadioButton
+                Accessible.name: Tr.t(seg.modelData.label || seg.modelData.key)
+                Accessible.checkable: true
+                Accessible.checked: seg.on
+                Accessible.selected: seg.on
+                Accessible.focusable: true
+                Accessible.focused: seg.activeFocus
+                Accessible.onPressAction: grp.picked(seg.modelData.key)
+                Keys.onSpacePressed: grp.picked(seg.modelData.key)
+                Keys.onReturnPressed: grp.picked(seg.modelData.key)
+                Keys.onEnterPressed: grp.picked(seg.modelData.key)
+                Keys.onLeftPressed: {
+                    if (seg.index > 0)
+                        grp.picked(grp.options[seg.index - 1].key);
+                }
+                Keys.onRightPressed: {
+                    if (seg.index + 1 < grp.options.length)
+                        grp.picked(grp.options[seg.index + 1].key);
+                }
 
                 Rectangle {
                     id: box
@@ -130,7 +153,10 @@ Item {
 
                     radius: Math.min(box.topLeftRadius, box.topRightRadius)
                     tint: seg.on ? Theme.fgPrimary : Theme.text
-                    onClicked: grp.picked(seg.modelData.key)
+                    onClicked: {
+                        seg.forceActiveFocus();
+                        grp.picked(seg.modelData.key);
+                    }
                 }
 
                 Row {
@@ -151,11 +177,23 @@ Item {
 
                         anchors.verticalCenter: parent.verticalCenter
                         visible: text !== ""
-                        text: seg.modelData.label || ""
+                        text: Tr.t(seg.modelData.label || "")
                         role: "labelLarge"
                         color: seg.on ? Theme.fgPrimary : Theme.subtext
+                        Accessible.ignored: true
                     }
 
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -Theme.dp(2)
+                    radius: Math.max(box.topLeftRadius, box.topRightRadius) + Theme.dp(2)
+                    color: "transparent"
+                    border.width: seg.activeFocus ? Theme.dp(2) : 0
+                    border.color: Theme.primary
+                    visible: border.width > 0 && Prefs.a11yFocusRing
+                    z: 10
                 }
 
             }

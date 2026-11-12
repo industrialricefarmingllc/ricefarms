@@ -334,7 +334,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     visible: lane.empty
-                    text: "Drop a module here"
+                    text: Tr.t("Drop a module here")
                     color: Theme.subtextDim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabelMd
@@ -523,7 +523,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.dp(16)
                 anchors.verticalCenter: parent.verticalCenter
-                text: editor.modules[chip.mid].name
+                text: Tr.t(editor.modules[chip.mid].name)
                 color: chip.ink
                 font: metrics.font
                 elide: Text.ElideRight

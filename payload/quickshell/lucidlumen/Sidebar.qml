@@ -737,20 +737,20 @@ Item {
             }
 
             Place {
-                label: "Home"
+                label: Tr.t("Home")
                 slot: "folder-home"
                 target: side.app.home
             }
 
             Place {
-                label: "Recent"
+                label: Tr.t("Recent")
                 slot: "recent"
                 target: "recent:///"
                 drop: false
             }
 
             Place {
-                label: "Trash"
+                label: Tr.t("Trash")
                 slot: side.app.trashCount > 0 ? "trash-full" : "trash"
                 target: "trash:///"
                 trailing: side.app.trashCount > 0 ? String(side.app.trashCount) : ""
@@ -760,7 +760,7 @@ Item {
             }
 
             Heading {
-                text: "Folders"
+                text: Tr.t("Folders")
                 visible: side.app.places.length > 0
             }
 
@@ -778,7 +778,7 @@ Item {
             }
 
             Heading {
-                text: "Bookmarks"
+                text: Tr.t("Bookmarks")
             }
 
             // none yet: how to make one
@@ -791,7 +791,7 @@ Item {
                 bottomPadding: Theme.dp(6)
                 role: "bodySmall"
                 wrapMode: Text.WordWrap
-                text: "Ctrl+D keeps the folder you're in here"
+                text: Tr.t("Ctrl+D keeps the folder you're in here")
                 color: Theme.subtext
             }
 
@@ -815,7 +815,7 @@ Item {
             }
 
             Heading {
-                text: "Devices"
+                text: Tr.t("Devices")
             }
 
             // the system's own drive first, then other disks, then what's plugged in
@@ -847,7 +847,7 @@ Item {
             }
 
             Heading {
-                text: "Network"
+                text: Tr.t("Network")
             }
 
             // shares connected to, then the computers nearby, then a new one
@@ -876,14 +876,14 @@ Item {
             // hidden, it must not hold the pill: an unseen row still sits under it
             Place {
                 visible: side.app.canDiscover
-                label: "Nearby"
+                label: Tr.t("Nearby")
                 slot: "network"
                 target: side.app.canDiscover ? "network:///" : ""
                 drop: false
             }
 
             Place {
-                label: "Connect to server"
+                label: Tr.t("Connect to server")
                 slot: "connect"
                 icon: "add_link"
                 drop: false

@@ -33,7 +33,13 @@ echo "$NEW" > "$HOME/.cache/quickshell/theme_osd" 2>/dev/null || true
 WALL=$(cat "$WALL_FILE" 2>/dev/null | tr -d '\n' | xargs || true)
 [ -z "$WALL" ] && WALL=$(cat "$HOME/.cache/hypr_last_wallpaper" 2>/dev/null | tr -d '\n' | xargs || true)
 [ -z "$WALL" ] && WALL=$(cat "$HOME/.config/hypr/current_wallpaper" 2>/dev/null | tr -d '\n' | xargs || true)
-if [[ -n "$WALL" && -f "$WALL" ]]; then
+# current_wallpaper is the still under a video/scene. Handing that back would
+# replace the live wallpaper with its thumbnail; prefer the recorded target.
+LIVE=$(head -n1 "$HOME/.cache/current_live_wallpaper" 2>/dev/null || true)
+if [[ "$LIVE" == skwd:* || ( -n "$LIVE" && -f "$LIVE" ) ]]; then
+  WALL="$LIVE"
+fi
+if [[ -n "$WALL" && ( "$WALL" == skwd:* || -f "$WALL" ) ]]; then
   echo "Toggling $CUR → $NEW, regenerating $WALL"
   # wallpaper-matugen.sh handles awww + matugen + hypr reload + kitty SIGUSR1 via post_hook
   exec "$HOME/.config/hypr/scripts/wallpaper-matugen.sh" "$WALL" "$NEW"

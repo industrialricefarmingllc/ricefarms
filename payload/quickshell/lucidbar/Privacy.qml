@@ -333,7 +333,7 @@ BarPill {
             spacing: Theme.dp(10)
 
             Text {
-                text: root.rows.length > 0 ? "In use now" : "Nothing in use"
+                text: root.rows.length > 0 ? Tr.t("In use now") : Tr.t("Nothing in use")
                 color: Theme.accent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelLg
@@ -343,7 +343,7 @@ BarPill {
             Text {
                 visible: root.rows.length === 0
                 width: parent.width
-                text: "No app is using the microphone, the camera or the screen."
+                text: Tr.t("No app is using the microphone, the camera or the screen.")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodyMd
@@ -432,7 +432,7 @@ BarPill {
                             id: stopLabel
 
                             anchors.centerIn: parent
-                            text: "Stop"
+                            text: Tr.t("Stop")
                             color: Theme.fgError
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontLabelLg

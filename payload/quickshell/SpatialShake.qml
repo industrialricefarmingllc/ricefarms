@@ -32,7 +32,14 @@ Singleton {
     // Every surface is paused in that state, so the only timer that would
     // still wake the renderer is this one; stop it when no screen is free.
     readonly property bool running: Prefs.spatialWallpapers && SpatialWall.hasVisual
-        && !SpatialWall.allScreensFocused
+        && SpatialWall.displaysAwake
+        && !SpatialWall.allScreensFocused && !SpatialWall.meshBusy
+    // A widget in hand already owns the eye. Do not spend a fullscreen 3D
+    // capture per tick on a wallpaper nobody is watching; the camera keeps its
+    // last pose and resumes when the pointer lets go.
+    readonly property bool pointerBusy: Widgets.dragUid !== ""
+        || Widgets.liveUid !== "" || Widgets.marquee !== null
+        || Widgets.panelDragging
 
     signal tick()
 
@@ -49,7 +56,9 @@ Singleton {
     // Half the old sine speed (1.7/4.1/9.3 became 0.85/2.05/4.65 and so on):
     // clearly calmer than the old tremor, but still enough travel to see.
     function step() {
-        root.phase += 1 / 15;
+        // Advance by the timer's real interval, so changing the update rate
+        // does not also change the idle motion's speed.
+        root.phase += 0.033;
         const p = root.phase;
         // Three incommensurate bands: slow drift, a little sway, tiny tremor.
         const fastX = 0.55 * Math.sin(p * 0.85 + 0.3)
@@ -85,12 +94,17 @@ Singleton {
         }
     }
 
-    // Smooth 15 Hz camera updates for both the sway and the circle; only the
-    // sine frequencies themselves were lowered, so nothing steps visibly.
+    // 30 Hz is the smoothness/power compromise for a slow idle drift. Every
+    // tick dirties the camera and repaints the fullscreen 3D wallpaper on every
+    // output, so this is far more expensive than the timer math suggests.
+    // While the launcher is up the motion is invisible behind the panel and the
+    // render threads are needed for the reveal, so park the timer instead of
+    // stopping it: changing `running` resets the pose and would snap the
+    // wallpaper to center when the launcher opens.
     Timer {
-        interval: 66
+        interval: SpatialWall.launcherOpen ? 3600000 : 33
         repeat: true
-        running: root.running
+        running: root.running && !root.pointerBusy
         onTriggered: root.step()
     }
 }

@@ -117,7 +117,7 @@ Scope {
 
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: win.mon ? win.mon.name + " · " + win.mon.width + " × " + win.mon.height + " · " + Monitors.rateLabel(win.mon.refresh) : ""
+                            text: win.mon ? win.mon.name + " · " + win.mon.width + Tr.t(" × ") + win.mon.height + " · " + Monitors.rateLabel(win.mon.refresh) : ""
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodyMd

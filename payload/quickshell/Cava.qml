@@ -89,6 +89,15 @@ Singleton {
         onTriggered: root.apply()
     }
 
+    // cava can be installed after the shell started, or can exit on a bad
+    // device; keep asking while a visualiser still wants bands
+    Timer {
+        interval: 3000
+        repeat: true
+        running: root.bands > 0 && !proc.running
+        onTriggered: root.apply()
+    }
+
     // the poll is a fifth of the window, or the real hide drifts well past it
     Timer {
         interval: 100
@@ -118,17 +127,26 @@ Singleton {
                 var prev = root.levels;
                 var out = new Array(parts.length);
                 var moving = false;
+                // silence still arrives as a full frame at 60 Hz. Reassigning
+                // levels with identical values dirties the card every frame and
+                // repaints a full-width strip forever, so compare first.
+                var changed = parts.length !== prev.length;
                 for (var i = 0; i < parts.length; i++) {
                     var v = (parseInt(parts[i]) || 0) / 100;
                     var p = prev[i];
                     // jump up with the beat, fall on a ramp, same shape the bar's strip uses
                     var s = (p === undefined || v >= p) ? v : p * 0.78 + v * 0.22;
                     out[i] = s;
+                    if (p === undefined || Math.abs(s - p) > 0.0001)
+                        changed = true;
+
                     if (s > 0.015)
                         moving = true;
 
                 }
-                root.levels = out;
+                if (changed)
+                    root.levels = out;
+
                 if (moving) {
                     root.lastMotion = Date.now();
                     root.active = true;

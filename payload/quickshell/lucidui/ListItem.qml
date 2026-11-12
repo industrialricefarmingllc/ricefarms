@@ -21,11 +21,30 @@ Item {
     property int supportingLines: 1
     property real outerRadius: Theme.dp(20)
     property real innerRadius: Theme.dp(5)
+    property string accessibleName: ""
+    property string accessibleDescription: ""
     property alias leading: leadSlot.data
     property alias trailing: trailSlot.data
     readonly property bool hasLeading: li.icon !== "" || leadSlot.children.length > 0
 
     signal clicked()
+
+    function activate() {
+        if (li.clickable && !li.disabled)
+            li.clicked();
+    }
+
+    activeFocusOnTab: li.clickable && !li.disabled
+    Accessible.role: Accessible.ListItem
+    Accessible.name: li.accessibleName !== "" ? li.accessibleName : (li.headline !== "" ? li.headline : li.supporting)
+    Accessible.description: li.accessibleDescription !== "" ? li.accessibleDescription : (li.headline !== "" ? li.supporting : "")
+    Accessible.selected: li.selected
+    Accessible.focusable: li.clickable && !li.disabled
+    Accessible.focused: li.activeFocus
+    Accessible.onPressAction: li.activate()
+    Keys.onSpacePressed: li.activate()
+    Keys.onReturnPressed: li.activate()
+    Keys.onEnterPressed: li.activate()
 
     implicitHeight: Math.max(li.supporting !== "" || li.overline !== "" ? Theme.dp(64) : Theme.dp(52), col.implicitHeight + Theme.dp(20))
     implicitWidth: Theme.dp(320)
@@ -55,7 +74,10 @@ Item {
         enabled: li.clickable && !li.disabled
         radius: li.innerRadius
         tint: Theme.text
-        onClicked: li.clicked()
+        onClicked: {
+            li.forceActiveFocus();
+            li.activate();
+        }
     }
 
     Item {
@@ -102,6 +124,7 @@ Item {
             role: "labelSmall"
             color: Theme.subtext
             elide: Text.ElideRight
+            Accessible.ignored: true
         }
 
         LText {
@@ -111,6 +134,7 @@ Item {
             weight: 480
             color: li.selected ? Theme.fgSecondaryContainer : Theme.text
             elide: Text.ElideRight
+            Accessible.ignored: true
         }
 
         LText {
@@ -122,8 +146,20 @@ Item {
             wrapMode: li.supportingLines > 1 ? Text.WordWrap : Text.NoWrap
             maximumLineCount: li.supportingLines
             elide: Text.ElideRight
+            Accessible.ignored: true
         }
 
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(2)
+        radius: (li.first ? li.outerRadius : li.innerRadius) + Theme.dp(2)
+        color: "transparent"
+        border.width: li.activeFocus && li.clickable && !li.disabled ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
     Row {

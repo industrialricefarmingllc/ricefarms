@@ -76,7 +76,7 @@ Item {
             anchors.leftMargin: Theme.dp(14)
             anchors.rightMargin: Theme.dp(14)
             anchors.topMargin: Theme.dp(8)
-            text: tile.variant ? tile.variant.name : ""
+            text: tile.variant ? Tr.t(tile.variant.name) : ""
             color: Theme.text
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody
@@ -92,7 +92,7 @@ Item {
             anchors.leftMargin: Theme.dp(14)
             anchors.rightMargin: Theme.dp(14)
             anchors.topMargin: 1
-            text: tile.variant ? tile.variant.blurb : ""
+            text: tile.variant ? Tr.t(tile.variant.blurb) : ""
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(10)

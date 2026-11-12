@@ -100,7 +100,7 @@ Item {
             ShotModeButton {
                 anchors.verticalCenter: parent.verticalCenter
                 icon: "screenshot_region"
-                label: "Screenshot"
+                label: Tr.t("Screenshot")
                 tip: "Screenshot (S)"
                 tipAbove: bar.tipAbove
                 selected: bar.mode === "shot"
@@ -110,7 +110,7 @@ Item {
             ShotModeButton {
                 anchors.verticalCenter: parent.verticalCenter
                 icon: bar.recording ? "stop_circle" : "screen_record"
-                label: bar.recording ? "Recording" : "Record"
+                label: bar.recording ? Tr.t("Recording") : Tr.t("Record")
                 tip: bar.recording ? "A recording is running" : "Record the screen (R)"
                 tipAbove: bar.tipAbove
                 selected: bar.mode === "record"
@@ -123,7 +123,7 @@ Item {
             ShotModeButton {
                 anchors.verticalCenter: parent.verticalCenter
                 icon: "text_fields"
-                label: "Text"
+                label: Tr.t("Text")
                 tip: "Copy the text in it (T)"
                 tipAbove: bar.tipAbove
                 selected: bar.mode === "text"
@@ -133,7 +133,7 @@ Item {
             ShotModeButton {
                 anchors.verticalCenter: parent.verticalCenter
                 icon: "colorize"
-                label: "Colour"
+                label: Tr.t("Colour")
                 tip: "Pick a colour (C)"
                 tipAbove: bar.tipAbove
                 selected: bar.mode === "colour"

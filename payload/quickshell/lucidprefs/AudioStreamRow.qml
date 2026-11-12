@@ -171,7 +171,7 @@ Column {
             opacity: stream.expanded ? 1 : 0
 
             Text {
-                text: stream.playback ? "Play this on" : "Listen through"
+                text: stream.playback ? Tr.t("Play this on") : Tr.t("Listen through")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelLg

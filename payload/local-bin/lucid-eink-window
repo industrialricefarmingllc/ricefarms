@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""Detect a mostly-white focused window in dark mode and tell
+lucid-eink-window which window should receive the full e-ink pass.
+
+The compositor plugin does the drawing; this service only samples the focused
+window (grim + ImageMagick) and writes a target address. A tiny opacity nudge
+forces the compositor to repaint the old/new windows immediately.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HOME = Path.home()
+CONFIG_FILE = HOME / ".config/lucid/eink-window.json"
+DEFAULTS = {
+    "enabled": True,
+    "poll_seconds": 2.0,
+    "capture_seconds": 2.5,
+    "white_threshold": 0.32,
+    "dark_mode_file": "~/.cache/lucid/app-surface.light",
+    "target_file": "~/.cache/lucid/eink-window-target",
+    "cache_dir": "~/.cache/lucid/eink-window",
+    "grim": "grim",
+    "magick": "magick",
+    "hyprctl": "hyprctl",
+}
+log = logging.getLogger("lucid-eink-window")
+
+
+def expand(path: str | os.PathLike) -> Path:
+    return Path(os.path.expanduser(os.path.expandvars(str(path))))
+
+
+def load_config() -> dict:
+    cfg = json.loads(json.dumps(DEFAULTS))
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                cfg.update(data)
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("Ignoring invalid %s: %s", CONFIG_FILE, exc)
+    return cfg
+
+
+def hypr_env() -> dict:
+    env = os.environ.copy()
+    if env.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return env
+    runtime = Path(env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "hypr"
+    try:
+        candidates = [p.name for p in runtime.iterdir() if p.is_dir() and (p / ".socket.sock").exists()]
+    except OSError:
+        candidates = []
+    if len(candidates) == 1:
+        env["HYPRLAND_INSTANCE_SIGNATURE"] = candidates[0]
+    return env
+
+
+def run(cfg: dict, args: list[str], timeout: float = 8.0) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        args, capture_output=True, text=True, timeout=timeout, check=False, env=hypr_env()
+    )
+
+
+def hypr_json(cfg: dict, args: list[str]) -> dict | list | None:
+    try:
+        result = run(cfg, [cfg["hyprctl"], *args])
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def dark_mode(cfg: dict) -> bool:
+    try:
+        return expand(cfg["dark_mode_file"]).read_text(encoding="utf-8").strip() != "1"
+    except OSError:
+        return True
+
+
+def active_window(cfg: dict) -> dict | None:
+    win = hypr_json(cfg, ["activewindow", "-j"])
+    if not isinstance(win, dict) or not win:
+        return None
+    if not win.get("address") or not win.get("mapped", True) or win.get("hidden", False):
+        return None
+    if not win.get("visible", True):
+        return None
+    at = win.get("at")
+    size = win.get("size")
+    if not (isinstance(at, list) and len(at) == 2 and isinstance(size, list) and len(size) == 2):
+        return None
+    if size[0] <= 0 or size[1] <= 0:
+        return None
+    return win
+
+
+def monitors(cfg: dict) -> dict[int, dict]:
+    data = hypr_json(cfg, ["monitors", "-j"])
+    out: dict[int, dict] = {}
+    if isinstance(data, list):
+        for m in data:
+            try:
+                out[int(m["id"])] = m
+            except (KeyError, TypeError, ValueError):
+                pass
+    return out
+
+
+def sample_window(cfg: dict, win: dict, mon: dict) -> float | None:
+    try:
+        scale = float(mon.get("scale") or 1.0)
+        mx = float(mon["x"])
+        my = float(mon["y"])
+        mw = float(mon["width"]) / scale
+        mh = float(mon["height"]) / scale
+
+        x = max(float(win["at"][0]), mx)
+        y = max(float(win["at"][1]), my)
+        x2 = min(float(win["at"][0]) + float(win["size"][0]), mx + mw)
+        y2 = min(float(win["at"][1]) + float(win["size"][1]), my + mh)
+        w = int(x2 - x)
+        h = int(y2 - y)
+        if w < 8 or h < 8:
+            return None
+
+        cache = expand(cfg["cache_dir"])
+        cache.mkdir(parents=True, exist_ok=True)
+        shot = cache / "focus.png"
+        geometry = f"{int(x)},{int(y)} {w}x{h}"
+        result = run(cfg, [cfg["grim"], "-g", geometry, str(shot)])
+        if result.returncode != 0:
+            log.debug("grim failed: %s", result.stderr.strip())
+            return None
+        result = run(
+            cfg,
+            [
+                cfg["magick"],
+                str(shot),
+                "-resize",
+                "64x64!",
+                "-colorspace",
+                "Gray",
+                "-format",
+                "%[fx:mean]",
+                "info:",
+            ],
+        )
+        try:
+            shot.unlink()
+        except OSError:
+            pass
+        if result.returncode != 0:
+            log.debug("magick failed: %s", result.stderr.strip())
+            return None
+        return float(result.stdout.strip())
+    except (KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired) as exc:
+        log.debug("sample failed: %s", exc)
+        return None
+
+
+def read_target(cfg: dict) -> str:
+    try:
+        return expand(cfg["target_file"]).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def write_target(cfg: dict, address: str) -> None:
+    path = expand(cfg["target_file"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text((address or "") + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def nudge(cfg: dict, address: str) -> None:
+    if not address:
+        return
+    # Repaint the window without changing its visible state: read the current
+    # opacity, nudge it by 0.001, then put the original value back. A tag
+    # change alone only touches decorations, which is not enough to repaint
+    # the window content the e-ink pass replaces.
+    opacity = "1.0"
+    try:
+        result = run(cfg, [cfg["hyprctl"], "getprop", f"address:{address}", "opacity"], timeout=2.0)
+        if result.returncode == 0 and result.stdout.strip():
+            opacity = result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    for value in ("0.999", opacity):
+        script = (
+            'hl.dispatch(hl.dsp.window.set_prop({window="address:%s", prop="opacity", value="%s"}))'
+            % (address, value)
+        )
+        try:
+            run(cfg, [cfg["hyprctl"], "eval", script], timeout=3.0)
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        time.sleep(0.03)
+
+
+def set_target(cfg: dict, address: str) -> None:
+    old = read_target(cfg)
+    if old == address:
+        return
+    write_target(cfg, address)
+    # The plugin caches the target file for 100ms. Give it time, then make
+    # sure both the old and the new window are repainted now.
+    time.sleep(0.15)
+    nudge(cfg, old)
+    nudge(cfg, address)
+    log.info("target %s", address or "cleared")
+
+
+def cycle(cfg: dict, dry_run: bool = False) -> tuple[str, float | None]:
+    if not cfg.get("enabled", True) or not dark_mode(cfg):
+        if not dry_run:
+            set_target(cfg, "")
+        return "", None
+
+    win = active_window(cfg)
+    if win is None:
+        if not dry_run:
+            set_target(cfg, "")
+        return "", None
+
+    mons = monitors(cfg)
+    try:
+        mon = mons[int(win.get("monitor", -1))]
+    except (KeyError, TypeError, ValueError):
+        mon = None
+    if mon is None:
+        if not dry_run:
+            set_target(cfg, "")
+        return "", None
+
+    mean = sample_window(cfg, win, mon)
+    address = str(win["address"])
+    white = mean is not None and mean >= float(cfg["white_threshold"])
+    target = address if white else ""
+    if not dry_run:
+        set_target(cfg, target)
+    return target, mean
+
+
+def run_loop(cfg: dict) -> int:
+    last_capture = 0.0
+    last_address = ""
+    while True:
+        cfg = load_config()
+        try:
+            now = time.monotonic()
+            win = active_window(cfg) if cfg.get("enabled", True) and dark_mode(cfg) else None
+            address = str(win["address"]) if win else ""
+            if address != last_address or now - last_capture >= float(cfg["capture_seconds"]):
+                target, mean = cycle(cfg)
+                last_capture = now
+                last_address = address
+                if target:
+                    log.info("white window %s (mean %.2f) -> e-ink", target, mean or 0.0)
+        except Exception as exc:
+            log.exception("cycle failed: %s", exc)
+        time.sleep(max(0.5, float(cfg.get("poll_seconds", 2.0))))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--status", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    cfg = load_config()
+
+    if args.status:
+        print(
+            json.dumps(
+                {
+                    "dark": dark_mode(cfg),
+                    "target": read_target(cfg),
+                    "active": active_window(cfg),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    if args.once or args.dry_run:
+        target, mean = cycle(cfg, dry_run=args.dry_run or args.once)
+        print(json.dumps({"target": target, "mean": mean}, sort_keys=True))
+        return 0
+    return run_loop(cfg)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

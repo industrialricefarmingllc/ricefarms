@@ -66,6 +66,8 @@ Singleton {
     property var desktopLayout: []
     // the screen the widget panel is open on, "" while it is shut
     property string panelScreen: ""
+    // a card lifted out of the gallery is in hand, even though no desktop card is
+    property bool panelDragging: false
     readonly property bool panelOpen: root.panelScreen !== ""
     // a card the panel is pointing at, outlined on the desktop
     property string spotUid: ""
@@ -1285,6 +1287,11 @@ Singleton {
             "maxH": 1800
         }],
         "options": [{
+            "key": "socialAtEnd",
+            "label": "",
+            "type": "hidden",
+            "def": []
+        }, {
             "key": "socialSourcesOff",
             "label": "",
             "type": "hidden",
@@ -1305,6 +1312,88 @@ Singleton {
             "type": "hidden",
             "def": []
         }]
+    }, {
+        "id": "opencode",
+        "name": "OpenCode",
+        "blurb": "The sessions open in your OpenCode windows, and which are working.",
+        "variants": [{
+            "id": "list",
+            "name": "Sessions",
+            "blurb": "Every open session, with its status, name and folder.",
+            "w": 320,
+            "h": 320,
+            "resizable": true,
+            "resizeAxis": "vertical",
+            "minH": 160,
+            "maxH": 900
+        }, {
+            "id": "grid",
+            "name": "Status grid",
+            "blurb": "Only each session's loading or done icon, in a small grid.",
+            "w": 152,
+            "h": 152
+        }],
+        "options": [{
+            "key": "hideIdle",
+            "label": "Hide done sessions",
+            "type": "bool",
+            "def": false
+        }, {
+            "key": "showPath",
+            "label": "Show the folder",
+            "type": "bool",
+            "def": true,
+            "variants": ["list"]
+        }]
+    }, {
+        "id": "ambience",
+        "name": "Ambience",
+        "blurb": "A YouTube soundtrack for each wallpaper, looped quietly at half volume.",
+        // this one belongs to every wallpaper: the point is that the room changes
+        // with the picture, not that you have to place a card again each time
+        "everywhere": true,
+        "variants": [{
+            "id": "disc",
+            "name": "Disc",
+            "blurb": "A living record, the current track and the three controls.",
+            "w": 320,
+            "h": 300
+        }, {
+            "id": "quarter",
+            "name": "Quarter",
+            "blurb": "A 152 px square with only the record; a tap opens the running order.",
+            "w": 152,
+            "h": 152
+        }, {
+            "id": "row",
+            "name": "Strip",
+            "blurb": "One compact line: cover, title, and the way into the running order.",
+            "w": 440,
+            "h": 118
+        }, {
+            "id": "panel",
+            "name": "Programme",
+            "blurb": "The full running order, with a field for new YouTube links.",
+            "w": 440,
+            "h": 430,
+            "resizable": true,
+            "resizeAxis": "vertical",
+            "minH": 380,
+            "maxH": 900
+        }],
+        "options": []
+    }, {
+        "id": "gate",
+        "name": "Gate",
+        "blurb": "Compute, the next task, and what it pays.",
+        "variants": [{
+            "id": "quarter",
+            "name": "Quarter",
+            "blurb": "A 152 px square with Compute, a swipeable task and its reward.",
+            "w": 152,
+            "h": 152
+        }],
+        "options": []
     }]
 
     // the full-width bars every preset stands on. listed first in each, so the cards
@@ -1456,6 +1545,7 @@ Singleton {
             { "type": "weather", "variant": "detail", "at": "tr", "x": 1540, "y": 186 },
             { "type": "shortcuts", "variant": "shapes", "at": "tr", "x": 1652, "y": 408 }
         ]
+
     }]
 
     // every way the store finishes loading, an empty or missing file included
@@ -1740,86 +1830,51 @@ Singleton {
         return best;
     }
 
+    // Flat [value, guide, value, guide, ...] scratch lists. A snap runs at
+    // pointer rate; building a fresh object per candidate showed up as GC work.
+    property var snapXsBuffer: []
+    property var snapYsBuffer: []
+    property var snapResult: ({ "x": 0, "y": 0, "gx": -1, "gy": -1 })
+
     // where a card dragged to nx, ny settles: the screen's edges and centre lines and
     // the other cards' edges, centres and a gap beside them. `others` are items with
     // x, y, width, height. gx/gy are the guide lines to draw, -1 for none
     function snapBox(W, H, w, h, nx, ny, others) {
         var pad = 20;
         var gap = 16;
-        var xs = [{
-            "v": pad,
-            "g": pad
-        }, {
-            "v": W - pad - w,
-            "g": W - pad
-        }, {
-            "v": (W - w) / 2,
-            "g": W / 2
-        }];
-        var ys = [{
-            "v": pad,
-            "g": pad
-        }, {
-            "v": H - pad - h,
-            "g": H - pad
-        }, {
-            "v": (H - h) / 2,
-            "g": H / 2
-        }];
+        var xs = root.snapXsBuffer;
+        var ys = root.snapYsBuffer;
+        xs.length = 0;
+        ys.length = 0;
+        xs.push(pad, pad, W - pad - w, W - pad, (W - w) / 2, W / 2);
+        ys.push(pad, pad, H - pad - h, H - pad, (H - h) / 2, H / 2);
         for (var i = 0; i < others.length; i++) {
             var f = others[i];
-            xs.push({
-                "v": f.x,
-                "g": f.x
-            }, {
-                "v": f.x + f.width - w,
-                "g": f.x + f.width
-            }, {
-                "v": f.x + (f.width - w) / 2,
-                "g": f.x + f.width / 2
-            }, {
-                "v": f.x + f.width + gap,
-                "g": -1
-            }, {
-                "v": f.x - gap - w,
-                "g": -1
-            });
-            ys.push({
-                "v": f.y,
-                "g": f.y
-            }, {
-                "v": f.y + f.height - h,
-                "g": f.y + f.height
-            }, {
-                "v": f.y + (f.height - h) / 2,
-                "g": f.y + f.height / 2
-            }, {
-                "v": f.y + f.height + gap,
-                "g": -1
-            }, {
-                "v": f.y - gap - h,
-                "g": -1
-            });
+            xs.push(f.x, f.x, f.x + f.width - w, f.x + f.width,
+                f.x + (f.width - w) / 2, f.x + f.width / 2,
+                f.x + f.width + gap, -1, f.x - gap - w, -1);
+            ys.push(f.y, f.y, f.y + f.height - h, f.y + f.height,
+                f.y + (f.height - h) / 2, f.y + f.height / 2,
+                f.y + f.height + gap, -1, f.y - gap - h, -1);
         }
-        var sx = root.nearestSnap(nx, xs);
-        var sy = root.nearestSnap(ny, ys);
-        return ({
-            "x": sx ? sx.v : nx,
-            "y": sy ? sy.v : ny,
-            "gx": sx ? sx.g : -1,
-            "gy": sy ? sy.g : -1
-        });
+        var ix = root.nearestSnapIndex(nx, xs);
+        var iy = root.nearestSnapIndex(ny, ys);
+        var out = root.snapResult;
+        out.x = ix >= 0 ? xs[ix] : nx;
+        out.y = iy >= 0 ? ys[iy] : ny;
+        out.gx = ix >= 0 ? xs[ix + 1] : -1;
+        out.gy = iy >= 0 ? ys[iy + 1] : -1;
+        return out;
     }
 
-    // v is where the edge would land, g is the line to draw when it does
-    function nearestSnap(pos, cands) {
-        var best = null;
+    function nearestSnapIndex(pos, cands) {
+        var best = -1;
         var bd = 9;
-        for (var i = 0; i < cands.length; i++) {
-            var d = Math.abs(pos - cands[i].v);
+        for (var i = 0; i < cands.length; i += 2) {
+            var d = Math.abs(pos - cands[i]);
             if (d < bd) {
                 bd = d;
-                best = cands[i];
+                best = i;
             }
         }
         return best;
@@ -1849,6 +1904,8 @@ Singleton {
             root.landingUid = uid;
 
         var size = root.freshSize(typeId, v);
+        var type = root.typeAt(typeId);
+        var everywhere = type !== null && type.everywhere === true;
         instances.append({
             "uid": uid,
             "wtype": typeId,
@@ -1858,7 +1915,7 @@ Singleton {
             "bw": size.w,
             "bh": size.h,
             "pinned": false,
-            "everywhere": false,
+            "everywhere": everywhere,
             "zoom": 1,
             "zOrder": root.topZ,
             "screenName": screenName || "",
@@ -1866,6 +1923,9 @@ Singleton {
             "closing": false,
             "born": true
         });
+        if (everywhere)
+            root.rememberEverywhere(instances.get(instances.count - 1));
+
         root.edited();
         root.save();
         root.spawned(uid);
@@ -2408,8 +2468,9 @@ Singleton {
         });
     }
 
-    // a shared card that moves is still only moved on this wallpaper, but its new
-    // place becomes the one a wallpaper without a copy opens it at
+    // a shared card that moves or resizes only moves or resizes on this
+    // wallpaper; its new place and size become what a wallpaper without a copy
+    // opens it at
     function syncEverywhereCards() {
         if (root.everywhereCards.length === 0)
             return ;
@@ -2491,11 +2552,14 @@ Singleton {
                     root.appendEntry(e);
                 }
             } else {
-                // the widget itself follows the shared copy; its place on this
-                // wallpaper stays where it was
+                // the widget itself follows the shared copy; its place and size
+                // on this wallpaper stay what this wallpaper was given
                 var placed = root.copyCard(base);
                 placed.wx = typeof e.wx === "number" ? e.wx : base.wx;
                 placed.wy = typeof e.wy === "number" ? e.wy : base.wy;
+                placed.bw = typeof e.bw === "number" ? e.bw : base.bw;
+                placed.bh = typeof e.bh === "number" ? e.bh : base.bh;
+                placed.zoom = e.zoom !== undefined ? e.zoom : base.zoom;
                 placed.zOrder = e.zOrder !== undefined ? e.zOrder : base.zOrder;
                 placed.screenName = e.screenName !== undefined ? e.screenName : base.screenName;
                 placed.everywhere = true;
@@ -3191,18 +3255,82 @@ Singleton {
         root.save();
     }
 
+    // A drag or resize must not serialise the whole store: with a few hundred
+    // archived wallpaper boards that is ~10 ms of JSON on V4, landing as a
+    // dropped frame right after the card is picked up. Hold the write until
+    // the pointer lets go, then save once.
+    property bool saveDeferred: false
+
     function save() {
+        if (root.dragUid !== "" || root.liveUid !== "") {
+            root.saveDeferred = true;
+            return ;
+        }
         saveDebounce.restart();
     }
 
+    function flushDeferredSave() {
+        if (!root.saveDeferred || root.dragUid !== "" || root.liveUid !== "")
+            return ;
+
+        root.saveDeferred = false;
+        saveDebounce.restart();
+    }
+
+    onDragUidChanged: root.flushDeferredSave()
+    onLiveUidChanged: root.flushDeferredSave()
+
     function serialise() {
+        // An "everywhere" card is the same widget on every wallpaper; its board
+        // copies need only the place and size, not another copy of its options
+        // (which, for a Social card, are several KB of source lists). Writing
+        // those once in `everywhere` takes the store from ~1 MB to ~200 KB and
+        // the V4 stringify from ~10 ms to ~2 ms, without changing what restore
+        // reads: showBoard merges the shared definition back in by uid.
+        var shared = {};
+        for (var s = 0; s < root.everywhereCards.length; s++) {
+            var sharedCard = root.everywhereCards[s];
+            if (sharedCard && sharedCard.uid)
+                shared[sharedCard.uid] = true;
+        }
+        var boards = root.boards;
+        var compact = null;
+        for (var key in boards) {
+            var board = boards[key];
+            if (!board || !Array.isArray(board.instances))
+                continue;
+
+            var list = board.instances;
+            var changed = false;
+            for (var i = 0; i < list.length; i++) {
+                var entry = list[i];
+                if (!entry || entry.everywhere !== true || shared[entry.uid] !== true)
+                    continue;
+
+                if (!changed) {
+                    list = list.slice();
+                    changed = true;
+                }
+                var stripped = Object.assign({}, entry);
+                delete stripped.opts;
+                list[i] = stripped;
+            }
+            if (changed) {
+                if (!compact)
+                    compact = Object.assign({}, boards);
+
+                compact[key] = Object.assign({}, board, {
+                    "instances": list
+                });
+            }
+        }
         return JSON.stringify({
             "version": 2,
             "nextId": root.nextId,
             "boardFull": true,
             "laidScale": root.laidScale,
             "current": root.boardKey,
-            "boards": root.boards,
+            "boards": compact || boards,
             "everywhere": root.everywhereCards,
             "preset": root.presetId,
             "saved": root.userPresets,
@@ -3281,10 +3409,17 @@ Singleton {
 
         interval: 220
         onTriggered: {
-            if (root.loaded) {
-                root.rememberBoard();
-                stateFile.setText(root.serialise());
+            if (!root.loaded)
+                return ;
+            // The press that starts a drag already asked for a save, before
+            // dragUid was set. Do not let that timer fire mid-gesture; the
+            // release flushes it once the card is down.
+            if (root.dragUid !== "" || root.liveUid !== "") {
+                root.saveDeferred = true;
+                return ;
             }
+            root.rememberBoard();
+            stateFile.setText(root.serialise());
         }
     }
 

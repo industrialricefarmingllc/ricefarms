@@ -1,0 +1,6 @@
+#!/bin/sh
+# RePKG - unofficial Wallpaper Engine PKG unpacker / TEX converter.
+# Runs the upstream Windows build under Wine in its own prefix.
+export WINEPREFIX="${WINEPREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/repkg/wineprefix}"
+export WINEDEBUG="${WINEDEBUG:--all}"
+exec wine "$HOME/.local/share/repkg/RePKG.exe" "$@"

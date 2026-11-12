@@ -73,7 +73,7 @@ Column {
 
             width: Theme.dp(200)
             text: form.name
-            placeholder: "Name, like myapp"
+            placeholder: Tr.t("Name, like myapp")
             onEdited: (v) => {
                 return form.name = v;
             }
@@ -84,7 +84,7 @@ Column {
 
             width: form.width - nameField.width - Theme.dp(10)
             text: form.hook
-            placeholder: "Command that reloads the app (optional)"
+            placeholder: Tr.t("Command that reloads the app (optional)")
             onEdited: (v) => {
                 return form.hook = v;
             }
@@ -100,7 +100,7 @@ Column {
 
             width: form.width - chooseButton.width - Theme.dp(10)
             text: form.input
-            placeholder: "Template file, or an https:// link to one"
+            placeholder: Tr.t("Template file, or an https:// link to one")
             onEdited: (v) => {
                 return form.input = v;
             }
@@ -114,7 +114,7 @@ Column {
             id: chooseButton
 
             anchors.verticalCenter: parent.verticalCenter
-            text: "Choose..."
+            text: Tr.t("Choose...")
             onClicked: {
                 picker.command = ["python3", Qt.resolvedUrl("pickfile.py").toString().replace("file://", ""), "--title", "Choose a template"];
                 picker.running = true;
@@ -128,7 +128,7 @@ Column {
 
         width: form.width
         text: form.output
-        placeholder: "File it writes, like ~/.config/myapp/colors.css"
+        placeholder: Tr.t("File it writes, like ~/.config/myapp/colors.css")
         onEdited: (v) => {
             return form.output = v;
         }
@@ -138,7 +138,7 @@ Column {
         spacing: Theme.dp(10)
 
         M3Button {
-            text: form.phase === "trying" ? "Trying..." : "Try it"
+            text: form.phase === "trying" ? Tr.t("Trying...") : Tr.t("Try it")
             enabled: form.input.trim() !== "" && !form.working
             // play
             iconPath: "play_arrow"
@@ -146,7 +146,7 @@ Column {
         }
 
         M3Button {
-            text: form.phase === "adding" ? "Adding..." : "Add"
+            text: form.phase === "adding" ? Tr.t("Adding...") : Tr.t("Add")
             variant: "filled"
             enabled: form.ready && !form.working
             iconPath: "add"

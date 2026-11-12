@@ -131,7 +131,7 @@ Item {
         anchors.centerIn: parent
         visible: view.source !== "" && !view.ready
         role: "labelSmall"
-        text: view.failed ? "3D preview unavailable" : "loading 3D preview…"
+        text: view.failed ? Tr.t("3D preview unavailable") : Tr.t("loading 3D preview…")
         color: view.failed ? Theme.error : Theme.subtext
     }
 }

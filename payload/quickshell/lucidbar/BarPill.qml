@@ -41,6 +41,31 @@ Item {
 
     signal compactClicked()
 
+    function activateCompact() {
+        if (pill.anyOpen || !pill.compactInteractive)
+            return ;
+
+        pill.compactClicked();
+        if (pill.opensOnHover)
+            pill.expanded = true;
+
+    }
+
+    readonly property string moduleName: {
+        if (pill.modId === "")
+            return "";
+
+        const m = Prefs.barModuleById[pill.modId];
+        return m ? Tr.t(m.name) : pill.modId;
+    }
+
+    activeFocusOnTab: pill.compactInteractive && !pill.anyOpen
+    Accessible.role: pill.anyOpen ? Accessible.Grouping : Accessible.Button
+    Accessible.name: pill.anyOpen ? Tr.t("Panel") : pill.moduleName
+    Accessible.focusable: true
+    Accessible.focused: pill.activeFocus
+    Accessible.onPressAction: pill.activateCompact()
+
     // Arrow/Tab moves to the previous/next expanded bar item; the panel keeps
     // focus while open so keys land here after the panel's own controls pass.
     focus: pill.anyOpen
@@ -121,8 +146,13 @@ Item {
             event.accepted = true;
             return ;
         }
-        if (!pill.anyOpen)
+        if (!pill.anyOpen) {
+            if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                pill.activateCompact();
+                event.accepted = true;
+            }
             return ;
+        }
         switch (event.key) {
         case Qt.Key_Tab:
             if (pill.focusLinear((event.modifiers & Qt.ShiftModifier) ? -1 : 1))
@@ -174,8 +204,8 @@ Item {
     // Keep the bar's laid-out box at the compact size and render the open
     // panel as an overflow whose shape is driven by the existing LiquidShape
     // shader. The bar never re-lays-out per frame, and the glass bridge only
-    // publishes at the compact/morph hand-off (two geometry states per
-    // open/close), instead of one write per rendered frame.
+    // publishes at the compact/morph hand-off (two writes per open/close),
+    // instead of one write per rendered frame.
     property bool transformMorph: true
     readonly property real transformWidth: pill.altOpen ? pill.altWidth : pill.panelWidth
     readonly property real transformHeight: pill.altOpen ? pill.altHeight : pill.panelHeight
@@ -492,6 +522,10 @@ Item {
     // Under the compositor glass the rim is the edge treatment; no QML
     // window hairline on top of it (any bar style, not just full bar).
     readonly property real windowBorderWidth: pill.externalGlass ? 0 : WindowBorder.size
+    // Notch bar under glass: the plugin glass shape is lifted 2px and its
+    // top rim is clipped off-screen. Keep the QML content 2px below the
+    // visible glass edge so it does not sit against the screen border.
+    readonly property real notchTopInset: (Prefs.barNotch && pill.externalGlass) ? Theme.dp(2) : 0
 
     // how each corner meets a panel hanging below the bar, from shell.qml's hangPlan
     readonly property bool notchedPopup: pill.popupMode && Prefs.barPopupNotched
@@ -1077,6 +1111,8 @@ Item {
                 id: compactFace
                 parent: (pill.popupMode || pill.transformActive) ? pillRect : shellContentClip
                 anchors.fill: parent
+                anchors.topMargin: pill.notchTopInset
+                anchors.bottomMargin: pill.notchTopInset
                 opacity: pill.popupMode || !pill.anyOpen ? 1 : 0
                 scale: pill.popupMode || !pill.anyOpen ? 1 : pill.compactCollapseScale
                 // Scale from the fixed outer edge so outer-aligned text stays
@@ -1176,7 +1212,9 @@ Item {
                     // pill grows from the fixed outer edge (sides) or center.
                     // Centered would slide by half the growth during expansion;
                     // top-fixed keeps it from sinking as height grows.
-                    y: 0
+                    // Under notch glass, cancel the symmetric face inset so the
+                    // content center stays on the visible glass center (20px).
+                    y: -pill.notchTopInset
                     x: pill.alignLeft ? 0 : (pill.alignRight ? parent.width - width : (parent.width - width) / 2)
                 }
                 Behavior on opacity {
@@ -1192,6 +1230,8 @@ Item {
             Item {
                 id: altHolder
                 anchors.fill: parent
+                anchors.topMargin: pill.notchTopInset
+                anchors.bottomMargin: pill.notchTopInset
                 opacity: pill.altOpen && !pill.expanded ? 1 : 0
                 visible: opacity > 0.01
                 Behavior on opacity {
@@ -1328,11 +1368,19 @@ Item {
 
         }
 
+    }
 
-
-
-
-
-
+    // keyboard focus on a closed bar item: a rim outside its resting pill
+    Rectangle {
+        x: shell.x - Theme.dp(3)
+        y: shell.y - Theme.dp(3)
+        width: shell.width + Theme.dp(6)
+        height: shell.height + Theme.dp(6)
+        radius: pill.closedRadius + Theme.dp(3)
+        color: "transparent"
+        border.width: pill.activeFocus && !pill.anyOpen && pill.compactInteractive ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && shell.width > 0 && Prefs.a11yFocusRing
+        z: 300
     }
 }

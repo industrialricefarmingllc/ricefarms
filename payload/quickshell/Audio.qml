@@ -336,7 +336,7 @@ Singleton {
             return ;
 
         const file = side === "FL" ? "audio-channel-front-left" : (side === "FR" ? "audio-channel-front-right" : "audio-channel-front-center");
-        const cmd = ["pw-play", "--target", node.name];
+        const cmd = ["pw-play", "--target", node.name, "--media-role", "event"];
         if (side !== "")
             cmd.push("--channel-map", side);
 

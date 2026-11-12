@@ -23,14 +23,14 @@ SettingCard {
     }
 
     SettingRow {
-        title: "Try it"
-        description: modTop.moduleId === "start" ? "Opens the launcher, as a click on it does." : "Opens it the way a click on the bar does, so you can see the looks you pick below."
+        title: Tr.t("Try it")
+        description: modTop.moduleId === "start" ? Tr.t("Opens the launcher, as a click on it does.") : Tr.t("Opens it the way a click on the bar does, so you can see the looks you pick below.")
         enabled: modTop.inBar
         disabledReason: "It is not in the bar. Switch it on below to try it."
         showDivider: false
 
         M3Button {
-            text: "Open"
+            text: Tr.t("Open")
             variant: "tonal"
             enabled: modTop.inBar
             onClicked: Edit.moduleOpenRequested(modTop.moduleId, Monitors.barEverywhere ? Edit.sheetScreen : "")
@@ -40,8 +40,8 @@ SettingCard {
 
     SettingRow {
         visible: modTop.leftKey !== ""
-        title: "Join to " + modTop.nameOf(modTop.leftKey)
-        description: Prefs.barFull ? "The full bar already joins every module on one strip." : "The two share one island, the way the link between them on the bar joins them."
+        title: Tr.t("Join to ") + modTop.nameOf(modTop.leftKey)
+        description: Prefs.barFull ? Tr.t("The full bar already joins every module on one strip.") : Tr.t("The two share one island, the way the link between them on the bar joins them.")
         enabled: !Prefs.barFull
         showDivider: false
 
@@ -57,8 +57,8 @@ SettingCard {
 
     SettingRow {
         visible: modTop.rightKey !== ""
-        title: "Join to " + modTop.nameOf(modTop.rightKey)
-        description: Prefs.barFull ? "The full bar already joins every module on one strip." : "The two share one island, the way the link between them on the bar joins them."
+        title: Tr.t("Join to ") + modTop.nameOf(modTop.rightKey)
+        description: Prefs.barFull ? Tr.t("The full bar already joins every module on one strip.") : Tr.t("The two share one island, the way the link between them on the bar joins them.")
         enabled: !Prefs.barFull
         showDivider: false
 

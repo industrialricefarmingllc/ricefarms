@@ -1,0 +1,21 @@
+#!/bin/sh
+# Quickshell with QtWebEngine colour-scheme sync.
+# Blink's preferredColorScheme drives prefers-color-scheme for the embedded
+# Duolingo page: 0 = dark, 1 = light. Read the XDG appearance portal (the same
+# setting the rest of the desktop uses) once per shell start.
+scheme=$(timeout 2 gdbus call --session --dest org.freedesktop.portal.Desktop \
+  --object-path /org/freedesktop/portal/desktop \
+  --method org.freedesktop.portal.Settings.Read \
+  org.freedesktop.appearance color-scheme 2>/dev/null \
+  | sed -n 's/.*uint32 \([0-9]*\).*/\1/p' | head -1)
+case "$scheme" in
+  1) pref=0 ;;  # prefer dark
+  2) pref=1 ;;  # prefer light
+  *) pref=1 ;;  # no preference
+esac
+flags="--blink-settings=preferredColorScheme=$pref"
+if [ -n "${QTWEBENGINE_CHROMIUM_FLAGS:-}" ]; then
+  flags="$flags ${QTWEBENGINE_CHROMIUM_FLAGS}"
+fi
+export QTWEBENGINE_CHROMIUM_FLAGS="$flags"
+exec /usr/local/bin/quickshell "$@"

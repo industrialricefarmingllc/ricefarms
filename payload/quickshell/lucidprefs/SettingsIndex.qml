@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs
 
 // what Settings search looks through: every page's rows, read out of the page
 // files themselves so a row added to a page is found without anyone listing it.
@@ -40,6 +41,36 @@ Item {
         "storage": "disk space full free clean cleanup cache trash duplicates large files drive ssd health smart trim mount usb",
         "about": "version update"
     })
+    // French terms that do not appear in a translated title or blurb
+    readonly property var frKeywords: ({
+        "users": "mot de passe avatar photo connexion compte",
+        "general": "apparence taille forme arrondi couleur mouvement animation police langue accessibilité focus lecteur écran",
+        "glass": "flou transparence opacité verre",
+        "theme": "thème palette fond écran papier peint sombre clair",
+        "colours": "couleurs palette",
+        "palettes": "palettes thèmes",
+        "environment": "environnement curseur icônes police gtk qt",
+        "bar": "barre panneau style îlots encoche",
+        "dock": "dock barre tâches style",
+        "launcher": "lanceur menu applications démarrer",
+        "widgets": "widgets bureau cartes",
+        "windows": "fenêtres",
+        "workspaces": "espaces travail",
+        "keybinds": "raccourcis clavier touches",
+        "input": "souris clavier tactile",
+        "displays": "affichage écran moniteur résolution",
+        "sound": "son audio volume haut-parleurs micro",
+        "network": "réseau internet ethernet wifi sans fil",
+        "bluetooth": "bluetooth appairer casque",
+        "kdeconnect": "kde connect android téléphone",
+        "startup": "démarrage lancement applications",
+        "notifications": "notifications alertes",
+        "idle": "veille verrouillage écran éteint",
+        "datetime": "date heure fuseau horaire horloge",
+        "storage": "stockage disque espace libre nettoyage corbeille",
+        "about": "à propos version mise à jour"
+    })
+
     // { key, card, title, description }, in page order
     property var rows: []
 
@@ -60,13 +91,19 @@ Item {
         index.rows = out;
     }
 
-    // a quoted string and nothing else, as JSON reads it; anything else is live
+    // a quoted string and nothing else, as JSON reads it; anything else is live.
+    // Literals wrapped for translation, Tr.t("…"), still count: unwrap first.
     function literal(v) {
-        if (v.charAt(0) !== "\"" || v.charAt(v.length - 1) !== "\"")
+        var source = String(v).trim();
+        var wrapped = /^Tr\.t\((\"(?:[^\"\\]|\\.)*\")\)$/.exec(source);
+        if (wrapped)
+            source = wrapped[1];
+
+        if (source.charAt(0) !== "\"" || source.charAt(source.length - 1) !== "\"")
             return null;
 
         try {
-            var s = JSON.parse(v);
+            var s = JSON.parse(source);
             return typeof s === "string" ? s : null;
         } catch (e) {
             return null;
@@ -189,13 +226,13 @@ Item {
 
             // naming the page outranks naming a row on it
             var s = index.score([{
-                "text": pg.title + " " + pg.label,
+                "text": pg.title + " " + pg.label + " " + Tr.t(pg.title) + " " + Tr.t(pg.label),
                 "weight": 200
             }, {
-                "text": index.keywords[pg.key] || "",
+                "text": (index.keywords[pg.key] || "") + " " + (index.frKeywords[pg.key] || ""),
                 "weight": 60
             }, {
-                "text": pg.blurb,
+                "text": pg.blurb + " " + Tr.t(pg.blurb),
                 "weight": 20
             }], words, 3);
             var g = {
@@ -219,16 +256,16 @@ Item {
             // the page's name helps a row that matched on its own, but does not
             // list every row of a page that is already a result by itself
             var rs = index.score([{
-                "text": row.title,
+                "text": row.title + " " + Tr.t(row.title),
                 "weight": 100
             }, {
-                "text": row.card,
+                "text": row.card + " " + Tr.t(row.card),
                 "weight": 40
             }, {
-                "text": row.description,
+                "text": row.description + " " + Tr.t(row.description),
                 "weight": 20
             }, {
-                "text": grp.title,
+                "text": grp.title + " " + Tr.t(grp.title),
                 "weight": 30
             }], words, 3);
             if (rs === 0)

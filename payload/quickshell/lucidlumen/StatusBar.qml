@@ -89,7 +89,7 @@ Item {
                     anchors.topMargin: Theme.dp(3)
                     width: parent.width - Theme.dp(80)
                     role: "labelMedium"
-                    text: (modelData.mode === "copy" ? "Copying " : "Moving ") + (modelData.count === 1 && modelData.name ? "“" + modelData.name + "”" : modelData.count + " items") + " to " + foot.app.titleFor(modelData.dest) + (modelData.total > 0 ? " · " + foot.app.sizeText(modelData.done) + " of " + foot.app.sizeText(modelData.total) : "")
+                    text: (modelData.mode === "copy" ? Tr.t("Copying ") : Tr.t("Moving ")) + (modelData.count === 1 && modelData.name ? "“" + modelData.name + "”" : modelData.count + Tr.t(" items")) + Tr.t(" to ") + foot.app.titleFor(modelData.dest) + (modelData.total > 0 ? " · " + foot.app.sizeText(modelData.done) + Tr.t(" of ") + foot.app.sizeText(modelData.total) : "")
                     color: Theme.text
                     elide: Text.ElideRight
                 }
@@ -110,7 +110,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     size: "xs"
                     icon: "close"
-                    tooltip: "Stop"
+                    tooltip: Tr.t("Stop")
 
                     Tip {
                     }
@@ -141,7 +141,7 @@ Item {
         anchors.bottomMargin: Theme.dp(10)
         role: "labelMedium"
         visible: foot.tab !== null && !foot.tab.isSpecial && foot.tab.free.total > 0
-        text: foot.tab ? foot.app.sizeText(foot.tab.free.free) + " free" : ""
+        text: foot.tab ? foot.app.sizeText(foot.tab.free.free) + Tr.t(" free") : ""
         color: Theme.subtext
     }
 

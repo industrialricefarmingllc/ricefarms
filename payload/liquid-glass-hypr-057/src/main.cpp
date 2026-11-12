@@ -14,6 +14,7 @@
 #include "GooMorph.hpp"
 #include "WindowGlass.hpp"
 #include "WindowWash.hpp"
+#include "WindowEink.hpp"
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/workspace/HLWorkspace.hpp>
@@ -27,8 +28,12 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/render/types.hpp>
+#include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/desktop/state/WindowState.hpp>
 
 #include <memory>
+#include <fstream>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -39,7 +44,7 @@ namespace {
 #define LG_NAME "liquid-glass-hypr"
 #define LG_DESC "Real-time liquid glass for layers + windows (in-render-pass) + gooey workspace morph"
 #define LG_AUTHOR "Lucid"
-#define LG_VERSION "0.8.34"
+#define LG_VERSION "0.8.35"
 
 HANDLE PHANDLE = nullptr;
 CFunctionHook* G_HOOK = nullptr;
@@ -69,6 +74,70 @@ void pruneDeadWindows() {
             ++it;
         }
     }
+}
+
+CHyprSignalListener G_MOUSE_MOVE;
+CHyprSignalListener G_RIM_STAGE;
+
+// Pointer motion must rotate the rim on every glass surface, not only the one
+// under the pointer. Damage the known edge bands of every tracked surface.
+void damageAllGlassRims() {
+    if (lg::getInt("plugin:liquidglass:rim_follow", 1) == 0)
+        return;
+    // Glass bodies off: tracked layers still carry the rim-only overlay, so
+    // their edge bands must follow the cursor too. Window glass objects only
+    // exist in full-glass mode (the renderBorder loop below covers windows).
+    for (const auto& [_, layer] : *LAYERS)
+        if (layer)
+            layer->damageRim();
+    if (lg::getInt("plugin:liquidglass:enabled", 1) != 0) {
+        for (const auto& [_, glass] : *WINDOWS)
+            if (glass)
+                glass->damageRim();
+    }
+
+    // Opaque windows use the renderBorder rim; damage their edge bands too.
+    if (lg::getInt("plugin:liquidglass:window_borders", 0) == 1
+        && lg::getInt("plugin:liquidglass:rim_light", 1) == 1) {
+        for (const auto& w : Desktop::windowState()->windows()) {
+            if (!w || !w->mapped() || w->isHidden())
+                continue;
+            const Vector2D pos = w->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+            const Vector2D size = w->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+            if (size.x <= 0 || size.y <= 0)
+                continue;
+            const float pad = 12.0f;
+            g_pHyprRenderer->damageBox(CBox{pos.x - pad, pos.y - pad, size.x + pad * 2.0f, pad});
+            g_pHyprRenderer->damageBox(CBox{pos.x - pad, pos.y + size.y, size.x + pad * 2.0f, pad});
+            g_pHyprRenderer->damageBox(CBox{pos.x - pad, pos.y, pad, size.y});
+            g_pHyprRenderer->damageBox(CBox{pos.x + size.x, pos.y, pad, size.y});
+        }
+    }
+}
+
+static std::chrono::steady_clock::time_point s_lastMoveDamage{};
+void onMouseMove(Vector2D, Event::SCallbackInfo&) {
+    const auto now = std::chrono::steady_clock::now();
+    if (s_lastMoveDamage.time_since_epoch().count() != 0 && now - s_lastMoveDamage < std::chrono::milliseconds(16))
+        return;
+    s_lastMoveDamage = now;
+    damageAllGlassRims();
+}
+
+// The input event can be absent for some devices / consumed motions. The
+// render stage always runs for the frame the cursor move scheduled; compare
+// the global pointer there and damage every glass rim when it actually moved.
+void onRimStage(const Event::SRenderStageEvent&) {
+    if (!g_pInputManager || lg::getInt("plugin:liquidglass:rim_follow", 1) == 0)
+        return;
+    static Vector2D last{-1e9, -1e9};
+    const Vector2D cur = g_pInputManager->getMouseCoordsInternal();
+    if (!std::isfinite(cur.x) || !std::isfinite(cur.y))
+        return;
+    if (std::abs(cur.x - last.x) < 0.5 && std::abs(cur.y - last.y) < 0.5)
+        return;
+    last = cur;
+    damageAllGlassRims();
 }
 
 using EndFn = void (*)(Render::GL::CHyprOpenGLImpl*);
@@ -113,18 +182,37 @@ void hkRenderLayer(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHL
     // deletes anything queued before it. Elements are discardable (damage-
     // gated in render()): static frames skip all blit/blur/draw work and the
     // GPU sleeps; backdrop/tune/bounds changes damage us back as needed.
-    if (!popups && surface && surface->mapped() && lg::getInt("plugin:liquidglass:enabled", 1)
+    const bool glassOn = lg::getInt("plugin:liquidglass:enabled", 1) != 0;
+    const bool rimOn = lg::getInt("plugin:liquidglass:rim_light", 1) == 1
+        && lg::getFloat("plugin:liquidglass:rim_strength", 1.0f) > 0.0f
+        && lg::getInt("plugin:liquidglass:glass_rim", 1) == 1;
+    const bool rimOnly = !glassOn && rimOn;
+    std::shared_ptr<CGlassLayer> rimLayer;
+    if (!popups && surface && surface->mapped() && (glassOn || rimOnly)
         && lg::namespaceAllowed(surface->m_namespace)) {
         pruneDead();
         auto* raw = surface.get();
         auto it = LAYERS->find(raw);
         if (it == LAYERS->end() || !it->second->get())
             it = LAYERS->emplace(raw, std::make_shared<CGlassLayer>(surface)).first;
-        CGlassPassElement::SData data{it->second};
-        ctx.m_pass.add(makeUnique<CGlassPassElement>(data));
+        if (glassOn) {
+            CGlassPassElement::SData data{it->second, CGlassPassElement::EPhase::Glass};
+            ctx.m_pass.add(makeUnique<CGlassPassElement>(data));
+        } else {
+            // Rim-only: capture the backdrop before the content, draw the
+            // rim over the content after it (see hkRenderLayer's tail).
+            CGlassPassElement::SData cap{it->second, CGlassPassElement::EPhase::RimCapture};
+            ctx.m_pass.add(makeUnique<CGlassPassElement>(cap));
+            rimLayer = it->second;
+        }
     }
 
     g_originalRenderLayer(self, ctx, surface, monitor, now, popups, lockscreen, workspaceScene);
+
+    if (rimLayer) {
+        CGlassPassElement::SData rim{rimLayer, CGlassPassElement::EPhase::RimDraw};
+        ctx.m_pass.add(makeUnique<CGlassPassElement>(rim));
+    }
 
     if (!popups && !lockscreen && surface && surface->mapped()) {
         if (auto wash = lg::washTexture()) {
@@ -218,6 +306,7 @@ void hkRenderWindow(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PH
 
     if (mainPass && !ctx.m_renderingSnapshot && window && window->mapped() && !window->isHidden()) {
         lg::queueWindowWash(window, monitor, presentation);
+        eink::addWindowPass(ctx, window, monitor, presentation);
     }
 
     if (cropShrink)
@@ -229,6 +318,10 @@ void hkRenderWindow(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PH
 
 namespace lg {
 bool glassWindowBorderAt(const CBox& box, PHLMONITOR monitor) {
+    // Rim-only (glass master off): no glass pane exists to own the edge, so a
+    // stale tracked pane must never suppress the renderBorder rim.
+    if (lg::getInt("plugin:liquidglass:enabled", 1) == 0)
+        return false;
     for (const auto& [_, glass] : *WINDOWS) {
         if (!glass)
             continue;
@@ -336,6 +429,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     lg::registerConfig(handle);
     goo::initMorph(handle);
     lg::initWindowFocus();
+    G_MOUSE_MOVE = Event::bus()->m_events.input.mouse.move.listen(onMouseMove);
+    G_RIM_STAGE = Event::bus()->m_events.render.stage.listen(onRimStage);
 
     auto matches = HyprlandAPI::findFunctionsByName(PHANDLE, "renderLayer");
     for (const auto& match : matches) {
@@ -431,6 +526,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         }
         G_HOOK_END = nullptr;
     }
+    std::ofstream("/tmp/lucid-wash.log", std::ios::app) << "init end=" << (g_originalEnd ? 1 : 0) << "\n";
     if (!g_originalEnd)
         HyprlandAPI::addNotification(PHANDLE, "[liquidglass] end hook failed — wash overlay disabled",
                                      CHyprColor{1, 0.2, 0.2, 1}, 5000);
@@ -443,6 +539,8 @@ APICALL EXPORT void PLUGIN_EXIT() {
     // renderer is still up. Then the glass unhooks below.
     goo::exitMorph();
     lg::exitWindowFocus();
+    G_MOUSE_MOVE.reset();
+    G_RIM_STAGE.reset();
     // Unhook only. Everything else is intentionally leaked: freeing GL state
     // here (or in dlclose static destructors) runs without a current GL
     // context and SEGVs. See LAYERS above. A short grace lets any queued

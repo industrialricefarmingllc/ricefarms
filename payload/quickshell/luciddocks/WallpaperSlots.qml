@@ -1,7 +1,5 @@
 import QtQuick
-import Quickshell.Widgets
 import qs
-import "../squircle"
 
 // The picker styles built from slots: every wallpaper is one shape that glides
 // between places as the selection moves, changing width, height and corner
@@ -24,6 +22,7 @@ Item {
     property int itemGap: Theme.dp(10)
     property int hoveredIndex: -1
     property int currentIndex: -1
+    property bool userMoved: false
     property string appliedPath: ""
     // the picker's query, for the explicit "nothing matched" state
     property string filterText: ""
@@ -52,8 +51,9 @@ Item {
     property real originX: -1
     property real originY: -1
     readonly property int count: strip.model ? strip.model.count : 0
-    readonly property real stageTop: Math.max(0, (strip.stableHeight - (strip.heroH + 62)) / 2)
-    readonly property real stageH: strip.heroH + 24
+    // the wallpapers own the whole picker body: no caption strip below them
+    readonly property real stageTop: 0
+    readonly property real stageH: Math.max(0, strip.stableHeight)
     // slotRect(offset) -> { x, y, w, h, r, o }: where the wallpaper that many places
     // from the selected one sits in the stage, its corner radius and opacity (0 hides it)
     property var slotRect: function (offset) {
@@ -65,6 +65,22 @@ Item {
             "r": 0,
             "o": 0
         };
+    }
+
+    // Far slots are invisible. Share one parked rect per side instead of
+    // building a fresh object for every item on each stage resize/selection.
+    // The style's own out-of-range result is kept, so the entrance geometry is
+    // exactly what it was; only the per-delegate allocation is gone.
+    readonly property var parkedRightRect: {
+        strip.width;
+        strip.height;
+        return strip.slotRect(1000000);
+    }
+
+    readonly property var parkedLeftRect: {
+        strip.width;
+        strip.height;
+        return strip.slotRect(-1000000);
     }
 
     signal chosen(string path)
@@ -82,8 +98,10 @@ Item {
     }
 
     function step(d) {
-        if (strip.count > 0)
+        if (strip.count > 0) {
+            strip.userMoved = true;
             strip.currentIndex = Math.max(0, Math.min(strip.count - 1, strip.currentIndex + d));
+        }
     }
 
     function stepVertical(d) {
@@ -247,9 +265,14 @@ Item {
                 required property string thumb
                 required property string preview
                 required property string kind
+                // optional: local rows and older filtered copies do not carry
+                // source dimensions, and a required property made every
+                // delegate fail to create (the picker rendered an empty stage)
+                property int srcWidth: 0
+                property int srcHeight: 0
 
                 readonly property int offset: slot.index - strip.currentIndex
-                readonly property var rect: strip.slotRect(slot.offset)
+                readonly property var rect: slot.near ? strip.slotRect(slot.offset) : (slot.offset > 0 ? strip.parkedRightRect : strip.parkedLeftRect)
                 readonly property bool isCurrent: slot.offset === 0
                 readonly property bool isApplied: strip.appliedPath !== "" && strip.appliedPath === slot.path
                 readonly property bool hovered: slotHover.hovered
@@ -259,62 +282,80 @@ Item {
                 // already exists and slides in instead of popping
                 readonly property bool near: Math.abs(slot.offset) <= strip.visibleReach + 1
 
-                x: slot.rect.x + (strip.dragging ? strip.dragOffset : 0)
-                y: slot.rect.y
+                // The slot's own geometry snaps to the target. Only a cheap
+                // affine transform moves it from where it was: animating
+                // width/height recreated the squircle layer's FBO (and with it
+                // the picture's texture) on every frame, which is what made a
+                // step cost 30-60 ms. The invariant here is that width/height
+                // change once per step, while x/y/scale change per frame.
+                property var animFrom: null
+                property var animTo: null
+                property real animP: 1
+                function mixRect(a, b, t) {
+                    return {
+                        "x": a.x + (b.x - a.x) * t,
+                        "y": a.y + (b.y - a.y) * t,
+                        "w": a.w + (b.w - a.w) * t,
+                        "h": a.h + (b.h - a.h) * t,
+                        "r": a.r + (b.r - a.r) * t,
+                        "o": a.o + (b.o - a.o) * t
+                    };
+                }
+                onRectChanged: {
+                    if (slot.animFrom === null || slot.animTo === null) {
+                        slot.animFrom = slot.rect;
+                        slot.animTo = slot.rect;
+                        slot.animP = 1;
+                        return ;
+                    }
+                    if (!slot.near || (slot.animFrom.o <= 0.01 && slot.rect.o <= 0.01)) {
+                        slot.animFrom = slot.rect;
+                        slot.animTo = slot.rect;
+                        slot.animP = 1;
+                        return ;
+                    }
+                    slot.animFrom = slot.mixRect(slot.animFrom, slot.animTo, slot.animP);
+                    slot.animTo = slot.rect;
+                    slot.animP = 0;
+                    slideAnim.restart();
+                }
+                Component.onCompleted: {
+                    slot.animFrom = slot.rect;
+                    slot.animTo = slot.rect;
+                }
+
+                NumberAnimation {
+                    id: slideAnim
+
+                    target: slot
+                    property: "animP"
+                    from: 0
+                    to: 1
+                    duration: Theme.ms(300)
+                    easing.type: Easing.Bezier
+                    easing.bezierCurve: Theme.easeEmphasizedDecel
+                }
+
+                x: (slot.animFrom ? slot.animFrom.x + (slot.rect.x - slot.animFrom.x) * slot.animP : slot.rect.x) + (strip.dragging ? strip.dragOffset : 0)
+                y: slot.animFrom ? slot.animFrom.y + (slot.rect.y - slot.animFrom.y) * slot.animP : slot.rect.y
+                // target size; the transform paints it at the interpolated size
                 width: slot.rect.w
                 height: slot.rect.h
                 opacity: (slot.hovered && slot.rect.o > 0) ? 1 : slot.rect.o
                 visible: slot.opacity > 0.01 && slot.width > 1
                 scale: slot.pressed ? 0.97 : 1
+                transform: Scale {
+                    origin.x: 0
+                    origin.y: 0
+                    xScale: slot.animFrom ? (slot.animFrom.w + (slot.rect.w - slot.animFrom.w) * slot.animP) / Math.max(1, slot.width) : 1
+                    yScale: slot.animFrom ? (slot.animFrom.h + (slot.rect.h - slot.animFrom.h) * slot.animP) / Math.max(1, slot.height) : 1
+                }
+
                 onHoveredChanged: {
                     if (slot.hovered)
                         strip.hoveredIndex = slot.index;
                     else if (strip.hoveredIndex === slot.index)
                         strip.hoveredIndex = -1;
-
-                }
-
-                Behavior on x {
-                    enabled: !strip.syncing && !strip.dragging
-
-                    NumberAnimation {
-                        duration: Theme.ms(300)
-                        easing.type: Easing.Bezier
-                        easing.bezierCurve: Theme.easeEmphasizedDecel
-                    }
-
-                }
-
-                Behavior on y {
-                    enabled: !strip.syncing
-
-                    NumberAnimation {
-                        duration: Theme.ms(300)
-                        easing.type: Easing.Bezier
-                        easing.bezierCurve: Theme.easeEmphasizedDecel
-                    }
-
-                }
-
-                Behavior on width {
-                    enabled: !strip.syncing
-
-                    NumberAnimation {
-                        duration: Theme.ms(300)
-                        easing.type: Easing.Bezier
-                        easing.bezierCurve: Theme.easeEmphasizedDecel
-                    }
-
-                }
-
-                Behavior on height {
-                    enabled: !strip.syncing
-
-                    NumberAnimation {
-                        duration: Theme.ms(300)
-                        easing.type: Easing.Bezier
-                        easing.bezierCurve: Theme.easeEmphasizedDecel
-                    }
 
                 }
 
@@ -346,24 +387,13 @@ Item {
                 Component {
                     id: cardComp
 
-                    SquircleClip {
+                    Rectangle {
                         id: card
 
                         anchors.fill: parent
-                        radius: slot.rect.r
-                        smoothing: strip.squircle ? Prefs.squircleF : 0
+                        radius: 5
                         color: Theme.bgTile
-
-                        Behavior on radius {
-                            enabled: !strip.syncing
-
-                            NumberAnimation {
-                                duration: Theme.ms(300)
-                                easing.type: Easing.Bezier
-                                easing.bezierCurve: Theme.easeEmphasizedDecel
-                            }
-
-                        }
+                        clip: true
 
                         // a narrow shape shows the middle of the picture, a wide one all of it.
                         // While the slot is easing to a new size, use that final slot, not the
@@ -378,8 +408,11 @@ Item {
                             thumb: slot.thumb
                             preview: slot.preview
                             kind: slot.kind
+                            sourceWidth: slot.srcWidth
+                            sourceHeight: slot.srcHeight
                             active: slot.isCurrent || slot.hovered
                             current: slot.isCurrent
+                            preferThumb: true
                             sourceSizeWidth: Theme.dp(640)
                             sourceSizeHeight: Theme.dp(400)
                         }
@@ -398,13 +431,12 @@ Item {
 
                         }
 
-                        SquircleRect {
+                        Rectangle {
                             anchors.fill: parent
                             radius: card.radius
-                            smoothing: strip.squircle ? Prefs.squircleF : 0
-                            fillColor: "transparent"
-                            borderColor: Theme.accent
-                            borderWidth: slot.isCurrent ? 3 : 0
+                            color: "transparent"
+                            border.color: Theme.accent
+                            border.width: slot.isCurrent ? 3 : 0
                             visible: slot.isCurrent
                         }
 
@@ -458,52 +490,12 @@ Item {
                             strip.noteOrigin(slot);
                             strip.chosen(slot.path);
                         } else {
+                            strip.userMoved = true;
                             strip.currentIndex = slot.index;
                         }
                     }
                 }
 
-            }
-
-        }
-
-    }
-
-    Item {
-        id: caption
-
-        anchors.top: stage.bottom
-        anchors.topMargin: Theme.dp(12)
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: Theme.dp(26)
-        visible: strip.count > 0
-
-        Row {
-            anchors.centerIn: parent
-            spacing: Theme.dp(10)
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: {
-                    var i = strip.hoveredIndex >= 0 ? strip.hoveredIndex : strip.currentIndex;
-                    var item = (strip.model && i >= 0 && i < strip.count) ? strip.model.get(i) : null;
-                    return item ? item.name : "";
-                }
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontBody
-                font.weight: Font.Medium
-                elide: Text.ElideRight
-                width: Math.min(implicitWidth, strip.width - Theme.dp(200))
-            }
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: strip.count > 0 ? ((strip.hoveredIndex >= 0 ? strip.hoveredIndex : strip.currentIndex) + 1) + " / " + strip.count : ""
-                color: Theme.subtextDim
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontLabel
             }
 
         }
@@ -530,7 +522,7 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: strip.filterText !== "" ? (strip.live ? "No live wallpapers found" : "No wallpapers found") : (strip.live ? "No videos in this folder" : "No wallpapers in this folder")
+            text: strip.filterText !== "" ? (strip.live ? Tr.t("No live wallpapers found") : Tr.t("No wallpapers found")) : (strip.live ? Tr.t("No videos in this folder") : Tr.t("No wallpapers in this folder"))
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody

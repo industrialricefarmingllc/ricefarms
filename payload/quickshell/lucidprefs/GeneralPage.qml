@@ -9,12 +9,47 @@ Column {
     spacing: Theme.dp(26)
 
     SettingCard {
-        title: "SIZE"
+        title: Tr.t("Language")
 
         SettingRow {
-            title: "Interface size"
+            title: Tr.t("Interface language")
+            description: Tr.t("The language Lucid's own menus, panels and settings use. The rest of the session follows the system language.")
+            showDivider: false
+            stacked: true
+
+            M3Segmented {
+                width: parent.width
+                options: [
+                    {
+                        "key": "",
+                        "label": "System"
+                    },
+                    {
+                        "key": "en",
+                        "label": "English"
+                    },
+                    {
+                        "key": "fr",
+                        "label": "Français"
+                    }
+                ]
+                current: Tr.overrideLanguage
+                onChosen: (key) => {
+                    return Tr.setLanguage(key);
+                }
+            }
+
+        }
+
+    }
+
+    SettingCard {
+        title: Tr.t("SIZE")
+
+        SettingRow {
+            title: Tr.t("Interface size")
             resetKey: "uiScale"
-            description: "Scales the whole shell at once: bar, dock, panels, menus and the text in them. Applications and the screen's own scale are not affected."
+            description: Tr.t("Scales the whole shell at once: bar, dock, panels, menus and the text in them. Applications and the screen's own scale are not affected.")
             showDivider: false
             stacked: true
 
@@ -41,12 +76,12 @@ Column {
     }
 
     SettingCard {
-        title: "SHAPE"
+        title: Tr.t("SHAPE")
 
         SettingRow {
-            title: "Corner rounding"
+            title: Tr.t("Corner rounding")
             resetKey: "cornerScale"
-            description: "How round the whole shell is: cards, panels, menus, pills and buttons. Lower squares them off, higher rounds them further; avatars, dots and the like stay round."
+            description: Tr.t("How round the whole shell is: cards, panels, menus, pills and buttons. Lower squares them off, higher rounds them further; avatars, dots and the like stay round.")
             stacked: true
 
             M3Slider {
@@ -64,9 +99,9 @@ Column {
         }
 
         SettingRow {
-            title: "Squircle corners"
+            title: Tr.t("Squircle corners")
             resetKey: "squircleF"
-            description: "How smoothly every corner in the shell flows into its edges. 0 is a classic circular round, 0.5 a balanced squircle, 1 almost a rectangle with soft corners. Applies to the bar, dock, widgets, screen corners, Pibble, and window glass alike."
+            description: Tr.t("How smoothly every corner in the shell flows into its edges. 0 is a classic circular round, 0.5 a balanced squircle, 1 almost a rectangle with soft corners. Applies to the bar, dock, widgets, screen corners, Pibble, and window glass alike.")
             showDivider: false
             stacked: true
 
@@ -87,14 +122,14 @@ Column {
     }
 
     SettingCard {
-        title: "SURFACES"
+        title: Tr.t("SURFACES")
 
         SettingRow {
-            title: "Glass"
-            description: "How far the desktop shows through the shell, the terminal and your windows now has a page of its own."
+            title: Tr.t("Glass")
+            description: Tr.t("How far the desktop shows through the shell, the terminal and your windows now has a page of its own.")
 
             M3Button {
-                text: "Glass…"
+                text: Tr.t("Glass…")
                 variant: "tonal"
                 onClicked: Prefs.settingsRequested("glass")
             }
@@ -102,9 +137,9 @@ Column {
         }
 
         SettingRow {
-            title: "Accent intensity"
+            title: Tr.t("Accent intensity")
             resetKey: "accentPunch"
-            description: "Lifts the accent colour away from the wallpaper-derived original. 1.0 uses it exactly as generated."
+            description: Tr.t("Lifts the accent colour away from the wallpaper-derived original. 1.0 uses it exactly as generated.")
             stacked: true
 
             M3Slider {
@@ -122,8 +157,8 @@ Column {
         }
 
         SettingRow {
-            title: "Liquid glass"
-            description: "Port of OverShifted/LiquidGlass — squircle SDF + edge glow + noise over Theme.bg. The Glass page above still controls the compositor blur underneath."
+            title: Tr.t("Liquid glass")
+            description: Tr.t("Port of OverShifted/LiquidGlass — squircle SDF + edge glow + noise over Theme.bg. The Glass page above still controls the compositor blur underneath.")
             stacked: true
 
             Column {
@@ -144,7 +179,7 @@ Column {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: Prefs.liquidGlassEnabled ? "On — bar & dock use glass shader" : "Off — plain Theme.bg"
+                        text: Prefs.liquidGlassEnabled ? Tr.t("On — bar & dock use glass shader") : Tr.t("Off — plain Theme.bg")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -166,7 +201,7 @@ Column {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: Prefs.gooWorkspacesEnabled ? "Workspace goo morph — on" : "Workspace goo morph — off (stock slide)"
+                        text: Prefs.gooWorkspacesEnabled ? Tr.t("Workspace goo morph — on") : Tr.t("Workspace goo morph — off (stock slide)")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -176,7 +211,7 @@ Column {
 
                 Text {
                     width: parent.width
-                    text: "Workspace goo is independent of glass; turn it off if workspace switches stutter."
+                    text: Tr.t("Workspace goo is independent of glass; turn it off if workspace switches stutter.")
                     color: Theme.subtextDim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLabel
@@ -197,7 +232,7 @@ Column {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Edge glow"
+                        text: Tr.t("Edge glow")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -210,7 +245,7 @@ Column {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Noise"
+                        text: Tr.t("Noise")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -235,9 +270,9 @@ Column {
         }
 
         SettingRow {
-            title: "Surface darkness"
+            title: Tr.t("Surface darkness")
             resetKey: "surfaceDarkness"
-            description: "How far every panel is darkened beneath the theme's own surface colour. Auto follows the theme."
+            description: Tr.t("How far every panel is darkened beneath the theme's own surface colour. Auto follows the theme.")
             stacked: true
 
             Row {
@@ -261,7 +296,7 @@ Column {
                     id: resetDark
 
                     anchors.verticalCenter: parent.verticalCenter
-                    text: Prefs.surfaceDarkness >= 0 ? "Auto" : "Manual"
+                    text: Prefs.surfaceDarkness >= 0 ? Tr.t("Auto") : Tr.t("Manual")
                     variant: Prefs.surfaceDarkness >= 0 ? "tonal" : "filled"
                     onClicked: Prefs.surfaceDarkness = Prefs.surfaceDarkness >= 0 ? -1 : 0.3
                 }
@@ -271,9 +306,9 @@ Column {
         }
 
         SettingRow {
-            title: "Accent tint"
+            title: Tr.t("Accent tint")
             resetKey: "surfaceTint"
-            description: "How much of the accent colour is mixed into every panel. A light palette comes out of the generator almost white, so Auto tints it and leaves dark panels flat."
+            description: Tr.t("How much of the accent colour is mixed into every panel. A light palette comes out of the generator almost white, so Auto tints it and leaves dark panels flat.")
             showDivider: false
             stacked: true
 
@@ -298,7 +333,7 @@ Column {
                     id: resetTint
 
                     anchors.verticalCenter: parent.verticalCenter
-                    text: Prefs.surfaceTint >= 0 ? "Auto" : "Manual"
+                    text: Prefs.surfaceTint >= 0 ? Tr.t("Auto") : Tr.t("Manual")
                     variant: Prefs.surfaceTint >= 0 ? "tonal" : "filled"
                     onClicked: Prefs.surfaceTint = Prefs.surfaceTint >= 0 ? -1 : (Theme.isLight ? 0.7 : 0.2)
                 }
@@ -311,12 +346,12 @@ Column {
 
     // Full port of LiquidGlass controls — mirrors LiquidGlass.cpp / BatchRenderer2D.glsl
     SettingCard {
-        title: "LIQUID GLASS — ADVANCED"
+        title: Tr.t("LIQUID GLASS — ADVANCED")
         visible: Prefs.liquidGlassEnabled
 
         SettingRow {
-            title: "Shape — Power"
-            description: "Superellipse exponent. 1 = diamond, 2 = circle, 3 = squircle (default), 6 = near-rect. Original slider 1.001..6."
+            title: Tr.t("Shape — Power")
+            description: Tr.t("Superellipse exponent. 1 = diamond, 2 = circle, 3 = squircle (default), 6 = near-rect. Original slider 1.001..6.")
             stacked: true
 
             M3Slider {
@@ -334,8 +369,8 @@ Column {
         }
 
         SettingRow {
-            title: "Size — Width / Height"
-            description: "Original quad size 0..10, default 3.5 each. Scales the squircle before superellipse (p *= 3.5/size). Larger = smaller highlight."
+            title: Tr.t("Size — Width / Height")
+            description: Tr.t("Original quad size 0..10, default 3.5 each. Scales the squircle before superellipse (p *= 3.5/size). Larger = smaller highlight.")
             stacked: true
 
             Column {
@@ -349,7 +384,7 @@ Column {
                     Text {
                         width: Theme.dp(60)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Width"
+                        text: Tr.t("Width")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -376,7 +411,7 @@ Column {
                     Text {
                         width: Theme.dp(60)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Height"
+                        text: Tr.t("Height")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -401,8 +436,8 @@ Column {
         }
 
         SettingRow {
-            title: "Refraction — f(x)=1 - b·(c·e)^(-d·x - a)"
-            description: "Controls the f(x) curve that warps the highlight like a lens. a 0..5, b 0..6, c 0..6, d 0..10. Default a=0.7 b=2.3 c=5.2 d=6.9 (from LiquidGlass.h)."
+            title: Tr.t("Refraction — f(x)=1 - b·(c·e)^(-d·x - a)")
+            description: Tr.t("Controls the f(x) curve that warps the highlight like a lens. a 0..5, b 0..6, c 0..6, d 0..10. Default a=0.7 b=2.3 c=5.2 d=6.9 (from LiquidGlass.h).")
             stacked: true
 
             Column {
@@ -522,8 +557,8 @@ Column {
         }
 
         SettingRow {
-            title: "f(x) Power"
-            description: "pow(f(dist), fPower). Negative inverts bending. Original -1.5..6, default 1.0."
+            title: Tr.t("f(x) Power")
+            description: Tr.t("pow(f(dist), fPower). Negative inverts bending. Original -1.5..6, default 1.0.")
             stacked: true
 
             M3Slider {
@@ -541,8 +576,8 @@ Column {
         }
 
         SettingRow {
-            title: "Glow"
-            description: "Weight -1..1, Bias -1..1, Edges -1..1. Glow = sin(atan)·weight·smoothstep(edge0,edge1,dist)+1+bias, multiplied by refraction."
+            title: Tr.t("Glow")
+            description: Tr.t("Weight -1..1, Bias -1..1, Edges -1..1. Glow = sin(atan)·weight·smoothstep(edge0,edge1,dist)+1+bias, multiplied by refraction.")
             stacked: true
 
             Column {
@@ -556,7 +591,7 @@ Column {
                     Text {
                         width: Theme.dp(70)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Weight"
+                        text: Tr.t("Weight")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -583,7 +618,7 @@ Column {
                     Text {
                         width: Theme.dp(70)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Bias"
+                        text: Tr.t("Bias")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -610,7 +645,7 @@ Column {
                     Text {
                         width: Theme.dp(70)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Edge0"
+                        text: Tr.t("Edge0")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -637,7 +672,7 @@ Column {
                     Text {
                         width: Theme.dp(70)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Edge1"
+                        text: Tr.t("Edge1")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -662,8 +697,8 @@ Column {
         }
 
         SettingRow {
-            title: "Blur & Noise — independent of Surfaces > Glass"
-            description: "Original BlurIters 0..10, Radius 0..10, Downscale 0.1..1, Noise 0..0.3, Bokeh 0..1 (highlight discs, costs fill-rate). Glass blur is separate from compositor blur (Surfaces > Glass) and modulates refraction."
+            title: Tr.t("Blur & Noise — independent of Surfaces > Glass")
+            description: Tr.t("Original BlurIters 0..10, Radius 0..10, Downscale 0.1..1, Noise 0..0.3, Bokeh 0..1 (highlight discs, costs fill-rate). Glass blur is separate from compositor blur (Surfaces > Glass) and modulates refraction.")
             stacked: true
 
             Column {
@@ -677,7 +712,7 @@ Column {
                     Text {
                         width: Theme.dp(90)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Blur Iters"
+                        text: Tr.t("Blur Iters")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -704,7 +739,7 @@ Column {
                     Text {
                         width: Theme.dp(90)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Blur Radius"
+                        text: Tr.t("Blur Radius")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -731,7 +766,7 @@ Column {
                     Text {
                         width: Theme.dp(90)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Bokeh"
+                        text: Tr.t("Bokeh")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -758,7 +793,7 @@ Column {
                     Text {
                         width: Theme.dp(90)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Downscale"
+                        text: Tr.t("Downscale")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -785,7 +820,7 @@ Column {
                     Text {
                         width: Theme.dp(90)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Noise"
+                        text: Tr.t("Noise")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLabel
@@ -810,8 +845,8 @@ Column {
         }
 
         SettingRow {
-            title: "Opacity — independent of Surfaces > Glass"
-            description: "Tint coverage only — the glass effects themselves always render full-strength. Linear: 0 = clear glass, 1 = fully opaque tint. Default 0.23."
+            title: Tr.t("Opacity — independent of Surfaces > Glass")
+            description: Tr.t("Tint coverage only — the glass effects themselves always render full-strength. Linear: 0 = clear glass, 1 = fully opaque tint. Default 0.23.")
             stacked: true
 
             M3Slider {
@@ -829,12 +864,12 @@ Column {
         }
 
         SettingRow {
-            title: "Reset Liquid Glass"
-            description: "Restores all LiquidGlass params to OverShifted defaults (incl. size/blur/opacity)."
+            title: Tr.t("Reset Liquid Glass")
+            description: Tr.t("Restores all LiquidGlass params to OverShifted defaults (incl. size/blur/opacity).")
             showDivider: false
 
             M3Button {
-                text: "Reset"
+                text: Tr.t("Reset")
                 onClicked: {
                     Prefs.resetKeys(["liquidGlassPower", "liquidGlassWidth", "liquidGlassHeight", "liquidGlassA", "liquidGlassB", "liquidGlassC", "liquidGlassD", "liquidGlassFPower", "liquidGlassBlurIters", "liquidGlassBlurRadius", "liquidGlassBokeh", "liquidGlassBlurDownscale", "liquidGlassNoise", "liquidGlassGlowWeight", "liquidGlassGlowBias", "liquidGlassGlowEdge0", "liquidGlassGlowEdge1", "liquidGlassOpacity"]);
                 }
@@ -845,12 +880,12 @@ Column {
     }
 
     SettingCard {
-        title: "MOTION"
+        title: Tr.t("MOTION")
 
         SettingRow {
-            title: "Animation speed"
+            title: Tr.t("Animation speed")
             resetKey: "motionScale"
-            description: "Scales every transition in the shell. 1.00x is the shipped speed; drag to 0 for no animation at all."
+            description: Tr.t("Scales every transition in the shell. 1.00x is the shipped speed; drag to 0 for no animation at all.")
             showDivider: false
             stacked: true
 
@@ -872,12 +907,12 @@ Column {
     }
 
     SettingCard {
-        title: "DESKTOP"
+        title: Tr.t("DESKTOP")
 
         SettingRow {
-            title: "Selection box"
+            title: Tr.t("Selection box")
             resetKey: "desktopSelection"
-            description: Prefs.desktopIcons ? "Drag across empty desktop to draw a box, the way it does on Windows and macOS. It selects the icons and the widgets it touches; hold Ctrl or Shift to add icons to what is already selected. Selected widgets move together when you drag any one of them; pinned widgets are left out. Click the desktop to let go." : "Drag across empty desktop to draw a box, the way it does on Windows and macOS. Widgets it touches are selected and move together when you drag any one of them; pinned widgets are left out. Click the desktop to let go."
+            description: Prefs.desktopIcons ? Tr.t("Drag across empty desktop to draw a box, the way it does on Windows and macOS. It selects the icons and the widgets it touches; hold Ctrl or Shift to add icons to what is already selected. Selected widgets move together when you drag any one of them; pinned widgets are left out. Click the desktop to let go.") : Tr.t("Drag across empty desktop to draw a box, the way it does on Windows and macOS. Widgets it touches are selected and move together when you drag any one of them; pinned widgets are left out. Click the desktop to let go.")
 
             M3Switch {
                 checked: Prefs.desktopSelection
@@ -889,9 +924,9 @@ Column {
         }
 
         SettingRow {
-            title: "Right-click menu"
+            title: Tr.t("Right-click menu")
             resetKey: "desktopMenu"
-            description: "Right-click empty desktop for wallpaper and theme, the widgets you have placed, a screenshot and settings."
+            description: Tr.t("Right-click empty desktop for wallpaper and theme, the widgets you have placed, a screenshot and settings.")
             showDivider: false
 
             M3Switch {
@@ -906,12 +941,12 @@ Column {
     }
 
     SettingCard {
-        title: "DESKTOP ICONS"
+        title: Tr.t("DESKTOP ICONS")
 
         SettingRow {
-            title: "Show icons"
+            title: Tr.t("Show icons")
             resetKey: "desktopIcons"
-            description: "What is in your Desktop folder sits on the wallpaper of the main display, with the drives you plug in. Widgets keep their space: an icon one covers steps to the nearest free cell and goes back when the widget moves. Select with a click or a box, drag into folders, the Trash or any app, and right-click for New Item, Open With, Get Info, tags, compress and more. Ctrl+Z undoes the last change."
+            description: Tr.t("What is in your Desktop folder sits on the wallpaper of the main display, with the drives you plug in. Widgets keep their space: an icon one covers steps to the nearest free cell and goes back when the widget moves. Select with a click or a box, drag into folders, the Trash or any app, and right-click for New Item, Open With, Get Info, tags, compress and more. Ctrl+Z undoes the last change.")
 
             M3Switch {
                 checked: Prefs.desktopIcons
@@ -923,13 +958,13 @@ Column {
         }
 
         SettingRow {
-            title: "Icon theme"
+            title: Tr.t("Icon theme")
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Folders, files and apps are drawn by your icon theme, " + (Prefs.envIconTheme !== "" ? Prefs.envIconTheme.replace(/_/g, " ") : "the system's") + ", the same set your apps use. Change it on the Environment page."
+            description: Tr.t("Folders, files and apps are drawn by your icon theme, ") + (Prefs.envIconTheme !== "" ? Prefs.envIconTheme.replace(/_/g, " ") : Tr.t("the system's")) + Tr.t(", the same set your apps use. Change it on the Environment page.")
 
             M3Button {
-                text: "Environment"
+                text: Tr.t("Environment")
                 variant: "tonal"
                 enabled: Prefs.desktopIcons
                 onClicked: Prefs.settingsRequested("environment")
@@ -938,7 +973,7 @@ Column {
         }
 
         SettingRow {
-            title: "Size"
+            title: Tr.t("Size")
             resetKey: "desktopIconSize"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
@@ -964,11 +999,11 @@ Column {
         }
 
         SettingRow {
-            title: "Spacing"
+            title: Tr.t("Spacing")
             resetKey: "desktopIconSpacing"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "How far apart the icons sit. Names wrap to two lines either way."
+            description: Tr.t("How far apart the icons sit. Names wrap to two lines either way.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(260), fitWidth)
@@ -991,11 +1026,11 @@ Column {
         }
 
         SettingRow {
-            title: "Arrange by"
+            title: Tr.t("Arrange by")
             resetKey: "desktopIconsSort"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "The order new icons take, and the one Arrange By on the desktop's menu puts everything back in. Folders come first."
+            description: Tr.t("The order new icons take, and the one Arrange By on the desktop's menu puts everything back in. Folders come first.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(300), fitWidth)
@@ -1021,11 +1056,11 @@ Column {
         }
 
         SettingRow {
-            title: "Start from"
+            title: Tr.t("Start from")
             resetKey: "desktopIconsCorner"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "New icons fill the columns from this side of the screen, top to bottom."
+            description: Tr.t("New icons fill the columns from this side of the screen, top to bottom.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(180), fitWidth)
@@ -1045,11 +1080,11 @@ Column {
         }
 
         SettingRow {
-            title: "Order"
+            title: Tr.t("Order")
             resetKey: "desktopIconsSortDesc"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Folders stay first either way."
+            description: Tr.t("Folders stay first either way.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(240), fitWidth)
@@ -1070,11 +1105,11 @@ Column {
         }
 
         SettingRow {
-            title: "Auto arrange"
+            title: Tr.t("Auto arrange")
             resetKey: "desktopIconsAutoArrange"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Keep every icon in order from the starting corner, the way Windows does. Off, each icon stays where you drop it."
+            description: Tr.t("Keep every icon in order from the starting corner, the way Windows does. Off, each icon stays where you drop it.")
 
             M3Switch {
                 checked: Prefs.desktopIconsAutoArrange
@@ -1086,11 +1121,11 @@ Column {
         }
 
         SettingRow {
-            title: "Spring-loaded folders"
+            title: Tr.t("Spring-loaded folders")
             resetKey: "desktopIconsSpring"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Hold a drag over a folder for a moment and it opens in your file manager, so you can drop deeper inside, as on a Mac."
+            description: Tr.t("Hold a drag over a folder for a moment and it opens in your file manager, so you can drop deeper inside, as on a Mac.")
 
             M3Switch {
                 checked: Prefs.desktopIconsSpring
@@ -1102,7 +1137,7 @@ Column {
         }
 
         SettingRow {
-            title: "Open with"
+            title: Tr.t("Open with")
             resetKey: "desktopIconsOpen"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
@@ -1125,11 +1160,11 @@ Column {
         }
 
         SettingRow {
-            title: "Previews"
+            title: Tr.t("Previews")
             resetKey: "desktopIconsThumbs"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Pictures, videos, music with cover art and documents show what is in them, the way a file manager does, and share its thumbnails."
+            description: Tr.t("Pictures, videos, music with cover art and documents show what is in them, the way a file manager does, and share its thumbnails.")
 
             M3Switch {
                 checked: Prefs.desktopIconsThumbs
@@ -1141,11 +1176,11 @@ Column {
         }
 
         SettingRow {
-            title: "File extensions"
+            title: Tr.t("File extensions")
             resetKey: "desktopIconsHideExt"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: Prefs.desktopIconsHideExt ? "Names leave off a short extension like .txt or .png; the whole name shows under the pointer and when selected." : "Every name shows in full, extension and all."
+            description: Prefs.desktopIconsHideExt ? Tr.t("Names leave off a short extension like .txt or .png; the whole name shows under the pointer and when selected.") : Tr.t("Every name shows in full, extension and all.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(180), fitWidth)
@@ -1165,11 +1200,11 @@ Column {
         }
 
         SettingRow {
-            title: "Hidden files"
+            title: Tr.t("Hidden files")
             resetKey: "desktopIconsHidden"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Files whose name starts with a dot, shown faded. Ctrl+H on the desktop flips this."
+            description: Tr.t("Files whose name starts with a dot, shown faded. Ctrl+H on the desktop flips this.")
 
             M3Switch {
                 checked: Prefs.desktopIconsHidden
@@ -1181,7 +1216,7 @@ Column {
         }
 
         SettingRow {
-            title: "Home folder"
+            title: Tr.t("Home folder")
             resetKey: "desktopIconsHome"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
@@ -1196,11 +1231,11 @@ Column {
         }
 
         SettingRow {
-            title: "Trash"
+            title: Tr.t("Trash")
             resetKey: "desktopIconsTrash"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Drop files on it to throw them away; right-click it to empty it."
+            description: Tr.t("Drop files on it to throw them away; right-click it to empty it.")
 
             M3Switch {
                 checked: Prefs.desktopIconsTrash
@@ -1212,11 +1247,11 @@ Column {
         }
 
         SettingRow {
-            title: "Drives"
+            title: Tr.t("Drives")
             resetKey: "desktopIconsDrives"
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "USB sticks, phones and other drives while they are mounted. Right-click one to eject it."
+            description: Tr.t("USB sticks, phones and other drives while they are mounted. Right-click one to eject it.")
 
             M3Switch {
                 checked: Prefs.desktopIconsDrives
@@ -1228,14 +1263,14 @@ Column {
         }
 
         SettingRow {
-            title: "Add an app"
+            title: Tr.t("Add an app")
             enabled: Prefs.desktopIcons
             disabledReason: "Turn on Show icons first."
-            description: "Puts a launcher for it on the desktop. Launchers that arrive any other way ask before they run the first time."
+            description: Tr.t("Puts a launcher for it on the desktop. Launchers that arrive any other way ask before they run the first time.")
             showDivider: false
 
             M3Button {
-                text: "Choose\u2026"
+                text: Tr.t("Choose\u2026")
                 variant: "tonal"
                 enabled: Prefs.desktopIcons
                 onClicked: Prefs.appPickerRequested("::desktop")
@@ -1246,12 +1281,12 @@ Column {
     }
 
     SettingCard {
-        title: "SCREENSHOTS"
+        title: Tr.t("SCREENSHOTS")
 
         SettingRow {
-            title: "After a capture"
+            title: Tr.t("After a capture")
             resetKey: "shotPreview"
-            description: Prefs.shotPreview === "preview" ? "A card in the corner shows it, to open, mark up, drag into an app, find in its folder or delete. Recordings get one too. Both are on the clipboard." : (Prefs.shotPreview === "notify" ? "A notification says where it went. Screenshots and recordings are on the clipboard either way." : "Nothing shows. Screenshots and recordings are still copied to the clipboard.")
+            description: Prefs.shotPreview === "preview" ? Tr.t("A card in the corner shows it, to open, mark up, drag into an app, find in its folder or delete. Recordings get one too. Both are on the clipboard.") : (Prefs.shotPreview === "notify" ? Tr.t("A notification says where it went. Screenshots and recordings are on the clipboard either way.") : Tr.t("Nothing shows. Screenshots and recordings are still copied to the clipboard."))
 
             M3Segmented {
                 width: Math.max(Theme.dp(300), fitWidth)
@@ -1274,10 +1309,10 @@ Column {
         }
 
         SettingRow {
-            title: "Preview stays for"
+            title: Tr.t("Preview stays for")
             resetKey: "shotPreviewSeconds"
             enabled: Prefs.shotPreview === "preview"
-            description: "Resting the pointer on the card holds it for as long as you like."
+            description: Tr.t("Resting the pointer on the card holds it for as long as you like.")
             showDivider: false
             stacked: true
 
@@ -1299,12 +1334,65 @@ Column {
     }
 
     SettingCard {
-        title: "ON-SCREEN DISPLAY"
+        title: Tr.t("Accessibility")
 
         SettingRow {
-            title: "Caps Lock"
+            title: Tr.t("Focus indicators")
+            resetKey: "a11yFocusRing"
+            description: Tr.t("A rim around the control the keyboard is on, so its place is always visible.")
+
+            M3Switch {
+                checked: Prefs.a11yFocusRing
+                onToggled: (v) => {
+                    Prefs.a11yFocusRing = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: Tr.t("Screen reader announcements")
+            resetKey: "a11yAnnounce"
+            description: Tr.t("Status changes are spoken through the system's accessibility bridge.")
+
+            M3Switch {
+                checked: Prefs.a11yAnnounce
+                onToggled: (v) => {
+                    Prefs.a11yAnnounce = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: Tr.t("Reduce motion")
+            resetKey: "a11yReduceMotion"
+            description: Tr.t("Fades and slides become instant; the rest of the interface is unchanged.")
+
+            M3Switch {
+                checked: Prefs.a11yReduceMotion
+                onToggled: (v) => {
+                    Prefs.a11yReduceMotion = v;
+                }
+            }
+
+        }
+
+        SettingRow {
+            title: Tr.t("Screen reader")
+            description: Tr.t("Lucid exposes its controls to Orca and other assistive tools. Start your screen reader to hear them.")
+            showDivider: false
+        }
+
+    }
+
+    SettingCard {
+        title: Tr.t("ON-SCREEN DISPLAY")
+
+        SettingRow {
+            title: Tr.t("Caps Lock")
             resetKey: "osdCapsLock"
-            description: Prefs.osdCapsLock ? "A card shows ABC or abc as Caps Lock goes on or off." : "Caps Lock changes without a card. Its sound has a switch of its own in Sound."
+            description: Prefs.osdCapsLock ? Tr.t("A card shows ABC or abc as Caps Lock goes on or off.") : Tr.t("Caps Lock changes without a card. Its sound has a switch of its own in Sound.")
 
             M3Switch {
                 checked: Prefs.osdCapsLock
@@ -1316,9 +1404,9 @@ Column {
         }
 
         SettingRow {
-            title: "Num Lock"
+            title: Tr.t("Num Lock")
             resetKey: "osdNumLock"
-            description: Prefs.osdNumLock ? "A card shows 123 or arrows as Num Lock goes on or off." : "Num Lock changes without a card."
+            description: Prefs.osdNumLock ? Tr.t("A card shows 123 or arrows as Num Lock goes on or off.") : Tr.t("Num Lock changes without a card.")
             showDivider: false
 
             M3Switch {

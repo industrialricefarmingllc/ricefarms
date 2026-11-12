@@ -367,26 +367,26 @@ BarPill {
                 spacing: Theme.dp(6)
 
                 ActionButton {
-                    label: root.info.floating ? "Floating" : "Float"
+                    label: root.info.floating ? Tr.t("Floating") : Tr.t("Float")
                     on: root.info.floating === true
                     onClicked: root.act(root.active, "hl.dsp.window.float", ["action = \"toggle\""])
                 }
 
                 ActionButton {
                     visible: root.info.floating === true
-                    label: "Center"
+                    label: Tr.t("Center")
                     onClicked: root.act(root.active, "hl.dsp.window.center", [])
                 }
 
                 ActionButton {
                     visible: root.info.floating === true
-                    label: root.info.pinned ? "Pinned" : "Pin"
+                    label: root.info.pinned ? Tr.t("Pinned") : Tr.t("Pin")
                     on: root.info.pinned === true
                     onClicked: root.act(root.active, "hl.dsp.window.pin", [])
                 }
 
                 ActionButton {
-                    label: "Fullscreen"
+                    label: Tr.t("Fullscreen")
                     on: (root.info.fullscreen || 0) > 0
                     onClicked: {
                         root.expanded = false;
@@ -395,7 +395,7 @@ BarPill {
                 }
 
                 ActionButton {
-                    label: "Close"
+                    label: Tr.t("Close")
                     danger: true
                     onClicked: {
                         root.expanded = false;
@@ -406,7 +406,7 @@ BarPill {
             }
 
             SectionLabel {
-                text: "Move to workspace"
+                text: Tr.t("Move to workspace")
             }
 
             Grid {
@@ -463,7 +463,7 @@ BarPill {
 
             SectionLabel {
                 visible: root.others.length > 0
-                text: "Also on this workspace"
+                text: Tr.t("Also on this workspace")
             }
 
             Repeater {

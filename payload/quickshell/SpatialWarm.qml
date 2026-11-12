@@ -1,7 +1,10 @@
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
+import Quickshell.Services.Mpris
 import Quickshell.Services.UPower
+import Quickshell.Wayland
 import qs
 pragma Singleton
 
@@ -17,7 +20,25 @@ Singleton {
     readonly property string home: Quickshell.env("HOME")
     readonly property string script: home + "/.config/quickshell/luciddocks/spatial-warm.py"
     // UPower.onBattery is false on machines without a battery.
+    // Warming is optional work. Only start it after the session has been
+    // idle for two minutes, and stop the whole sweep the moment input
+    // returns; the renderer builds a missing mesh on demand anyway.
+    readonly property bool idle: idleMonitor.isIdle
+    // Do not start a multi-minute CPU sweep under a film or a fullscreen game.
+    readonly property bool mediaPlaying: {
+        const players = Mpris.players ? Mpris.players.values : [];
+        for (let i = 0; i < players.length; i++) {
+            if (players[i].isPlaying)
+                return true;
+        }
+        return false;
+    }
+    readonly property bool fullscreen: {
+        const info = Hyprland.activeToplevel ? Hyprland.activeToplevel.lastIpcObject : null;
+        return !!(info && info.fullscreen);
+    }
     readonly property bool allowed: Prefs.spatialWallpapers && !UPower.onBattery
+        && root.idle && !root.mediaPlaying && !root.fullscreen
     readonly property string model: Prefs.spatialDepthModel
     readonly property string folder: Prefs.wallpaperDir
     // A real apply owns the CPU.
@@ -47,7 +68,9 @@ Singleton {
             hold.restart();
             return ;
         }
-        var command = ["/usr/bin/nice", "-n", "19", "/usr/bin/python3", root.script,
+        // The whole sweep, not only the mesh child, runs in the idle I/O class.
+        var command = ["/usr/bin/ionice", "-c", "3", "/usr/bin/nice", "-n", "19",
+            "/usr/bin/python3", root.script,
             "--model", root.model, "--dir", root.folder];
         for (let i = 0; i < root.aspects.length; i++)
             command.push("--aspect", String(root.aspects[i]));
@@ -55,7 +78,8 @@ Singleton {
         // Low-power devices: two threads, and one wallpaper at a time.
         warm.environment = ({
             "OMP_NUM_THREADS": "2",
-            "LUCID_DEPTH_THREADS": "2"
+            "LUCID_DEPTH_THREADS": "2",
+            "LUCID_PREP_THREADS": "2"
         });
         warm.running = true;
     }
@@ -65,6 +89,14 @@ Singleton {
     onFolderChanged: root.restart()
     onBusyChanged: root.restart()
     Component.onCompleted: root.restart()
+
+    IdleMonitor {
+        id: idleMonitor
+
+        enabled: true
+        timeout: 120
+        respectInhibitors: true
+    }
 
     // A real generation was running; look again shortly after it ends.
     Timer {

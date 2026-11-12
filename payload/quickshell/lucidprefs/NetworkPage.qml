@@ -66,7 +66,7 @@ Column {
     }
 
     SettingCard {
-        title: "STATUS"
+        title: Tr.t("STATUS")
 
         SettingRow {
             title: Net.connectivityLabel
@@ -86,16 +86,16 @@ Column {
             M3Button {
                 variant: "tonal"
                 enabled: Networking.canCheckConnectivity
-                text: "Check now"
+                text: Tr.t("Check now")
                 onClicked: Networking.checkConnectivity()
             }
 
         }
 
         SettingRow {
-            title: "Keep checking for a sign-in page"
+            title: Tr.t("Keep checking for a sign-in page")
             visible: Networking.canCheckConnectivity
-            description: "NetworkManager pings a known address now and then, which is how it can tell a hotel sign-in page from a real connection."
+            description: Tr.t("NetworkManager pings a known address now and then, which is how it can tell a hotel sign-in page from a real connection.")
             showDivider: false
 
             M3Switch {
@@ -110,13 +110,13 @@ Column {
     }
 
     SettingCard {
-        title: "WI-FI"
+        title: Tr.t("WI-FI")
 
         SettingRow {
-            title: "Wi-Fi"
+            title: Tr.t("Wi-Fi")
             enabled: Networking.wifiHardwareEnabled
             disabledReason: "A hardware switch or an Fn key has the Wi-Fi radio blocked."
-            description: page.wifiOn ? (page.groups.connected.length > 0 ? "On, joined to " + page.groups.connected[0].name + "." : "On, not joined to anything.") : "The radio is off, so nothing can connect."
+            description: page.wifiOn ? (page.groups.connected.length > 0 ? Tr.t("On, joined to ") + page.groups.connected[0].name + "." : Tr.t("On, not joined to anything.")) : Tr.t("The radio is off, so nothing can connect.")
 
             M3Switch {
                 enabled: Networking.wifiHardwareEnabled
@@ -129,9 +129,9 @@ Column {
         }
 
         SettingRow {
-            title: page.scanning ? "Looking for networks" : "Networks"
+            title: page.scanning ? Tr.t("Looking for networks") : Tr.t("Networks")
             visible: page.wifiOn
-            description: "Scanning keeps the list fresh. Turn it off and the list stops moving under your cursor."
+            description: Tr.t("Scanning keeps the list fresh. Turn it off and the list stops moving under your cursor.")
             stacked: true
 
             Row {
@@ -140,7 +140,7 @@ Column {
 
                 M3TextField {
                     width: parent.width - scanBox.implicitWidth - hiddenBtn.implicitWidth - Theme.dp(20)
-                    placeholder: "Filter by name"
+                    placeholder: Tr.t("Filter by name")
                     onEdited: (v) => {
                         return page.filter = v;
                     }
@@ -150,7 +150,7 @@ Column {
                     id: scanBox
 
                     anchors.verticalCenter: parent.verticalCenter
-                    label: "Keep scanning"
+                    label: Tr.t("Keep scanning")
                     checked: page.scanning
                     onToggled: {
                         if (page.wifi)
@@ -164,7 +164,7 @@ Column {
 
                     anchors.verticalCenter: parent.verticalCenter
                     variant: "text"
-                    text: "Hidden network"
+                    text: Tr.t("Hidden network")
                     onClicked: page.hiddenForm = !page.hiddenForm
                 }
 
@@ -173,10 +173,10 @@ Column {
         }
 
         SettingRow {
-            title: "Join a hidden network"
+            title: Tr.t("Join a hidden network")
             visible: page.wifiOn && page.hiddenForm
             enabled: !Net.busy
-            description: "A network that does not broadcast its name. Type it exactly, capitals and all."
+            description: Tr.t("A network that does not broadcast its name. Type it exactly, capitals and all.")
             stacked: true
 
             Row {
@@ -185,7 +185,7 @@ Column {
 
                 M3TextField {
                     width: Theme.dp(220)
-                    placeholder: "Network name"
+                    placeholder: Tr.t("Network name")
                     onEdited: (v) => {
                         return page.hiddenSsid = v;
                     }
@@ -193,7 +193,7 @@ Column {
 
                 M3TextField {
                     width: Theme.dp(220)
-                    placeholder: "Password, if any"
+                    placeholder: Tr.t("Password, if any")
                     onEdited: (v) => {
                         return page.hiddenPsk = v;
                     }
@@ -202,7 +202,7 @@ Column {
                 M3Button {
                     anchors.verticalCenter: parent.verticalCenter
                     variant: "filled"
-                    text: Net.busy ? "Joining" : "Join"
+                    text: Net.busy ? Tr.t("Joining") : Tr.t("Join")
                     enabled: !Net.busy && page.hiddenSsid.trim() !== ""
                     onClicked: Net.connectHidden(page.hiddenSsid.trim(), page.hiddenPsk)
                 }
@@ -219,7 +219,7 @@ Column {
             spacing: Theme.dp(2)
 
             GroupLabel {
-                text: "Connected"
+                text: Tr.t("Connected")
                 visible: page.groups.connected.length > 0
             }
 
@@ -234,7 +234,7 @@ Column {
             }
 
             GroupLabel {
-                text: "Saved"
+                text: Tr.t("Saved")
                 visible: page.groups.saved.length > 0
             }
 
@@ -249,7 +249,7 @@ Column {
             }
 
             GroupLabel {
-                text: "Nearby"
+                text: Tr.t("Nearby")
                 visible: page.groups.nearby.length > 0
             }
 
@@ -269,7 +269,7 @@ Column {
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: Theme.dp(18)
                 bottomPadding: Theme.dp(18)
-                text: page.filter.trim() !== "" ? "Nothing matches that." : "No networks in range."
+                text: page.filter.trim() !== "" ? Tr.t("Nothing matches that.") : Tr.t("No networks in range.")
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBody
@@ -281,13 +281,13 @@ Column {
     }
 
     SettingCard {
-        title: "SHARE THIS CONNECTION"
+        title: Tr.t("SHARE THIS CONNECTION")
         visible: page.wifiOn && !!page.wifi
 
         SettingRow {
-            title: "Wi-Fi hotspot"
+            title: Tr.t("Wi-Fi hotspot")
             enabled: !Net.busy
-            description: "Turns the Wi-Fi radio into an access point so other devices can borrow this machine's connection. It drops whatever Wi-Fi network you are on, so it only helps when the internet arrives some other way."
+            description: Tr.t("Turns the Wi-Fi radio into an access point so other devices can borrow this machine's connection. It drops whatever Wi-Fi network you are on, so it only helps when the internet arrives some other way.")
             stacked: true
             showDivider: false
 
@@ -297,7 +297,7 @@ Column {
 
                 M3TextField {
                     width: Theme.dp(220)
-                    placeholder: "Hotspot name"
+                    placeholder: Tr.t("Hotspot name")
                     text: page.hotspotSsid
                     onEdited: (v) => {
                         return page.hotspotSsid = v;
@@ -306,7 +306,7 @@ Column {
 
                 M3TextField {
                     width: Theme.dp(220)
-                    placeholder: "Password, 8 characters or more"
+                    placeholder: Tr.t("Password, 8 characters or more")
                     onEdited: (v) => {
                         return page.hotspotPsk = v;
                     }
@@ -315,9 +315,9 @@ Column {
                 M3Button {
                     anchors.verticalCenter: parent.verticalCenter
                     variant: "tonal"
-                    text: "Start hotspot"
+                    text: Tr.t("Start hotspot")
                     enabled: !Net.busy && page.hotspotSsid.trim() !== "" && page.hotspotPsk.length >= 8
-                    onClicked: Prefs.askConfirm("Start a hotspot?", "This drops the Wi-Fi network you are on and turns the radio into an access point named " + page.hotspotSsid.trim() + ".", "Start", "net-hotspot:" + page.hotspotSsid.trim() + "\n" + page.hotspotPsk)
+                    onClicked: Prefs.askConfirm(Tr.t("Start a hotspot?"), Tr.t("This drops the Wi-Fi network you are on and turns the radio into an access point named ") + page.hotspotSsid.trim() + ".", Tr.t("Start"), "net-hotspot:" + page.hotspotSsid.trim() + "\n" + page.hotspotPsk)
                 }
 
             }
@@ -327,7 +327,7 @@ Column {
     }
 
     SettingCard {
-        title: "WIRED"
+        title: Tr.t("WIRED")
         visible: Net.wiredDevices.length > 0
 
         Repeater {
@@ -358,7 +358,7 @@ Column {
 
                     CheckLine {
                         anchors.verticalCenter: parent.verticalCenter
-                        label: "Connect automatically"
+                        label: Tr.t("Connect automatically")
                         checked: wiredRow.modelData.autoconnect
                         onToggled: wiredRow.modelData.autoconnect = !wiredRow.modelData.autoconnect
                     }
@@ -367,7 +367,7 @@ Column {
                         anchors.verticalCenter: parent.verticalCenter
                         variant: "tonal"
                         visible: wiredRow.modelData.connected
-                        text: "Disconnect"
+                        text: Tr.t("Disconnect")
                         onClicked: wiredRow.modelData.disconnect()
                     }
 
@@ -380,11 +380,11 @@ Column {
     }
 
     SettingCard {
-        title: "VPN"
+        title: Tr.t("VPN")
 
         SettingRow {
-            title: Net.vpns.length === 0 ? "No VPN set up" : (Net.activeVpn ? "Connected to " + Net.activeVpn.name : "Not connected")
-            description: Net.vpns.length === 0 ? "Lucid lists whatever NetworkManager already knows. Import a config with nmcli or nm-connection-editor and it turns up here." : "One at a time, the way NetworkManager handles it."
+            title: Net.vpns.length === 0 ? Tr.t("No VPN set up") : (Net.activeVpn ? Tr.t("Connected to ") + Net.activeVpn.name : Tr.t("Not connected"))
+            description: Net.vpns.length === 0 ? Tr.t("Lucid lists whatever NetworkManager already knows. Import a config with nmcli or nm-connection-editor and it turns up here.") : Tr.t("One at a time, the way NetworkManager handles it.")
             showDivider: Net.vpns.length > 0
         }
 
@@ -398,7 +398,7 @@ Column {
                 required property int index
 
                 title: vpnRow.modelData.name
-                description: (vpnRow.modelData.type === "wireguard" ? "WireGuard" : "VPN") + (vpnRow.modelData.active ? "  ·  connected" : "")
+                description: (vpnRow.modelData.type === "wireguard" ? Tr.t("WireGuard") : Tr.t("VPN")) + (vpnRow.modelData.active ? Tr.t("  ·  connected") : "")
                 enabled: !Net.busy
                 showDivider: vpnRow.index < Net.vpns.length - 1
 
@@ -407,7 +407,7 @@ Column {
 
                     CheckLine {
                         anchors.verticalCenter: parent.verticalCenter
-                        label: "Connect automatically"
+                        label: Tr.t("Connect automatically")
                         checked: vpnRow.modelData.autoconnect
                         onToggled: Net.setAutoconnect(vpnRow.modelData.uuid, !vpnRow.modelData.autoconnect)
                     }
@@ -415,7 +415,7 @@ Column {
                     M3Button {
                         anchors.verticalCenter: parent.verticalCenter
                         variant: vpnRow.modelData.active ? "tonal" : "filled"
-                        text: vpnRow.modelData.active ? "Disconnect" : "Connect"
+                        text: vpnRow.modelData.active ? Tr.t("Disconnect") : Tr.t("Connect")
                         onClicked: {
                             if (vpnRow.modelData.active)
                                 Net.down(vpnRow.modelData.uuid);
@@ -447,11 +447,11 @@ Column {
     }
 
     SettingCard {
-        title: "SAVED CONNECTIONS"
+        title: Tr.t("SAVED CONNECTIONS")
 
         SettingRow {
-            title: "Everything NetworkManager has kept"
-            description: "A saved connection is a set of settings, not a network. Deleting one only forgets the settings."
+            title: Tr.t("Everything NetworkManager has kept")
+            description: Tr.t("A saved connection is a set of settings, not a network. Deleting one only forgets the settings.")
             showDivider: Net.profiles.length > 0
         }
 
@@ -477,7 +477,7 @@ Column {
 
                     CheckLine {
                         anchors.verticalCenter: parent.verticalCenter
-                        label: "Automatic"
+                        label: Tr.t("Automatic")
                         checked: profRow.modelData.autoconnect
                         onToggled: Net.setAutoconnect(profRow.modelData.uuid, !profRow.modelData.autoconnect)
                     }
@@ -486,8 +486,8 @@ Column {
                         anchors.verticalCenter: parent.verticalCenter
                         variant: "text"
                         destructive: true
-                        text: "Delete"
-                        onClicked: Prefs.askConfirm("Delete this saved connection?", "The settings for " + profRow.modelData.name + " and any password go with it. Nothing else on the machine is touched.", "Delete", "net-delete:" + profRow.modelData.uuid)
+                        text: Tr.t("Delete")
+                        onClicked: Prefs.askConfirm(Tr.t("Delete this saved connection?"), Tr.t("The settings for ") + profRow.modelData.name + Tr.t(" and any password go with it. Nothing else on the machine is touched."), Tr.t("Delete"), "net-delete:" + profRow.modelData.uuid)
                     }
 
                 }

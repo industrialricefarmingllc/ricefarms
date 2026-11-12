@@ -108,7 +108,7 @@ Item {
             visible: share.rows.length === 0
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            text: share.loading ? "Reading…" : (share.ready ? "Install qrencode to show a code." : "No code")
+            text: share.loading ? Tr.t("Reading…") : (share.ready ? Tr.t("Install qrencode to show a code.") : Tr.t("No code"))
             color: Theme.alpha(share.ink, 0.6)
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontLabel
@@ -122,7 +122,7 @@ Item {
         Text {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: share.problem !== "" ? share.problem : (share.open ? "Point a phone's camera at the code to join " + share.ssid + ". It's an open network, so there is no password." : "Point a phone's camera at the code to join " + share.ssid + ", or type the password in.")
+            text: share.problem !== "" ? share.problem : (share.open ? Tr.t("Point a phone's camera at the code to join ") + share.ssid + Tr.t(". It's an open network, so there is no password.") : Tr.t("Point a phone's camera at the code to join ") + share.ssid + Tr.t(", or type the password in."))
             color: share.problem !== "" ? Theme.error : Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBody
@@ -169,7 +169,7 @@ Item {
             visible: share.ready && !share.open
             // outlined in the bar panel, where the buttons beside it are
             variant: share.compact ? "outlined" : "tonal"
-            text: share.copied ? "Copied" : "Copy password"
+            text: share.copied ? Tr.t("Copied") : Tr.t("Copy password")
             onClicked: {
                 Net.copyShared();
                 share.copied = true;

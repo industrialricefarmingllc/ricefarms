@@ -421,7 +421,7 @@ WidgetBody {
                 spacing: 1
 
                 Text {
-                    text: w.hasGpu ? "GRAPHICS" : "PROCESSOR"
+                    text: w.hasGpu ? Tr.t("GRAPHICS") : Tr.t("PROCESSOR")
                     color: Theme.accent
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.dp(10)
@@ -431,7 +431,7 @@ WidgetBody {
 
                 Text {
                     width: parent.width
-                    text: w.hasGpu ? (w.gpuAwake ? w.gpuShort : "Asleep, left undisturbed") : "Processor load"
+                    text: w.hasGpu ? (w.gpuAwake ? w.gpuShort : Tr.t("Asleep, left undisturbed")) : Tr.t("Processor load")
                     color: w.gpuAwake || !w.hasGpu ? Theme.text : Theme.subtextDim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.dp(13)
@@ -450,7 +450,7 @@ WidgetBody {
 
                 Text {
                     anchors.right: parent.right
-                    text: "DRAW"
+                    text: Tr.t("DRAW")
                     color: Theme.subtextDim
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.dp(9)
@@ -460,7 +460,7 @@ WidgetBody {
 
                 Text {
                     anchors.right: parent.right
-                    text: w.gpuPower.toFixed(w.gpuPower < 10 ? 1 : 0) + " W"
+                    text: w.gpuPower.toFixed(w.gpuPower < 10 ? 1 : 0) + Tr.t(" W")
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.dp(13)
@@ -509,7 +509,7 @@ WidgetBody {
                 Chip {
                     visible: w.gameModeConfigured || w.preview
                     icon: "games"
-                    label: "Game mode"
+                    label: Tr.t("Game mode")
                     on: w.gameModeOn
                     busy: w.gameModeBusy
                     onClicked: w.setGameMode(!w.gameModeOn)

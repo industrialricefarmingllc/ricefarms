@@ -82,7 +82,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: Theme.dp(14)
             anchors.baseline: name.baseline
-            text: tile.selected ? "In use" : (tile.cards.length + (tile.cards.length === 1 ? " widget" : " widgets"))
+            text: tile.selected ? Tr.t("In use") : (tile.cards.length + (tile.cards.length === 1 ? Tr.t(" widget") : Tr.t(" widgets")))
             color: tile.selected ? Theme.fgAccentContainer : Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(10)

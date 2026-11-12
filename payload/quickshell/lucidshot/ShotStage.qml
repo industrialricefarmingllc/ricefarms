@@ -683,17 +683,17 @@ Item {
                     "codes": r.codes
                 });
             } else {
-                stage.notify("content_copy", r.text !== "" ? "Text copied" : "Code copied", false);
+                stage.notify("content_copy", r.text !== "" ? Tr.t("Text copied") : Tr.t("Code copied"), false);
                 stage.closeRequested();
             }
             return ;
         }
         if (r.status === "notool") {
-            stage.notify("warning", "Install tesseract to copy text", true);
+            stage.notify("warning", Tr.t("Install tesseract to copy text"), true);
             stage.closeRequested();
             return ;
         }
-        stage.notify(r.status === "empty" ? "search_off" : "warning", r.status === "empty" ? "No text found there" : "The text could not be read", r.status !== "empty");
+        stage.notify(r.status === "empty" ? "search_off" : "warning", r.status === "empty" ? Tr.t("No text found there") : Tr.t("The text could not be read"), r.status !== "empty");
         if (stage.readFrom === "mark") {
             stage.phase = "mark";
         } else {
@@ -809,7 +809,7 @@ Item {
         stage.engine.copyText(stage.palette.map((e) => {
             return e.value;
         }).join("\n"));
-        stage.notify("palette", stage.palette.length === 1 ? "Colour copied" : stage.palette.length + " colours copied", false);
+        stage.notify("palette", stage.palette.length === 1 ? Tr.t("Colour copied") : stage.palette.length + Tr.t(" colours copied"), false);
         stage.closeRequested();
     }
 
@@ -904,7 +904,7 @@ Item {
                         "base": stage.editing ? src.substring(slash + 1, dot > slash ? dot : src.length) + "-edited" : ""
                     });
                 } else {
-                    stage.notify("warning", "The capture could not be saved", true);
+                    stage.notify("warning", Tr.t("The capture could not be saved"), true);
                 }
                 done();
             }, Qt.size(j.pw, j.ph));
@@ -1560,7 +1560,7 @@ Item {
 
         visible: stage.phase === "timer"
         value: stage.ticks
-        caption: "Click to cancel"
+        caption: Tr.t("Click to cancel")
         x: Math.round(stage.selX + stage.selW / 2 - width / 2)
         y: Math.round(stage.selY + stage.selH / 2 - Theme.dp(88))
         onTapped: stage.cancelTimer()

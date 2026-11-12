@@ -256,7 +256,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: modelData.default === true
                             role: "labelSmall"
-                            text: "Default"
+                            text: Tr.t("Default")
                             color: on ? Theme.fgAccentContainer : Theme.subtext
                         }
 
@@ -305,7 +305,7 @@ Item {
                         anchors.leftMargin: Theme.dp(12)
                         anchors.verticalCenter: parent.verticalCenter
                         role: "bodyMedium"
-                        text: "Always use it for this kind of file"
+                        text: Tr.t("Always use it for this kind of file")
                         color: Theme.text
                     }
 
@@ -371,7 +371,7 @@ Item {
                     variant: dlg.mode === "info" ? "tonal" : "filled"
                     danger: dlg.danger
                     disabled: dlg.problem !== "" || (dlg.mode === "apps" && dlg.appPick < 0)
-                    text: dlg.mode === "info" ? "Close" : dlg.confirmLabel
+                    text: dlg.mode === "info" ? Tr.t("Close") : dlg.confirmLabel
                     onClicked: dlg.finish(dlg.mode !== "info")
                 }
 

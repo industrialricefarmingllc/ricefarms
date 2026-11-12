@@ -67,7 +67,7 @@ void main()
         // soft matte band and leaves a bright rim around the card.
         vec3 oldBackground = texture(background, foregroundUv).rgb;
         vec3 fused = foregroundColor * opacity + oldBackground * (1.0 - opacity);
-        float cover = smoothstep(0.25, 0.50, opacity);
+        float cover = smoothstep(0.05, 0.15, opacity);
         fragColor = vec4(fused * cover, cover) * ubuf.qt_Opacity * ubuf.fade;
         return;
     }

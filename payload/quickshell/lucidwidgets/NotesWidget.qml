@@ -90,7 +90,7 @@ WidgetBody {
             anchors.verticalCenter: parent.verticalCenter
             role: "titleSmall"
             color: w.ink
-            text: "Note"
+            text: Tr.t("Note")
         }
 
         LText {
@@ -98,7 +98,7 @@ WidgetBody {
             anchors.verticalCenter: parent.verticalCenter
             role: "labelSmall"
             color: w.inkFaint
-            text: w.words > 0 ? w.words + (w.words === 1 ? " word" : " words") : ""
+            text: w.words > 0 ? w.words + (w.words === 1 ? Tr.t(" word") : Tr.t(" words")) : ""
         }
 
     }
@@ -243,7 +243,7 @@ WidgetBody {
             horizontalAlignment: w.headline ? Text.AlignHCenter : Text.AlignLeft
             verticalAlignment: w.headline ? Text.AlignVCenter : Text.AlignTop
             wrapMode: Text.Wrap
-            text: w.headline ? "One line, big" : (w.lined ? "Type here. It stays put across reboots." : "Write something…")
+            text: w.headline ? Tr.t("One line, big") : (w.lined ? Tr.t("Type here. It stays put across reboots.") : Tr.t("Write something…"))
         }
 
     }
@@ -256,7 +256,7 @@ WidgetBody {
         anchors.bottomMargin: Theme.dp(10)
         role: "labelSmall"
         color: w.inkFaint
-        text: w.editing ? "Esc to finish" : w.ago(w.edited)
+        text: w.editing ? Tr.t("Esc to finish") : w.ago(w.edited)
     }
 
     // while the note is closed the whole card is a drag surface: a click opens the
@@ -321,7 +321,7 @@ WidgetBody {
         anchors.margins: Theme.dp(10)
         role: "labelSmall"
         color: Theme.alpha(w.ink, 0.45)
-        text: "Esc to finish"
+        text: Tr.t("Esc to finish")
     }
 
 }

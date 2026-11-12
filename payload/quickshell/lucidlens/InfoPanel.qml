@@ -145,7 +145,7 @@ Rectangle {
                 LText {
                     role: "labelLarge"
                     color: Theme.accent
-                    text: "Original"
+                    text: Tr.t("Original")
                 }
 
                 Rectangle {
@@ -170,7 +170,7 @@ Rectangle {
                     }
 
                     Tip {
-                        text: "Hold to compare"
+                        text: Tr.t("Hold to compare")
                     }
 
                     ClippingRectangle {
@@ -205,7 +205,7 @@ Rectangle {
                         LText {
                             width: parent.width
                             role: "titleSmall"
-                            text: "Before your edits"
+                            text: Tr.t("Before your edits")
                             elide: Text.ElideRight
                         }
 
@@ -213,7 +213,7 @@ Rectangle {
                             width: parent.width
                             role: "bodySmall"
                             color: Theme.subtext
-                            text: panel.kept ? "Kept " + panel.app.whenText(panel.kept.at) : ""
+                            text: panel.kept ? Tr.t("Kept ") + panel.app.whenText(panel.kept.at) : ""
                             elide: Text.ElideRight
                         }
 
@@ -222,7 +222,7 @@ Rectangle {
                             role: "bodySmall"
                             color: Theme.subtext
                             tabular: true
-                            text: !panel.kept ? "" : (panel.kept.w ? panel.kept.w + " × " + panel.kept.h + "  ·  " : "") + panel.app.sizeText(panel.kept.size || 0)
+                            text: !panel.kept ? "" : (panel.kept.w ? panel.kept.w + Tr.t(" × ") + panel.kept.h + "  ·  " : "") + panel.app.sizeText(panel.kept.size || 0)
                             elide: Text.ElideRight
                         }
 
@@ -235,7 +235,7 @@ Rectangle {
                         anchors.rightMargin: Theme.dp(6)
                         anchors.verticalCenter: parent.verticalCenter
                         icon: "delete"
-                        tooltip: "Delete the original"
+                        tooltip: Tr.t("Delete the original")
 
                         Tip {
                         }
@@ -248,7 +248,7 @@ Rectangle {
                 Button {
                     variant: "tonal"
                     icon: "history"
-                    text: "Revert to original"
+                    text: Tr.t("Revert to original")
                     disabled: panel.win.busy
                     onClicked: panel.win.revertOriginal()
                 }
@@ -335,12 +335,12 @@ Rectangle {
             }
 
             Section {
-                title: "File"
+                title: Tr.t("File")
                 rows: panel.fileRows
             }
 
             Section {
-                title: "Camera"
+                title: Tr.t("Camera")
                 rows: panel.cameraRows
                 visible: panel.cameraRows.length > 0
             }
@@ -354,7 +354,7 @@ Rectangle {
                 LText {
                     role: "labelLarge"
                     color: Theme.accent
-                    text: "Place"
+                    text: Tr.t("Place")
                 }
 
                 Rectangle {
@@ -381,7 +381,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "bodyMedium"
                         tabular: true
-                        text: panel.ex.gps ? panel.ex.gps.lat.toFixed(5) + ", " + panel.ex.gps.lon.toFixed(5) + (panel.ex.gps.alt !== null ? "  ·  " + panel.ex.gps.alt + " m" : "") : ""
+                        text: panel.ex.gps ? panel.ex.gps.lat.toFixed(5) + ", " + panel.ex.gps.lon.toFixed(5) + (panel.ex.gps.alt !== null ? "  ·  " + panel.ex.gps.alt + Tr.t(" m") : "") : ""
                         elide: Text.ElideRight
                     }
 
@@ -411,7 +411,7 @@ Rectangle {
                 LText {
                     role: "labelLarge"
                     color: Theme.accent
-                    text: "Colours"
+                    text: Tr.t("Colours")
                 }
 
                 Flow {
@@ -470,7 +470,7 @@ Rectangle {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     Quickshell.execDetached(["wl-copy", sw.modelData.hex]);
-                                    panel.win.say("Copied " + sw.modelData.hex.toUpperCase());
+                                    panel.win.say(Tr.t("Copied ") + sw.modelData.hex.toUpperCase());
                                 }
                             }
 
@@ -489,7 +489,7 @@ Rectangle {
                 Button {
                     variant: "tonal"
                     icon: "wallpaper"
-                    text: "Set as wallpaper"
+                    text: Tr.t("Set as wallpaper")
                     visible: panel.app.caps.wallpaper === true && panel.cur !== null && (!panel.cur.video || panel.app.liveKind(panel.cur.path))
                     onClicked: panel.win.setWallpaper()
                 }
@@ -497,7 +497,7 @@ Rectangle {
                 Button {
                     variant: "outlined"
                     icon: "folder_open"
-                    text: "Show in Lumen"
+                    text: Tr.t("Show in Lumen")
                     visible: (panel.app.caps.lumen || "") !== "" && !panel.win.pasted
                     onClicked: panel.win.reveal(panel.cur.path)
                 }

@@ -255,7 +255,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             role: "titleMedium"
             weight: 560
-            text: "No cities yet"
+            text: Tr.t("No cities yet")
         }
 
         LText {
@@ -264,7 +264,7 @@ Item {
             role: "bodyMedium"
             color: Theme.subtext
             wrapMode: Text.Wrap
-            text: "Search below for a city and it lands here with its time and how far ahead or behind it is."
+            text: Tr.t("Search below for a city and it lands here with its time and how far ahead or behind it is.")
         }
 
     }
@@ -282,7 +282,7 @@ Item {
             width: parent.width
             variant: "search"
             icon: "travel_explore"
-            placeholder: "Add a city — Lisbon, Tokyo, Sao Paulo…"
+            placeholder: Tr.t("Add a city — Lisbon, Tokyo, Sao Paulo…")
             containerColor: Theme.withBlur(Theme.surfaceHigh)
             onAccepted: {
                 if (page.results.length > 0) {

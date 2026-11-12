@@ -143,6 +143,7 @@ Item {
         if (mesh3d.item) {
             surface.syncMesh();
             mesh3d.item.animationPaused = surface.windowFocused;
+            surface.renderRevision++;
         }
         if (SpatialWall.motionKind === "video" && SpatialWall.motionPath !== "" && SpatialWall.hasVisual) {
             if (player.source.toString() !== SpatialWall.motionUrl)
@@ -169,6 +170,11 @@ Item {
     readonly property bool meshReady: mesh3d.item !== null && mesh3d.item.ready
     property bool meshFailed: false
     property int meshRetries: 0
+    // Bumped whenever the 3D scene committed a new camera pose or became
+    // ready. The widget cutout captures this surface on demand; without this
+    // the foreground stayed at the pose it had when the widgets appeared, so
+    // each widget sat in a stale patch of the nearest wallpaper layer.
+    property int renderRevision: 0
     readonly property bool layeredImagesReady: SpatialWall.layeredVisual
         && backgroundMap.status === Image.Ready
         && matteMap.status === Image.Ready
@@ -392,6 +398,7 @@ Item {
             mesh3d.item.animationPaused = false;
         motionTexture.scheduleUpdate();
         surface.syncPointer();
+        surface.renderRevision++;
     }
 
     Timer {
@@ -459,12 +466,14 @@ Item {
         // fresh freeze frame; otherwise the old wallpaper would stay visible.
         if (surface.windowFocused && surface.meshReady)
             surface.beginFreeze();
+        surface.renderRevision++;
     }
     onSourceReadyChanged: {
         surface.reportReady();
+        surface.renderRevision++;
     }
-    onWidthChanged: surface.syncMesh()
-    onHeightChanged: surface.syncMesh()
+    onWidthChanged: { surface.syncMesh(); surface.renderRevision++; }
+    onHeightChanged: { surface.syncMesh(); surface.renderRevision++; }
     onPointerXChanged: surface.syncPointer()
     onPointerYChanged: surface.syncPointer()
 
@@ -501,6 +510,15 @@ Item {
         property real foregroundOnly: surface.foregroundOnly ? 1 : 0
         property real fade: surface.visualFade
         fragmentShader: Qt.resolvedUrl("luciddocks/shaders/spatial_layered.frag.qsb")
+    }
+
+    Connections {
+        target: mesh3d.item
+
+        // The mesh emits this only when it actually committed a new camera
+        // matrix. The foreground capture follows it one-for-one, so the cutout
+        // around each widget is never a frame behind the wallpaper.
+        function onCameraUpdated() { surface.renderRevision++ }
     }
 
     Connections {

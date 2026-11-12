@@ -18,6 +18,7 @@ Singleton {
     // so polling Hyprland's cursor IPC would only burn CPU for coordinates no
     // shader or camera reads. Start again as soon as a surface can move.
     readonly property bool wanted: Prefs.spatialWallpapers && SpatialWall.hasVisual
+        && SpatialWall.displaysAwake
         && !SpatialWall.allScreensFocused
 
     onWantedChanged: {

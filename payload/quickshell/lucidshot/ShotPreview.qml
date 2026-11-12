@@ -491,23 +491,23 @@ PanelWindow {
 
                     ActionButton {
                         action: "copy"
-                        label: preview.kind === "image" ? "Copy the image" : "Copy the file"
+                        label: preview.kind === "image" ? Tr.t("Copy the image") : Tr.t("Copy the file")
                     }
 
                     ActionButton {
                         action: "edit"
-                        label: "Mark it up"
+                        label: Tr.t("Mark it up")
                         visible: preview.kind === "image"
                     }
 
                     ActionButton {
                         action: "folder"
-                        label: "Show in folder"
+                        label: Tr.t("Show in folder")
                     }
 
                     ActionButton {
                         action: "delete"
-                        label: "Delete"
+                        label: Tr.t("Delete")
                         danger: true
                     }
 

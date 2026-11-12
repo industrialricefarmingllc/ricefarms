@@ -295,7 +295,7 @@ Item {
             LText {
                 width: parent.width
                 role: "headlineSmall"
-                text: dlg.mode === "address" ? "Connect to server" : dlg.mode === "connecting" ? "Connecting to " + dlg.host : dlg.mode === "login" ? "Sign in to " + dlg.host : (dlg.lines[0] || "A question from " + dlg.host)
+                text: dlg.mode === "address" ? Tr.t("Connect to server") : dlg.mode === "connecting" ? Tr.t("Connecting to ") + dlg.host : dlg.mode === "login" ? Tr.t("Sign in to ") + dlg.host : (dlg.lines[0] || Tr.t("A question from ") + dlg.host)
                 color: Theme.text
                 wrapMode: Text.Wrap
                 maximumLineCount: 3
@@ -330,10 +330,10 @@ Item {
                 width: parent.width
                 visible: dlg.mode === "address"
                 variant: "filled"
-                label: "Server address"
+                label: Tr.t("Server address")
                 placeholder: dlg.kinds.indexOf("smb") !== -1 ? "smb://nas.local/share" : "sftp://user@server"
                 error: dlg.problem !== ""
-                supporting: dlg.problem !== "" ? dlg.problem : "Like " + dlg.kinds.slice(0, 3).map(function(k) {
+                supporting: dlg.problem !== "" ? dlg.problem : Tr.t("Like ") + dlg.kinds.slice(0, 3).map(function(k) {
                     return k === "smb" ? "smb://server/share" : k === "sftp" ? "sftp://user@server" : k + "://server";
                 }).join(", ")
                 onAccepted: dlg.accept()
@@ -346,7 +346,7 @@ Item {
                 width: parent.width
                 visible: dlg.mode === "address" && dlg.problem === "" && dlg.app.schemes.length > 0 && dlg.kinds.indexOf("smb") === -1
                 role: "bodySmall"
-                text: "Windows shares and most NAS drives (smb://) need the gvfs-smb package."
+                text: Tr.t("Windows shares and most NAS drives (smb://) need the gvfs-smb package.")
                 color: Theme.subtext
                 wrapMode: Text.Wrap
             }
@@ -360,7 +360,7 @@ Item {
                     width: parent.width
                     bottomPadding: Theme.dp(6)
                     role: "labelLarge"
-                    text: "Recent"
+                    text: Tr.t("Recent")
                     color: Theme.subtext
                 }
 
@@ -436,7 +436,7 @@ Item {
                             onClicked: dlg.app.forgetServer(row.modelData.uri)
 
                             Tip {
-                                text: "Forget"
+                                text: Tr.t("Forget")
                             }
 
                         }
@@ -487,7 +487,7 @@ Item {
                 width: parent.width
                 visible: dlg.mode === "login" && dlg.ev.needUser === true && !dlg.anonymous
                 variant: "filled"
-                label: "User name"
+                label: Tr.t("User name")
                 icon: "person"
                 onAccepted: password.visible ? password.input.forceActiveFocus() : dlg.accept()
                 onEscaped: dlg.cancel()
@@ -499,7 +499,7 @@ Item {
                 width: parent.width
                 visible: dlg.mode === "login" && dlg.ev.needDomain === true && !dlg.anonymous
                 variant: "filled"
-                label: "Domain"
+                label: Tr.t("Domain")
                 icon: "lan"
                 onAccepted: dlg.accept()
                 onEscaped: dlg.cancel()
@@ -511,7 +511,7 @@ Item {
                 width: parent.width
                 visible: dlg.mode === "login" && dlg.ev.needPassword === true && !dlg.anonymous
                 variant: "filled"
-                label: "Password"
+                label: Tr.t("Password")
                 icon: "key"
                 password: !dlg.reveal
                 onAccepted: dlg.accept()
@@ -522,7 +522,7 @@ Item {
                     onClicked: dlg.reveal = !dlg.reveal
 
                     Tip {
-                        text: dlg.reveal ? "Hide the password" : "Show the password"
+                        text: dlg.reveal ? Tr.t("Hide the password") : Tr.t("Show the password")
                     }
 
                 }
@@ -561,7 +561,7 @@ Item {
                     anchors.leftMargin: Theme.dp(12)
                     anchors.verticalCenter: parent.verticalCenter
                     role: "bodyMedium"
-                    text: "Remember the password"
+                    text: Tr.t("Remember the password")
                     color: Theme.text
                 }
 
@@ -581,14 +581,14 @@ Item {
                 Button {
                     visible: dlg.mode !== "question"
                     variant: "text"
-                    text: "Cancel"
+                    text: Tr.t("Cancel")
                     onClicked: dlg.cancel()
                 }
 
                 Button {
                     visible: dlg.mode === "address" || dlg.mode === "login"
                     variant: "filled"
-                    text: dlg.mode === "login" ? "Sign in" : "Connect"
+                    text: dlg.mode === "login" ? Tr.t("Sign in") : Tr.t("Connect")
                     disabled: dlg.mode === "address" && field.text.trim() === ""
                     onClicked: dlg.accept()
                 }

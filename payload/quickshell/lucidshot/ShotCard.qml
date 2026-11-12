@@ -117,7 +117,7 @@ Item {
                 s.engine.copyImage(f);
             else
                 s.engine.copyFile(f);
-            card.say("Copied");
+            card.say(Tr.t("Copied"));
             return ;
         case "open":
             s.engine.view(f);
@@ -131,14 +131,14 @@ Item {
             return ;
         case "text":
             s.readText(card.entry);
-            card.say("Reading the text…");
+            card.say(Tr.t("Reading the text…"));
             return ;
         case "folder":
             s.engine.reveal(f);
             return ;
         case "save":
             s.keep(card.entry);
-            card.say("Saved");
+            card.say(Tr.t("Saved"));
             return ;
         case "gif":
             s.makeGif(card.entry);
@@ -320,7 +320,7 @@ Item {
         height: thumb.height
 
         ShotTip {
-            text: card.kind === "image" ? "Open it in Lens, or drag it into an app" : (card.kind === "text" ? "" : "Play it in Lens, or drag it into an app")
+            text: card.kind === "image" ? Tr.t("Open it in Lens, or drag it into an app") : (card.kind === "text" ? "" : Tr.t("Play it in Lens, or drag it into an app"))
             hovered: thumbArea.containsMouse && !thumbArea.pressed
             above: true
         }
@@ -430,7 +430,7 @@ Item {
             size: "s"
             disabled: !card.ready && card.kind !== "text"
             icon: card.kind === "image" ? "edit" : (card.kind === "video" ? "play_arrow" : (card.kind === "gif" ? "open_in_new" : "content_copy"))
-            text: card.kind === "image" ? "Mark up" : (card.kind === "video" ? "Play" : (card.kind === "gif" ? "Open" : "Copy"))
+            text: card.kind === "image" ? Tr.t("Mark up") : (card.kind === "video" ? Tr.t("Play") : (card.kind === "gif" ? Tr.t("Open") : Tr.t("Copy")))
             onClicked: card.act(card.kind === "image" ? "markup" : (card.kind === "text" ? "copy" : "open"))
         }
 

@@ -320,7 +320,7 @@ FloatingWindow {
     onClosed: win.visible = false
 
     visible: false
-    title: "Lucid Settings"
+    title: Tr.t("Lucid Settings")
     // a surface created fully opaque keeps qtwayland's opaque region for the life
     // of the process and hyprland never blurs it, so stay one step under solid
     color: Theme.alpha(Theme.bg, Math.min(Theme.bg.a, 254 / 255))
@@ -713,7 +713,7 @@ FloatingWindow {
                         spacing: -1
 
                         Text {
-                            text: "Lucid"
+                            text: Tr.t("Lucid")
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontTitleMd
@@ -722,7 +722,7 @@ FloatingWindow {
                         }
 
                         Text {
-                            text: "Settings"
+                            text: Tr.t("Settings")
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontLabelMd
@@ -818,7 +818,7 @@ FloatingWindow {
                                     x: Theme.dp(20)
                                     anchors.bottom: parent.bottom
                                     anchors.bottomMargin: Theme.dp(5)
-                                    text: navCell.heading
+                                    text: Tr.t(navCell.heading)
                                     color: Theme.primary
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontLabelLg
@@ -854,6 +854,17 @@ FloatingWindow {
 
                                 width: parent.width
                                 height: Theme.dp(50)
+
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.PageTab
+                                Accessible.name: Tr.t(navItem.modelData.label)
+                                Accessible.selected: navItem.selected
+                                Accessible.focusable: true
+                                Accessible.focused: navItem.activeFocus
+                                Accessible.onPressAction: win.page = navItem.modelData.key
+                                Keys.onSpacePressed: win.page = navItem.modelData.key
+                                Keys.onReturnPressed: win.page = navItem.modelData.key
+                                Keys.onEnterPressed: win.page = navItem.modelData.key
 
                                 // m3 active indicator: a full-shape tonal pill
                                 Rectangle {
@@ -919,7 +930,7 @@ FloatingWindow {
                                     anchors.right: parent.right
                                     anchors.rightMargin: Theme.dp(14)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: navItem.modelData.label
+                                    text: Tr.t(navItem.modelData.label)
                                     color: navItem.fg
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontBodyLg
@@ -938,13 +949,27 @@ FloatingWindow {
 
                                 }
 
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.dp(2)
+                                    radius: Theme.pill(height)
+                                    color: "transparent"
+                                    border.width: navItem.activeFocus ? Theme.dp(2) : 0
+                                    border.color: Theme.accent
+                                    visible: border.width > 0 && Prefs.a11yFocusRing
+                                    z: 10
+                                }
+
                                 MouseArea {
                                     id: navArea
 
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: win.page = navItem.modelData.key
+                                    onClicked: {
+                                        navItem.forceActiveFocus();
+                                        win.page = navItem.modelData.key;
+                                    }
                                 }
 
                             }
@@ -998,10 +1023,10 @@ FloatingWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     variant: "text"
                     destructive: true
-                    text: "Reset all"
+                    text: Tr.t("Reset all")
                     opacity: Math.max(0, (win.railT - 0.6) / 0.4)
                     visible: opacity > 0.01
-                    onClicked: Prefs.askReset("Reset every setting?", "Every setting on every page goes back to the value it ships with. Your theme, wallpaper, pinned applications and placed widgets are not touched.", Prefs.resetAllToken)
+                    onClicked: Prefs.askReset(Tr.t("Reset every setting?"), Tr.t("Every setting on every page goes back to the value it ships with. Your theme, wallpaper, pinned applications and placed widgets are not touched."), Prefs.resetAllToken)
                 }
 
                 M3IconButton {
@@ -1013,7 +1038,7 @@ FloatingWindow {
                     opacity: 1 - Math.min(1, win.railT * 2)
                     visible: opacity > 0.01
                     iconPath: "refresh"
-                    onClicked: Prefs.askReset("Reset every setting?", "Every setting on every page goes back to the value it ships with. Your theme, wallpaper, pinned applications and placed widgets are not touched.", Prefs.resetAllToken)
+                    onClicked: Prefs.askReset(Tr.t("Reset every setting?"), Tr.t("Every setting on every page goes back to the value it ships with. Your theme, wallpaper, pinned applications and placed widgets are not touched."), Prefs.resetAllToken)
                 }
 
             }
@@ -1332,7 +1357,7 @@ FloatingWindow {
 
                     Text {
                         width: parent.width
-                        text: win.current ? win.current.title : ""
+                        text: win.current ? Tr.t(win.current.title) : ""
                         color: Theme.text
                         font.family: Theme.fontFamily
                         font.pixelSize: Math.round(Theme.fontHeadlineMd - (Theme.fontHeadlineMd - Theme.fontTitleLg) * win.collapse)
@@ -1343,7 +1368,7 @@ FloatingWindow {
 
                     Text {
                         width: parent.width
-                        text: win.page === "search" ? win.searchSummary : (win.current ? win.current.blurb : "")
+                        text: win.page === "search" ? win.searchSummary : (win.current ? Tr.t(win.current.blurb) : "")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodyMd

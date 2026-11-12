@@ -170,7 +170,7 @@ WidgetBody {
             horizontalAlignment: Text.AlignHCenter
             role: "titleSmall"
             color: w.ink
-            text: "Your GitHub username"
+            text: Tr.t("Your GitHub username")
         }
 
         SquircleRect {
@@ -245,7 +245,7 @@ WidgetBody {
             horizontalAlignment: Text.AlignHCenter
             role: "bodySmall"
             color: w.inkFaint
-            text: w.user === "" ? "Public contributions, no token needed" : "Enter to save · Esc to keep " + w.user
+            text: w.user === "" ? Tr.t("Public contributions, no token needed") : Tr.t("Enter to save · Esc to keep ") + w.user
             wrapMode: Text.WordWrap
         }
 
@@ -304,7 +304,7 @@ WidgetBody {
             role: "labelMedium"
             tabular: true
             color: w.inkDim
-            text: !w.report ? "" : (w.streakOnly ? (w.report.stale ? "offline" : "") : w.plural(w.report.total, "contribution", "contributions") + (w.report.stale ? " · offline" : ""))
+            text: !w.report ? "" : (w.streakOnly ? (w.report.stale ? "offline" : "") : w.plural(w.report.total, "contribution", "contributions") + (w.report.stale ? Tr.t(" · offline") : ""))
         }
 
     }
@@ -317,7 +317,7 @@ WidgetBody {
         wrapMode: Text.WordWrap
         role: "bodyMedium"
         color: w.inkFaint
-        text: w.problem !== "" ? w.problem : "Asking GitHub…"
+        text: w.problem !== "" ? w.problem : Tr.t("Asking GitHub…")
     }
 
     // ------------------------------------------------------------ year
@@ -498,7 +498,7 @@ WidgetBody {
             LText {
                 role: "labelMedium"
                 color: w.inkDim
-                text: w.report && w.report.streak === 1 ? "day in a row" : "days in a row"
+                text: w.report && w.report.streak === 1 ? Tr.t("day in a row") : Tr.t("days in a row")
             }
 
         }

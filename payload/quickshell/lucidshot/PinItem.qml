@@ -180,7 +180,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.dp(10)
-        text: Math.round(pin.zoom * 100) + "%" + (pin.see < 1 ? "  ·  " + Math.round(pin.see * 100) + "% opaque" : "")
+        text: Math.round(pin.zoom * 100) + "%" + (pin.see < 1 ? "  ·  " + Math.round(pin.see * 100) + Tr.t("% opaque") : "")
         opacity: sizeChip.on ? 1 : 0
         visible: opacity > 0.01
 

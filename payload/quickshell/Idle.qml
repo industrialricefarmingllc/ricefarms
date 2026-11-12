@@ -140,18 +140,27 @@ Singleton {
     readonly property string lockCmd: "qs ipc call lock lock"
     readonly property string dpmsOn: "hyprctl dispatch 'hl.dsp.dpms({action = \"on\"})'"
     readonly property string dpmsOff: "hyprctl dispatch 'hl.dsp.dpms({action = \"off\"})'"
+    // gamepad input never reaches the compositor's idle timer, so the watcher
+    // service stamps a file and this condition defers a step while it is fresh.
+    // If the watcher is not installed, the step runs exactly as before.
+    readonly property string gamepadGuard: "[ ! -x \"$HOME/.local/bin/gamepad-idle-check\" ] || \"$HOME/.local/bin/gamepad-idle-check\" 60"
 
     function listener(timeout, onTimeout, onResume) {
         var out = "listener {\n    timeout = " + timeout + "\n    on-timeout = " + onTimeout + "\n";
         if (onResume !== "")
             out += "    on-resume = " + onResume + "\n";
 
+        if (Prefs.idleGamepad) {
+            out += "    condition_cmd = " + root.gamepadGuard + "\n";
+            out += "    condition_retry = 15\n";
+        }
         return out + "}\n";
     }
 
     readonly property string conf: {
         var out = root.marker + ". edits are overwritten.\n";
-        out += "# turn Idle off in Lucid Settings to take this file back.\n\n";
+        out += "# turn Idle off in Lucid Settings to take this file back.\n";
+        out += "# gamepad input defers every step while a controller is in use.\n\n";
         out += "general {\n";
         out += "    lock_cmd = " + root.lockCmd + "\n";
         if (Prefs.idleLockBeforeSleep)

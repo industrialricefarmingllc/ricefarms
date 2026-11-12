@@ -135,7 +135,7 @@ Item {
             y: Theme.dp(18)
             role: "titleMedium"
             weight: 600
-            text: page.focused ? page.focused.label : "New timer"
+            text: page.focused ? page.focused.label : Tr.t("New timer")
         }
 
         Item {
@@ -241,7 +241,7 @@ Item {
 
                         kind: "filter"
                         selected: page.setup === modelData
-                        text: modelData >= 3600 ? "1 h" : Math.round(modelData / 60) + " min"
+                        text: modelData >= 3600 ? Tr.t("1 h") : Math.round(modelData / 60) + Tr.t(" min")
                         onClicked: page.setup = modelData
                     }
 
@@ -351,7 +351,7 @@ Item {
                     role: "titleMedium"
                     weight: 600
                     color: pomo.ink
-                    text: Chrono.pomoActive ? Chrono.phaseLabel(Chrono.pomoPhase) : "Pomodoro"
+                    text: Chrono.pomoActive ? Chrono.phaseLabel(Chrono.pomoPhase) : Tr.t("Pomodoro")
                 }
 
             }
@@ -359,7 +359,7 @@ Item {
             LText {
                 role: "bodySmall"
                 color: Theme.alpha(pomo.ink, 0.75)
-                text: Prefs.pomodoroFocus + " min focus · " + Prefs.pomodoroShort + " min break · long break every " + Prefs.pomodoroRounds
+                text: Prefs.pomodoroFocus + Tr.t(" min focus · ") + Prefs.pomodoroShort + Tr.t(" min break · long break every ") + Prefs.pomodoroRounds
             }
 
             LText {
@@ -435,7 +435,7 @@ Item {
 
                     Stepper {
                         width: lengths.cell
-                        label: "Focus"
+                        label: Tr.t("Focus")
                         from: 5
                         to: 90
                         step: 5
@@ -447,7 +447,7 @@ Item {
 
                     Stepper {
                         width: lengths.cell
-                        label: "Rounds"
+                        label: Tr.t("Rounds")
                         from: 2
                         to: 8
                         value: Prefs.pomodoroRounds
@@ -458,7 +458,7 @@ Item {
 
                     Stepper {
                         width: lengths.cell
-                        label: "Break"
+                        label: Tr.t("Break")
                         from: 1
                         to: 30
                         value: Prefs.pomodoroShort
@@ -469,7 +469,7 @@ Item {
 
                     Stepper {
                         width: lengths.cell
-                        label: "Long break"
+                        label: Tr.t("Long break")
                         from: 5
                         to: 60
                         step: 5
@@ -481,7 +481,7 @@ Item {
 
                     Stepper {
                         width: lengths.cell
-                        label: "Daily goal"
+                        label: Tr.t("Daily goal")
                         to: 16
                         zeroText: "Off"
                         value: Prefs.pomodoroGoal
@@ -497,25 +497,25 @@ Item {
                     spacing: Theme.dp(6)
 
                     Chip {
-                        text: "Auto breaks"
+                        text: Tr.t("Auto breaks")
                         selected: Prefs.pomodoroAutoStart
                         onClicked: Prefs.pomodoroAutoStart = !Prefs.pomodoroAutoStart
                     }
 
                     Chip {
-                        text: "Auto focus"
+                        text: Tr.t("Auto focus")
                         selected: Prefs.pomodoroAutoFocus
                         onClicked: Prefs.pomodoroAutoFocus = !Prefs.pomodoroAutoFocus
                     }
 
                     Chip {
-                        text: "Repeat sets"
+                        text: Tr.t("Repeat sets")
                         selected: Prefs.pomodoroRepeat
                         onClicked: Prefs.pomodoroRepeat = !Prefs.pomodoroRepeat
                     }
 
                     Chip {
-                        text: "Do not disturb"
+                        text: Tr.t("Do not disturb")
                         selected: Prefs.pomodoroSilence
                         onClicked: Prefs.pomodoroSilence = !Prefs.pomodoroSilence
                     }
@@ -655,7 +655,7 @@ Item {
             x: Theme.dp(20)
             y: Theme.dp(16)
             role: "titleSmall"
-            text: Chrono.timers.length ? "Timers" : "No timers running"
+            text: Chrono.timers.length ? Tr.t("Timers") : Tr.t("No timers running")
             color: Chrono.timers.length ? Theme.text : Theme.subtext
         }
 
@@ -668,7 +668,7 @@ Item {
             anchors.verticalCenter: listHead.verticalCenter
             variant: "text"
             size: "xs"
-            text: "Clear done"
+            text: Tr.t("Clear done")
             onClicked: Chrono.clearFinished()
         }
 
@@ -739,7 +739,7 @@ Item {
                             LText {
                                 role: "bodySmall"
                                 color: trow.isFocus ? Theme.alpha(Theme.fgSecondaryContainer, 0.75) : Theme.subtext
-                                text: trow.modelData.label + (trow.rem <= 0 ? " · done" : (trow.modelData.running ? "" : " · paused"))
+                                text: trow.modelData.label + (trow.rem <= 0 ? Tr.t(" · done") : (trow.modelData.running ? "" : Tr.t(" · paused")))
                             }
 
                         }

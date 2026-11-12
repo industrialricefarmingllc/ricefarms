@@ -169,16 +169,16 @@ WidgetBody {
             KdeConnect.pickFiles(w.dev.id, "Send to " + w.dev.name);
         } else if (what === "ring") {
             KdeConnect.ring(w.dev.id);
-            w.say("Ringing " + w.dev.name);
+            w.say(Tr.t("Ringing ") + w.dev.name);
         } else if (what === "clip") {
             KdeConnect.sendClipboard(w.dev.id);
-            w.say("Clipboard sent");
+            w.say(Tr.t("Clipboard sent"));
         } else if (what === "browse") {
             KdeConnect.browse(w.dev.id);
-            w.say("Opening its files");
+            w.say(Tr.t("Opening its files"));
         } else if (what === "ping") {
             KdeConnect.ping(w.dev.id, "Ping from Lucid");
-            w.say("Pinged");
+            w.say(Tr.t("Pinged"));
         } else if (what === "next") {
             w.nextDevice();
         }
@@ -312,7 +312,7 @@ WidgetBody {
             horizontalAlignment: Text.AlignHCenter
             role: "titleSmall"
             color: w.ink
-            text: KdeConnect.installed ? "No phone nearby" : "KDE Connect isn't installed"
+            text: KdeConnect.installed ? Tr.t("No phone nearby") : Tr.t("KDE Connect isn't installed")
         }
 
         LText {
@@ -322,7 +322,7 @@ WidgetBody {
             role: "bodySmall"
             color: w.inkDim
             wrapMode: Text.Wrap
-            text: KdeConnect.installed ? "Open KDE Connect on your phone, or pair one in Settings" : "Install kdeconnect to link a phone"
+            text: KdeConnect.installed ? Tr.t("Open KDE Connect on your phone, or pair one in Settings") : Tr.t("Install kdeconnect to link a phone")
         }
 
         Button {
@@ -331,7 +331,7 @@ WidgetBody {
             variant: "tonal"
             size: "xs"
             icon: "refresh"
-            text: "Look again"
+            text: Tr.t("Look again")
             onClicked: KdeConnect.rescan()
         }
 
@@ -454,7 +454,7 @@ WidgetBody {
                     width: parent.width
                     role: "titleSmall"
                     color: w.ink
-                    text: w.hasMedia ? w.trackTitle : "Nothing playing"
+                    text: w.hasMedia ? w.trackTitle : Tr.t("Nothing playing")
                     elide: Text.ElideRight
                 }
 
@@ -569,7 +569,7 @@ WidgetBody {
                 role: "labelMedium"
                 tabular: true
                 color: w.inkDim
-                text: (w.chargePct >= 0 ? w.chargePct + "%" : "") + (w.charging ? " · charging" : "")
+                text: (w.chargePct >= 0 ? w.chargePct + "%" : "") + (w.charging ? Tr.t(" · charging") : "")
             }
 
         }
@@ -585,7 +585,7 @@ WidgetBody {
             containerOverride: Theme.alpha(w.ink, 0.1)
             tintOverride: w.ink
             disabled: !w.can("kdeconnect_findmyphone")
-            tooltip: cRing.disabled ? "Find my phone is off on the phone" : "Ring it"
+            tooltip: cRing.disabled ? Tr.t("Find my phone is off on the phone") : Tr.t("Ring it")
             onClicked: w.run("ring")
         }
 

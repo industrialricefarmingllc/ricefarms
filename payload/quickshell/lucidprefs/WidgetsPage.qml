@@ -36,15 +36,15 @@ Column {
     }
 
     SettingCard {
-        title: "ON THE DESKTOP"
+        title: Tr.t("ON THE DESKTOP")
 
         SettingRow {
-            title: "Widget panel"
-            description: "Every widget there is, to drag out onto the desktop or click in, the ones already out there, and layouts to start from or save. It opens from the desktop's right-click menu too."
+            title: Tr.t("Widget panel")
+            description: Tr.t("Every widget there is, to drag out onto the desktop or click in, the ones already out there, and layouts to start from or save. It opens from the desktop's right-click menu too.")
             showDivider: false
 
             M3Button {
-                text: "Open the panel"
+                text: Tr.t("Open the panel")
                 variant: "tonal"
                 iconPath: "widgets"
                 onClicked: {
@@ -56,12 +56,12 @@ Column {
         }
 
         SettingRow {
-            title: "Edit mode"
-            description: "The desktop shades over and everything on it can be moved: widgets, the bar's modules and the dock. Right-click anything for its options."
+            title: Tr.t("Edit mode")
+            description: Tr.t("The desktop shades over and everything on it can be moved: widgets, the bar's modules and the dock. Right-click anything for its options.")
             showDivider: false
 
             M3Button {
-                text: "Edit the desktop"
+                text: Tr.t("Edit the desktop")
                 variant: "tonal"
                 iconPath: "edit"
                 onClicked: Edit.enterFromSettings("widgets", "")
@@ -72,12 +72,12 @@ Column {
     }
 
     SettingCard {
-        title: "BEHAVIOUR"
+        title: Tr.t("BEHAVIOUR")
 
         SettingRow {
-            title: "Snap while dragging"
+            title: Tr.t("Snap while dragging")
             resetKey: "widgetSnap"
-            description: "Widgets catch on the screen's edges and centre lines, and line up with each other, so a hand-placed arrangement still looks deliberate."
+            description: Tr.t("Widgets catch on the screen's edges and centre lines, and line up with each other, so a hand-placed arrangement still looks deliberate.")
 
             M3Switch {
                 checked: Prefs.widgetSnap
@@ -89,9 +89,9 @@ Column {
         }
 
         SettingRow {
-            title: "Pin everything"
+            title: Tr.t("Pin everything")
             resetKey: "widgetLockAll"
-            description: "Locks every widget where it stands, including the ones that are not individually pinned. Useful once the layout is settled."
+            description: Tr.t("Locks every widget where it stands, including the ones that are not individually pinned. Useful once the layout is settled.")
 
             M3Switch {
                 checked: Prefs.widgetLockAll
@@ -103,9 +103,9 @@ Column {
         }
 
         SettingRow {
-            title: "Keep above windows"
+            title: Tr.t("Keep above windows")
             resetKey: "widgetOnTop"
-            description: "Off, widgets live on the desktop and windows cover them. On, they float over everything - handy for a clock or a timer you always want in sight."
+            description: Tr.t("Off, widgets live on the desktop and windows cover them. On, they float over everything - handy for a clock or a timer you always want in sight.")
 
             M3Switch {
                 checked: Prefs.widgetOnTop
@@ -117,9 +117,9 @@ Column {
         }
 
         SettingRow {
-            title: "Hide for fullscreen windows"
+            title: Tr.t("Hide for fullscreen windows")
             resetKey: "widgetHideFullscreen"
-            description: "Widgets step out of the way while something is running fullscreen, and come back when it is not."
+            description: Tr.t("Widgets step out of the way while something is running fullscreen, and come back when it is not.")
             showDivider: false
 
             M3Switch {

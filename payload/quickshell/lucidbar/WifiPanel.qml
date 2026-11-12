@@ -196,7 +196,7 @@ Item {
                     }
 
                     Text {
-                        text: netItem.isConnected ? "Connected · " + root.strengthLabel(root.pct(netItem.modelData.signalStrength || 0)) : root.strengthLabel(root.pct(netItem.modelData.signalStrength || 0)) + (netItem.isSecured ? "" : " · Open")
+                        text: netItem.isConnected ? Tr.t("Connected · ") + root.strengthLabel(root.pct(netItem.modelData.signalStrength || 0)) : root.strengthLabel(root.pct(netItem.modelData.signalStrength || 0)) + (netItem.isSecured ? "" : Tr.t(" · Open"))
                         color: netItem.isConnected ? Theme.accent : Theme.subtext
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(11)
@@ -276,7 +276,7 @@ Item {
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.dp(10)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Enter password..."
+                        text: Tr.t("Enter password...")
                         color: Theme.outlineStrong
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(11)
@@ -330,7 +330,7 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
-                            text: netItem.isConnecting ? "Connecting..." : (netItem.isConnected ? "Disconnect" : "Connect")
+                            text: netItem.isConnecting ? Tr.t("Connecting...") : (netItem.isConnected ? Tr.t("Disconnect") : Tr.t("Connect"))
                             color: netItem.isConnecting ? Theme.subtext : (netItem.isConnected ? Theme.accent : Theme.bgOpaque)
                             font.family: Theme.fontFamily
                             font.bold: true
@@ -394,7 +394,7 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
-                            text: "Forget Network"
+                            text: Tr.t("Forget Network")
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.bold: true
@@ -506,7 +506,7 @@ Item {
 
                     visible: netItem.connectFailed && !netItem.isConnected && !netItem.isConnecting
                     width: parent.width - Theme.dp(46)
-                    text: netItem.failReason || (netItem.attemptedWithNewPassword ? "Incorrect password." : "Connection failed.")
+                    text: netItem.failReason || (netItem.attemptedWithNewPassword ? Tr.t("Incorrect password.") : Tr.t("Connection failed."))
                     color: Theme.error
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(10)
@@ -546,7 +546,7 @@ Item {
                     }
 
                     Text {
-                        text: "Connect automatically"
+                        text: Tr.t("Connect automatically")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.bold: true
@@ -1014,7 +1014,7 @@ Item {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 visible: Networking.canCheckConnectivity
-                text: "Recheck"
+                text: Tr.t("Recheck")
                 color: Theme.accentMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fs(10)
@@ -1056,7 +1056,7 @@ Item {
                 spacing: 1
 
                 Text {
-                    text: "Ethernet"
+                    text: Tr.t("Ethernet")
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -1098,7 +1098,7 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
-                    text: "Disconnect"
+                    text: Tr.t("Disconnect")
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -1133,7 +1133,7 @@ Item {
         Text {
             visible: !Networking.wifiHardwareEnabled
             width: parent.width
-            text: "Wi-Fi is disabled by a hardware switch"
+            text: Tr.t("Wi-Fi is disabled by a hardware switch")
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fs(11)
@@ -1220,7 +1220,7 @@ Item {
                     LText {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "labelLarge"
-                        text: scanButton.scanning ? "Looking for networks" : "Search for networks"
+                        text: scanButton.scanning ? Tr.t("Looking for networks") : Tr.t("Search for networks")
                         color: scanButton.scanning ? Theme.fgSecondaryContainer : Theme.text
                     }
 
@@ -1232,7 +1232,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: scanButton.scanning
                     role: "labelMedium"
-                    text: "Stop"
+                    text: Tr.t("Stop")
                     color: Theme.fgSecondaryContainer
                 }
 
@@ -1253,7 +1253,7 @@ Item {
                 visible: root.connectedNetworks.length > 0
 
                 Text {
-                    text: "Connected"
+                    text: Tr.t("Connected")
                     color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -1279,7 +1279,7 @@ Item {
                 visible: root.savedNetworks.length > 0
 
                 Text {
-                    text: "Saved"
+                    text: Tr.t("Saved")
                     color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -1305,7 +1305,7 @@ Item {
                 visible: root.nearbyNetworks.length > 0
 
                 Text {
-                    text: "Nearby"
+                    text: Tr.t("Nearby")
                     color: Theme.primary
                     font.family: Theme.fontFamily
                     font.bold: true
@@ -1334,7 +1334,7 @@ Item {
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: scanButton.scanning ? "Looking for networks…" : "No networks found"
+                    text: scanButton.scanning ? Tr.t("Looking for networks…") : Tr.t("No networks found")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(12)
@@ -1350,7 +1350,7 @@ Item {
 
                 Text {
                     visible: !root.hiddenFormOpen
-                    text: "Connect to hidden network"
+                    text: Tr.t("Connect to hidden network")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fs(11)
@@ -1388,7 +1388,7 @@ Item {
                             anchors.left: parent.left
                             anchors.leftMargin: Theme.dp(10)
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "Network name (SSID)"
+                            text: Tr.t("Network name (SSID)")
                             color: Theme.outlineStrong
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(11)
@@ -1432,7 +1432,7 @@ Item {
                             anchors.left: parent.left
                             anchors.leftMargin: Theme.dp(10)
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "Password (leave blank if open)"
+                            text: Tr.t("Password (leave blank if open)")
                             color: Theme.outlineStrong
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fs(11)
@@ -1490,7 +1490,7 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: "Connect"
+                                text: Tr.t("Connect")
                                 color: Theme.bg
                                 font.family: Theme.fontFamily
                                 font.bold: true
@@ -1519,7 +1519,7 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: "Cancel"
+                                text: Tr.t("Cancel")
                                 color: Theme.text
                                 font.family: Theme.fontFamily
                                 font.bold: true

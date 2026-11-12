@@ -1,0 +1,1614 @@
+#!/usr/bin/env python3
+"""Weather-aware ambient e-ink for Lucid/Hyprland.
+
+The effect is a function of *actual* daylight, not a clock schedule:
+
+  * Lucid's existing geoip result is read from its prefs file, so this
+    service never calls ipapi/ip-api a second time.
+  * Open-Meteo current shortwave radiation supplies the weather-adjusted
+    light level. Sun elevation/azimuth are calculated locally with NOAA's
+    equations, so the service still knows it is night when the network is
+    down.
+  * Light is physical photometric illuminance from Open-Meteo's DNI/DHI
+    (luminous efficacy ~105/120 lm/W), normalized to a Haurwitz clear-sky
+    reference. Below 4% of that the effect fades in; at 0% it is fully
+    applied. A perceptual civil-twilight tail is blended in near/below the
+    horizon.
+  * Full effect blends 20% e-ink over the untouched screen. The focused
+    output gets up to 30% black dimming; other outputs are capped at 75%
+    total black through a click-through overlay. When `primary_output` is
+    configured, it uses half both values while focused. All scale with the fade.
+    Black dimming is applied in linear light, so 25% means 25% less luminance.
+
+The result is written as a generated copy of reading_mode.glsl under
+~/.cache/lucid/ambient-eink/shaders and applied to every output through
+Hyprland's global decoration:screen_shader. Manual Reading Mode (or any
+other shader) is left alone until the user returns to main.glsl.
+"""
+
+from __future__ import annotations
+
+import argparse
+import atexit
+import hashlib
+import json
+import logging
+import math
+import os
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+HOME = Path.home()
+DEFAULTS = {
+    "enabled": True,
+    "tick_seconds": 30,
+    "weather_refresh_seconds": 600,
+    "location_file": "~/.config/quickshell/lucidprefs/prefs.json",
+    "latitude": None,
+    "longitude": None,
+    # photometric | perceptual | clear_sky_noon | day_peak | absolute
+    "reference": "photometric",
+    "luminous_efficacy_direct": 105.0,
+    "luminous_efficacy_diffuse": 120.0,
+    "luminous_efficacy_global": 110.0,
+    "twilight_floor_deg": -6.0,
+    "absolute_max_radiation": 1000.0,
+    "luminance_start": 0.04,
+    "easing": "smoothstep",
+    "weather_damping": 0.5,
+    "max_auto_increase_per_tick": 0.20,
+    "max_shader_mix": 0.20,
+    "max_black_overlay": 0.30,
+    "max_black_overlay_inactive": 0.75,
+    "primary_output": "",
+    "primary_eink_scale": 0.5,
+    "primary_dim_scale": 0.5,
+    "effect_step": 0.02,
+    "transition_seconds": 5.0,
+    "manual_override_seconds": 90,
+    "shader_source": "~/.config/hypr/shaders/reading_mode.glsl",
+    "main_shader": "~/.config/hypr/shaders/main.glsl",
+    "reading_mode_file": "~/.cache/quickshell/reading_mode",
+    "cache_dir": "~/.cache/lucid/ambient-eink",
+    "hyprctl": "hyprctl",
+    "curl": "curl",
+    "weather_url": "https://api.open-meteo.com/v1/forecast",
+    "weather_timeout_seconds": 20,
+    "max_weather_age_seconds": 7200,
+}
+CONFIG_FILE = HOME / ".config/lucid/ambient-eink.json"
+
+log = logging.getLogger("lucid-ambient-eink")
+
+
+# --------------------------------------------------------------------------
+# small filesystem / config helpers
+# --------------------------------------------------------------------------
+
+
+def expand(path: str | os.PathLike) -> Path:
+    return Path(os.path.expanduser(os.path.expandvars(str(path))))
+
+
+def deep_merge(base: dict, extra: dict) -> dict:
+    out = json.loads(json.dumps(base))
+    for key, value in (extra or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def load_config(path: Path) -> dict:
+    cfg = json.loads(json.dumps(DEFAULTS))
+    if path.exists():
+        try:
+            user = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(user, dict):
+                cfg = deep_merge(cfg, user)
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("Ignoring invalid %s: %s", path, exc)
+    return cfg
+
+
+def read_json(path: Path) -> dict | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def write_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(value, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def cache_path(cfg: dict, name: str) -> Path:
+    return expand(cfg["cache_dir"]) / name
+
+
+def brightness_path(cfg: dict) -> Path:
+    return cache_path(cfg, "brightness")
+
+
+def manual_override_path(cfg: dict) -> Path:
+    return cache_path(cfg, "manual-brightness.json")
+
+
+def transition_path(cfg: dict) -> Path:
+    return cache_path(cfg, "transition.json")
+
+
+def pid_path(cfg: dict) -> Path:
+    return cache_path(cfg, "pid")
+
+
+def clamp_percent(value: float) -> int:
+    return max(0, min(100, int(round(value))))
+
+
+def read_virtual_brightness(cfg: dict) -> int:
+    try:
+        return clamp_percent(float(brightness_path(cfg).read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return 100
+
+
+def read_manual_override(cfg: dict, now: float | None = None) -> dict | None:
+    data = read_json(manual_override_path(cfg))
+    if not data:
+        return None
+    try:
+        expires = float(data.get("expires", 0))
+        brightness = clamp_percent(float(data["brightness"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if expires <= (time.time() if now is None else now):
+        return None
+    return {"brightness": brightness, "expires": expires}
+
+
+def reading_mode_on(cfg: dict) -> bool:
+    try:
+        return expand(cfg["reading_mode_file"]).read_text(encoding="utf-8").strip() == "on"
+    except OSError:
+        return False
+
+
+def write_reading_mode(cfg: dict, on: bool) -> None:
+    path = expand(cfg["reading_mode_file"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("on\n" if on else "off\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def write_virtual_brightness(cfg: dict, percent: int, auto: bool) -> None:
+    """Publish the level for Lucid's slider/OSD.
+
+    Auto changes stamp a flag first so the OSD can tell them apart from a
+    keypress or a drag, exactly like lucid-auto-brightness does.
+    """
+    percent = clamp_percent(percent)
+    path = brightness_path(cfg)
+    old = None
+    try:
+        old = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    new = str(percent)
+    if old == new:
+        return
+    if auto:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path(cfg, "last-auto-write").write_text(str(int(time.time())), encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(new + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def set_manual_brightness(cfg: dict, value: str | int | float) -> int:
+    current = read_virtual_brightness(cfg)
+    text = str(value).strip()
+    if text.startswith(("+", "-")):
+        try:
+            target = current + float(text)
+        except ValueError as exc:
+            raise ValueError(f"not a brightness value: {value}") from exc
+    else:
+        try:
+            target = float(text)
+        except ValueError as exc:
+            raise ValueError(f"not a brightness value: {value}") from exc
+    target = clamp_percent(target)
+    now = time.time()
+    write_json(
+        manual_override_path(cfg),
+        {
+            "brightness": target,
+            "expires": now + float(cfg.get("manual_override_seconds", 90)),
+        },
+    )
+    # The CLI is the user's hand: publish at once, without the auto-write flag.
+    write_virtual_brightness(cfg, target, auto=False)
+    try:
+        cache_path(cfg, "last-auto-write").unlink()
+    except OSError:
+        pass
+    signal_daemon(cfg)
+    return target
+
+
+def clear_manual_override(cfg: dict) -> None:
+    try:
+        manual_override_path(cfg).unlink()
+    except OSError:
+        pass
+    signal_daemon(cfg)
+
+
+def signal_daemon(cfg: dict) -> None:
+    try:
+        pid = int(pid_path(cfg).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return
+    if b"lucid-ambient-eink" not in cmdline:
+        return
+    try:
+        os.kill(pid, signal.SIGHUP)
+    except OSError:
+        pass
+
+
+WAKE = threading.Event()
+
+
+def wake_handler(signum, frame) -> None:
+    WAKE.set()
+
+
+# --------------------------------------------------------------------------
+# location: reuse Lucid's already-resolved geoip coordinates
+# --------------------------------------------------------------------------
+
+
+def read_location(cfg: dict) -> dict:
+    cfg_lat = cfg.get("latitude")
+    cfg_lon = cfg.get("longitude")
+    if cfg_lat is not None and cfg_lon is not None:
+        return {
+            "lat": float(cfg_lat),
+            "lon": float(cfg_lon),
+            "label": "configured",
+            "source": str(CONFIG_FILE),
+        }
+
+    prefs = read_json(expand(cfg["location_file"]))
+    if not prefs:
+        raise RuntimeError(
+            f"no Lucid location in {expand(cfg['location_file'])} "
+            "(and no latitude/longitude in the service config)"
+        )
+
+    try:
+        lat = float(prefs["locationLat"])
+        lon = float(prefs["locationLon"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Lucid prefs do not contain a usable location") from exc
+
+    label = str(prefs.get("locationLabel") or prefs.get("locationName") or "").strip()
+    if label == "":
+        label = f"{lat:.3f}, {lon:.3f}"
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "label": label,
+        "source": str(expand(cfg["location_file"])),
+        "gps": bool(prefs.get("gpsEnabled", False)),
+    }
+
+
+# --------------------------------------------------------------------------
+# sun position (NOAA equations; no network, no external packages)
+# --------------------------------------------------------------------------
+
+
+def solar_position(when: datetime, lat: float, lon: float) -> tuple[float, float]:
+    """Return (elevation_deg, azimuth_deg) for an aware UTC datetime."""
+    utc = when.astimezone(timezone.utc)
+    day = utc.timetuple().tm_yday
+    hour = utc.hour + utc.minute / 60.0 + utc.second / 3600.0
+    gamma = 2.0 * math.pi / 365.0 * (day - 1 + (hour - 12.0) / 24.0)
+
+    eqtime = 229.18 * (
+        0.000075
+        + 0.001868 * math.cos(gamma)
+        - 0.032077 * math.sin(gamma)
+        - 0.014615 * math.cos(2 * gamma)
+        - 0.040849 * math.sin(2 * gamma)
+    )
+    decl = (
+        0.006918
+        - 0.399912 * math.cos(gamma)
+        + 0.070257 * math.sin(gamma)
+        - 0.006758 * math.cos(2 * gamma)
+        + 0.000907 * math.sin(2 * gamma)
+        - 0.002697 * math.cos(3 * gamma)
+        + 0.00148 * math.sin(3 * gamma)
+    )
+
+    tst = hour * 60.0 + eqtime + 4.0 * lon
+    ha = math.radians(((tst / 4.0 - 180.0) + 180.0) % 360.0 - 180.0)
+    latr = math.radians(lat)
+
+    cos_zen = (
+        math.sin(latr) * math.sin(decl)
+        + math.cos(latr) * math.cos(decl) * math.cos(ha)
+    )
+    cos_zen = max(-1.0, min(1.0, cos_zen))
+    zenith = math.acos(cos_zen)
+    elevation = 90.0 - math.degrees(zenith)
+
+    az = math.degrees(
+        math.atan2(
+            math.sin(ha),
+            math.cos(ha) * math.sin(latr) - math.tan(decl) * math.cos(latr),
+        )
+    ) + 180.0
+    return elevation, az % 360.0
+
+
+def max_sun_elevation_today(now: datetime, lat: float, lon: float) -> tuple[float, datetime]:
+    """Scan the local day in 10-minute steps; cheap and handles polar days."""
+    local = now.astimezone()
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    best_el = -90.0
+    best_at = midnight
+    for minutes in range(0, 24 * 60 + 1, 10):
+        when = midnight + timedelta(minutes=minutes)
+        el, _ = solar_position(when, lat, lon)
+        if el > best_el:
+            best_el = el
+            best_at = when
+    return best_el, best_at
+
+
+def clear_sky_ghi(elevation_deg: float) -> float:
+    """Approximate clear-sky global horizontal irradiance in W/m²."""
+    if elevation_deg <= 0.0:
+        return 0.0
+    s = math.sin(math.radians(elevation_deg))
+    return 1050.0 * (max(0.0, s) ** 1.15)
+
+
+def clear_sky_lux(elevation_deg: float, cfg: dict) -> float:
+    """Haurwitz clear-sky GHI converted to photometric illuminance (lux)."""
+    if elevation_deg <= 0.0:
+        return 0.0
+    cosz = max(0.0, math.sin(math.radians(elevation_deg)))
+    if cosz <= 0.0:
+        return 0.0
+    ghi = 1098.0 * cosz * math.exp(-0.057 / cosz)
+    return ghi * float(cfg.get("luminous_efficacy_global", 110.0))
+
+
+def photometric_lux(
+    elevation_deg: float,
+    dni: float | None,
+    dhi: float | None,
+    ghi: float | None,
+    cfg: dict,
+) -> tuple[float, str]:
+    """Convert Open-Meteo radiation to illuminance using luminous efficacy."""
+    if elevation_deg <= 0.0:
+        return 0.0, "night"
+    cosz = max(0.0, math.sin(math.radians(elevation_deg)))
+    k_dir = float(cfg.get("luminous_efficacy_direct", 105.0))
+    k_diff = float(cfg.get("luminous_efficacy_diffuse", 120.0))
+    k_glob = float(cfg.get("luminous_efficacy_global", 110.0))
+    if dni is not None and dhi is not None:
+        try:
+            direct = max(0.0, float(dni)) * cosz
+            diffuse = max(0.0, float(dhi))
+            return direct * k_dir + diffuse * k_diff, "dni+dhi"
+        except (TypeError, ValueError):
+            pass
+    if ghi is not None:
+        try:
+            return max(0.0, float(ghi)) * k_glob, "ghi"
+        except (TypeError, ValueError):
+            pass
+    return clear_sky_ghi(elevation_deg) * k_glob * 0.75, "fallback"
+
+
+# --------------------------------------------------------------------------
+# weather: Open-Meteo current radiation already includes cloud attenuation
+# --------------------------------------------------------------------------
+
+
+def weather_request(cfg: dict, lat: float, lon: float) -> str:
+    query = urllib.parse.urlencode(
+        {
+            "latitude": f"{lat:.6f}",
+            "longitude": f"{lon:.6f}",
+            "current": ",".join(
+                [
+                    "temperature_2m",
+                    "is_day",
+                    "weather_code",
+                    "cloud_cover",
+                    "shortwave_radiation",
+                    "direct_normal_irradiance",
+                    "diffuse_radiation",
+                ]
+            ),
+            "hourly": "shortwave_radiation",
+            "daily": "sunrise,sunset,daylight_duration",
+            "timezone": "auto",
+            "forecast_days": 2,
+        }
+    )
+    return f"{cfg['weather_url']}?{query}"
+
+
+def fetch_weather(cfg: dict, lat: float, lon: float) -> dict:
+    # Lucid already uses curl for its weather/geoip calls. Use the same path:
+    # it keeps proxy/TLS behaviour identical and avoids Python's differing
+    # socket stack on this host.
+    timeout = float(cfg["weather_timeout_seconds"])
+    command = [
+        str(cfg.get("curl", "curl")),
+        "-sf",
+        "--max-time",
+        str(int(timeout)),
+        weather_request(cfg, lat, lon),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 5.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"curl could not run: {exc}") from exc
+    if result.returncode != 0:
+        raise ValueError(
+            f"curl exited {result.returncode}: {result.stderr.strip() or 'no output'}"
+        )
+    data = json.loads(result.stdout)
+    if not isinstance(data, dict) or "current" not in data:
+        raise ValueError("weather service returned no current block")
+    return data
+
+
+def weather_cache_path(cfg: dict) -> Path:
+    return expand(cfg["cache_dir"]) / "weather.json"
+
+
+def location_key(loc: dict) -> str:
+    return f"{loc['lat']:.5f},{loc['lon']:.5f}"
+
+
+def get_weather(cfg: dict, loc: dict) -> tuple[dict | None, float | None, str]:
+    """Return (data, age_seconds, source); never let a network blip wipe the day."""
+    now = time.time()
+    key = location_key(loc)
+    cached = read_json(weather_cache_path(cfg))
+    if cached and cached.get("key") == key:
+        age = max(0.0, now - float(cached.get("fetched_at", 0)))
+        if age <= float(cfg["weather_refresh_seconds"]):
+            return cached.get("data"), age, "cache"
+    else:
+        cached = None
+        age = None
+
+    try:
+        data = fetch_weather(cfg, loc["lat"], loc["lon"])
+        write_json(
+            weather_cache_path(cfg),
+            {"key": key, "fetched_at": now, "data": data},
+        )
+        return data, 0.0, "network"
+    except (OSError, ValueError) as exc:
+        log.warning("Weather fetch failed: %s", exc)
+        if cached and cached.get("data"):
+            return cached.get("data"), age, "stale-cache"
+        return None, None, "unavailable"
+
+
+# --------------------------------------------------------------------------
+# light -> effect
+# --------------------------------------------------------------------------
+
+
+def reference_radiation(
+    cfg: dict,
+    data: dict | None,
+    now: datetime,
+    max_elevation: float,
+) -> tuple[float, str]:
+    mode = str(cfg.get("reference", "clear_sky_noon")).lower()
+    if mode == "absolute":
+        return max(1.0, float(cfg["absolute_max_radiation"])), mode
+
+    if mode == "day_peak" and data:
+        hourly = data.get("hourly") or {}
+        times = hourly.get("time") or []
+        values = hourly.get("shortwave_radiation") or []
+        today = now.astimezone().date().isoformat()
+        peak = 0.0
+        for stamp, value in zip(times, values):
+            if str(stamp).startswith(today) and value is not None:
+                try:
+                    peak = max(peak, float(value))
+                except (TypeError, ValueError):
+                    pass
+        if peak > 1.0:
+            return peak, "day_peak"
+
+    return max(1.0, clear_sky_ghi(max_elevation)), "clear_sky_noon"
+
+
+def base_effect(fraction: float, start: float, easing: str) -> float:
+    start = max(1e-6, float(start))
+    if fraction >= start:
+        return 0.0
+    x = max(0.0, min(1.0, (start - fraction) / start))
+    if str(easing).lower() == "smoothstep":
+        x = x * x * (3.0 - 2.0 * x)
+    return x
+
+
+def quantize_effect(effect: float, step: float) -> float:
+    step = max(0.001, min(1.0, float(step)))
+    level = round(effect / step) * step
+    if level < step * 0.5:
+        return 0.0
+    return max(0.0, min(1.0, level))
+
+
+def inactive_extra_dim(cfg: dict, level: float) -> tuple[float, float]:
+    """Return (total inactive black dim, extra overlay alpha).
+
+    The screen shader is global, so it carries the focused-screen cap. Other
+    outputs get the rest as a click-through black layer in Quickshell.
+    """
+    active = max(0.0, min(1.0, float(cfg["max_black_overlay"]) * level))
+    inactive = max(
+        0.0, min(1.0, float(cfg.get("max_black_overlay_inactive", 0.5)) * level)
+    )
+    if inactive <= active or active >= 1.0:
+        return inactive, 0.0
+    # The shader now dims in linear light. The click-through overlay is an
+    # sRGB black rectangle, so convert the remaining linear light factor back
+    # to the sRGB alpha that produces it.
+    wanted = (1.0 - inactive) / (1.0 - active)
+    extra = 1.0 - wanted ** (1.0 / 2.2)
+    return inactive, max(0.0, min(1.0, extra))
+
+
+# --------------------------------------------------------------------------
+# shader generation / Hyprland application
+# --------------------------------------------------------------------------
+
+
+CONST_RE = {
+    "mix": re.compile(r"(const\s+float\s+EINK_MIX\s*=\s*)([-+0-9.eE]+)(\s*;)"),
+    "dim": re.compile(r"(const\s+float\s+BLACK_DIM\s*=\s*)([-+0-9.eE]+)(\s*;)"),
+}
+PRELUDE_MARKER = "// AMBIENT_TRANSITION_PRELUDE"
+APPLY_MARKER = "// AMBIENT_TRANSITION_APPLY"
+
+
+def render_shader(
+    source: Path,
+    mix: float,
+    dim: float,
+    transition: tuple[float, float, float] | None = None,
+    focus_output: int | None = None,
+    primary_output: int | None = None,
+    primary_mix: float | None = None,
+    primary_dim: float | None = None,
+) -> str:
+    text = source.read_text(encoding="utf-8")
+    for name, value in (("mix", mix), ("dim", dim)):
+        pattern = CONST_RE[name]
+        if not pattern.search(text):
+            raise RuntimeError(
+                f"{source} is missing the {name} constant "
+                f"(expected EINK_MIX / BLACK_DIM)"
+            )
+        text = pattern.sub(
+            lambda m, v=value: f"{m.group(1)}{v:.4f}{m.group(3)}", text, count=1
+        )
+
+    prelude = ""
+    apply_code = ""
+    if transition is not None:
+        from_mix, from_dim, seconds = transition
+        prelude = (
+            "uniform float time;\n"
+            f"const float AMBIENT_MIX_FROM = {from_mix:.4f};\n"
+            f"const float AMBIENT_MIX_TO = {mix:.4f};\n"
+            f"const float AMBIENT_DIM_FROM = {from_dim:.4f};\n"
+            f"const float AMBIENT_DIM_TO = {dim:.4f};\n"
+            f"const float AMBIENT_TRANSITION_SECONDS = {seconds:.4f};"
+        )
+        apply_code = (
+            "    float ambientT = clamp(time / max(AMBIENT_TRANSITION_SECONDS, 0.001), 0.0, 1.0);\n"
+            "    ambientT = ambientT * ambientT * (3.0 - 2.0 * ambientT);\n"
+            "    einkMix = mix(AMBIENT_MIX_FROM, AMBIENT_MIX_TO, ambientT);\n"
+            "    blackDim = mix(AMBIENT_DIM_FROM, AMBIENT_DIM_TO, ambientT);"
+        )
+
+    if (
+        focus_output is not None
+        and primary_output is not None
+        and focus_output == primary_output
+        and primary_mix is not None
+        and primary_dim is not None
+    ):
+        prelude += (
+            "\nuniform int wl_output;\n"
+            f"const int AMBIENT_FOCUS_OUTPUT = {int(focus_output)};\n"
+            f"const int AMBIENT_PRIMARY_OUTPUT = {int(primary_output)};\n"
+            f"const float AMBIENT_PRIMARY_MIX = {primary_mix:.4f};\n"
+            f"const float AMBIENT_PRIMARY_DIM = {primary_dim:.4f};"
+        )
+        apply_code += (
+            "\n    if (wl_output == AMBIENT_FOCUS_OUTPUT) {\n"
+            "        einkMix = AMBIENT_PRIMARY_MIX;\n"
+            "        blackDim = AMBIENT_PRIMARY_DIM;\n"
+            "    }"
+        )
+
+    text = text.replace(PRELUDE_MARKER, prelude, 1)
+    text = text.replace(APPLY_MARKER, apply_code, 1)
+    return text
+
+
+def generated_shader(
+    cfg: dict,
+    level: float,
+    write: bool = True,
+    transition_from: float | None = None,
+    full_eink: bool = False,
+    transition_from_full_eink: bool | None = None,
+    focus_output: int | None = None,
+    primary_output: int | None = None,
+) -> Path | None:
+    level = max(0.0, min(1.0, float(level)))
+    if transition_from is not None and abs(float(transition_from) - level) <= 0.0001:
+        transition_from = None
+    if level <= 0.0 and transition_from is None and not full_eink:
+        return None
+
+    max_mix = float(cfg["max_shader_mix"])
+    max_dim = float(cfg["max_black_overlay"])
+    mix = 1.0 if full_eink else max(0.0, min(1.0, round(max_mix * level, 4)))
+    dim = max(0.0, min(1.0, round(max_dim * level, 4)))
+    source = expand(cfg["shader_source"])
+
+    transition = None
+    from_level = None
+    if transition_from is not None:
+        from_level = max(0.0, min(1.0, float(transition_from)))
+        if transition_from_full_eink is None:
+            transition_from_full_eink = full_eink
+        from_mix = (
+            1.0
+            if transition_from_full_eink
+            else max(0.0, min(1.0, round(max_mix * from_level, 4)))
+        )
+        from_dim = max(0.0, min(1.0, round(max_dim * from_level, 4)))
+        seconds = max(0.0, float(cfg.get("transition_seconds", 5.0)))
+        if abs(from_level - level) > 0.0001 and seconds > 0.0:
+            transition = (from_mix, from_dim, seconds)
+        else:
+            from_level = None
+
+    primary_mix = mix
+    primary_dim = dim
+    if not full_eink:
+        primary_mix = max(0.0, min(1.0, round(mix * float(cfg.get("primary_eink_scale", 0.5)), 4)))
+    primary_dim = max(0.0, min(1.0, round(dim * float(cfg.get("primary_dim_scale", 0.5)), 4)))
+    text = render_shader(
+        source,
+        mix,
+        dim,
+        transition,
+        focus_output=focus_output,
+        primary_output=primary_output,
+        primary_mix=primary_mix,
+        primary_dim=primary_dim,
+    )
+    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
+    shader_dir = expand(cfg["cache_dir"]) / "shaders"
+    prefix = "eink-rm-" if full_eink else "eink-"
+    if transition is None:
+        name = f"{prefix}{int(round(level * 100)):03d}-{digest}.glsl"
+    else:
+        name = (
+            f"{prefix}tr-{int(round(from_level * 100)):03d}-"
+            f"{int(round(level * 100)):03d}-{digest}.glsl"
+        )
+    path = shader_dir / name
+    if write:
+        shader_dir.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, path)
+    return path
+
+
+STATIC_SHADER_RE = re.compile(r"^eink-(rm-)?(\d{3})-[0-9a-f]+\.glsl$")
+TRANSITION_SHADER_RE = re.compile(r"^eink-(rm-)?tr-(\d{3})-(\d{3})-[0-9a-f]+\.glsl$")
+
+
+def generated_info(cfg: dict, path: str | None) -> tuple[float, bool] | None:
+    if not is_generated(cfg, path):
+        return None
+    name = Path(str(path)).name
+    match = TRANSITION_SHADER_RE.match(name)
+    if match:
+        return int(match.group(3)) / 100.0, bool(match.group(1))
+    match = STATIC_SHADER_RE.match(name)
+    if match:
+        return int(match.group(2)) / 100.0, bool(match.group(1))
+    return None
+
+
+def generated_level(cfg: dict, path: str | None) -> float | None:
+    info = generated_info(cfg, path)
+    return None if info is None else info[0]
+
+
+def is_transition_shader(cfg: dict, path: str | None) -> bool:
+    return bool(path and is_generated(cfg, path) and TRANSITION_SHADER_RE.match(Path(str(path)).name))
+
+
+def is_reading_shader(cfg: dict, path: str | None) -> bool:
+    info = generated_info(cfg, path)
+    return bool(info and info[1])
+
+
+def hypr_env() -> dict:
+    env = os.environ.copy()
+    if env.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return env
+    runtime = Path(env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "hypr"
+    try:
+        candidates = [
+            item.name
+            for item in runtime.iterdir()
+            if item.is_dir() and (item / ".socket.sock").exists()
+        ]
+    except OSError:
+        candidates = []
+    if len(candidates) == 1:
+        env["HYPRLAND_INSTANCE_SIGNATURE"] = candidates[0]
+    return env
+
+
+def hypr_run(cfg: dict, args: list[str], timeout: float = 3.0) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(cfg.get("hyprctl", "hyprctl")), *args],
+        env=hypr_env(),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def monitor_list(cfg: dict) -> list[dict]:
+    try:
+        result = hypr_run(cfg, ["-j", "monitors"])
+        data = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def focused_output(cfg: dict) -> tuple[int | None, str | None]:
+    for m in monitor_list(cfg):
+        if m.get("focused"):
+            try:
+                return int(m["id"]), str(m.get("name", ""))
+            except (KeyError, TypeError, ValueError):
+                return None, None
+    return None, None
+
+
+def output_id_by_name(cfg: dict, name: str) -> int | None:
+    if not name:
+        return None
+    for m in monitor_list(cfg):
+        if str(m.get("name", "")) == name:
+            try:
+                return int(m["id"])
+            except (KeyError, TypeError, ValueError):
+                return None
+    return None
+
+
+def active_shader(cfg: dict) -> str | None:
+    try:
+        result = hypr_run(cfg, ["-j", "getoption", "decoration:screen_shader"])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("Could not read Hyprland shader: %s", exc)
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    value = data.get("str")
+    return value if isinstance(value, str) else ""
+
+
+def same_path(a: str | None, b: str | Path | None) -> bool:
+    if a is None or b is None:
+        return False
+    try:
+        return os.path.realpath(str(a)) == os.path.realpath(str(b))
+    except OSError:
+        return str(a) == str(b)
+
+
+def is_generated(cfg: dict, path: str | None) -> bool:
+    if path in (None, ""):
+        return False
+    shader_dir = os.path.realpath(str(expand(cfg["cache_dir"]) / "shaders"))
+    candidate = os.path.realpath(str(path))
+    return os.path.commonpath([shader_dir, candidate]) == shader_dir
+
+
+def set_shader(cfg: dict, path: Path) -> bool:
+    # hyprctl keyword is gone in the Lua-config build; hl.config is the
+    # runtime equivalent and does not re-run the config like `reload` does.
+    script = 'hl.config({decoration={screen_shader=%s}})' % json.dumps(str(path))
+    try:
+        result = hypr_run(cfg, ["eval", script])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("Could not set Hyprland shader: %s", exc)
+        return False
+    if result.returncode != 0:
+        log.warning("Hyprland rejected shader %s: %s", path, result.stderr.strip())
+        return False
+    return True
+
+
+def get_damage_tracking(cfg: dict) -> int | None:
+    try:
+        result = hypr_run(cfg, ["-j", "getoption", "debug:damage_tracking"])
+        data = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None
+    value = data.get("int")
+    if value is None:
+        value = data.get("float")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def set_damage_tracking(cfg: dict, value: int) -> bool:
+    script = "hl.config({debug={damage_tracking=%d}})" % int(value)
+    try:
+        result = hypr_run(cfg, ["eval", script])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("Could not set damage tracking: %s", exc)
+        return False
+    return result.returncode == 0
+
+
+def animate_to(
+    cfg: dict,
+    from_level: float,
+    to_level: float,
+    full_eink: bool = False,
+    focus_output: int | None = None,
+    primary_output: int | None = None,
+) -> tuple[str, Path | None]:
+    """Apply a shader that eases itself from from_level to to_level.
+
+    Hyprland's `time` uniform only advances while damage tracking is off, so
+    the transition temporarily disables it, then swaps in a static shader and
+    restores the previous value. The whole transition is one shader load.
+    """
+    transition = generated_shader(
+        cfg,
+        to_level,
+        transition_from=from_level,
+        full_eink=full_eink,
+        focus_output=focus_output,
+        primary_output=primary_output,
+    )
+    target = generated_shader(
+        cfg,
+        to_level,
+        full_eink=full_eink,
+        focus_output=focus_output,
+        primary_output=primary_output,
+    )
+    main = expand(cfg["main_shader"])
+    seconds = max(0.0, float(cfg.get("transition_seconds", 5.0)))
+
+    if transition is None or seconds <= 0.0:
+        desired = target if target is not None else main
+        return ("applied" if set_shader(cfg, desired) else "failed"), target
+
+    previous_damage = get_damage_tracking(cfg)
+    if previous_damage is None:
+        previous_damage = 2
+    write_json(
+        transition_path(cfg),
+        {
+            "damage_before": previous_damage,
+            "from": round(from_level, 4),
+            "to": round(to_level, 4),
+            "target": str(target) if target is not None else str(main),
+        },
+    )
+    if previous_damage != 0 and not set_damage_tracking(cfg, 0):
+        log.warning("Could not enable high-refresh mode for the shader transition")
+    if not set_shader(cfg, transition):
+        set_damage_tracking(cfg, previous_damage)
+        try:
+            transition_path(cfg).unlink()
+        except OSError:
+            pass
+        return "failed", target
+
+    log.info("Transitioning %.0f%% -> %.0f%% over %.1fs", from_level * 100, to_level * 100, seconds)
+    WAKE.clear()
+    started = time.monotonic()
+    interrupted = False
+    while True:
+        elapsed = time.monotonic() - started
+        if elapsed >= seconds:
+            break
+        if WAKE.wait(min(0.05, max(0.0, seconds - elapsed))):
+            interrupted = True
+            break
+
+    if interrupted:
+        progress = max(0.0, min(1.0, (time.monotonic() - started) / seconds))
+        progress = progress * progress * (3.0 - 2.0 * progress)
+        actual = from_level + (to_level - from_level) * progress
+        actual = quantize_effect(actual, float(cfg.get("effect_step", 0.02)))
+        static_actual = generated_shader(
+            cfg,
+            actual,
+            full_eink=full_eink,
+            focus_output=focus_output,
+            primary_output=primary_output,
+        )
+        final = static_actual if static_actual is not None else main
+        ok = set_shader(cfg, final)
+        set_damage_tracking(cfg, previous_damage)
+        try:
+            transition_path(cfg).unlink()
+        except OSError:
+            pass
+        return ("retarget" if ok else "failed"), static_actual
+
+    # Leave the shader on a static value before time starts being pinned at 0
+    # again, otherwise it would snap back to the start of the fade.
+    final = target if target is not None else main
+    ok = set_shader(cfg, final)
+    set_damage_tracking(cfg, previous_damage)
+    try:
+        transition_path(cfg).unlink()
+    except OSError:
+        pass
+    action = "applied" if ok else "failed"
+    if target is None:
+        action = "restored" if ok else "failed"
+    return action, target
+
+
+def recover_transition(cfg: dict) -> None:
+    """Finish a transition left behind by a crash, and free damage tracking."""
+    data = read_json(transition_path(cfg))
+    if not data:
+        return
+    target_text = str(data.get("target", ""))
+    try:
+        damage_before = int(data.get("damage_before", 2))
+    except (TypeError, ValueError):
+        damage_before = 2
+    current = active_shader(cfg)
+    if is_generated(cfg, current):
+        target = expand(target_text) if target_text else expand(cfg["main_shader"])
+        if target.exists():
+            set_shader(cfg, target)
+        else:
+            set_shader(cfg, expand(cfg["main_shader"]))
+    set_damage_tracking(cfg, damage_before)
+    try:
+        transition_path(cfg).unlink()
+    except OSError:
+        pass
+    log.info("Recovered a pending shader transition")
+
+
+def apply_effect(
+    cfg: dict,
+    level: float,
+    enabled: bool,
+    reading: bool = False,
+    focus_output: int | None = None,
+    primary_output: int | None = None,
+) -> tuple[str, Path | None]:
+    """Return (action, desired_path). Manual shaders are left untouched."""
+    target_level = level if enabled else 0.0
+    target = generated_shader(
+        cfg,
+        target_level,
+        full_eink=reading,
+        focus_output=focus_output,
+        primary_output=primary_output,
+    )
+    current = active_shader(cfg)
+    if current is None:
+        return "no-hyprland", target
+
+    ours = is_generated(cfg, current)
+    main = expand(cfg["main_shader"])
+    neutral = current == "" or same_path(current, main)
+    reading_fallback = same_path(current, expand(cfg["shader_source"]))
+
+    if not ours and not neutral and not reading_fallback:
+        return "deferred", target
+
+    if neutral:
+        current_level, current_full_eink = 0.0, False
+    elif reading_fallback:
+        current_level, current_full_eink = 0.0, True
+    else:
+        info = generated_info(cfg, current)
+        if info is None:
+            return "deferred", target
+        current_level, current_full_eink = info
+
+    if target is not None and same_path(current, target):
+        return "unchanged", target
+    if target is None and current_level <= 0.0 and neutral:
+        return "idle", None
+
+    if is_transition_shader(cfg, current):
+        if (
+            abs(current_level - target_level) < 0.0001
+            and current_full_eink == reading
+        ):
+            final = target if target is not None else main
+            return ("applied" if set_shader(cfg, final) else "failed"), target
+        return animate_to(
+            cfg,
+            current_level,
+            target_level,
+            full_eink=reading,
+            focus_output=focus_output,
+            primary_output=primary_output,
+        )
+
+    if abs(current_level - target_level) < 0.0001:
+        if current_full_eink != reading:
+            # Same brightness, different mode (auto <-> full e-ink reading).
+            final = target if target is not None else main
+            return ("applied" if set_shader(cfg, final) else "failed"), target
+        if target is not None and not same_path(current, target):
+            # Same level, different shader (e.g. a mix/dim tuning change).
+            return ("applied" if set_shader(cfg, target) else "failed"), target
+        return ("idle" if target is None else "unchanged"), target
+
+    if current_full_eink != reading:
+        # Don't blend across modes; switch to the target directly.
+        final = target if target is not None else main
+        return ("applied" if set_shader(cfg, final) else "failed"), target
+    return animate_to(
+        cfg,
+        current_level,
+        target_level,
+        full_eink=reading,
+        focus_output=focus_output,
+        primary_output=primary_output,
+    )
+
+
+# --------------------------------------------------------------------------
+# one measurement cycle
+# --------------------------------------------------------------------------
+
+
+def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict:
+    now = datetime.now().astimezone()
+    loc = read_location(cfg)
+    focus_id, focus_name = focused_output(cfg)
+    primary_id = output_id_by_name(cfg, str(cfg.get("primary_output", "")))
+    data, weather_age, weather_source = get_weather(cfg, loc)
+
+    utc_now = now.astimezone(timezone.utc)
+    elevation, azimuth = solar_position(utc_now, loc["lat"], loc["lon"])
+    max_elevation, max_at = max_sun_elevation_today(now, loc["lat"], loc["lon"])
+    reference, reference_source = reference_radiation(cfg, data, now, max_elevation)
+
+    current_block = (data or {}).get("current") or {}
+    daily_block = (data or {}).get("daily") or {}
+    sunrise = (daily_block.get("sunrise") or [None])[0]
+    sunset = (daily_block.get("sunset") or [None])[0]
+    api_radiation = current_block.get("shortwave_radiation")
+    max_age = float(cfg.get("max_weather_age_seconds", 7200))
+    fresh = weather_age is not None and weather_age <= max_age
+
+    if elevation <= 0.0:
+        radiation = 0.0
+        radiation_source = "sun-below-horizon"
+    elif api_radiation is not None and fresh:
+        try:
+            radiation = max(0.0, float(api_radiation))
+            radiation_source = "open-meteo" if weather_source == "network" else f"open-meteo/{weather_source}"
+        except (TypeError, ValueError):
+            radiation = clear_sky_ghi(elevation) * 0.75
+            radiation_source = "clear-sky-fallback"
+    else:
+        # Don't turn a network outage into a bright-screen surprise in the
+        # middle of the day.
+        radiation = clear_sky_ghi(elevation) * 0.75
+        radiation_source = "clear-sky-fallback"
+
+    light_mode = str(cfg.get("reference", "photometric")).lower()
+    lux = None
+    clear_lux = None
+    lux_source = None
+    if light_mode == "photometric":
+        floor = float(cfg.get("twilight_floor_deg", -6.0))
+        span = max(1e-6, max_elevation - floor)
+        sun_fraction = max(0.0, min(1.0, (elevation - floor) / span))
+
+        dni = current_block.get("direct_normal_irradiance") if fresh else None
+        dhi = current_block.get("diffuse_radiation") if fresh else None
+        ghi = current_block.get("shortwave_radiation") if fresh else None
+        lux, lux_source = photometric_lux(elevation, dni, dhi, ghi, cfg)
+        clear_lux = clear_sky_lux(max_elevation, cfg)
+        photo_fraction = (
+            max(0.0, min(1.0, lux / clear_lux)) if clear_lux > 1.0 else 0.0
+        )
+
+        # Keep a perceptual civil-twilight tail near the horizon; above a few
+        # degrees the measured photometric illuminance takes over completely.
+        t = max(0.0, min(1.0, (elevation - floor) / (3.0 - floor)))
+        blend = t * t * (3.0 - 2.0 * t)
+        fraction = sun_fraction * (1.0 - blend) + photo_fraction * blend
+
+        clear_now = clear_sky_ghi(elevation)
+        weather_transmission = (
+            max(0.0, min(1.0, radiation / clear_now))
+            if clear_now > 1.0
+            else (1.0 if radiation > 0.0 else 0.0)
+        )
+        if elevation <= floor:
+            weather_transmission = 0.0
+        weather_for_light = None
+        reference = clear_sky_ghi(max_elevation)
+        reference_source = "photometric"
+        light_source = f"{lux_source}+lux"
+    elif light_mode == "perceptual":
+        floor = float(cfg.get("twilight_floor_deg", -6.0))
+        span = max(1e-6, max_elevation - floor)
+        sun_fraction = max(0.0, min(1.0, (elevation - floor) / span))
+        if elevation <= floor:
+            weather_transmission = 0.0
+        elif elevation <= 0.0:
+            # Direct shortwave is gone, but the sky is still glowing through
+            # civil twilight; let the solar fraction carry the fade.
+            weather_transmission = 1.0
+        else:
+            clear_now = clear_sky_ghi(elevation)
+            weather_transmission = (
+                max(0.0, min(1.0, radiation / clear_now))
+                if clear_now > 1.0
+                else (1.0 if radiation > 0.0 else 0.0)
+            )
+        weather_for_light = weather_transmission
+        damping = max(0.0, min(1.0, float(cfg.get("weather_damping", 0.5))))
+        weather_for_light = (1.0 - damping) + damping * weather_transmission
+        fraction = max(0.0, min(1.0, sun_fraction * weather_for_light))
+        reference = clear_sky_ghi(max_elevation)
+        reference_source = "perceptual"
+        light_source = f"{radiation_source}+sun-fraction"
+    else:
+        sun_fraction = None
+        weather_transmission = None
+        weather_for_light = None
+        reference, reference_source = reference_radiation(cfg, data, now, max_elevation)
+        fraction = max(0.0, min(1.0, radiation / reference))
+        light_source = radiation_source
+
+    auto_effect = base_effect(fraction, float(cfg["luminance_start"]), str(cfg["easing"]))
+    enabled = bool(cfg.get("enabled", True))
+    manual = read_manual_override(cfg) if enabled else None
+    reading = reading_mode_on(cfg)
+
+    if not enabled:
+        effect = 0.0
+        effect_source = "disabled"
+    elif manual is not None:
+        effect = max(0.0, min(1.0, 1.0 - manual["brightness"] / 100.0))
+        effect_source = "manual"
+    else:
+        effect = auto_effect
+        effect_source = "ambient"
+
+    # A weather update can drop shortwave by 10x in one sample. Never jump the
+    # automatic target straight to the far end; walk it there instead. Manual
+    # brightness changes and brightening are immediate.
+    if runtime is not None:
+        last = runtime.get("last_target")
+        if last is not None and effect_source == "ambient" and effect > last:
+            step = max(0.0, float(cfg.get("max_auto_increase_per_tick", 0.10)))
+            effect = min(effect, last + step)
+        runtime["last_target"] = effect
+
+    level = quantize_effect(effect, float(cfg["effect_step"]))
+    inactive_dim, extra_dim = inactive_extra_dim(cfg, level)
+    if not dry_run:
+        write_text(cache_path(cfg, "inactive_extra_dim"), f"{extra_dim:.4f}\n")
+
+    if dry_run:
+        desired = generated_shader(
+            cfg,
+            level,
+            write=False,
+            full_eink=reading,
+            focus_output=focus_id,
+            primary_output=primary_id,
+        )
+        action = "dry-run"
+    else:
+        recover_transition(cfg)
+        action, desired = apply_effect(
+            cfg,
+            level,
+            enabled,
+            reading=reading,
+            focus_output=focus_id,
+            primary_output=primary_id,
+        )
+        auto_target = (
+            generated_shader(
+                cfg,
+                level,
+                focus_output=focus_id,
+                primary_output=primary_id,
+            )
+            if enabled
+            else None
+        )
+        reading_target = generated_shader(
+            cfg,
+            level,
+            full_eink=True,
+            focus_output=focus_id,
+            primary_output=primary_id,
+        )
+        write_text(
+            cache_path(cfg, "auto_shader"),
+            str(auto_target) if auto_target is not None else "",
+        )
+        write_text(cache_path(cfg, "reading_shader"), str(reading_target))
+        if enabled:
+            if effect_source == "manual":
+                write_virtual_brightness(cfg, int(manual["brightness"]), auto=False)
+            else:
+                write_virtual_brightness(
+                    cfg, clamp_percent((1.0 - auto_effect) * 100.0), auto=True
+                )
+
+    mix = round(float(cfg["max_shader_mix"]) * level, 4)
+    dim = round(float(cfg["max_black_overlay"]) * level, 4)
+    state = {
+        "updated": now.isoformat(timespec="seconds"),
+        "enabled": enabled,
+        "location": loc,
+        "display": {
+            "focused_output": focus_name,
+            "focused_output_id": focus_id,
+            "primary_output": str(cfg.get("primary_output", "")),
+            "primary_output_id": primary_id,
+            "primary_boost": bool(
+                focus_id is not None and primary_id is not None and focus_id == primary_id
+            ),
+        },
+        "sun": {
+            "elevation_deg": round(elevation, 2),
+            "azimuth_deg": round(azimuth, 2),
+            "max_elevation_deg": round(max_elevation, 2),
+            "max_at": max_at.isoformat(timespec="minutes"),
+            "is_up": elevation > 0.0,
+            "sunrise": sunrise,
+            "sunset": sunset,
+            "twilight_floor_deg": float(cfg.get("twilight_floor_deg", -6.0)),
+            "fraction": None if sun_fraction is None else round(sun_fraction, 4),
+        },
+        "weather": {
+            "source": weather_source,
+            "age_seconds": None if weather_age is None else round(weather_age),
+            "fetched": (data or {}).get("current", {}).get("time"),
+            "cloud_cover": current_block.get("cloud_cover"),
+            "weather_code": current_block.get("weather_code"),
+            "temperature_c": current_block.get("temperature_2m"),
+        },
+        "light": {
+            "radiation_wm2": round(radiation, 1),
+            "reference_wm2": round(reference, 1),
+            "reference_source": reference_source,
+            "model": light_mode,
+            "fraction_of_max": round(fraction, 4),
+            "sun_fraction": None if sun_fraction is None else round(sun_fraction, 4),
+            "weather_transmission": None
+            if weather_transmission is None
+            else round(weather_transmission, 4),
+            "weather_effective": None
+            if weather_for_light is None
+            else round(weather_for_light, 4),
+            "lux": None if lux is None else round(lux, 1),
+            "clear_lux": None if clear_lux is None else round(clear_lux, 1),
+            "lux_source": lux_source,
+            "source": light_source,
+        },
+        "effect": {
+            "amount": round(effect, 4),
+            "auto_amount": round(auto_effect, 4),
+            "source": effect_source,
+            "mode": "reading" if reading else "auto",
+            "level": round(level, 4),
+            "shader_mix": 1.0 if reading else mix,
+            "black_overlay": dim,
+            "black_overlay_inactive": round(inactive_dim, 4),
+            "inactive_extra_dim": round(extra_dim, 4),
+            "action": action,
+            "shader": str(desired) if desired else None,
+        },
+        "brightness": {
+            "percent": clamp_percent((1.0 - effect) * 100.0),
+            "auto_percent": clamp_percent((1.0 - auto_effect) * 100.0),
+            "manual": None
+            if manual is None
+            else {
+                "percent": manual["brightness"],
+                "expires": datetime.fromtimestamp(manual["expires"]).astimezone().isoformat(timespec="seconds"),
+            },
+        },
+    }
+
+    if not dry_run:
+        write_json(expand(cfg["cache_dir"]) / "state.json", state)
+    return state
+
+
+def print_state(state: dict) -> None:
+    print(json.dumps(state, indent=2, sort_keys=True))
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+
+def restore(cfg: dict) -> int:
+    current = active_shader(cfg)
+    if current is None:
+        print("Hyprland is not reachable", file=sys.stderr)
+        return 1
+    led = False
+    if is_generated(cfg, current):
+        led = set_shader(cfg, expand(cfg["main_shader"]))
+        print("restored main.glsl" if led else "failed to restore main.glsl")
+    else:
+        print(f"leaving non-ambient shader alone: {current or '(none)'}")
+
+    pending = read_json(transition_path(cfg))
+    if pending:
+        try:
+            damage_before = int(pending.get("damage_before", 2))
+        except (TypeError, ValueError):
+            damage_before = 2
+        set_damage_tracking(cfg, damage_before)
+        try:
+            transition_path(cfg).unlink()
+        except OSError:
+            pass
+    # Don't leave a stale target for shader.lua to restore after the service
+    # has been stopped on purpose.
+    for name in ("auto_shader", "reading_shader"):
+        try:
+            cache_path(cfg, name).unlink()
+        except OSError:
+            pass
+    write_text(cache_path(cfg, "inactive_extra_dim"), "0\n")
+    return 0 if (led or not is_generated(cfg, current)) else 1
+
+
+def status(cfg: dict) -> int:
+    state_path = expand(cfg["cache_dir"]) / "state.json"
+    state = read_json(state_path)
+    if state is None:
+        print(f"no state yet at {state_path}", file=sys.stderr)
+    else:
+        print_state(state)
+    current = active_shader(cfg)
+    print(f"\nactive shader: {current if current is not None else '(unavailable)'}")
+    return 0
+
+
+def focus_watcher(config_path: Path) -> None:
+    last: object = object()
+    while True:
+        try:
+            cfg = load_config(config_path)
+            fid, _ = focused_output(cfg)
+            if fid != last:
+                last = fid
+                WAKE.set()
+        except Exception:
+            pass
+        time.sleep(1.5)
+
+
+def run_forever(cfg: dict, once: bool, config_path: Path) -> int:
+    log.info(
+        "ambient e-ink starting (tick %.0fs, weather %.0fs, transition %.1fs)",
+        float(cfg["tick_seconds"]),
+        float(cfg["weather_refresh_seconds"]),
+        float(cfg.get("transition_seconds", 5.0)),
+    )
+    pid_file = pid_path(cfg)
+    if not once:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()), encoding="utf-8")
+        atexit.register(lambda: pid_file.unlink(missing_ok=True))
+        signal.signal(signal.SIGHUP, wake_handler)
+        signal.signal(signal.SIGUSR1, wake_handler)
+        WAKE.clear()
+        threading.Thread(target=focus_watcher, args=(config_path,), daemon=True).start()
+    recover_transition(cfg)
+    current = active_shader(cfg)
+    info = generated_info(cfg, current) if current else None
+    runtime = {"last_target": info[0] if info else 0.0}
+    last_log: tuple[tuple, float] = ((), 0.0)
+    while True:
+        try:
+            # Re-read each tick so editing ambient-eink.json (enabled, max
+            # mix, reference mode, ...) applies without restarting the unit.
+            cfg = load_config(config_path)
+            state = cycle(cfg, runtime=runtime)
+            effect = state["effect"]
+            line = (
+                "light %.3f of max (%.0f/%.0f W/m², %s) -> effect %.0f%% "
+                "[%s; mix %.3f, black %.3f] %s"
+                % (
+                    state["light"]["fraction_of_max"],
+                    state["light"]["radiation_wm2"],
+                    state["light"]["reference_wm2"],
+                    state["light"]["source"],
+                    effect["amount"] * 100.0,
+                    effect["source"],
+                    effect["shader_mix"],
+                    effect["black_overlay"],
+                    effect["action"],
+                )
+            )
+            signature = (
+                effect["level"],
+                effect["action"],
+                effect["source"],
+                state["weather"]["source"],
+                state["light"]["source"],
+            )
+            if signature != last_log[0] or time.monotonic() - last_log[1] >= 900.0:
+                log.info(line)
+                last_log = (signature, time.monotonic())
+            else:
+                log.debug(line)
+        except Exception as exc:  # keep the daemon alive; systemd restarts on crash
+            log.exception("cycle failed: %s", exc)
+            if once:
+                return 1
+        if once:
+            return 0
+        try:
+            tick = float(cfg.get("tick_seconds", 30))
+        except (TypeError, ValueError):
+            tick = 30.0
+        WAKE.wait(max(5.0, tick))
+        WAKE.clear()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", default=str(CONFIG_FILE), help="JSON config path")
+    parser.add_argument("--once", action="store_true", help="one cycle, then exit")
+    parser.add_argument("--dry-run", action="store_true", help="measure without changing the shader")
+    parser.add_argument("--status", action="store_true", help="show the last state")
+    parser.add_argument("--restore", action="store_true", help="put main.glsl back if ambient owns the shader")
+    parser.add_argument(
+        "--brightness",
+        metavar="PERCENT",
+        help="set the virtual monitor brightness (0-100, or +5/-5), overriding the automatic effect briefly",
+    )
+    parser.add_argument("--auto", action="store_true", help="clear the manual brightness override")
+    parser.add_argument(
+        "--reading",
+        choices=["on", "off", "sync"],
+        help="enter/leave full e-ink Reading Mode through the ambient shader",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    cfg = load_config(expand(args.config))
+
+    if args.restore:
+        return restore(cfg)
+    if args.status:
+        return status(cfg)
+    if args.brightness is not None:
+        try:
+            value = set_manual_brightness(cfg, args.brightness)
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(value)
+        return 0
+    if args.auto:
+        clear_manual_override(cfg)
+        print("automatic")
+        return 0
+    if args.reading is not None:
+        if args.reading != "sync":
+            write_reading_mode(cfg, args.reading == "on")
+        signal_daemon(cfg)
+        print(args.reading)
+        return 0
+    if args.dry_run:
+        print_state(cycle(cfg, dry_run=True))
+        return 0
+    return run_forever(cfg, once=args.once, config_path=expand(args.config))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

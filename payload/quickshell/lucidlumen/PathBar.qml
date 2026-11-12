@@ -424,7 +424,7 @@ Rectangle {
             anchors.rightMargin: Theme.dp(8)
             anchors.verticalCenter: parent.verticalCenter
             role: "titleSmall"
-            text: bar.searching ? "“" + bar.tab.searchQuery + "” everywhere" + (bar.tab.searchDone ? "" : "…") : ""
+            text: bar.searching ? "“" + bar.tab.searchQuery + Tr.t("” everywhere") + (bar.tab.searchDone ? "" : "…") : ""
             color: Theme.text
             elide: Text.ElideRight
         }
@@ -437,7 +437,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             size: "xs"
             icon: "close"
-            tooltip: "End search"
+            tooltip: Tr.t("End search")
             onClicked: bar.win.endSearch()
 
             Tip {
@@ -456,7 +456,7 @@ Rectangle {
         icon: bar.typedPath ? "folder_open" : "search"
         clearable: true
         containerColor: Theme.surfaceHigh
-        placeholder: "Go to a folder, or search everything"
+        placeholder: Tr.t("Go to a folder, or search everything")
         onTextEdited: bar.typed()
         onAccepted: bar.accept()
         onEscaped: bar.cancel()

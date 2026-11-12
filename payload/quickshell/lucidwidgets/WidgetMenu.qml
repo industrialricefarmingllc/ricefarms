@@ -200,7 +200,7 @@ Item {
                             width: parent.width
                             role: "bodySmall"
                             color: Theme.subtext
-                            text: (menu.variantInfo ? menu.variantInfo.name : "") + (menu.frame && menu.frame.pinned ? "  ·  locked" : "")
+                            text: (menu.variantInfo ? menu.variantInfo.name : "") + (menu.frame && menu.frame.pinned ? Tr.t("  ·  locked") : "")
                             elide: Text.ElideRight
                         }
 
@@ -223,7 +223,7 @@ Item {
                             size: "xs"
                             icon: "keep"
                             iconFill: checked ? 1 : 0
-                            tooltip: checked ? "Unlock" : "Lock in place"
+                            tooltip: checked ? Tr.t("Unlock") : Tr.t("Lock in place")
                             onClicked: {
                                 if (menu.frame)
                                     Widgets.togglePinned(menu.frame.uid);
@@ -244,7 +244,7 @@ Item {
                 // style: every face of this card, drawn small and live
                 Section {
                     visible: menu.typeInfo !== null && menu.typeInfo.variants.length > 1
-                    title: "Style"
+                    title: Tr.t("Style")
 
                     Flow {
                         width: body.width
@@ -345,7 +345,7 @@ Item {
                 // colour: the m3 container the card sits on
                 Section {
                     visible: menu.frame !== null && !menu.frame.bare
-                    title: "Colour"
+                    title: Tr.t("Colour")
 
                     Row {
                         width: body.width
@@ -450,7 +450,7 @@ Item {
 
                 // size: a zoom step, or for a stretchable card its numbers and two shortcuts
                 Section {
-                    title: "Size"
+                    title: Tr.t("Size")
 
                     ButtonGroup {
                         visible: !menu.resizable
@@ -482,7 +482,7 @@ Item {
                         leftPadding: Theme.dp(4)
                         role: "bodySmall"
                         color: Theme.subtext
-                        text: menu.frame ? Math.round(menu.frame.bodyW) + " × " + Math.round(menu.frame.bodyH) + (menu.verticalOnly ? "  ·  drag the top or bottom edge" : "  ·  drag any edge") : ""
+                        text: menu.frame ? Math.round(menu.frame.bodyW) + Tr.t(" × ") + Math.round(menu.frame.bodyH) + (menu.verticalOnly ? Tr.t("  ·  drag the top or bottom edge") : Tr.t("  ·  drag any edge")) : ""
                     }
 
                     Row {
@@ -493,7 +493,7 @@ Item {
                             variant: "tonal"
                             size: "xs"
                             icon: "width_full"
-                            text: "Full width"
+                            text: Tr.t("Full width")
                             visible: !menu.verticalOnly
                             onClicked: {
                                 if (menu.frame)
@@ -506,7 +506,7 @@ Item {
                             variant: "tonal"
                             size: "xs"
                             icon: "restart_alt"
-                            text: "Reset"
+                            text: Tr.t("Reset")
                             onClicked: {
                                 if (menu.frame)
                                     Widgets.resetSize(menu.frame.uid);
@@ -521,7 +521,7 @@ Item {
                 // options: switches as one grouped list, choices under their labels
                 Section {
                     visible: menu.optionList.length > 0
-                    title: "Options"
+                    title: Tr.t("Options")
 
                     Column {
                         visible: menu.boolOptions.length > 0
@@ -618,7 +618,7 @@ Item {
                 // screen: only once there is more than one
                 Section {
                     visible: menu.screens.length > 1
-                    title: "Screen"
+                    title: Tr.t("Screen")
 
                     ButtonGroup {
                         width: body.width
@@ -648,7 +648,7 @@ Item {
                         variant: "tonal"
                         size: "s"
                         icon: "content_copy"
-                        text: "Duplicate"
+                        text: Tr.t("Duplicate")
                         disabled: Widgets.full
                         onClicked: {
                             if (!menu.frame)
@@ -665,7 +665,7 @@ Item {
                         danger: true
                         size: "s"
                         icon: "delete"
-                        text: "Remove"
+                        text: Tr.t("Remove")
                         onClicked: {
                             if (!menu.frame)
                                 return ;

@@ -80,13 +80,13 @@ Item {
 
                 LText {
                     role: "titleSmall"
-                    text: "Sources"
+                    text: Tr.t("Sources")
                     color: Theme.text
                 }
 
                 LText {
                     role: "labelSmall"
-                    text: picker.sources.length + " available · this card remembers its own selection"
+                    text: picker.sources.length + Tr.t(" available · this card remembers its own selection")
                     color: Theme.subtextDim
                     elide: Text.ElideRight
                     Layout.fillWidth: true
@@ -121,8 +121,10 @@ Item {
 
                     var maxY = Math.max(0, scroll.contentHeight - scroll.height);
                     var from = scroll.contentY;
-                    var base = wheelAnim.running ? Number(wheelAnim.to) : from;
-                    var to = Math.max(0, Math.min(maxY, base - dy * 3));
+                    var pending = wheelAnim.running ? Number(wheelAnim.to) - from : 0;
+                    var sameWay = (dy > 0 && pending <= 0) || (dy < 0 && pending >= 0);
+                    var base = wheelAnim.running && sameWay ? Number(wheelAnim.to) : from;
+                    var to = Math.max(0, Math.min(maxY, base - dy * 2.4));
                     if (Math.abs(to - from) >= 0.5) {
                         wheelAnim.stop();
                         wheelAnim.from = from;
@@ -255,7 +257,7 @@ Item {
                                     LText {
                                         Layout.fillWidth: true
                                         role: "labelSmall"
-                                        text: sourceBlock.modelData.configured === true ? (sourceBlock.modelData.description || "") : ((sourceBlock.modelData.auth_fields || []).length > 0 ? "Add credentials below" : (sourceBlock.modelData.message || "Add settings in the config"))
+                                        text: sourceBlock.modelData.configured === true ? (sourceBlock.modelData.description || "") : ((sourceBlock.modelData.auth_fields || []).length > 0 ? Tr.t("Add credentials below") : (sourceBlock.modelData.message || Tr.t("Add settings in the config")))
                                         color: Theme.subtextDim
                                         elide: Text.ElideRight
                                     }
@@ -377,7 +379,7 @@ Item {
                                             anchors.left: parent.left
                                             anchors.leftMargin: Theme.dp(54)
                                             role: "labelSmall"
-                                            text: accountRow.modelData.detail || "Personal account"
+                                            text: accountRow.modelData.detail || Tr.t("Personal account")
                                             color: Theme.subtextDim
                                         }
 
@@ -394,7 +396,7 @@ Item {
                                                 variant: "search"
                                                 icon: "lock"
                                                 password: true
-                                                placeholder: "Replace " + accountRow.modelData.label + " token"
+                                                placeholder: Tr.t("Replace ") + accountRow.modelData.label + Tr.t(" token")
                                                 text: ""
                                                 onAccepted: picker.saveAccount(sourceBlock.modelData.id, accountRow.modelData.id, accountRow.modelData.label, accountInput.text)
 
@@ -439,7 +441,7 @@ Item {
                                     anchors.left: parent.left
                                     anchors.leftMargin: Theme.dp(54)
                                     role: "labelLarge"
-                                    text: "Add account"
+                                    text: Tr.t("Add account")
                                     color: Theme.text
                                 }
 
@@ -451,7 +453,7 @@ Item {
 
                                     variant: "search"
                                     icon: "person"
-                                    placeholder: "Account name"
+                                    placeholder: Tr.t("Account name")
                                     text: picker.newAccountName
                                     onTextEdited: picker.newAccountName = text
 
@@ -487,7 +489,7 @@ Item {
                                         variant: "search"
                                         icon: "lock"
                                         password: true
-                                        placeholder: "Personal user token"
+                                        placeholder: Tr.t("Personal user token")
                                         text: picker.newAccountToken
                                         onTextEdited: picker.newAccountToken = text
 
@@ -543,7 +545,7 @@ Item {
                                         anchors.left: parent.left
                                         anchors.leftMargin: Theme.dp(54)
                                         role: "labelSmall"
-                                        text: authField.modelData.label + (authField.modelData.required === true ? "" : " · optional")
+                                        text: authField.modelData.label + (authField.modelData.required === true ? "" : Tr.t(" · optional"))
                                         color: Theme.subtext
                                     }
 
@@ -698,7 +700,7 @@ Item {
                                             LText {
                                                 Layout.fillWidth: true
                                                 role: "labelSmall"
-                                                text: streamRow.modelData.configured === false ? "Needs credentials" : (streamRow.modelData.subtitle || streamRow.modelData.kind || "")
+                                                text: streamRow.modelData.configured === false ? Tr.t("Needs credentials") : (streamRow.modelData.subtitle || streamRow.modelData.kind || "")
                                                 color: streamRow.modelData.configured === false ? Theme.error : Theme.subtextDim
                                                 elide: Text.ElideRight
                                             }
@@ -737,7 +739,7 @@ Item {
                                     anchors.leftMargin: Theme.dp(54)
                                     anchors.verticalCenter: parent.verticalCenter
                                     role: "labelSmall"
-                                    text: "No streams yet — add one in the config."
+                                    text: Tr.t("No streams yet — add one in the config.")
                                     color: Theme.subtextDim
                                 }
 
@@ -758,7 +760,7 @@ Item {
         LText {
             Layout.fillWidth: true
             role: "labelSmall"
-            text: "Changes apply to this card only. New Discord streams start off."
+            text: Tr.t("Changes apply to this card only. New Discord streams start off.")
             color: Theme.subtextDim
             wrapMode: Text.Wrap
         }

@@ -333,7 +333,7 @@ Item {
                 id: bandCount
 
                 anchors.centerIn: parent
-                text: band.count + " selected"
+                text: band.count + Tr.t(" selected")
                 color: Theme.fgAccentContainer
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelMd
@@ -508,7 +508,7 @@ Item {
 
                 visible: text !== ""
                 width: Math.min(implicitWidth, parent.width)
-                text: tip.it && tip.it.mtime ? "Modified " + DesktopIcons.when(tip.it.mtime) : ""
+                text: tip.it && tip.it.mtime ? Tr.t("Modified ") + DesktopIcons.when(tip.it.mtime) : ""
                 color: Theme.subtext
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontLabelMd

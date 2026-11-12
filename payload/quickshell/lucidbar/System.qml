@@ -119,12 +119,18 @@ BarPill {
 
     property string backlightDevice: ""
     property int maxBrightness: 0
+    property bool backlightScanned: false
+    readonly property bool virtualBrightnessMode: root.backlightScanned && root.maxBrightness <= 0
     readonly property int brightnessPercent: {
-        if (root.maxBrightness <= 0)
-            return 0;
-
-        const raw = parseInt(brightnessFile.text());
-        return isNaN(raw) ? 0 : Math.round((raw / root.maxBrightness) * 100);
+        if (root.maxBrightness > 0) {
+            const raw = parseInt(brightnessFile.text());
+            return isNaN(raw) ? 0 : Math.round((raw / root.maxBrightness) * 100);
+        }
+        if (root.virtualBrightnessMode) {
+            const v = parseInt(virtualBrightnessFile.text());
+            return isNaN(v) ? 100 : Math.max(0, Math.min(100, v));
+        }
+        return 0;
     }
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property var source: Pipewire.defaultAudioSource
@@ -632,7 +638,12 @@ BarPill {
         command: ["bash", "-c", "ls /sys/class/backlight | head -1"]
 
         stdout: StdioCollector {
-            onStreamFinished: root.backlightDevice = this.text.trim().replace(/[@/*=|]$/, "")
+            onStreamFinished: {
+                root.backlightDevice = this.text.trim().replace(/[@/*=|]$/, "");
+                root.backlightScanned = true;
+                if (root.backlightDevice === "")
+                    root.maxBrightness = 0;
+            }
         }
 
     }
@@ -654,7 +665,15 @@ BarPill {
     Process {
         id: setBrightnessProc
 
-        command: root.pendingBrightness >= 0 ? ["brightnessctl", "set", root.pendingBrightness + "%"] : []
+        command: {
+            if (root.pendingBrightness < 0)
+                return [];
+
+            if (root.maxBrightness > 0)
+                return ["brightnessctl", "set", root.pendingBrightness + "%"];
+
+            return [Quickshell.env("HOME") + "/.local/bin/lucid-ambient-eink", "--brightness", String(root.pendingBrightness)];
+        }
     }
 
     Process {
@@ -987,6 +1006,15 @@ BarPill {
         onFileChanged: reload()
     }
 
+    FileView {
+        id: virtualBrightnessFile
+
+        path: Quickshell.env("HOME") + "/.cache/lucid/ambient-eink/brightness"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+    }
+
     property date nowDate: Loc.now()
 
     Timer {
@@ -1047,19 +1075,19 @@ BarPill {
     function tileLabel(key) {
         switch (key) {
         case "location":
-            return Prefs.gpsEnabled && Loc.busy ? "Locating" : "Location";
+            return Tr.t(Prefs.gpsEnabled && Loc.busy ? "Locating" : "Location");
         case "record":
-            return Capture.active ? Capture.clock(Capture.seconds) : "Record";
+            return Capture.active ? Capture.clock(Capture.seconds) : Tr.t("Record");
         case "timer":
-            return Chrono.headline ? Chrono.countdown(Chrono.headline.left) : "Timer";
+            return Chrono.headline ? Chrono.countdown(Chrono.headline.left) : Tr.t("Timer");
         case "gamemode":
             if (root.gameModeBusy)
-                return root.gameModeOn ? "Starting" : "Stopping";
+                return Tr.t(root.gameModeOn ? "Starting" : "Stopping");
 
-            return root.gameModeFailed ? "Failed" : "Game";
+            return Tr.t(root.gameModeFailed ? "Failed" : "Game");
         }
         const t = Prefs.systemTileAt(key);
-        return t ? t.name : "";
+        return t ? Tr.t(t.name) : "";
     }
 
     function tileChecked(key) {
@@ -1599,7 +1627,7 @@ BarPill {
                             spacing: root.sp2
 
                             Slider {
-                                visible: root.maxBrightness > 0
+                                visible: root.maxBrightness > 0 || root.virtualBrightnessMode
                                 width: root.contentWidth
                                 size: "m"
                                 icon: root.brightnessIcon
@@ -1913,7 +1941,7 @@ BarPill {
                                     width: gaugeRow.width / 4
                                     value: root.cpuPercent / 100
                                     center: root.cpuHistory.length > 0 ? Math.round(root.cpuPercent) + "" : "—"
-                                    label: "CPU"
+                                    label: Tr.t("CPU")
                                     detail: root.cpuTemp > 0 ? Units.degUnit(root.cpuTemp) : ""
                                     tone: root.cpuTemp >= 85 ? Theme.error : Theme.accent
                                 }
@@ -1922,8 +1950,8 @@ BarPill {
                                     width: gaugeRow.width / 4
                                     value: root.ramPercent / 100
                                     center: root.ramHistory.length > 0 ? Math.round(root.ramPercent) + "" : "—"
-                                    label: "Memory"
-                                    detail: root.ramTotalGB > 0 ? root.ramUsedGB.toFixed(1) + " GB" : ""
+                                    label: Tr.t("Memory")
+                                    detail: root.ramTotalGB > 0 ? root.ramUsedGB.toFixed(1) + Tr.t(" GB") : ""
                                     tone: Theme.accent
                                 }
 
@@ -1931,8 +1959,8 @@ BarPill {
                                     width: gaugeRow.width / 4
                                     value: statsCard.diskPct
                                     center: statsCard.selectedDiskInfo && statsCard.selectedDiskInfo.mounted ? Math.round(statsCard.diskPct * 100) + "" : "—"
-                                    label: root.selectedDisk || "Disk"
-                                    detail: statsCard.selectedDiskInfo ? (statsCard.selectedDiskInfo.mounted ? Math.round(statsCard.selectedDiskInfo.avail / 1.07374e+09) + " GB free" : "not mounted") : ""
+                                    label: root.selectedDisk || Tr.t("Disk")
+                                    detail: statsCard.selectedDiskInfo ? (statsCard.selectedDiskInfo.mounted ? Math.round(statsCard.selectedDiskInfo.avail / 1.07374e+09) + Tr.t(" GB free") : Tr.t("not mounted")) : ""
                                     tone: statsCard.diskPct * 100 > 100 - Prefs.storageLowPercent ? Theme.error : Theme.accent
                                     clickable: root.diskList.length > 1
                                     onClicked: statsCard.cycleDisk()
@@ -1942,7 +1970,7 @@ BarPill {
                                     width: gaugeRow.width / 4
                                     value: root.batteryPresent ? root.batteryPercent / 100 : 0
                                     center: root.batteryPresent ? root.batteryPercent + "" : "—"
-                                    label: root.batteryCharging ? "Charging" : "Battery"
+                                    label: root.batteryCharging ? Tr.t("Charging") : Tr.t("Battery")
                                     detail: root.batteryDetail
                                     tone: root.batteryPercent <= 20 && !root.batteryCharging ? Theme.error : Theme.accent
                                     centerIcon: root.batteryCharging ? "bolt" : ""
@@ -2042,7 +2070,7 @@ BarPill {
                         visible: root.view === "tiles" && Prefs.isModified("systemTiles")
                         variant: "text"
                         size: "xs"
-                        text: "Reset"
+                        text: Tr.t("Reset")
                         onClicked: Prefs.resetKeys(["systemTiles"])
                     }
 
@@ -2158,7 +2186,7 @@ BarPill {
                                 disabled: !devOpt.usable
                                 icon: devOpt.lower.indexOf("head") >= 0 || devOpt.lower.indexOf("bluez") >= 0 ? "headphones" : (devOpt.lower.indexOf("hdmi") >= 0 ? "tv" : "speaker")
                                 headline: root.deviceLabel(devOpt.modelData)
-                                supporting: devOpt.isCurrent ? "Playing here" : (devOpt.usable ? "" : "Not connected")
+                                supporting: devOpt.isCurrent ? Tr.t("Playing here") : (devOpt.usable ? "" : Tr.t("Not connected"))
                                 onClicked: {
                                     if (devOpt.usable)
                                         Pipewire.preferredDefaultAudioSink = devOpt.modelData;
@@ -2181,7 +2209,7 @@ BarPill {
                             horizontalAlignment: Text.AlignHCenter
                             role: "bodyMedium"
                             color: Theme.subtext
-                            text: "No output devices"
+                            text: Tr.t("No output devices")
                             topPadding: root.sp5
                             bottomPadding: root.sp5
                         }
@@ -2203,7 +2231,7 @@ BarPill {
                                 leftPadding: Theme.dp(6)
                                 role: "titleSmall"
                                 color: Theme.primary
-                                text: "App volume"
+                                text: Tr.t("App volume")
                             }
 
                         }
@@ -2287,7 +2315,7 @@ BarPill {
                                 containerColor: pw.armed ? Theme.errorContainer : Theme.withBlur(Theme.surfaceHigh)
                                 icon: pw.modelData.icon
                                 iconColor: pw.armed ? Theme.fgErrorContainer : Theme.subtext
-                                headline: pw.armed ? "Click again to " + pw.modelData.label.toLowerCase() : pw.modelData.label
+                                headline: pw.armed ? Tr.t("Click again to ") + pw.modelData.label.toLowerCase() : pw.modelData.label
                                 onClicked: root.powerPick(pw.modelData.id)
                             }
 
@@ -2312,7 +2340,7 @@ BarPill {
                                 width: parent.width
                                 role: "bodySmall"
                                 color: Theme.subtext
-                                text: "Drag to rearrange, or tap − to take a tile out"
+                                text: Tr.t("Drag to rearrange, or tap − to take a tile out")
                                 wrapMode: Text.WordWrap
                             }
 
@@ -2327,7 +2355,7 @@ BarPill {
                                     anchors.centerIn: parent
                                     role: "bodyMedium"
                                     color: Theme.subtext
-                                    text: "The panel has no tiles"
+                                    text: Tr.t("The panel has no tiles")
                                 }
 
                                 Repeater {
@@ -2475,7 +2503,7 @@ BarPill {
                             LText {
                                 role: "titleSmall"
                                 color: root.tileOverSpare ? Theme.text : Theme.subtext
-                                text: root.tileOverSpare ? "Release to take it out" : "Tap to add"
+                                text: root.tileOverSpare ? Tr.t("Release to take it out") : Tr.t("Tap to add")
                             }
 
                             Item {
@@ -2508,7 +2536,7 @@ BarPill {
                                     width: parent.width
                                     role: "bodyMedium"
                                     color: Theme.subtext
-                                    text: "Every tile is already in the panel"
+                                    text: Tr.t("Every tile is already in the panel")
                                 }
 
                                 Repeater {
@@ -2878,7 +2906,7 @@ BarPill {
                 width: parent.width
                 role: "titleSmall"
                 weight: 600
-                text: tile.name
+                text: Tr.t(tile.name)
                 color: tile.checked ? Theme.fgPrimary : Theme.text
                 elide: Text.ElideRight
             }

@@ -324,6 +324,90 @@ Singleton {
         return Prefs.notifProgress && root.progressOf(n) >= 0;
     }
 
+    // A social notification carries the post id as an extra hint. Clicking it
+    // should land on an empty workspace, then ask the Social widget to open
+    // that thread instead of launching an application.
+    function socialItem(n) {
+        if (!n || !n.hints)
+            return "";
+
+        return String(n.hints["x-lucid-social-item"] || "");
+    }
+
+    function workspaceWindows(ws) {
+        if (!ws)
+            return 0;
+        if (ws.toplevels && ws.toplevels.values)
+            return ws.toplevels.values.length;
+        if (ws.lastIpcObject)
+            return Number(ws.lastIpcObject.windows || 0);
+        return 0;
+    }
+
+    function emptyWorkspace() {
+        const monitor = Hyprland.focusedMonitor;
+        const focused = Hyprland.focusedWorkspace;
+        // Already on an empty workspace: there is nothing to move away from.
+        if (focused && focused.id > 0 && root.workspaceWindows(focused) === 0)
+            return focused;
+
+        var preferred = null;
+        var any = null;
+        for (const ws of Hyprland.workspaces.values) {
+            if (!ws || ws.id <= 0)
+                continue;
+            if (String(ws.name || "").indexOf("special:") === 0)
+                continue;
+            if (root.workspaceWindows(ws) > 0)
+                continue;
+            if (monitor !== null && ws.monitor && ws.monitor.name === monitor.name) {
+                if (preferred === null || ws.id < preferred.id)
+                    preferred = ws;
+            }
+            if (any === null || ws.id < any.id)
+                any = ws;
+        }
+        return preferred !== null ? preferred : any;
+    }
+
+    function openSocial(itemId) {
+        if (itemId === "" || Lockscreen.locked)
+            return ;
+
+        const ws = root.emptyWorkspace();
+        if (ws !== null)
+            Hyprland.dispatch("hl.dsp.focus({workspace=" + ws.id + "})");
+
+        const path = Quickshell.env("HOME") + "/.cache/lucid-social/open-thread";
+        Quickshell.execDetached([
+            "sh", "-c",
+            "mkdir -p \"$(dirname \"$1\")\" && printf '%s|%s' \"$2\" \"$3\" > \"$1\"",
+            "sh", path, itemId, String(Date.now())
+        ]);
+    }
+
+    function activate(n) {
+        if (!n)
+            return false;
+
+        const item = root.socialItem(n);
+        if (item !== "") {
+            root.openSocial(item);
+            if (n.dismiss)
+                n.dismiss();
+            return true;
+        }
+
+        const actions = n.actions || [];
+        for (var i = 0; i < actions.length; i++) {
+            if (actions[i].identifier === "default") {
+                root.invokeAction(actions[i]);
+                return true;
+            }
+        }
+        return false;
+    }
+
     function invokeAction(a) {
         // an action activates an application; the lock screen is not allowed to
         if (Lockscreen.locked)
@@ -456,6 +540,7 @@ Singleton {
         bodyMarkupSupported: true
         bodyHyperlinksSupported: false
         bodyImagesSupported: false
+        extraHints: ["x-lucid-social-item"]
         actionsSupported: true
         actionIconsSupported: false
         imageSupported: true
@@ -642,6 +727,7 @@ Singleton {
         function count(): int {
             return root.count;
         }
+
 
         target: "notifs"
     }

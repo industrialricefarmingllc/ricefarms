@@ -1,0 +1,24 @@
+#!/bin/sh
+# Delete means delete.
+#
+# Watches the Trash for anything moved in and purges it within ~1s, so no
+# deleted file is retained. Names are never parsed: any event just wipes the
+# whole Trash, which is equivalent because it is always empty between deletes.
+#
+# Entries are removed from both files/ and info/ (the metadata records that
+# hold the original path and deletion timestamp).
+
+TRASH="${XDG_DATA_HOME:-$HOME/.local/share}/Trash"
+
+purge() {
+    find "$TRASH/files" -mindepth 1 -delete 2>/dev/null
+    find "$TRASH/info" -mindepth 1 -delete 2>/dev/null
+}
+
+# Clear anything left from before the watcher was running.
+purge
+
+inotifywait -m -q -e moved_to -e create --format '%f' "$TRASH/files" |
+while IFS= read -r _name; do
+    purge
+done

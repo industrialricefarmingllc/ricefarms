@@ -17,7 +17,9 @@ Item {
     signal activated()
     signal likeClicked()
     signal commentsClicked()
+    signal replyClicked()
     signal externalClicked()
+    signal deleteClicked()
     signal dismissed()
 
     property real swipeOffset: 0
@@ -32,23 +34,130 @@ Item {
     readonly property int commentCount: card.post.comment_count !== null && card.post.comment_count !== undefined ? Number(card.post.comment_count) : (card.stats.comments !== null && card.stats.comments !== undefined ? Number(card.stats.comments) : -1)
     readonly property int likeCount: card.stats.likes !== null && card.stats.likes !== undefined ? Number(card.stats.likes) : -1
     readonly property bool liked: card.post.liked === true
-    readonly property string sourceTitle: card.host ? (card.host.sourceTitle(card.post.source || "") || "Social") : String(card.post.source || "")
     readonly property string sourceGlyph: card.host ? card.host.sourceGlyph(card.post.source) : "public"
     readonly property string bodyText: card.post.body || ""
     readonly property string titleText: card.post.title || ""
     readonly property bool longBody: card.bodyText.length > 280
     readonly property string shownBody: card.detail || !card.longBody ? card.bodyText : card.bodyText.slice(0, 280).replace(/\s+$/, "") + "…"
-    readonly property string bodyUrl: {
+    // FakeNitro emoji links are painted inline by SocialBody; they must never
+    // become a link/media card or a stray "open link" button.
+    readonly property var mediaList: {
+        var out = [];
         var media = card.post.media || [];
+        for (var i = 0; i < media.length; i++) {
+            var item = media[i];
+            if (card.host && card.host.isEmojiLink && (card.host.isEmojiLink(item.url) || card.host.isEmojiLink(item.external_url)))
+                continue;
+
+            var url = String(item.external_url || item.url || "");
+            if ((item.kind === "link" || item.kind === "embed") && /\.gif(?:[?#]|$)/i.test(url)) {
+                out.push({"kind": "image", "url": url, "thumbnail_url": url, "external_url": url,
+                          "mime": "image/gif", "width": item.width, "height": item.height, "title": item.title || ""});
+                continue;
+            }
+            out.push(item);
+        }
+        return out;
+    }
+    readonly property string bodyUrl: {
+        var media = card.mediaList;
         for (var i = 0; i < media.length; i++) {
             if (media[i].kind === "link" || media[i].kind === "embed")
                 return String(media[i].external_url || media[i].url || "");
         }
-        var match = String(card.bodyText || "").match(/https?:\/\/[^\s<>"]+/);
-        return match ? match[0] : "";
+        var found = String(card.bodyText || "").match(/https?:\/\/[^\s<>"]+/g) || [];
+        for (var j = 0; j < found.length; j++) {
+            if (card.host && card.host.isEmojiLink && card.host.isEmojiLink(found[j]))
+                continue;
+            if (/\.gif(?:[?#]|$)/i.test(found[j]))
+                continue;
+            return found[j];
+        }
+        return "";
     }
-    readonly property var visualMedia: (card.post.media || []).filter((m) => m.kind !== "link" && m.kind !== "embed")
-    readonly property bool hideExternalLinks: String(card.post.source || "") === "youtube" && card.visualMedia.some((m) => m.kind === "video")
+    readonly property var bodyGifMedia: {
+        var text = String(card.post.body || "");
+        var known = {};
+        var media = card.mediaList;
+        for (var i = 0; i < media.length; i++) {
+            // A link card for the same page is replaced by the real GIF; only
+            // an already-visual attachment should suppress the body URL.
+            if (media[i].kind !== "image" && media[i].kind !== "video")
+                continue;
+            if (media[i].url)
+                known[String(media[i].url)] = true;
+            if (media[i].external_url)
+                known[String(media[i].external_url)] = true;
+        }
+        var out = [];
+        var found = text.match(/(https?:\/\/(?:www\.)?(?:tenor\.com\/view\/|klipy\.com\/gifs\/|giphy\.com\/gifs\/)[^\s<>"']+)/gi) || [];
+        for (var j = 0; j < found.length; j++) {
+            var url = found[j].replace(/[),.;!?]+$/, "");
+            if (known[url] === true)
+                continue;
+            known[url] = true;
+            out.push({"kind": "video", "url": url, "external_url": url, "title": "GIF", "width": 0, "height": 0});
+        }
+
+        var direct = text.match(/https?:\/\/[^\s<>"']+\.gif(?:\?[^\s<>"']*)?/gi) || [];
+        for (var g = 0; g < direct.length; g++) {
+            var gif = direct[g].replace(/[),.;!?]+$/, "");
+            if (card.host && card.host.isEmojiLink && card.host.isEmojiLink(gif))
+                continue;
+            if (known[gif] === true)
+                continue;
+            known[gif] = true;
+            out.push({"kind": "image", "url": gif, "thumbnail_url": gif, "external_url": gif,
+                      "mime": "image/gif", "width": 0, "height": 0});
+        }
+        return out;
+    }
+    readonly property var gifUrls: {
+        var out = [];
+        var seen = {};
+        var media = card.mediaList;
+        for (var i = 0; i < media.length; i++) {
+            var url = String(media[i].external_url || media[i].url || "");
+            if (/\.gif(?:[?#]|$)/i.test(url) && seen[url] !== true) {
+                seen[url] = true;
+                out.push(url);
+            }
+        }
+        var body = String(card.post.body || "");
+        var direct = body.match(/https?:\/\/[^\s<>"']+\.gif(?:\?[^\s<>"']*)?/gi) || [];
+        for (var g = 0; g < direct.length; g++) {
+            var gif = direct[g].replace(/[),.;!?]+$/, "");
+            if (card.host && card.host.isEmojiLink && card.host.isEmojiLink(gif))
+                continue;
+            if (seen[gif] !== true) {
+                seen[gif] = true;
+                out.push(gif);
+            }
+        }
+        return out;
+    }
+    readonly property var visualMedia: card.mediaList.filter((m) => m.kind !== "link" && m.kind !== "embed").concat(card.bodyGifMedia)
+    readonly property bool hideExternalLinks: card.visualMedia.some((m) => m.kind === "video")
+    readonly property var linkedUrlList: {
+        var out = [];
+        for (var key in card.linkedUrls)
+            out.push(key);
+        return out;
+    }
+    readonly property var linkedUrls: {
+        var out = {};
+        var media = card.mediaList;
+        for (var i = 0; i < media.length; i++) {
+            if (media[i].kind !== "link" && media[i].kind !== "embed")
+                continue;
+            if (media[i].url)
+                out[String(media[i].url)] = true;
+            if (media[i].external_url)
+                out[String(media[i].external_url)] = true;
+        }
+        return out;
+    }
+    readonly property string displayBody: card.hideExternalLinks ? card.shownBody.replace(/(https?:\/\/(?!cdn\.discordapp\.com\/emojis\/|media\.discordapp\.net\/emojis\/)[^\s<>"']+)/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() : card.shownBody
 
     implicitHeight: column.implicitHeight + card.pad * 2
     height: implicitHeight
@@ -112,6 +221,7 @@ Item {
         enabled: !card.detail
         xAxis.enabled: true
         yAxis.enabled: false
+        dragThreshold: Theme.dp(18)
         acceptedButtons: Qt.LeftButton
 
         onActiveChanged: {
@@ -126,9 +236,10 @@ Item {
                 return ;
 
             var dx = card.swipeOffset;
-            var speed = swipe.centroid.velocity.x;
             card.swiping = false;
-            if (Math.abs(dx) > Theme.dp(72) || Math.abs(speed) > 700)
+            // Distance, not velocity: a vertical scroll can produce a brief
+            // horizontal flick that should not dismiss the post.
+            if (Math.abs(dx) > Theme.dp(72))
                 card.swipeAway(dx < 0 ? -1 : 1);
             else
                 settle.start();
@@ -147,8 +258,27 @@ Item {
 
     }
 
+    function previewText(comment) {
+        var who = (comment || {}).author || {};
+        var author = String(who.display_name || who.handle || "Someone");
+        // The preview is the only place a commenter is identified outside the
+        // thread, so include the Discord username/handle as well.
+        var handle = String(who.handle || "");
+        if (handle !== "" && handle !== author)
+            author += (handle.charAt(0) === "@" ? " " : " @") + handle;
+        var body = String((comment || {}).body || "");
+        var text = author + "  " + body;
+        if (!card.host || !card.host.previewRich)
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return card.host.previewRich(text, Theme.typeSize("bodySmall") + 2);
+    }
+
     function rich(value) {
         var text = String(value || "");
+        var linked = card.linkedUrls;
+        for (var key in linked)
+            text = text.split(key).join("");
+        text = text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
         text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         text = text.replace(/(https?:\/\/[^\s<>"']+)/g, '<a href="$1">$1</a>');
         return text.replace(/\n/g, "<br>");
@@ -221,7 +351,7 @@ Item {
 
                     LText {
                         role: "titleSmall"
-                        text: (card.post.author || {}).display_name || (card.post.author || {}).handle || "Someone"
+                        text: (card.post.author || {}).display_name || (card.post.author || {}).handle || Tr.t("Someone")
                         color: card.host ? card.host.ink : Theme.text
                         elide: Text.ElideRight
                         Layout.fillWidth: true
@@ -244,6 +374,27 @@ Item {
 
                     }
 
+                    Item {
+                        Layout.alignment: Qt.AlignVCenter
+                        width: Theme.dp(18)
+                        height: Theme.dp(18)
+                        visible: card.post !== null && card.post.ref !== undefined && card.post.ref.mine === true
+
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "delete"
+                            size: Theme.dp(14)
+                            color: Theme.alpha(Theme.error, 0.8)
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: card.deleteClicked()
+                        }
+
+                    }
+
                     LText {
                         Layout.alignment: Qt.AlignVCenter
                         role: "labelSmall"
@@ -253,37 +404,6 @@ Item {
 
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.dp(6)
-
-                    LText {
-                        role: "labelSmall"
-                        text: (card.post.author || {}).handle || ""
-                        color: card.host ? card.host.inkFaint : Theme.subtextDim
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
-                    }
-
-                    LText {
-                        role: "labelSmall"
-                        text: card.sourceTitle
-                        color: Theme.alpha(Theme.primary, 0.85)
-                        elide: Text.ElideRight
-                        visible: card.width > Theme.dp(260)
-                    }
-
-                }
-
-            }
-
-            IconButton {
-                Layout.alignment: Qt.AlignTop
-                icon: "open_in_new"
-                size: "xs"
-                tooltip: "Open source"
-                visible: String(card.post.url || "") !== "" && !card.hideExternalLinks
-                onClicked: card.externalClicked()
             }
 
         }
@@ -304,10 +424,11 @@ Item {
             IconButton {
                 Layout.alignment: Qt.AlignBottom
                 icon: "link"
+                variant: "filled"
                 size: "xs"
-                tooltip: "Open link"
+                tooltip: Tr.t("Open link")
                 visible: card.bodyText === "" && card.bodyUrl !== "" && !card.hideExternalLinks
-                onClicked: Qt.openUrlExternally(card.bodyUrl)
+                onClicked: card.host.openUrl(card.bodyUrl)
             }
 
         }
@@ -315,7 +436,7 @@ Item {
         Item {
             Layout.fillWidth: true
             implicitHeight: bodyRow.implicitHeight
-            visible: card.bodyText !== "" && card.bodyText !== card.titleText
+            visible: card.displayBody !== "" && card.bodyText !== card.titleText
 
             RowLayout {
                 id: bodyRow
@@ -323,24 +444,30 @@ Item {
                 anchors.fill: parent
                 spacing: Theme.dp(4)
 
-                LText {
+                SocialBody {
                     Layout.fillWidth: true
-                    role: card.detail ? "bodyLarge" : "bodyMedium"
-                    text: card.rich(card.shownBody)
-                    textFormat: Text.StyledText
-                    color: card.host ? card.host.inkDim : Theme.subtext
-                    wrapMode: Text.Wrap
+                    segments: card.post.body_segments || []
+                    fallback: card.bodyText
+                    host: card.host
+                    role: "bodyLarge"
+                    linkify: !card.hideExternalLinks
+                    stripAllUrls: card.hideExternalLinks
+                    stripUrls: card.gifUrls
+                    maxChars: card.detail ? 0 : 280
                     lineHeight: 1.12
-                    onLinkActivated: (link) => Qt.openUrlExternally(link)
+                    ink: card.host ? card.host.inkDim : Theme.subtext
+                    onLinkActivated: (link) => card.host.openUrl(link)
+                    onClicked: card.activated()
                 }
 
                 IconButton {
                     Layout.alignment: Qt.AlignBottom
                     icon: "link"
+                    variant: "filled"
                     size: "xs"
-                    tooltip: "Open link"
+                    tooltip: Tr.t("Open link")
                     visible: card.bodyUrl !== "" && !card.hideExternalLinks
-                    onClicked: Qt.openUrlExternally(card.bodyUrl)
+                    onClicked: card.host.openUrl(card.bodyUrl)
                 }
 
             }
@@ -351,7 +478,7 @@ Item {
             id: mediaColumn
 
             Layout.fillWidth: true
-            Layout.topMargin: (card.post.media || []).length > 0 ? Theme.dp(2) : 0
+            Layout.topMargin: card.visualMedia.length > 0 ? Theme.dp(2) : 0
             spacing: Theme.dp(8)
 
             Repeater {
@@ -366,6 +493,7 @@ Item {
                     host: card.host
                     maxHeight: card.detail ? Theme.dp(620) : Theme.dp(430)
                     ink: card.host ? card.host.ink : Theme.text
+                    onExpandRequested: (value, from, previewSource, previewWidth, previewHeight) => card.host.openMediaViewer(value, from, previewSource, previewWidth, previewHeight)
                 }
 
             }
@@ -408,6 +536,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "labelMedium"
                         text: card.commentCount >= 0 ? card.commentCount : ""
+                        visible: !card.detail && card.commentCount >= 0
                         color: card.host ? card.host.inkDim : Theme.subtext
                     }
 
@@ -416,7 +545,7 @@ Item {
                 StateLayer {
                     radius: Theme.pill(height)
                     tint: card.host ? card.host.inkDim : Theme.subtext
-                    onClicked: card.commentsClicked()
+                    onClicked: card.replyClicked()
                 }
 
             }
@@ -427,7 +556,7 @@ Item {
 
             LText {
                 role: "labelSmall"
-                text: (card.post.extra || {}).views ? (card.host ? card.host.count(card.post.extra.views) + " views" : card.post.extra.views + " views") : ""
+                text: (card.post.extra || {}).views ? (card.host ? card.host.count(card.post.extra.views) + Tr.t(" views") : card.post.extra.views + Tr.t(" views")) : ""
                 color: card.host ? card.host.inkFaint : Theme.subtextDim
                 visible: text !== ""
             }
@@ -459,19 +588,12 @@ Item {
                     LText {
                         Layout.fillWidth: true
                         role: "bodySmall"
-                        text: ((modelData.author || {}).display_name || "Someone") + "  " + (modelData.body || "")
+                        textFormat: Text.RichText
+                        text: card.previewText(modelData)
                         color: card.host ? card.host.inkDim : Theme.subtext
                         wrapMode: Text.Wrap
                         maximumLineCount: 2
                         elide: Text.ElideRight
-                    }
-
-                    LText {
-                        Layout.alignment: Qt.AlignTop
-                        role: "labelSmall"
-                        text: modelData.grouped ? "grouped" : ""
-                        color: card.host ? card.host.inkFaint : Theme.subtextDim
-                        visible: text !== ""
                     }
 
                 }
@@ -481,12 +603,12 @@ Item {
             Item {
                 Layout.fillWidth: true
                 implicitHeight: Theme.dp(22)
-                visible: card.commentCount > (card.post.comments_preview || []).length
+                visible: !card.detail && card.commentCount > (card.post.comments_preview || []).length
 
                 LText {
                     anchors.verticalCenter: parent.verticalCenter
                     role: "labelMedium"
-                    text: "View all " + card.commentCount + " comments"
+                    text: Tr.t("View all ") + card.commentCount + Tr.t(" comments")
                     color: Theme.primary
                 }
 

@@ -206,7 +206,7 @@ WidgetBody {
 
             anchors.left: parent.left
             anchors.top: parent.top
-            text: w.opt("order") === "name" ? "LIBRARY" : "RECENTLY PLAYED"
+            text: w.opt("order") === "name" ? Tr.t("LIBRARY") : Tr.t("RECENTLY PLAYED")
             color: Theme.accent
             font.family: Theme.fontFamily
             font.pixelSize: Theme.dp(10)
@@ -217,7 +217,7 @@ WidgetBody {
         Text {
             anchors.right: parent.right
             anchors.baseline: shelfHead.baseline
-            text: w.library.length === 0 ? "" : w.library.length + (w.library.length === 1 ? " game" : " games")
+            text: w.library.length === 0 ? "" : w.library.length + (w.library.length === 1 ? Tr.t(" game") : Tr.t(" games"))
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.dp(10)
@@ -314,7 +314,7 @@ WidgetBody {
 
             Text {
                 width: parent.width
-                text: shelf.focusGame ? (w.launchingId === shelf.focusGame.id ? "Starting " + shelf.focusGame.name + "…" : shelf.focusGame.name) : ""
+                text: shelf.focusGame ? (w.launchingId === shelf.focusGame.id ? Tr.t("Starting ") + shelf.focusGame.name + "…" : shelf.focusGame.name) : ""
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.dp(13)
@@ -393,7 +393,7 @@ WidgetBody {
             spacing: Theme.dp(6)
 
             Text {
-                text: "LAST PLAYED"
+                text: Tr.t("LAST PLAYED")
                 color: Theme.accent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.dp(10)
@@ -464,7 +464,7 @@ WidgetBody {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: (hero.game && w.launchingId === hero.game.id) ? "Starting…" : "Play"
+                        text: (hero.game && w.launchingId === hero.game.id) ? Tr.t("Starting…") : Tr.t("Play")
                         color: Theme.fgAccent
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.dp(13)
@@ -519,7 +519,7 @@ WidgetBody {
 
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: "GAMES"
+                text: Tr.t("GAMES")
                 color: Theme.accent
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.dp(10)
@@ -531,7 +531,7 @@ WidgetBody {
                 anchors.left: listTitle.right
                 anchors.leftMargin: Theme.dp(8)
                 anchors.verticalCenter: parent.verticalCenter
-                text: w.library.length === 0 ? "" : w.library.length + " installed"
+                text: w.library.length === 0 ? "" : w.library.length + Tr.t(" installed")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.dp(10)
@@ -613,7 +613,7 @@ WidgetBody {
 
                             Text {
                                 width: parent.width
-                                text: w.launchingId === row.modelData.id ? "Starting…" : w.detail(row.modelData)
+                                text: w.launchingId === row.modelData.id ? Tr.t("Starting…") : w.detail(row.modelData)
                                 color: w.launchingId === row.modelData.id ? Theme.accent : Theme.subtextDim
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.dp(11)

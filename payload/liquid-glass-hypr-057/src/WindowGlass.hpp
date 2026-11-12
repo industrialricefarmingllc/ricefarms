@@ -34,6 +34,7 @@
 //   - Fullscreen-coverage windows are skipped: nothing alive behind them, so
 //     glass would only burn GPU to repaint the tint.
 
+#include "RimFollow.hpp"
 #include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/desktop/view/window/WindowPresentation.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
@@ -129,6 +130,10 @@ class CWindowGlass {
     // after workspace switches, fullscreening or closes. No-op when clean.
     void damageLast();
 
+    // Damage only the edge bands: used on pointer motion so the cursor-follow
+    // rim repaints without forcing the whole window every mouse event.
+    void damageRim();
+
     // Border-ring coordination: a glassed window already carries the Apple
     // rim inside its glass pane, so the outside border ring should not draw a
     // second one. The renderBorder hook has no window pointer, only the box;
@@ -172,6 +177,8 @@ class CWindowGlass {
 
     CBox m_boundsLog{0, 0, 0, 0};
     bool m_boundsOk = false;
+    // Smoothed cursor-following rim angle for this pane.
+    lg::SRimFollowState m_rimFollow;
     // Last successfully glassed window box (monitor-local fb px) + monitor,
     // checked by the border hook to avoid a second rim outside the pane.
     CBox m_borderBox{0, 0, 0, 0};

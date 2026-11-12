@@ -568,7 +568,7 @@ Item {
 
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: "Let go to take it off the bar"
+                                text: Tr.t("Let go to take it off the bar")
                                 color: Theme.fgErrorContainer
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontLabelLg

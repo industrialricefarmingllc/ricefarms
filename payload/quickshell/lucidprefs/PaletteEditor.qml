@@ -313,7 +313,7 @@ Column {
     }
 
     M3Button {
-        text: editor.allRoles ? "Hide the other roles" : "Every role (" + editor.roles.length + ")"
+        text: editor.allRoles ? Tr.t("Hide the other roles") : Tr.t("Every role (") + editor.roles.length + ")"
         variant: "text"
         onClicked: editor.allRoles = !editor.allRoles
     }
@@ -388,7 +388,7 @@ Column {
 
             width: Theme.dp(260)
             text: editor.themeName
-            placeholder: "Name for the theme"
+            placeholder: Tr.t("Name for the theme")
             onEdited: (v) => {
                 return editor.themeName = v;
             }
@@ -399,7 +399,7 @@ Column {
 
         M3Button {
             anchors.verticalCenter: parent.verticalCenter
-            text: editor.phase === "saving" ? "Saving..." : "Save as theme"
+            text: editor.phase === "saving" ? Tr.t("Saving...") : Tr.t("Save as theme")
             variant: "filled"
             enabled: editor.phase !== "saving" && editor.phase !== "building" && editor.themeName.trim() !== ""
             onClicked: editor.save(editor.themeName)
@@ -407,7 +407,7 @@ Column {
 
         M3Button {
             anchors.verticalCenter: parent.verticalCenter
-            text: "Discard"
+            text: Tr.t("Discard")
             onClicked: editor.discard()
         }
 
@@ -416,7 +416,7 @@ Column {
     Text {
         width: editor.width
         visible: editor.editing || editor.message !== ""
-        text: editor.message !== "" ? editor.message : "The shell is showing the draft. Save it as a theme to keep it, which also carries it to your applications, or discard it."
+        text: editor.message !== "" ? editor.message : Tr.t("The shell is showing the draft. Save it as a theme to keep it, which also carries it to your applications, or discard it.")
         color: editor.phase === "error" ? Theme.error : Theme.subtext
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontBody

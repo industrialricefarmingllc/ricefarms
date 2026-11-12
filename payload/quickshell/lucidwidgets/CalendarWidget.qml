@@ -200,7 +200,7 @@ WidgetBody {
                 role: "titleMedium"
                 weight: 600
                 color: w.inkAccent
-                text: "Coming up"
+                text: Tr.t("Coming up")
             }
 
             LText {
@@ -307,7 +307,7 @@ WidgetBody {
                     anchors.horizontalCenter: parent.horizontalCenter
                     role: "bodyMedium"
                     color: w.inkDim
-                    text: "Nothing coming up"
+                    text: Tr.t("Nothing coming up")
                 }
 
             }

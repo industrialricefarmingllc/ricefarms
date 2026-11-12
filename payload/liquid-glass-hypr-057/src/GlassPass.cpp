@@ -7,8 +7,14 @@
 CGlassPassElement::CGlassPassElement(const SData& data) : m_data(data) {}
 
 std::vector<UP<IPassElement>> CGlassPassElement::draw(Render::CRenderContext& ctx) {
-    if (m_data.layer && m_data.layer->get())
-        m_data.layer->render(ctx, ctx.m_data.pMonitor.lock());
+    if (m_data.layer && m_data.layer->get()) {
+        switch (m_data.phase) {
+            case EPhase::RimCapture: m_data.layer->captureRim(ctx, ctx.m_data.pMonitor.lock()); break;
+            case EPhase::RimDraw: m_data.layer->drawRim(ctx, ctx.m_data.pMonitor.lock()); break;
+            case EPhase::Glass:
+            default: m_data.layer->render(ctx, ctx.m_data.pMonitor.lock()); break;
+        }
+    }
     return {};
 }
 

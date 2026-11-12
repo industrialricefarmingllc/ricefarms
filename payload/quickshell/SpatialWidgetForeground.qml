@@ -51,9 +51,10 @@ Item {
 
         sourceItem: subject
         hideSource: true
-        // A frozen subject is a static texture inside SpatialSurface; keeping
-        // this live would copy the same pixels every frame for no reason.
-        live: !subject.frozen
+        // The subject only changes when its camera moves (30 Hz) or its mesh
+        // becomes ready. A live capture re-rendered this full-screen 3D scene
+        // at the display refresh rate (up to 165 Hz) for no visual gain.
+        live: false
         smooth: true
         textureSize: root.textureSize
         visible: false
@@ -61,12 +62,13 @@ Item {
 
     Connections {
         target: subject
-
-        function onFrozenChanged() {
-            if (subject.frozen)
-                subjectTexture.scheduleUpdate();
-        }
+        function onRenderRevisionChanged() { subjectTexture.scheduleUpdate() }
+        function onRenderingEnabledChanged() { subjectTexture.scheduleUpdate() }
     }
+    onCardsChanged: subjectTexture.scheduleUpdate()
+    onWidthChanged: subjectTexture.scheduleUpdate()
+    onHeightChanged: subjectTexture.scheduleUpdate()
+    Component.onCompleted: subjectTexture.scheduleUpdate()
 
     IpcHandler {
         target: "spatial-widgets-" + (root.screen ? root.screen.name : "unknown")
@@ -102,17 +104,28 @@ Item {
             // Fade the cutout away instead of cutting it: the widget is under
             // this surface, so the transition reads as the card coming forward
             // through the foreground object when the pointer reaches it.
-            opacity: isHovered ? 0 : 1
-            visible: r !== undefined && opacity > 0.01
-            Behavior on opacity {
+            //
+            // The quad is grown by the glass shadow margin, but only the card
+            // itself may fade. The pad stays covered by the subject; otherwise
+            // the revealed glass shadow (and the main mesh behind it) darkens a
+            // card+pad-sized area during and after the hover transition.
+            property real hoverFade: isHovered ? 0 : 1
+            opacity: 1
+            visible: r !== undefined
+            Behavior on hoverFade {
                 NumberAnimation {
                     duration: Theme.durShort
                     easing.type: Easing.OutCubic
                 }
             }
+            // Custom uniforms are packed in declaration order, so these must
+            // follow the shader's uniform block exactly: viewport, rect,
+            // inner, hover. (source is a sampler, outside the block.)
             property variant source: subjectTexture
             property vector2d viewport: Qt.vector2d(root.width, root.height)
             property vector4d rect: Qt.vector4d(x, y, width, height)
+            property vector4d inner: Qt.vector4d(root.pad, root.pad, r ? r.w : 0, r ? r.h : 0)
+            property real hover: hoverFade
             fragmentShader: Qt.resolvedUrl("luciddocks/shaders/spatial_widget_clip.frag.qsb")
         }
     }

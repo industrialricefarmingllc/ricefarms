@@ -33,10 +33,67 @@ Item {
     property bool held: false
 
     property bool iconClickable: false
+    property string accessibleName: ""
+    property string accessibleDescription: ""
+
+    // the accessible value interface reads these names
+    readonly property real minimumValue: sl.from
+    readonly property real maximumValue: sl.to
 
     signal moved(real value)
     signal released(real value)
     signal iconClicked()
+
+    function nudge(steps) {
+        if (sl.disabled)
+            return ;
+
+        const step = sl.stepSize > 0 ? sl.stepSize : (sl.to - sl.from) / 20;
+        const next = sl.snap(sl.value + steps * step);
+        sl.live = next;
+        sl.moved(next);
+        sl.released(next);
+    }
+
+    activeFocusOnTab: !sl.disabled
+    Accessible.role: Accessible.Slider
+    Accessible.name: sl.accessibleName
+    Accessible.description: sl.accessibleDescription
+    Accessible.focusable: !sl.disabled
+    Accessible.focused: sl.activeFocus
+    Accessible.onIncreaseAction: sl.nudge(1)
+    Accessible.onDecreaseAction: sl.nudge(-1)
+    Keys.onPressed: (event) => {
+        switch (event.key) {
+        case Qt.Key_Left:
+        case Qt.Key_Down:
+            sl.nudge(-1);
+            break;
+        case Qt.Key_Right:
+        case Qt.Key_Up:
+            sl.nudge(1);
+            break;
+        case Qt.Key_PageDown:
+            sl.nudge(-10);
+            break;
+        case Qt.Key_PageUp:
+            sl.nudge(10);
+            break;
+        case Qt.Key_Home:
+            sl.live = sl.from;
+            sl.moved(sl.from);
+            sl.released(sl.from);
+            break;
+        case Qt.Key_End:
+            sl.live = sl.to;
+            sl.moved(sl.to);
+            sl.released(sl.to);
+            break;
+        default:
+            return ;
+        }
+        event.accepted = true;
+    }
 
     // metrics follow the size token unless a call site overrides them
     property int trackH: sl.size === "l" ? Theme.dp(52) : (sl.size === "m" ? Theme.dp(38) : (sl.size === "s" ? Theme.dp(22) : Theme.dp(14)))
@@ -284,6 +341,7 @@ Item {
         cursorShape: Qt.PointingHandCursor
         preventStealing: true
         onPressed: (mouse) => {
+            sl.forceActiveFocus();
             sl.live = sl.valueAt(mouse.x);
             sl.moved(sl.live);
         }
@@ -313,6 +371,17 @@ Item {
         height: sl.height
         cursorShape: Qt.PointingHandCursor
         onClicked: sl.iconClicked()
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: sl.outerRNow + Theme.dp(3)
+        color: "transparent"
+        border.width: sl.activeFocus && !sl.disabled ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
 }

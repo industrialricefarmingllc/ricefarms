@@ -87,7 +87,13 @@ void main() {
     float rightBand = step(0.5, borderGap.y) * step(halfSize.x - borderWidth, p.x) * step(p.y, -halfSize.y + borderGap.y);
     float bw = borderWidth * max(0.0, 1.0 - min(1.0, topBand + leftBand + rightBand));
     float fillA = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, sd + bw);
-    vec3 rgb = mix(borderColor.rgb, fillColor.rgb, fillA);
-    float a = bodyA * mix(borderColor.a, fillColor.a, fillA);
-    fragColor = vec4(rgb * a, a) * qt_Opacity;
+    // Composite in premultiplied space. Fill and border cover disjoint areas
+    // (fill inside the inset border, border in the ring up to the silhouette),
+    // so their premultiplied contributions add. Mixing *straight* RGB toward a
+    // transparent border (RGB 0,0,0) and then multiplying by alpha pulled the
+    // antialiased edge toward black: a hard dark hairline around every shape.
+    float borderCov = max(bodyA - fillA, 0.0);
+    vec4 col = vec4(fillColor.rgb * fillColor.a, fillColor.a) * fillA
+             + vec4(borderColor.rgb * borderColor.a, borderColor.a) * borderCov;
+    fragColor = col * qt_Opacity;
 }

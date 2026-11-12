@@ -14,6 +14,9 @@ WallpaperSlots {
     // same corner as the other wallpaper previews (Settings tiles and the
     // strip), so the bento does not invent a second card radius
     readonly property int corner: Theme.radiusSm
+    // offsets -2..5 are the only cards the bento can draw; the extra slot in
+    // the base reach was two more pictures decoded for no visible pixel
+    visibleReach: 5
 
     // Settings -> Theme -> Bento: how large the main wallpaper is, and whether the
     // two before it are shown (without them the main one starts at the edge)

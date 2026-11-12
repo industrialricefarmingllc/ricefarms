@@ -27,6 +27,10 @@ Item {
     property real progress: -1
     property bool replyOpen: false
 
+    Accessible.role: Accessible.AlertMessage
+    Accessible.name: card.summary
+    Accessible.description: (card.showApp && card.appName !== "" ? card.appName + " · " : "") + card.body
+
     readonly property bool critical: card.urgency === NotificationUrgency.Critical
     readonly property color tint: card.critical ? Theme.error : Theme.accent
     readonly property int textLeft: (Prefs.notifShowIcons && card.showAvatar) ? Theme.dp(38) : 0

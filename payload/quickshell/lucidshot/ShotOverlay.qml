@@ -452,7 +452,7 @@ PanelWindow {
                 const f = this.text.trim().split(/\s+/);
                 const w = parseInt(f[0]), h = parseInt(f[1]);
                 if (!(w > 0 && h > 0)) {
-                    overlay.notify("broken_image", "That picture could not be opened", true);
+                    overlay.notify("broken_image", Tr.t("That picture could not be opened"), true);
                     return ;
                 }
                 stage.editing = true;

@@ -42,8 +42,11 @@ void main() {
     if (a <= 0.001)
         discard;
     // no border width: fill right to the arc edge, as before the border existed
-    float fillA = borderWidth > 1e-4 ? smoothstep(-0.5, 0.5, edge - borderWidth) : 1.0;
-    vec3 rgb = mix(borderColor.rgb, fillColor.rgb, fillA);
-    float outA = a * mix(borderColor.a, fillColor.a, fillA);
-    fragColor = vec4(rgb * outA, outA) * qt_Opacity;
+    float fillA = borderWidth > 1e-4 ? smoothstep(-0.5, 0.5, edge - borderWidth) : a;
+    // Premultiplied fill + border ring (see squircle_rect.frag): mixing straight
+    // RGB toward a transparent border darkened the antialiased shoulder.
+    float borderCov = max(a - fillA, 0.0);
+    vec4 col = vec4(fillColor.rgb * fillColor.a, fillColor.a) * fillA
+             + vec4(borderColor.rgb * borderColor.a, borderColor.a) * borderCov;
+    fragColor = col * qt_Opacity;
 }

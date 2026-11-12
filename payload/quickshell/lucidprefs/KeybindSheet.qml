@@ -195,7 +195,7 @@ PanelWindow {
                 spacing: Theme.dp(3)
 
                 Text {
-                    text: "Keybinds"
+                    text: Tr.t("Keybinds")
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontHeadlineSm
@@ -204,7 +204,7 @@ PanelWindow {
 
                 Text {
                     width: parent.width
-                    text: sheet.problem !== "" ? sheet.problem : sheet.shownBinds.length + (sheet.shownBinds.length === 1 ? " keybind" : " keybinds") + " · click one to change it · " + (Keybinds.sheetKeys !== "" ? Keybinds.sheetKeys + " or " : "") + "Esc to close"
+                    text: sheet.problem !== "" ? sheet.problem : sheet.shownBinds.length + (sheet.shownBinds.length === 1 ? Tr.t(" keybind") : Tr.t(" keybinds")) + Tr.t(" · click one to change it · ") + (Keybinds.sheetKeys !== "" ? Keybinds.sheetKeys + Tr.t(" or ") : "") + Tr.t("Esc to close")
                     color: sheet.problem !== "" ? Theme.error : Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBodyMd
@@ -267,7 +267,7 @@ PanelWindow {
                         anchors.left: searchInput.left
                         anchors.verticalCenter: parent.verticalCenter
                         visible: searchInput.text === ""
-                        text: "Type to search"
+                        text: Tr.t("Type to search")
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontBodyLg
@@ -277,7 +277,7 @@ PanelWindow {
 
                 M3Button {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Edit keybinds"
+                    text: Tr.t("Edit keybinds")
                     variant: "filled"
                     iconPath: "edit"
                     onClicked: sheet.edit()
@@ -433,7 +433,7 @@ PanelWindow {
         Text {
             anchors.centerIn: body
             visible: sheet.shownBinds.length === 0
-            text: Keybinds.binds.length === 0 ? "No keybinds yet — add some in Settings" : "Nothing matches “" + sheet.query.trim() + "”"
+            text: Keybinds.binds.length === 0 ? Tr.t("No keybinds yet — add some in Settings") : Tr.t("Nothing matches “") + sheet.query.trim() + "”"
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBodyLg

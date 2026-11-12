@@ -254,6 +254,8 @@ for _glass in liquid-glass-hypr liquid-glass-hypr-057; do
   fi
 done
 assert_file_has "liquid-glass Makefile target" "$REPO_DIR/payload/liquid-glass-hypr/Makefile" "TARGET = liquidglass.so"
+assert_true "lucid-gate sources vendored" test -f "$REPO_DIR/payload/lucid-gate/qml/GateCore.qml"
+assert_file_has "installer installs lucid-gate" "$REPO_DIR/install.sh" 'src/lucid-gate'
 assert_true "goo sources vendored" test -f "$REPO_DIR/payload/hypr-goo-workspaces/src/main.cpp"
 assert_true "edge-swipe sources vendored" test -f "$REPO_DIR/payload/hypr-edge-swipe/src/main.cpp"
 assert_file_has "edge-swipe builds touch plugin" "$REPO_DIR/payload/hypr-edge-swipe/Makefile" "TARGET = hypr-touch-gestures.so"

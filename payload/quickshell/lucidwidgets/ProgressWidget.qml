@@ -244,7 +244,7 @@ WidgetBody {
             LText {
                 role: "bodySmall"
                 color: w.inkDim
-                text: "Day " + (w.doy + 1) + " · " + w.remaining("year")
+                text: Tr.t("Day ") + (w.doy + 1) + " · " + w.remaining("year")
             }
 
         }

@@ -1,0 +1,115 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 39985fd..77c374a 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -42,3 +42,5 @@ endif()
+ if (NETWORK)
+ 	add_subdirectory(network)
+ endif()
++
++add_subdirectory(webengine)
+diff --git a/src/launch/launch.cpp b/src/launch/launch.cpp
+index 1edd60c..bb24a74 100644
+--- a/src/launch/launch.cpp
++++ b/src/launch/launch.cpp
+@@ -25,6 +25,7 @@
+ #include "../core/qmlglobal.hpp"
+ #include "../core/rootwrapper.hpp"
+ #include "../ipc/ipc.hpp"
++#include "../webengine/webengine.hpp"
+ #include "build.hpp"
+ #include "launch_p.hpp"
+ 
+@@ -75,6 +76,7 @@ int launch(const LaunchArgs& args, char** argv) {
+ 		bool nativeTextRendering = false;
+ 		bool desktopSettingsAware = true;
+ 		bool useSystemStyle = false;
++		bool useQtWebEngineQuick = false;
+ 		QString iconTheme = qEnvironmentVariable("QS_ICON_THEME");
+ 		QHash<QString, QString> envOverrides;
+ 		QHash<QString, QString> defaultEnv;
+@@ -112,6 +114,7 @@ int launch(const LaunchArgs& args, char** argv) {
+ 			else if (pragma == "NativeTextRendering") pragmas.nativeTextRendering = true;
+ 			else if (pragma == "IgnoreSystemSettings") pragmas.desktopSettingsAware = false;
+ 			else if (pragma == "RespectSystemStyle") pragmas.useSystemStyle = true;
++			else if (pragma == "EnableQtWebEngineQuick") pragmas.useQtWebEngineQuick = true;
+ 			else if (pragma == "DropExpensiveFonts") pragmas.dropExpensiveFonts = true;
+ 			else if (pragma.startsWith("IconTheme ")) pragmas.iconTheme = pragma.sliced(10);
+ 			else if (pragma.startsWith("AppId ")) {
+@@ -280,7 +283,12 @@ int launch(const LaunchArgs& args, char** argv) {
+ 	QGuiApplication::setDesktopSettingsAware(pragmas.desktopSettingsAware);
+ 
+ 	QGuiApplication* app = nullptr;
+-	auto qArgC = 0;
++	// QtWebEngine aborts if the application has no argv[0]
++	auto qArgC = 1;
++
++	if (pragmas.useQtWebEngineQuick) {
++		qs::web_engine::init();
++	}
+ 
+ 	if (pragmas.useQApplication) {
+ 		app = new QApplication(qArgC, argv);
+diff --git a/src/webengine/CMakeLists.txt b/src/webengine/CMakeLists.txt
+new file mode 100644
+index 0000000..3a11577
+--- /dev/null
++++ b/src/webengine/CMakeLists.txt
+@@ -0,0 +1 @@
++# header-only: the runtime loader is included by launch.cpp
+diff --git a/src/webengine/webengine.hpp b/src/webengine/webengine.hpp
+new file mode 100644
+index 0000000..422d2c1
+--- /dev/null
++++ b/src/webengine/webengine.hpp
+@@ -0,0 +1,50 @@
++#pragma once
++
++#include <QDebug>
++#include <qlibrary.h>
++#include <qlogging.h>
++
++namespace qs::web_engine {
++
++inline void printNotLoaded() {
++	qWarning() << "QtWebEngineQuick is not loaded. Using WebEngineView from QtWebEngine may "
++	              "behave unpredictably.";
++}
++
++// Loaded at runtime so Quickshell does not hard-depend on qt6-webengine. The
++// pragma //@ pragma EnableQtWebEngineQuick in shell.qml asks for this.
++inline bool init() {
++	using InitializeFunc = void (*)();
++
++	QLibrary lib("Qt6WebEngineQuick");
++	if (!lib.load()) {
++		qWarning() << "Failed to load Qt6WebEngineQuick:" << lib.errorString();
++		qWarning() << "Install qt6-webengine to use WebEngineView.";
++		printNotLoaded();
++		return false;
++	}
++
++	auto initialize = reinterpret_cast<InitializeFunc>(lib.resolve("_ZN16QtWebEngineQuick10initializeEv"));
++	if (!initialize) {
++		qWarning() << "Could not resolve QtWebEngineQuick::initialize()";
++		printNotLoaded();
++		return false;
++	}
++
++	try {
++		initialize();
++		qDebug() << "Initialized QtWebEngineQuick";
++	} catch (const std::exception& e) {
++		qWarning() << "QtWebEngineQuick::initialize() failed:" << e.what();
++		printNotLoaded();
++		return false;
++	} catch (...) {
++		qWarning() << "QtWebEngineQuick::initialize() failed";
++		printNotLoaded();
++		return false;
++	}
++
++	return true;
++}
++
++} // namespace qs::web_engine

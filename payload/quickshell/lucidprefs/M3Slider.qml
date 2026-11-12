@@ -15,6 +15,10 @@ Item {
     property bool dragging: false
     property real dragValue: 0
     property bool showReadout: true
+    property string accessibleName: ""
+    property string accessibleDescription: ""
+    readonly property real minimumValue: slider.from
+    readonly property real maximumValue: slider.to
     readonly property real displayValue: slider.dragging ? slider.dragValue : slider.value
     readonly property real span: slider.to - slider.from
     readonly property real fraction: slider.span > 0 ? Math.max(0, Math.min(1, (slider.displayValue - slider.from) / slider.span)) : 0
@@ -31,6 +35,54 @@ Item {
     }
 
     signal moved(real v)
+
+    function nudge(steps) {
+        if (!slider.enabled)
+            return ;
+
+        const step = slider.stepSize > 0 ? slider.stepSize : (slider.to - slider.from) / 20;
+        const next = slider.snap(slider.value + steps * step);
+        slider.dragValue = next;
+        slider.moved(next);
+    }
+
+    activeFocusOnTab: slider.enabled
+    Accessible.role: Accessible.Slider
+    Accessible.name: slider.accessibleName
+    Accessible.description: slider.accessibleDescription
+    Accessible.focusable: slider.enabled
+    Accessible.focused: slider.activeFocus
+    Accessible.onIncreaseAction: slider.nudge(1)
+    Accessible.onDecreaseAction: slider.nudge(-1)
+    Keys.onPressed: (event) => {
+        switch (event.key) {
+        case Qt.Key_Left:
+        case Qt.Key_Down:
+            slider.nudge(-1);
+            break;
+        case Qt.Key_Right:
+        case Qt.Key_Up:
+            slider.nudge(1);
+            break;
+        case Qt.Key_PageDown:
+            slider.nudge(-10);
+            break;
+        case Qt.Key_PageUp:
+            slider.nudge(10);
+            break;
+        case Qt.Key_Home:
+            slider.dragValue = slider.from;
+            slider.moved(slider.from);
+            break;
+        case Qt.Key_End:
+            slider.dragValue = slider.to;
+            slider.moved(slider.to);
+            break;
+        default:
+            return ;
+        }
+        event.accepted = true;
+    }
 
     function snap(v) {
         var clamped = Math.max(slider.from, Math.min(slider.to, v));
@@ -268,6 +320,7 @@ Item {
             cursorShape: Qt.PointingHandCursor
             preventStealing: true
             onPressed: (mouse) => {
+                slider.forceActiveFocus();
                 slider.dragValue = slider.value;
                 slider.dragging = true;
                 slider.updateFromX(mouse.x + dragArea.anchors.margins);
@@ -281,6 +334,17 @@ Item {
             onCanceled: slider.dragging = false
         }
 
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: Theme.shapeLg + Theme.dp(3)
+        color: "transparent"
+        border.width: slider.activeFocus && slider.enabled ? Theme.dp(2) : 0
+        border.color: Theme.accent
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
     Behavior on opacity {

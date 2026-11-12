@@ -1,0 +1,56 @@
+#!/bin/sh
+# Brightness for Lucid: use the panel backlight when one exists, otherwise
+# drive the ambient-eink black/e-ink layer as a virtual monitor brightness.
+set -eu
+
+eink="$HOME/.local/bin/lucid-ambient-eink"
+step=5
+
+has_backlight() {
+    [ -n "$(ls -1 /sys/class/backlight 2>/dev/null | head -n1)" ]
+}
+
+current() {
+    if has_backlight; then
+        brightnessctl -m 2>/dev/null | awk -F, '{gsub(/%/, "", $4); print $4; exit}'
+    else
+        v=$(cat "$HOME/.cache/lucid/ambient-eink/brightness" 2>/dev/null || true)
+        [ -n "$v" ] || v=100
+        printf '%s\n' "$v"
+    fi
+}
+
+case "${1:-}" in
+    up)
+        if has_backlight; then
+            brightnessctl -e4 -n2 set "${step}%+"
+        else
+            "$eink" --brightness "+$step"
+        fi
+        ;;
+    down)
+        if has_backlight; then
+            brightnessctl -e4 -n2 set "${step}%-"
+        else
+            "$eink" --brightness "-$step"
+        fi
+        ;;
+    set)
+        [ $# -ge 2 ] || { echo "usage: lucid-brightness set PERCENT" >&2; exit 2; }
+        if has_backlight; then
+            brightnessctl -e4 -n2 set "$2%"
+        else
+            "$eink" --brightness "$2"
+        fi
+        ;;
+    auto)
+        "$eink" --auto
+        ;;
+    get)
+        current
+        ;;
+    *)
+        echo "usage: lucid-brightness up|down|set PERCENT|auto|get" >&2
+        exit 2
+        ;;
+esac

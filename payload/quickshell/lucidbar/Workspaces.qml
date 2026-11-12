@@ -57,6 +57,9 @@ Item {
     // (shell.qml); the item must not outline itself there.
     // Glass rim owns the edge; no QML window hairline under external glass.
     readonly property real windowBorderWidth: root.externalGlass ? 0 : WindowBorder.size
+    // Match BarPill: the glass shape is lifted 2px under notch glass, so the
+    // dots keep a 2px top inset from the visible edge.
+    readonly property real notchTopInset: (Prefs.barNotch && root.externalGlass) ? Theme.dp(2) : 0
 
     implicitWidth: 200
     implicitHeight: Theme.dp(Prefs.barHeight)

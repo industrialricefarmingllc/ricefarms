@@ -1,0 +1,16 @@
+[Unit]
+Description=White-window detector for per-window e-ink
+Documentation=file:%h/.local/bin/lucid-eink-window
+PartOf=graphical-session.target
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/lucid-eink-window
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target

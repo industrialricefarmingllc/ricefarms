@@ -54,13 +54,13 @@ Column {
     }
 
     SettingCard {
-        title: "LOCATION"
+        title: Tr.t("LOCATION")
 
         SettingRow {
-            title: "Auto-detect location"
+            title: Tr.t("Auto-detect location")
             resetKey: "gpsEnabled"
-            description: "Works out roughly where you are from your network connection, and keeps checking every few hours. This is the same switch as the GPS tile in the bar's system panel."
-            warning: Prefs.gpsEnabled ? "Your address is sent to ipapi.co to be turned into a position." : ""
+            description: Tr.t("Works out roughly where you are from your network connection, and keeps checking every few hours. This is the same switch as the GPS tile in the bar's system panel.")
+            warning: Prefs.gpsEnabled ? Tr.t("Your address is sent to ipapi.co to be turned into a position.") : ""
 
             M3Switch {
                 checked: Prefs.gpsEnabled
@@ -72,15 +72,15 @@ Column {
         }
 
         SettingRow {
-            title: "Place"
+            title: Tr.t("Place")
             enabled: !Prefs.gpsEnabled
             disabledReason: "Auto-detect is choosing the place for you. Turn it off to name one yourself."
-            description: "A town or city to sit the shell in. Press Enter to look it up."
+            description: Tr.t("A town or city to sit the shell in. Press Enter to look it up.")
 
             M3TextField {
                 width: Theme.dp(260)
                 enabled: !Prefs.gpsEnabled
-                placeholder: "Poznań"
+                placeholder: Tr.t("Poznań")
                 text: Prefs.locationName
                 onAccepted: (v) => {
                     Prefs.locationName = v;
@@ -91,13 +91,13 @@ Column {
         }
 
         SettingRow {
-            title: "Position"
+            title: Tr.t("Position")
             description: page.positionText
             warning: Loc.lastError
             showDivider: false
 
             M3Button {
-                text: Loc.busy ? "Looking…" : (Prefs.gpsEnabled ? "Detect now" : "Look up")
+                text: Loc.busy ? Tr.t("Looking…") : (Prefs.gpsEnabled ? Tr.t("Detect now") : Tr.t("Look up"))
                 variant: "tonal"
                 enabled: !Loc.busy
                 onClicked: Loc.refresh()
@@ -108,12 +108,12 @@ Column {
     }
 
     SettingCard {
-        title: "TIME ZONE"
+        title: Tr.t("TIME ZONE")
 
         SettingRow {
-            title: "Time zone"
-            description: "The machine's own zone, shared with every application on it. Changing it here is the same as running timedatectl, so it asks for your password."
-            warning: Loc.zoneError !== "" ? "Unchanged \u2014 " + Loc.zoneError : ""
+            title: Tr.t("Time zone")
+            description: Tr.t("The machine's own zone, shared with every application on it. Changing it here is the same as running timedatectl, so it asks for your password.")
+            warning: Loc.zoneError !== "" ? Tr.t("Unchanged \u2014 ") + Loc.zoneError : ""
 
             Row {
                 spacing: Theme.dp(14)
@@ -123,7 +123,7 @@ Column {
                     spacing: Theme.dp(2)
 
                     Text {
-                        text: Loc.zone !== "" ? Loc.zone.replace(/_/g, " ") : "Reading…"
+                        text: Loc.zone !== "" ? Loc.zone.replace(/_/g, " ") : Tr.t("Reading…")
                         color: Theme.text
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontTitle
@@ -143,7 +143,7 @@ Column {
 
                 M3Button {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: Loc.zoneBusy ? "Setting…" : "Change…"
+                    text: Loc.zoneBusy ? Tr.t("Setting…") : Tr.t("Change…")
                     variant: "tonal"
                     enabled: !Loc.zoneBusy
                     onClicked: Prefs.timeZonePickerRequested()
@@ -154,7 +154,7 @@ Column {
         }
 
         SettingRow {
-            title: "Set it from my location"
+            title: Tr.t("Set it from my location")
             resetKey: "timeZoneAuto"
             description: {
                 if (Loc.zoneFromLocation === "")
@@ -177,7 +177,7 @@ Column {
         }
 
         SettingRow {
-            title: "Applications opened before the change"
+            title: Tr.t("Applications opened before the change")
             visible: Loc.stale
             description: {
                 page.tick;
@@ -189,12 +189,12 @@ Column {
     }
 
     SettingCard {
-        title: "CLOCK"
+        title: Tr.t("CLOCK")
 
         SettingRow {
-            title: "24-hour time"
+            title: Tr.t("24-hour time")
             resetKey: "clock24h"
-            description: "Show 14:30 instead of 02:30 PM."
+            description: Tr.t("Show 14:30 instead of 02:30 PM.")
 
             M3Switch {
                 checked: Prefs.clock24h
@@ -206,9 +206,9 @@ Column {
         }
 
         SettingRow {
-            title: "Show date"
+            title: Tr.t("Show date")
             resetKey: "clockShowDate"
-            description: "Keep the weekday and day-of-month beside the time in the bar."
+            description: Tr.t("Keep the weekday and day-of-month beside the time in the bar.")
 
             M3Switch {
                 checked: Prefs.clockShowDate
@@ -220,9 +220,9 @@ Column {
         }
 
         SettingRow {
-            title: "Show seconds"
+            title: Tr.t("Show seconds")
             resetKey: "clockShowSeconds"
-            description: "Tick the seconds in the bar. Off, the colon blinks instead."
+            description: Tr.t("Tick the seconds in the bar. Off, the colon blinks instead.")
 
             M3Switch {
                 checked: Prefs.clockShowSeconds
@@ -234,9 +234,9 @@ Column {
         }
 
         SettingRow {
-            title: "Weather beside the time"
+            title: Tr.t("Weather beside the time")
             resetKey: "clockShowWeather"
-            description: "A small icon and the temperature, taken from the Weather service."
+            description: Tr.t("A small icon and the temperature, taken from the Weather service.")
 
             M3Switch {
                 checked: Prefs.clockShowWeather
@@ -248,9 +248,9 @@ Column {
         }
 
         SettingRow {
-            title: "Running timer in the bar"
+            title: Tr.t("Running timer in the bar")
             resetKey: "clockShowTimer"
-            description: "While a timer, pomodoro or stopwatch is counting, show it as a chip with a ring."
+            description: Tr.t("While a timer, pomodoro or stopwatch is counting, show it as a chip with a ring.")
 
             M3Switch {
                 checked: Prefs.clockShowTimer
@@ -262,9 +262,9 @@ Column {
         }
 
         SettingRow {
-            title: "Week starts on"
+            title: Tr.t("Week starts on")
             resetKey: "weekStartMonday"
-            description: "For the clock's calendar and the calendar widgets."
+            description: Tr.t("For the clock's calendar and the calendar widgets.")
 
             M3Segmented {
                 width: Theme.dp(200)
@@ -286,12 +286,12 @@ Column {
     }
 
     SettingCard {
-        title: "UNITS"
+        title: Tr.t("UNITS")
 
         SettingRow {
-            title: "Measurement system"
+            title: Tr.t("Measurement system")
             resetKey: "units"
-            description: "°C and km/h, or °F and mph. For the weather in the bar, on the lock screen and in the widgets, and for the heat of the processor, graphics card and drives."
+            description: Tr.t("°C and km/h, or °F and mph. For the weather in the bar, on the lock screen and in the widgets, and for the heat of the processor, graphics card and drives.")
 
             M3Segmented {
                 width: Theme.dp(200)
@@ -313,11 +313,11 @@ Column {
     }
 
     SettingCard {
-        title: "POMODORO"
+        title: Tr.t("POMODORO")
 
         SettingRow {
-            title: "Preset"
-            description: "Sets the focus, break and long break lengths and the rounds together."
+            title: Tr.t("Preset")
+            description: Tr.t("Sets the focus, break and long break lengths and the rounds together.")
             stacked: true
 
             M3Chips {
@@ -337,9 +337,9 @@ Column {
         }
 
         SettingRow {
-            title: "Focus length"
+            title: Tr.t("Focus length")
             resetKey: "pomodoroFocus"
-            description: "One pomodoro focus session."
+            description: Tr.t("One pomodoro focus session.")
             stacked: true
 
             M3Slider {
@@ -357,9 +357,9 @@ Column {
         }
 
         SettingRow {
-            title: "Short break"
+            title: Tr.t("Short break")
             resetKey: "pomodoroShort"
-            description: "The break after each focus session."
+            description: Tr.t("The break after each focus session.")
             stacked: true
 
             M3Slider {
@@ -377,9 +377,9 @@ Column {
         }
 
         SettingRow {
-            title: "Long break"
+            title: Tr.t("Long break")
             resetKey: "pomodoroLong"
-            description: "The break after a full set of rounds."
+            description: Tr.t("The break after a full set of rounds.")
             stacked: true
 
             M3Slider {
@@ -397,9 +397,9 @@ Column {
         }
 
         SettingRow {
-            title: "Rounds before a long break"
+            title: Tr.t("Rounds before a long break")
             resetKey: "pomodoroRounds"
-            description: "How many focus sessions make a set."
+            description: Tr.t("How many focus sessions make a set.")
             stacked: true
 
             M3Slider {
@@ -417,9 +417,9 @@ Column {
         }
 
         SettingRow {
-            title: "Start breaks on their own"
+            title: Tr.t("Start breaks on their own")
             resetKey: "pomodoroAutoStart"
-            description: "Off, the break waits for you when a focus session ends."
+            description: Tr.t("Off, the break waits for you when a focus session ends.")
 
             M3Switch {
                 checked: Prefs.pomodoroAutoStart
@@ -431,9 +431,9 @@ Column {
         }
 
         SettingRow {
-            title: "Start focus on its own"
+            title: Tr.t("Start focus on its own")
             resetKey: "pomodoroAutoFocus"
-            description: "Off, the next focus session waits for you when a break ends."
+            description: Tr.t("Off, the next focus session waits for you when a break ends.")
 
             M3Switch {
                 checked: Prefs.pomodoroAutoFocus
@@ -445,9 +445,9 @@ Column {
         }
 
         SettingRow {
-            title: "Repeat sets"
+            title: Tr.t("Repeat sets")
             resetKey: "pomodoroRepeat"
-            description: "Off, the pomodoro stops after the long break instead of starting over."
+            description: Tr.t("Off, the pomodoro stops after the long break instead of starting over.")
 
             M3Switch {
                 checked: Prefs.pomodoroRepeat
@@ -459,9 +459,9 @@ Column {
         }
 
         SettingRow {
-            title: "Do not disturb while focusing"
+            title: Tr.t("Do not disturb while focusing")
             resetKey: "pomodoroSilence"
-            description: "Holds notifications back during a focus session and lets them through again for the break."
+            description: Tr.t("Holds notifications back during a focus session and lets them through again for the break.")
 
             M3Switch {
                 checked: Prefs.pomodoroSilence
@@ -473,9 +473,9 @@ Column {
         }
 
         SettingRow {
-            title: "Daily goal"
+            title: Tr.t("Daily goal")
             resetKey: "pomodoroGoal"
-            description: "Focus sessions to aim for each day. The clock counts them and tells you when you get there."
+            description: Tr.t("Focus sessions to aim for each day. The clock counts them and tells you when you get there.")
             stacked: true
 
             M3Slider {
@@ -495,12 +495,12 @@ Column {
     }
 
     SettingCard {
-        title: "TIMERS"
+        title: Tr.t("TIMERS")
 
         SettingRow {
-            title: "Sound when time is up"
+            title: Tr.t("Sound when time is up")
             resetKey: "timerSound"
-            description: "Plays Lucid's alarm alongside the notification, whatever the system sound settings say."
+            description: Tr.t("Plays Lucid's alarm alongside the notification, whatever the system sound settings say.")
 
             Row {
                 spacing: Theme.dp(4)
@@ -524,9 +524,9 @@ Column {
         }
 
         SettingRow {
-            title: "Sound for reminders"
+            title: Tr.t("Sound for reminders")
             resetKey: "reminderSound"
-            description: "A chime as a reminder comes due, and again when a snoozed one comes back. Like the alarm, it plays even while you are silenced."
+            description: Tr.t("A chime as a reminder comes due, and again when a snoozed one comes back. Like the alarm, it plays even while you are silenced.")
 
             Row {
                 spacing: Theme.dp(4)
@@ -550,14 +550,14 @@ Column {
         }
 
         SettingRow {
-            title: "World clocks"
-            description: "Add and remove cities from the World tab of the clock, opened from the time in the bar."
+            title: Tr.t("World clocks")
+            description: Tr.t("Add and remove cities from the World tab of the clock, opened from the time in the bar.")
 
             Button {
                 variant: "tonal"
                 size: "xs"
                 icon: "public"
-                text: "Open"
+                text: Tr.t("Open")
                 onClicked: Quickshell.execDetached(["qs", "ipc", "call", "--", "clock", "open", "world"])
             }
 

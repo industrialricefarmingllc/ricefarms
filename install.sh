@@ -304,6 +304,9 @@ phase_hypr_stack() {
   local P="$PAYLOAD_DIR"
   install_dir "$P/hypr" "$TARGET_HOME/.config/hypr"
   install_dir "$P/quickshell" "$TARGET_HOME/.config/quickshell"
+  # Gate is a separate local repo symlinked into the shell (GateCore/GateWeb/
+  # GateWidget, lucidgate/ and ~/.local/bin/gate point at it).
+  install_dir "$P/lucid-gate" "$TARGET_HOME/src/lucid-gate"
   # Vendored compiled helpers that sit beside the shell sources: the workspace
   # recorder (lucidcap) and the spatial mesh cache builder (kos-mesh-cache).
   # The lucidspatial3d QML plugin (.so) ships in the module dir next to qmldir.
@@ -421,6 +424,7 @@ verify_hypr_plugins() {
   [[ -f "$P/liquid-glass-hypr/pin.txt" ]] || { warn "liquid-glass-hypr pin missing"; ok=0; }
   [[ -f "$P/liquid-glass-hypr-057/Makefile" ]] || { warn "liquid-glass-hypr-057 Makefile missing"; ok=0; }
   [[ -f "$P/liquid-glass-hypr-057/pin.txt" ]] || { warn "liquid-glass-hypr-057 pin missing"; ok=0; }
+  [[ -f "$P/lucid-gate/qml/GateCore.qml" ]] || { warn "lucid-gate source missing"; ok=0; }
   [[ -f "$P/hypr-goo-workspaces/Makefile" ]] || { warn "hypr-goo-workspaces src missing"; ok=0; }
   [[ -f "$P/hypr-edge-swipe/Makefile" ]] || { warn "hypr-edge-swipe src missing"; ok=0; }
   [[ -f "$P/hypr-edge-swipe/src/main.cpp" ]] || { warn "hypr-edge-swipe main.cpp missing"; ok=0; }
@@ -623,22 +627,26 @@ phase_dotfiles() {
   info "fonts: GitLab Mono (kmscon) + Noto Sans Mono (kitty) — install via pacman/aur if missing (fc-list | check)"
 }
 
-# Exported .wants symlinks bake in /home/nicerice (source host). Repoint them
-# at the target home so a differently-named user still gets the same units.
+# Exported symlinks bake in /home/nicerice (source host). Repoint them at the
+# target home so a differently-named user still gets the same units and the
+# source-repo links (Gate, GlassLayout) resolve.
 fix_user_unit_symlinks() {
-  local dir="$TARGET_HOME/.config/systemd/user"
-  [[ -d "$dir" ]] || return 0
-  if [[ $DRY_RUN -eq 1 ]]; then
-    log "DRY-RUN: rewrite /home/nicerice -> $TARGET_HOME in $dir symlinks"
-    return 0
-  fi
-  local link target
-  while IFS= read -r -d '' link; do
-    target="$(readlink "$link" 2>/dev/null || true)"
-    if [[ "$target" == /home/nicerice/* ]]; then
-      ln -sfn "${target/\/home\/nicerice/$TARGET_HOME}" "$link"
+  local dir link target
+  for dir in "$TARGET_HOME/.config/systemd/user" \
+             "$TARGET_HOME/.config/quickshell" \
+             "$TARGET_HOME/.local/bin"; do
+    [[ -d "$dir" ]] || continue
+    if [[ $DRY_RUN -eq 1 ]]; then
+      log "DRY-RUN: rewrite /home/nicerice -> $TARGET_HOME in $dir symlinks"
+      continue
     fi
-  done < <(find "$dir" -type l -print0 2>/dev/null)
+    while IFS= read -r -d '' link; do
+      target="$(readlink "$link" 2>/dev/null || true)"
+      if [[ "$target" == /home/nicerice/* ]]; then
+        ln -sfn "${target/\/home\/nicerice/$TARGET_HOME}" "$link"
+      fi
+    done < <(find "$dir" -type l -print0 2>/dev/null)
+  done
 }
 
 # oh-my-zsh framework: stock upstream at pinned commit + vendored custom/.
@@ -678,9 +686,10 @@ install_opencode() {
       warn "opencode: $cfg still has \${CONTEXT7_API_KEY} placeholder — insert your key (never commit it)"
     fi
   done
-  # plugin deps (tui-matugen-live needs node_modules): best-effort, offline-safe
-  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: bun install in .config/opencode + .opencode (if bun + package.json)"; return 0; fi
-  for d in "$TARGET_HOME/.config/opencode" "$TARGET_HOME/.opencode"; do
+  # plugin deps (tui-matugen-live + plugins/* with their own package.json)
+  if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: bun install in .config/opencode, .opencode and plugin packages (if bun + package.json)"; return 0; fi
+  local d
+  for d in "$TARGET_HOME/.config/opencode" "$TARGET_HOME/.opencode" "$TARGET_HOME/.config/opencode/plugins"/*; do
     if [[ -f "$d/package.json" ]] && command -v bun >/dev/null 2>&1; then
       (cd "$d" && run_cmd bun install) || warn "bun install failed in $d (run manually)"
     fi
@@ -839,7 +848,7 @@ export_payload() {
   #   quick-translate (standalone source for the Lucid translate widget).
   # Pruned: .git, build artifacts (*.o/*.so*), generated Shaders.hpp,
   # timestamped backups and Python caches.
-  for proj in liquid-glass-hypr liquid-glass-hypr-057 hypr-goo-workspaces hypr-edge-swipe quick-translate; do
+  for proj in liquid-glass-hypr liquid-glass-hypr-057 lucid-gate hypr-goo-workspaces hypr-edge-swipe quick-translate; do
     if [[ -d "$S/src/$proj" ]]; then
       mkdir -p "$P/$proj"
       (cd "$S/src/$proj" && tar --exclude=.git --exclude='*.o' --exclude='*.so*' \
@@ -848,7 +857,7 @@ export_payload() {
       log "export-dir: src/$proj -> payload/$proj (pruned)"
     fi
   done
-  for proj in liquid-glass-hypr liquid-glass-hypr-057; do
+  for proj in liquid-glass-hypr liquid-glass-hypr-057 lucid-gate; do
     if [[ -d "$S/src/$proj/.git" ]]; then
       (cd "$S/src/$proj" && git rev-parse HEAD 2>/dev/null > "$P/$proj/pin.txt") || echo unknown > "$P/$proj/pin.txt"
       (cd "$S/src/$proj" && git status --short 2>/dev/null > "$P/$proj/local-mods.txt") || true
@@ -1062,6 +1071,9 @@ main() {
   wants_group d && phase_dotfiles
   wants_group e && phase_matugen
   wants_group f && phase_tmux
+  # repoint any /home/nicerice symlink (systemd .wants, Gate/GlassLayout in
+  # quickshell, local-bin) after every group has installed its tree
+  fix_user_unit_symlinks
   verify_install || warn "verify reported failures — check output above"
   log "done. Reboot or re-login recommended for kmscon/systemd changes. Hyprland: press F15 or Ctrl+Alt+T to toggle from tty1."
 }

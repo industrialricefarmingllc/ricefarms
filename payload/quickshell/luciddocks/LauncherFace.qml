@@ -152,14 +152,16 @@ Item {
     readonly property real emptyHeight: resultList.emptyExtent
     property string displayMode: "apps"
     property bool tabsFocused: false
-    property bool pendingTranslateFocus: false
     // the Pictures / Live switch beside the picker, as wide as the dock makes room for
     property int kindRailWidth: 0
     // pictures and videos share the picker, a tab each
     readonly property bool pickerMode: face.displayMode === "wallpaper" || face.displayMode === "live"
-    // the picker styles are separate files and the strip builds its thumbnail
-    // model at construction; none of that is worth loading until the tab has
-    // been picked once, which for most sessions it never is
+    // the picker styles are separate files and construct a slot item for every
+    // wallpaper in the folder. Only the cards near the selection build their
+    // picture (the `near` gate in the picker), but the slot construction is
+    // still first-use work. The dock warms it once the launcher has settled, so
+    // the first visit is a switch; the tab itself also marks it used for a
+    // session that opens straight onto it.
     property bool pickerEverUsed: false
     onPickerModeChanged: if (face.pickerMode) face.pickerEverUsed = true
     readonly property bool resultsVisible: !face.pickerMode && face.displayMode !== "translate"
@@ -199,7 +201,7 @@ Item {
     // the app wall's own activation: its index is into `appsModel`, not the
     // mixed result stream `activated` carries
     signal appActivated(int index, bool newInstance)
-    signal emojiCopied(string emoji)
+    signal emojiCopied(string emoji, string image, string label, bool animated, string key)
     signal widgetAdded(string name)
     signal closeRequested()
     signal translateSubmitted(string text)
@@ -248,6 +250,15 @@ Item {
         };
     }
 
+    // Build the wallpaper picker ahead of its first visit. The component, its
+    // card delegates and the first decoded thumbnails are then already there
+    // when Pictures/Live is picked. The loader stays active afterwards, so this
+    // costs one construction per session, not one per tab.
+    function prewarmTabs() {
+        console.log("TABTIMING prewarm picker", Date.now());
+        face.pickerEverUsed = true;
+    }
+
     // undo the last picker delete; with a filter typed Ctrl+Z belongs to the
     // search field instead
     Shortcut {
@@ -288,7 +299,38 @@ Item {
         if (!wallStrip || face.wallpaperLocalCount <= 0)
             return ;
 
+        // a deliberate move: stop the opening placement timer from pulling the
+        // selection back to the wallpaper that is currently applied
+        wallStrip.userMoved = true;
         face.setWallpaperIndex(which === "end" ? face.wallpaperLocalCount - 1 : 0);
+    }
+
+    // Ctrl+R picks a card from what the picker currently shows, without
+    // applying it: Enter or a click still decides. The "more" and "status"
+    // placeholders are not wallpapers, so they are skipped.
+    function jumpRandom() {
+        if (!wallStrip || !wallStrip.model || wallStrip.count <= 0)
+            return ;
+
+        var choices = [];
+        for (var i = 0; i < wallStrip.count; i++) {
+            var item = wallStrip.model.get(i);
+            var path = item ? String(item.path || "") : "";
+            if (path === "" || path.indexOf("more:") === 0 || path.indexOf("status:") === 0)
+                continue;
+            choices.push(i);
+        }
+        if (choices.length === 0)
+            return;
+
+        var pick = choices[Math.floor(Math.random() * choices.length)];
+        if (choices.length > 1 && pick === wallStrip.currentIndex)
+            pick = choices[(choices.indexOf(pick) + 1) % choices.length];
+
+        // A random jump is a deliberate move, like Home/End, so the opening
+        // placement timer leaves it where it landed.
+        wallStrip.userMoved = true;
+        face.setWallpaperIndex(pick);
     }
 
     function pickerReachIndex() {
@@ -307,8 +349,10 @@ Item {
 
     function jumpReach() {
         const at = face.pickerReachIndex();
-        if (at >= 0)
+        if (at >= 0 && wallStrip) {
+            wallStrip.userMoved = true;
             face.setWallpaperIndex(at);
+        }
     }
 
     function notePickerReach(index) {
@@ -354,6 +398,21 @@ Item {
     }
 
     readonly property int wallpaperCurrentIndex: wallStrip ? wallStrip.currentIndex : -1
+    // The card the pointer is on, else the keyboard selection. The dock warms
+    // its spatial cache while the picker is open, so the click does not pay for
+    // the first-use depth/matte generation.
+    readonly property string hoveredWallpaperPath: {
+        const strip = wallStrip;
+        if (!strip || !face.pickerMode)
+            return "";
+        let at = typeof strip.hoveredIndex === "number" ? strip.hoveredIndex : -1;
+        if (at < 0 && typeof strip.currentIndex === "number")
+            at = strip.currentIndex;
+        if (at < 0 || !strip.model || at >= strip.model.count)
+            return "";
+        const item = strip.model.get(at);
+        return item && item.path ? String(item.path) : "";
+    }
 
     function resetSelection() {
         resultList.resetSelection();
@@ -371,7 +430,6 @@ Item {
         face.pickerSettling = false;
         face.tabsFocused = false;
         face.clearArmed = false;
-        face.pendingTranslateFocus = false;
         face.resetSelection();
         face.resetTranslate();
     }
@@ -393,9 +451,11 @@ Item {
     }
 
     function syncDisplayMode() {
+        const syncStart = Date.now();
         face.displayMode = face.mode;
         face.clearArmed = false;
         face.resetSelection();
+        console.log("TABTIMING syncDisplayMode", face.displayMode, Date.now() - syncStart);
     }
 
     function requestModeTransition() {
@@ -528,28 +588,6 @@ Item {
         searchInput.cursorPosition = pos + text.length;
     }
 
-    // Super+T opens Translate with the language row already engaged. The timer
-    // covers the mode transition and the dock-embedded launcher; LucidLauncher
-    // consumes it earlier once its keyboard grab is armed.
-    function armTranslateLanguageFocus() {
-        face.pendingTranslateFocus = true;
-        translateFocusTimer.restart();
-    }
-
-    function cancelTranslateLanguageFocus() {
-        face.pendingTranslateFocus = false;
-        translateFocusTimer.stop();
-    }
-
-    function consumeTranslateLanguageFocus() {
-        if (!face.pendingTranslateFocus || face.displayMode !== "translate")
-            return false;
-        face.pendingTranslateFocus = false;
-        translateFocusTimer.stop();
-        face.activateTranslateLanguage();
-        return true;
-    }
-
     function cycleTranslateLanguage(delta) {
         translatePane.cycleLanguage(delta);
     }
@@ -566,6 +604,20 @@ Item {
     focus: true
     Keys.onEscapePressed: face.closeRequested()
     Keys.onPressed: (event) => {
+        if (face.pickerMode && event.key === Qt.Key_R) {
+            if ((event.modifiers & Qt.ControlModifier) !== 0
+                    && (event.modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)) === 0) {
+                face.jumpRandom();
+                event.accepted = true;
+                return ;
+            }
+            // the old Shift+R gesture is gone; keep it from typing an R into
+            // the picker query instead
+            if ((event.modifiers & Qt.ShiftModifier) !== 0) {
+                event.accepted = true;
+                return ;
+            }
+        }
         if (event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R) {
             face.closeRequested()
             event.accepted = true
@@ -600,14 +652,6 @@ Item {
 
         interval: 3000
         onTriggered: face.clearArmed = false
-    }
-
-    Timer {
-        id: translateFocusTimer
-
-        interval: 140
-        repeat: false
-        onTriggered: face.consumeTranslateLanguageFocus()
     }
 
     // m3 fade through: the old mode leaves on the accelerating curve, the new
@@ -770,12 +814,21 @@ Item {
             visible: face.emojiVisible && !face.headOnly
             active: face.emojiVisible && !face.headOnly
             emojiMode: true
-            model: face.headOnly ? null : face.emojiModel
+            // The dock warms the emoji index for this tab. Let its first page
+            // fill (and decode its glyphs) even while the launcher is folded,
+            // so opening Emoji does not pay for them as it appears.
+            model: face.emojiModel
             revision: face.resultsRevision
             onActivated: (index, newInstance) => {
-                var em = face.emojiModel ? face.emojiModel.get(index).emoji : "";
-                if (em !== "")
-                    face.emojiCopied(em);
+                var item = face.emojiModel ? face.emojiModel.get(index) : null;
+                // Server emoji copy their fake-nitro CDN link; Unicode ones
+                // still copy the character itself. The toast gets the artwork
+                // (and a name) rather than the URL.
+                var em = item ? (item.copy || item.emoji || "") : "";
+                if (em !== "") {
+                    var image = item && item.image ? item.image : "";
+                    face.emojiCopied(em, image, item ? (item.image ? (item.title || "Emoji") : (item.emoji || "")) : "", item ? item.animated === true : false, item ? item.key : "");
+                }
             }
         }
 
@@ -793,6 +846,7 @@ Item {
             // only instantiates the visible window on return.
             model: face.listVisible && !face.headOnly ? face.model : null
             query: face.highlightQuery
+            revision: face.resultsRevision
             stableHeight: face.stableContentHeight
             emptyLabel: {
                 if (face.displayMode === "commands")
@@ -948,7 +1002,10 @@ Item {
             visible: face.pickerMode
             active: face.pickerEverUsed
             source: face.pickerFiles[face.pickerStyle] || face.pickerFiles.strip
-            onLoaded: pickerRestore.restart()
+            onLoaded: {
+                console.log("TABTIMING picker loaded", Date.now());
+                pickerRestore.restart();
+            }
         }
 
         // A style change is taken in this order on purpose: the old picker reports
@@ -1118,6 +1175,12 @@ Item {
             selectedTextColor: Theme.text
             onTextChanged: face.resetSelection()
             onActiveFocusChanged: if (searchInput.activeFocus) face.tabsFocused = false
+            Accessible.name: Tr.t("Search")
+            Accessible.description: face.placeholder
+            Accessible.editable: true
+            Accessible.searchEdit: true
+            Accessible.focusable: true
+            Accessible.focused: searchInput.activeFocus
             // the picker takes one pair of arrows (Settings -> Theme -> Arrow keys)
             // and the search field keeps the other; Tiles is a grid and takes all four
             Keys.onUpPressed: (event) => {
@@ -1203,7 +1266,7 @@ Item {
             Keys.onDeletePressed: (event) => {
                 // browsing the picker: Delete trashes the highlighted card.
                 // With a filter typed the key belongs to the search field.
-                if (face.pickerMode && face.highlightQuery === "" && wallStrip && typeof wallStrip.deleteHighlighted === "function" && wallStrip.deleteHighlighted()) {
+                if (face.pickerMode && face.highlightQuery === "" && wallStrip && wallStrip.deleteHighlighted()) {
                     event.accepted = true;
                 } else if (face.displayMode === "clipboard" && (event.modifiers & Qt.ControlModifier) && (event.modifiers & Qt.ShiftModifier)) {
                     face.armOrClear();
@@ -1225,6 +1288,20 @@ Item {
             }
             // Ctrl and a digit jumps straight to a mode, in the order the head shows them
             Keys.onPressed: (event) => {
+                if (face.pickerMode && event.key === Qt.Key_R) {
+                    if ((event.modifiers & Qt.ControlModifier) !== 0
+                            && (event.modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)) === 0) {
+                        face.jumpRandom();
+                        event.accepted = true;
+                        return ;
+                    }
+                    // Shift+R used to be the random picker; swallow it so it
+                    // cannot filter the query and move the selection instead
+                    if ((event.modifiers & Qt.ShiftModifier) !== 0) {
+                        event.accepted = true;
+                        return ;
+                    }
+                }
                 if (face.pickerMode && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
                     // End resumes at the furthest card reached this boot. A
                     // typed filter is a different list, so it keeps its old
@@ -1287,6 +1364,7 @@ Item {
                 size: searchInput.typeSize
                 text: face.placeholder
                 color: Theme.subtext
+                Accessible.ignored: true
                 visible: searchInput.text === ""
                 z: -1
 

@@ -1172,7 +1172,7 @@ function stopRecordingBackend() {
 
                     IconAction {
                         iconPath: "crop_free"
-                        label: snapWindow.captureMode === "text" ? "Copy Text in Region" : "Snap Select"
+                        label: snapWindow.captureMode === "text" ? Tr.t("Copy Text in Region") : Tr.t("Snap Select")
                         active: snapWindow.activeTool === "select"
                         disabled: snapWindow.ocrBusy || (snapWindow.captureMode === "video" && snapWindow.recordingState !== "idle")
                         onTapped: snapWindow.runTool("select")
@@ -1180,7 +1180,7 @@ function stopRecordingBackend() {
 
                     IconAction {
                         iconPath: "desktop_windows"
-                        label: snapWindow.captureMode === "text" ? "Copy All Text on Screen" : "Fullscreen"
+                        label: snapWindow.captureMode === "text" ? Tr.t("Copy All Text on Screen") : Tr.t("Fullscreen")
                         active: snapWindow.activeTool === "fullscreen"
                         disabled: snapWindow.ocrBusy || (snapWindow.captureMode === "video" && snapWindow.recordingState !== "idle")
                         onTapped: snapWindow.runTool("fullscreen")
@@ -1197,7 +1197,7 @@ function stopRecordingBackend() {
                     IconAction {
                         anchors.verticalCenter: parent.verticalCenter
                         iconPath: "colorize"
-                        label: "Pick a Colour"
+                        label: Tr.t("Pick a Colour")
                         activeColor: Theme.accent
                         onTapped: snapWindow.startColorPick()
                     }
@@ -1258,14 +1258,14 @@ function stopRecordingBackend() {
 
                         IconAction {
                             iconPath: "stop"
-                            label: "Stop"
+                            label: Tr.t("Stop")
                             disabled: snapWindow.recordingState === "idle"
                             onTapped: snapWindow.stopRecording()
                         }
 
                         IconAction {
                             iconPath: "visibility_off"
-                            label: "Hide (switch to Video to bring back)"
+                            label: Tr.t("Hide (switch to Video to bring back)")
                             disabled: snapWindow.recordingState === "idle"
                             onTapped: snapWindow.hideToolbar()
                         }
@@ -1689,7 +1689,7 @@ function stopRecordingBackend() {
                 anchors.margins: Theme.dp(3)
 
                 ModeSegment {
-                    label: "Photo"
+                    label: Tr.t("Photo")
                     iconPath: "photo_camera"
                     active: snapWindow.captureMode === "camera"
                     disabled: modeSwitch.recording || snapWindow.ocrBusy
@@ -1697,7 +1697,7 @@ function stopRecordingBackend() {
                 }
 
                 ModeSegment {
-                    label: "Video"
+                    label: Tr.t("Video")
                     iconPath: "videocam"
                     active: modeSwitch.videoMode
                     onTapped: {
@@ -1709,7 +1709,7 @@ function stopRecordingBackend() {
                 }
 
                 ModeSegment {
-                    label: "Text"
+                    label: Tr.t("Text")
                     iconPath: "text_fields"
                     active: snapWindow.captureMode === "text"
                     disabled: modeSwitch.recording || snapWindow.ocrBusy
@@ -1717,7 +1717,7 @@ function stopRecordingBackend() {
                 }
 
                 ModeSegment {
-                    label: "Colour"
+                    label: Tr.t("Colour")
                     iconPath: "colorize"
                     active: snapWindow.captureMode === "color"
                     disabled: modeSwitch.recording || snapWindow.ocrBusy

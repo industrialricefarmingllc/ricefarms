@@ -149,7 +149,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.dp(12)
                 anchors.verticalCenter: parent.verticalCenter
-                text: "Search " + picker.items.length + " installed apps"
+                text: Tr.t("Search ") + picker.items.length + Tr.t(" installed apps")
                 color: Theme.subtextDim
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontBodyLg
@@ -162,7 +162,7 @@ Item {
         Text {
             anchors.centerIn: parent
             width: card.width - Theme.dp(60)
-            text: picker.items.length === 0 ? "Nothing left to add" : "No apps match “" + picker.filter + "”"
+            text: picker.items.length === 0 ? Tr.t("Nothing left to add") : Tr.t("No apps match “") + picker.filter + "”"
             color: Theme.subtextDim
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontBodyLg

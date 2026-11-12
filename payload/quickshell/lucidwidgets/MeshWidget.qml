@@ -542,7 +542,7 @@ WidgetBody {
 
                 LText {
                     role: "titleMedium"
-                    text: w.phase === "idle" ? "Image to 3D" : (w.phase === "done" ? "Done" : (w.curLabel !== "" ? w.curLabel : "Working…"))
+                    text: w.phase === "idle" ? Tr.t("Image to 3D") : (w.phase === "done" ? Tr.t("Done") : (w.curLabel !== "" ? w.curLabel : Tr.t("Working…")))
                     color: w.ink
                     elide: Text.ElideRight
                     Layout.fillWidth: true
@@ -559,7 +559,7 @@ WidgetBody {
 
             Chip {
                 kind: "assist"
-                text: "watching"
+                text: Tr.t("watching")
                 icon: "visibility"
                 visible: w.watching && w.width > 420
             }
@@ -695,7 +695,7 @@ WidgetBody {
                     LText {
                         Layout.alignment: Qt.AlignHCenter
                         role: "titleMedium"
-                        text: w.phase === "failed" ? "That run did not finish" : "Drop a photo, or"
+                        text: w.phase === "failed" ? Tr.t("That run did not finish") : Tr.t("Drop a photo, or")
                         color: w.ink
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
@@ -708,7 +708,7 @@ WidgetBody {
                         spacing: Theme.dp(8)
 
                         Button {
-                            text: w.width > 300 ? "Choose file" : ""
+                            text: w.width > 300 ? Tr.t("Choose file") : ""
                             icon: "photo_library"
                             variant: "tonal"
                             onClicked: w.pickImage()
@@ -787,7 +787,7 @@ WidgetBody {
                             Layout.alignment: Qt.AlignVCenter
                             Layout.maximumWidth: Math.max(Theme.dp(60), w.width - Theme.dp(190))
                             role: "titleSmall"
-                            text: w.curLabel !== "" ? w.curLabel : (w.phase === "idle" && w.hasImage ? w.source.split("/").pop() : "preparing…")
+                            text: w.curLabel !== "" ? w.curLabel : (w.phase === "idle" && w.hasImage ? w.source.split("/").pop() : Tr.t("preparing…"))
                             color: w.ink
                             elide: Text.ElideRight
                         }
@@ -795,7 +795,7 @@ WidgetBody {
                         LText {
                             Layout.alignment: Qt.AlignVCenter
                             role: "labelSmall"
-                            text: w.curState === "done" ? "ready — click to open" : (w.curState === "failed" ? "failed" : (w.curState === "cancelled" ? "cancelled" : (w.curState === "ready" ? "ready" : (w.curState === "running" ? "building mesh · " + Math.round(w.curProgress * 100) + "%" : "queued"))))
+                            text: w.curState === "done" ? Tr.t("ready — click to open") : (w.curState === "failed" ? "failed" : (w.curState === "cancelled" ? "cancelled" : (w.curState === "ready" ? "ready" : (w.curState === "running" ? Tr.t("building mesh · ") + Math.round(w.curProgress * 100) + "%" : "queued"))))
                             color: w.curState === "failed" ? Theme.error : w.inkFaint
                             elide: Text.ElideRight
                         }
@@ -831,7 +831,7 @@ WidgetBody {
                                 anchors.fill: parent
                                 variant: "search"
                                 icon: "category"
-                                placeholder: "Bed, Person.."
+                                placeholder: Tr.t("Bed, Person..")
                                 text: w.prompts
                                 onTextEdited: w.prompts = text
                                 onAccepted: w.startJob(w.source !== "" ? w.source : (w.opt("last") || ""))
@@ -858,7 +858,7 @@ WidgetBody {
                         }
 
                         Button {
-                            text: w.width > 300 ? "Start" : ""
+                            text: w.width > 300 ? Tr.t("Start") : ""
                             icon: "auto_awesome"
                             variant: "filled"
                             size: "m"
@@ -900,7 +900,7 @@ WidgetBody {
                                 width: list.width
                                 visible: w.external.length > 0
                                 role: "labelSmall"
-                                text: "Running jobs"
+                                text: Tr.t("Running jobs")
                                 color: w.inkDim
                             }
 
@@ -1074,7 +1074,7 @@ WidgetBody {
 
                                             LText {
                                                 role: "labelSmall"
-                                                text: row.note !== "" ? row.note : (row.state === "queued" ? "queued" : (row.state === "running" ? "building mesh" : (row.state === "cancelled" ? "cancelled" : "finished — click to open")))
+                                                text: row.note !== "" ? row.note : (row.state === "queued" ? "queued" : (row.state === "running" ? Tr.t("building mesh") : (row.state === "cancelled" ? "cancelled" : Tr.t("finished — click to open"))))
                                                 color: w.inkFaint
                                                 elide: Text.ElideRight
                                                 Layout.fillWidth: true
@@ -1147,7 +1147,7 @@ WidgetBody {
                             LText {
                                 Layout.fillWidth: true
                                 role: "labelSmall"
-                                text: "placement is approximate"
+                                text: Tr.t("placement is approximate")
                                 color: w.inkFaint
                             }
                         }
@@ -1224,7 +1224,7 @@ WidgetBody {
                 anchors.bottom: parent.bottom
                 anchors.margins: Theme.dp(14)
                 role: "labelSmall"
-                text: "drag to orbit · scroll to zoom"
+                text: Tr.t("drag to orbit · scroll to zoom")
                 color: w.inkFaint
             }
 

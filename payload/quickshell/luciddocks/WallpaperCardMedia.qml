@@ -26,6 +26,14 @@ Item {
     property real parallax: 0
     property int sourceSizeWidth: 680
     property int sourceSizeHeight: 422
+    // Ask for the cached thumbnail even on the selected card. The slot
+    // styles decode at 640x400, below the 680x422 cut, so the original adds
+    // nothing there; the strip only sets this while it is moving.
+    property bool preferThumb: false
+    // the real image's dimensions, for Web results whose thumbnail is a
+    // pre-cropped 16:9 preview
+    property int sourceWidth: 0
+    property int sourceHeight: 0
 
     readonly property bool virtualPath: /^(wh:|skwd:|more:)/.test(path)
     readonly property bool moving: kind === "video" || kind === "we" || kind === "steam" || /\.(mp4|webm|mkv|mov|m4v)$/i.test(path)
@@ -33,17 +41,45 @@ Item {
     readonly property bool isMore: kind === "more"
     readonly property bool isStatus: kind === "status"
     readonly property bool hires: kind === "wallhaven" && preview !== ""
-    // Stills decode the original at the card's decode size: the cached thumb is
-    // 680px wide and reads soft in the 1:2 hero card on a 2x display. Videos
-    // keep their first-frame thumb until the animated preview takes over.
-    // A virtual item (or the load-more row) never has a local file to fall back
-    // to, so its thumbnail is the picture.
+    // Wallhaven's large thumbnail is a centred 16:9 crop of the original. The
+    // full image has to be cropped the same way before it is laid over that
+    // thumbnail, or a 4:3/3:2 wallpaper visibly changes framing the moment the
+    // selected card loads its real image.
     //
-    // The thumbs are skwd's webp cuts here, and this Qt has no webp image
-    // plugin (qt6-imageformats), so a still never falls back to its thumb: it
-    // would draw an empty card. The picker's `near` gate is what keeps only a
-    // handful of originals decoded at a time.
-    readonly property string still: (moving || virtualPath) ? (thumb !== "" ? thumb : "") : (path !== "" ? path : thumb)
+    // sourceClipRect is in the *decoded* image's coordinates: sourceSize is
+    // applied first, then the clip is cut out of that. Using the original
+    // pixel size here made portrait/4:3 web results ask for a rect far outside
+    // the 640x400 decode, which Qt rendered as a tiny picture in the card's
+    // top-left corner. Scale the crop into the same space sourceSize decodes
+    // to; PreserveAspectCrop covers that box, so the decode is at least as
+    // large as the requested one on both axes.
+    readonly property rect hiresClip: {
+        if (sourceWidth <= 0 || sourceHeight <= 0 || sourceSizeWidth <= 0 || sourceSizeHeight <= 0)
+            return Qt.rect(0, 0, 0, 0);
+        const scale = Math.min(1, Math.max(sourceSizeWidth / sourceWidth, sourceSizeHeight / sourceHeight));
+        const dw = Math.max(1, Math.round(sourceWidth * scale));
+        const dh = Math.max(1, Math.round(sourceHeight * scale));
+        const want = 16 / 9;
+        if (dw / dh > want) {
+            const w = Math.round(dh * want);
+            return Qt.rect(Math.round((dw - w) / 2), 0, w, dh);
+        }
+        const h = Math.round(dw / want);
+        return Qt.rect(0, Math.round((dh - h) / 2), dw, h);
+    }
+    // Stills normally decode the original at the card's decode size, because a
+    // 680px thumb reads soft in the strip's 1:2 hero on a 2x display. Sources
+    // whose thumb is already large enough (the slot styles' 640x400) pass
+    // preferThumb, and the strip passes it while an arrow is still moving: a
+    // full-size decode of a 10-20 MB original costs ~80 ms on this library,
+    // while the cached jpg cut costs a few ms and is what the eye sees during
+    // the 300 ms slide anyway.
+    //
+    // A webp thumb is unusable on a Qt without qt6-imageformats, so it must
+    // never be selected: that was the empty-card path in the first attempt at
+    // this. Virtual items and the load-more row have no local original.
+    readonly property bool thumbUsable: thumb !== "" && !/\.webp$/i.test(thumb)
+    readonly property string still: (thumbUsable && (preferThumb || !current)) ? thumb : ((moving || virtualPath) ? (thumbUsable ? thumb : "") : (path !== "" ? path : (thumbUsable ? thumb : "")))
 
     // download state from RemoteWall, keyed by this card's path
     readonly property var download: RemoteWall.downloadFor(path)
@@ -114,6 +150,9 @@ Item {
         cache: true
         sourceSize.width: media.sourceSizeWidth
         sourceSize.height: media.sourceSizeHeight
+        // empty rect (0,0,0,0) leaves the source whole for anything that is
+        // not a Wallhaven result with known dimensions
+        sourceClipRect: media.hires ? media.hiresClip : Qt.rect(0, 0, 0, 0)
         visible: source !== "" && status === Image.Ready
     }
 
@@ -136,7 +175,7 @@ Item {
     Text {
         anchors.centerIn: parent
         visible: media.isMore
-        text: "Load more"
+        text: Tr.t("Load more")
         color: Theme.subtext
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontLabelLg
@@ -166,7 +205,7 @@ Item {
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: RemoteWall.latest ? "Loading latest" : (RemoteWall.items.length === 0 ? "Searching" : "Loading more")
+            text: RemoteWall.latest ? Tr.t("Loading latest") : (RemoteWall.items.length === 0 ? Tr.t("Searching") : Tr.t("Loading more"))
             color: Theme.subtext
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontLabelLg

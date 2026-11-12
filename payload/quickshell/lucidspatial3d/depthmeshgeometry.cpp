@@ -8,6 +8,7 @@
 #include <QMutexLocker>
 #include <QPointer>
 #include <QDebug>
+#include <QStringList>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -17,6 +18,7 @@
 namespace {
 struct MeshCacheEntry {
     QByteArray vertices;
+    QByteArray indices;
     QVector3D minimum;
     QVector3D maximum;
     float focusDistance = 0.0f;
@@ -28,6 +30,10 @@ struct MeshCacheEntry {
 // vertex build: identical outputs are then a memory copy, not a second decode
 // plus a rebuild.
 QHash<QString, MeshCacheEntry> g_meshCache;
+// Least-recently-used order for the in-memory mesh cache. The old policy wiped
+// all eight entries when a ninth arrived, so revisiting any wallpaper after a
+// picker sweep paid the disk read and upload again.
+QStringList g_meshCacheOrder;
 QMutex g_meshCacheMutex;
 
 QString localPath(const QUrl &url)
@@ -45,6 +51,9 @@ DepthMeshGeometry::DepthMeshGeometry(QQuick3DObject *parent)
     setPrimitiveType(PrimitiveType::Triangles);
     addAttribute(Attribute::PositionSemantic, 0, Attribute::F32Type);
     addAttribute(Attribute::TexCoord0Semantic, sizeof(float) * 3, Attribute::F32Type);
+    // The mesh is indexed (UInt32); without this attribute Qt ignores the
+    // index buffer and draws the deduplicated vertex buffer as loose points.
+    addAttribute(Attribute::IndexSemantic, 0, Attribute::U32Type);
     m_rebuildTimer.setSingleShot(true);
     connect(&m_rebuildTimer, &QTimer::timeout, this, &DepthMeshGeometry::startBuild);
 }
@@ -112,6 +121,7 @@ void DepthMeshGeometry::rebuild()
     ++m_generation;
     setValid(false);
     setVertexData({});
+    setIndexData({});
     m_rebuildTimer.start(0);
 }
 
@@ -129,7 +139,10 @@ void DepthMeshGeometry::startBuild()
         QMutexLocker locker(&g_meshCacheMutex);
         const auto cached = g_meshCache.constFind(cacheKey);
         if (cached != g_meshCache.constEnd()) {
+            g_meshCacheOrder.removeAll(cacheKey);
+            g_meshCacheOrder.append(cacheKey);
             setVertexData(cached->vertices);
+            setIndexData(cached->indices);
             setBounds(cached->minimum, cached->maximum);
             m_focusDistance = cached->focusDistance;
             m_backgroundDistance = cached->backgroundDistance;
@@ -172,6 +185,7 @@ void DepthMeshGeometry::startBuild()
                 return;
 
             geometry->setVertexData(result.vertices);
+            geometry->setIndexData(result.indices);
             geometry->setBounds(result.minimum, result.maximum);
             geometry->m_focusDistance = result.focusDistance;
             geometry->m_backgroundDistance = result.backgroundDistance;
@@ -180,14 +194,19 @@ void DepthMeshGeometry::startBuild()
 
             MeshCacheEntry entry;
             entry.vertices = result.vertices;
+            entry.indices = result.indices;
             entry.minimum = result.minimum;
             entry.maximum = result.maximum;
             entry.focusDistance = result.focusDistance;
             entry.backgroundDistance = result.backgroundDistance;
             {
                 QMutexLocker locker(&g_meshCacheMutex);
-                if (g_meshCache.size() > 8)
-                    g_meshCache.clear();
+                while (g_meshCache.size() >= 8 && !g_meshCacheOrder.isEmpty()) {
+                    const QString oldest = g_meshCacheOrder.takeFirst();
+                    g_meshCache.remove(oldest);
+                }
+                g_meshCacheOrder.removeAll(cacheKey);
+                g_meshCacheOrder.append(cacheKey);
                 g_meshCache.insert(cacheKey, entry);
             }
             geometry->setValid(true);

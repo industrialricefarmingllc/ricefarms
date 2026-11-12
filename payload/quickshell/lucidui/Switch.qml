@@ -8,8 +8,29 @@ Item {
     property bool checked: false
     property bool disabled: false
     property bool icons: true
+    property string accessibleName: ""
+    property string accessibleDescription: ""
 
     signal toggled(bool value)
+
+    function toggle() {
+        if (!sw.disabled)
+            sw.toggled(!sw.checked);
+    }
+
+    activeFocusOnTab: !sw.disabled
+    Accessible.role: Accessible.CheckBox
+    Accessible.name: sw.accessibleName
+    Accessible.description: sw.accessibleDescription
+    Accessible.checkable: true
+    Accessible.checked: sw.checked
+    Accessible.focusable: !sw.disabled
+    Accessible.focused: sw.activeFocus
+    Accessible.onPressAction: sw.toggle()
+    Accessible.onToggleAction: sw.toggle()
+    Keys.onSpacePressed: sw.toggle()
+    Keys.onReturnPressed: sw.toggle()
+    Keys.onEnterPressed: sw.toggle()
 
     implicitWidth: Theme.dp(48)
     implicitHeight: Theme.dp(28)
@@ -112,9 +133,21 @@ Item {
         cursorShape: Qt.PointingHandCursor
         // the caller owns `checked`; assigning it here would cut their binding
         onClicked: {
+            sw.forceActiveFocus();
             thumbJelly.kick(-0.17);
-            sw.toggled(!sw.checked);
+            sw.toggle();
         }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: Theme.pill(height + Theme.dp(6))
+        color: "transparent"
+        border.width: sw.activeFocus && !sw.disabled ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
 }

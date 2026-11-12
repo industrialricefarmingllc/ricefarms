@@ -116,6 +116,7 @@ Item {
         "battery": "power charge laptop",
         "media": "music song player spotify mpris audio album",
         "visualiser": "visualizer audio music sound cava spectrum bars",
+        "ambience": "soundtrack ambient background youtube music loop wallpaper vibe audio quarter mini small compact tile",
         "games": "steam play gaming library",
         "github": "git contributions commits code streak heatmap",
         "weather": "forecast temperature rain sun",
@@ -127,6 +128,7 @@ Item {
         "glance": "summary date weather next",
         "photo": "pictures images gallery slideshow frame",
         "fetch": "neofetch fastfetch system info terminal",
+        "opencode": "sessions ai coding agent opencode busy working terminal",
         "progress": "day week month year percent time left remaining countdown",
         "toggles": "quick settings switches wifi bluetooth do not disturb dnd dark mode night light caffeine keep awake mute microphone",
         "shortcuts": "apps launcher favourites favorites pinned dock icons open",
@@ -225,8 +227,11 @@ Item {
             return ;
 
         settle.stop();
+        Widgets.panelDragging = true;
         ghost.wtype = typeId;
         ghost.wvariant = v.id;
+        // the cards around the ghost do not move while it is in hand
+        ghost.others = wp.cardsHere();
         // the size the card will land at
         var size = Widgets.freshSize(typeId, v);
         var k = Widgets.sizeScale(typeId, v.id);
@@ -257,7 +262,7 @@ Item {
         var nx = px - ghost.grabX;
         var ny = py - ghost.grabY;
         if (Prefs.widgetSnap && !ghost.overSheet) {
-            var s = Widgets.snapBox(wp.width, wp.height, ghost.natW, ghost.natH, nx, ny, wp.cardsHere());
+            var s = Widgets.snapBox(wp.width, wp.height, ghost.natW, ghost.natH, nx, ny, ghost.others);
             nx = s.x;
             ny = s.y;
             ghost.guideX = s.gx;
@@ -271,6 +276,7 @@ Item {
     }
 
     function letGo() {
+        Widgets.panelDragging = false;
         ghost.carried = false;
         ghost.guideX = -1;
         ghost.guideY = -1;
@@ -489,7 +495,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "titleMedium"
                 color: bin.hot ? Theme.fgErrorContainer : Theme.text
-                text: bin.hot ? "Let go to remove it" : "Drop here to remove"
+                text: bin.hot ? Tr.t("Let go to remove it") : Tr.t("Drop here to remove")
             }
 
         }
@@ -517,6 +523,7 @@ Item {
         property real guideX: -1
         property real guideY: -1
         property real dim: ghost.overSheet ? 0.5 : 0.95
+        property var others: []
 
         width: ghost.natW
         height: ghost.natH
@@ -679,7 +686,7 @@ Item {
                     LText {
                         width: parent.width
                         role: "titleLarge"
-                        text: "Widgets"
+                        text: Tr.t("Widgets")
                         elide: Text.ElideRight
                     }
 
@@ -723,7 +730,7 @@ Item {
                 width: wp.innerW
                 variant: "search"
                 containerColor: Theme.withBlur(Theme.surfaceHigh)
-                placeholder: wp.tab === "placed" ? "Search your desktop" : (wp.tab === "layouts" ? "Search layouts" : "Search widgets")
+                placeholder: wp.tab === "placed" ? Tr.t("Search your desktop") : (wp.tab === "layouts" ? Tr.t("Search layouts") : Tr.t("Search widgets"))
                 onTextEdited: typing.restart()
                 onEscaped: {
                     if (search.text !== "") {
@@ -936,7 +943,7 @@ Item {
                                             anchors.verticalCenter: parent.verticalCenter
                                             role: "labelMedium"
                                             color: Theme.subtext
-                                            text: group.placed > 0 ? group.placed + " on the desktop" : ""
+                                            text: group.placed > 0 ? group.placed + Tr.t(" on the desktop") : ""
                                         }
 
                                     }
@@ -984,7 +991,7 @@ Item {
                             LText {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 role: "titleMedium"
-                                text: "No widgets match"
+                                text: Tr.t("No widgets match")
                             }
 
                             LText {
@@ -993,7 +1000,7 @@ Item {
                                 role: "bodyMedium"
                                 color: Theme.subtext
                                 wrapMode: Text.WordWrap
-                                text: wp.category !== "all" ? "Nothing in this category fits the search. Try All." : "Try another word, such as clock, music or notes."
+                                text: wp.category !== "all" ? Tr.t("Nothing in this category fits the search. Try All.") : Tr.t("Try another word, such as clock, music or notes.")
                             }
 
                         }
@@ -1049,7 +1056,7 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     role: "labelLarge"
                                     color: Theme.primary
-                                    text: "Hover one to find it, click it for its options"
+                                    text: Tr.t("Hover one to find it, click it for its options")
                                     width: parent.width - clearBtn.width - Theme.dp(12)
                                     elide: Text.ElideRight
                                 }
@@ -1063,7 +1070,7 @@ Item {
                                     danger: true
                                     size: "xs"
                                     icon: "delete_sweep"
-                                    text: wp.clearArmed ? "Remove all?" : "Remove all"
+                                    text: wp.clearArmed ? Tr.t("Remove all?") : Tr.t("Remove all")
                                     onClicked: {
                                         if (wp.clearArmed) {
                                             wp.clearArmed = false;
@@ -1103,7 +1110,7 @@ Item {
                                 topPadding: Theme.dp(12)
                                 role: "bodyMedium"
                                 color: Theme.subtext
-                                text: "None of your widgets match the search."
+                                text: Tr.t("None of your widgets match the search.")
                             }
 
                             // nothing out yet
@@ -1133,7 +1140,7 @@ Item {
                                 LText {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     role: "titleMedium"
-                                    text: "Nothing on the desktop yet"
+                                    text: Tr.t("Nothing on the desktop yet")
                                 }
 
                                 LText {
@@ -1142,7 +1149,7 @@ Item {
                                     role: "bodyMedium"
                                     color: Theme.subtext
                                     wrapMode: Text.WordWrap
-                                    text: Widgets.canRestore ? "Drag one out of Add, or bring back the last layout from Layouts." : "Drag one out of Add, or start from a ready-made layout."
+                                    text: Widgets.canRestore ? Tr.t("Drag one out of Add, or bring back the last layout from Layouts.") : Tr.t("Drag one out of Add, or start from a ready-made layout.")
                                 }
 
                             }
@@ -1155,7 +1162,7 @@ Item {
                                     leftPadding: Theme.dp(4)
                                     role: "labelLarge"
                                     color: Theme.primary
-                                    text: "Behaviour"
+                                    text: Tr.t("Behaviour")
                                 }
 
                                 Column {
@@ -1281,7 +1288,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     variant: "text"
                     icon: "settings"
-                    text: "Settings"
+                    text: Tr.t("Settings")
                     onClicked: {
                         wp.close();
                         Prefs.settingsRequested("widgets");
@@ -1294,7 +1301,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     variant: "filled"
                     icon: "check"
-                    text: "Done"
+                    text: Tr.t("Done")
                     onClicked: wp.close()
                 }
 
@@ -1357,7 +1364,7 @@ Item {
                     leftPadding: Theme.dp(4)
                     role: "labelLarge"
                     color: Theme.primary
-                    text: "Yours"
+                    text: Tr.t("Yours")
                 }
 
                 Grid {
@@ -1374,8 +1381,8 @@ Item {
                     LP.PresetTile {
                         width: wp.tileW
                         visible: Widgets.canRestore && wp.query === ""
-                        title: "Last layout"
-                        blurb: "Not saved"
+                        title: Tr.t("Last layout")
+                        blurb: Tr.t("Not saved")
                         cards: Widgets.lastLayout
                         wallpaper: layouts.wallpaper
                         mark: "refresh"
@@ -1392,7 +1399,7 @@ Item {
 
                             width: wp.tileW
                             title: modelData.name
-                            blurb: "Saved " + Qt.formatDate(new Date(modelData.saved || 0), "d MMM yyyy")
+                            blurb: Tr.t("Saved ") + Qt.formatDate(new Date(modelData.saved || 0), "d MMM yyyy")
                             cards: Widgets.presetLayout(modelData.id)
                             wallpaper: layouts.wallpaper
                             selected: Widgets.presetId === modelData.id
@@ -1425,7 +1432,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "bodyMedium"
                         color: Theme.fgErrorContainer
-                        text: layouts.doomed ? "Delete “" + layouts.doomed.name + "”?" : ""
+                        text: layouts.doomed ? Tr.t("Delete “") + layouts.doomed.name + "”?" : ""
                         elide: Text.ElideRight
                     }
 
@@ -1437,7 +1444,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         variant: "text"
                         size: "xs"
-                        text: "Keep"
+                        text: Tr.t("Keep")
                         contentOverride: Theme.fgErrorContainer
                         onClicked: layouts.doomed = null
                     }
@@ -1451,7 +1458,7 @@ Item {
                         variant: "filled"
                         danger: true
                         size: "xs"
-                        text: "Delete"
+                        text: Tr.t("Delete")
                         onClicked: {
                             if (layouts.doomed)
                                 Widgets.deletePreset(layouts.doomed.id);
@@ -1471,7 +1478,7 @@ Item {
                     leftPadding: Theme.dp(4)
                     role: "labelLarge"
                     color: Theme.primary
-                    text: "Ready-made"
+                    text: Tr.t("Ready-made")
                 }
 
                 Grid {

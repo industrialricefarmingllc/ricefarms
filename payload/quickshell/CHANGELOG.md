@@ -6,6 +6,29 @@ All notable changes to Lucid are recorded here, newest first.
 
 ### New
 
+- **French interface.** Lucid's menus, panels, settings pages and status
+  messages are translated through a small `Tr` singleton, with the language
+  chosen from the session locale or from *Settings → General → Language*.
+  The English source strings stay in the QML files, so switching back is
+  instant and needs no reverse catalogue.
+- **Accessibility.** The shared controls now expose names, roles, states and
+  actions through Qt's accessibility tree, draw a keyboard focus rim, and
+  respond to Space/Return, arrow keys and Escape. Settings → General gains
+  focus-ring, screen-reader announcement and reduce-motion switches, and the
+  session enables the Qt accessibility bridge for Orca and other tools.
+- **Launch placeholders everywhere.** An app started from a desktop icon, an
+  app keybind, a special workspace, the `$` run row, `qs ipc call launch open`
+  or the `lucid-launch` helper now gets the same held tile, icon and loading
+  indicator the launcher shows. A small pool of ghosts means several windows
+  can be opened at once, each with its own held tile; the launch token keeps
+  a burst of the same app from taking another window's tile. A launch with no
+  icon rect seeds on the focused output, and the overlay waits for its surface
+  to move there before the icon appears. The held tiles and ghost surfaces are
+  left out of Lucid's window search, switcher and running-apps list, so they
+  never show up as stray windows. The tile is released the moment the
+  app's window maps, so the only thing left on screen is its reveal; the
+  helper falls back to a plain launch when the shell is not running, so a
+  reload can never swallow a press.
 - **Touch scrolling in the launcher.** The apps and emoji walls page with a
   sideways swipe and walk their rows up and down; the wallpaper strip, pills
   and bento card stacks follow the finger card by card; and the Tiles picker,

@@ -98,6 +98,13 @@ hl.env("XDG_SESSION_TYPE", "wayland")
 hl.env("XDG_CURRENT_DESKTOP", "Hyprland")
 hl.env("ELECTRON_OZONE_PLATFORM_HINT", "wayland")
 hl.env("NIXOS_OZONE_WL", "1")
+-- system-wide language (also set in /etc/locale.conf); kept here so apps
+-- started by an already-running compositor pick French up too
+hl.env("LANG", "fr_FR.UTF-8")
+-- expose the Qt accessibility tree so screen readers and assistive tools can
+-- inspect Lucid's controls
+hl.env("QT_ACCESSIBILITY", "1")
+hl.env("QT_LINUX_ACCESSIBILITY_ALWAYS_ON", "1")
 
 -------------------
 ---- AUTOSTART ----
@@ -184,9 +191,22 @@ hl.on("hyprland.start", function()
   -- (windows stop repainting). Rebuild, then restart Hyprland.
   -- Versioned build: never `cp` over a .so a running Hyprland may have
   -- mapped (rewriting the mapped inode can crash it). Build to a new
-  -- filename, point this line at it, and restart. 2026-11-04 perf pass:
+  -- filename, point this line at it, and restart. 2026-11-06 perf pass:
+  -- interior fast-path gate fix, edge-only rim normals, half-res bokeh
+  -- (see PERFORMANCE-20261106.md); 2026-11-06 tint = Lucid Theme.bgOpaque
+  -- (container + surface ramp, not raw matugen surface); 2026-11-04:
   -- fast-path/shadow/SDF/wash/ring + shared-backdrop/geometry caches.
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-wash5.so")
+  -- 2026-11-09: per-window e-ink post-pass added (WindowEink.cpp / eink.frag).
+  -- Revert to liquidglass-bgopaque-20261106.so if the new build misbehaves.
+  -- 2026-11-11: rim-only mode. With the master switch off, renderBorder
+  -- keeps drawing just the Apple rim (no blur chain, bokeh, shadow or
+  -- full-window glass) so the edge light survives the GPU-saver toggle.
+  -- 2026-11-12: quarter-res rim capture so the backdrop-lit highlight stays
+  -- as bright as the in-glass rim (32x32 averaged the dark pane in and read
+  -- as a flat gray hairline). Rim-only also overlays widgets (bar/dock/OSD/
+  -- desktop cards) after their QML fallback background, and window borders
+  -- keep the rim on the native outer edge (no half-pixel float).
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-rimwidgets-washmul-diag-20261112.so")
   -- Standalone wash is intentionally not loaded; the integrated copy runs above.
   -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-wash || hyprctl plugin load /home/nicerice/src/lucid-wash/lucid-wash-adv.so")
   -- Layer-wide overlay blending is intentionally not loaded; the wash is
@@ -214,7 +234,7 @@ hl.on("hyprland.start", function()
   -- replaces Hyprland's flat border (and the old picture-frame relief) with
   -- the backdrop-tinted rim; frame_enable=0 keeps the ornate frame off.
   -- rim_width is logical px, rim_angle 135 = light from the top-left.
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0}}})' >/dev/null 2>&1 || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0, rim_follow=1, rim_follow_strength=0.2, rim_follow_max=15.0, rim_follow_smoothing=0.3}}})' >/dev/null 2>&1 || true")
   -- Goo morph, applied only once the plugin is actually loaded (see the
   -- gooPreset comment below — a static hl.config() would abort the config).
   -- custom.lua re-applies the persisted gooWorkspacesEnabled afterwards.
@@ -251,7 +271,7 @@ end)
 -- pattern as shader.lua's config.reloaded handler).
 hl.on("config.reloaded", function()
   hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, hide_window_shadows=0, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1 || true")
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0}}})' >/dev/null 2>&1 || true")
+  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0, rim_follow=1, rim_follow_strength=0.2, rim_follow_max=15.0, rim_follow_smoothing=0.3}}})' >/dev/null 2>&1 || true")
   applyGooPreset()
 end)
 
@@ -334,9 +354,10 @@ hl.config({
     -- terminal bells, link-openings) only flag the window urgent, never steal
     -- focus. The urgency guard in custom.lua restores the Windows-style jump
     -- (focus the requester incl. workspace switch) but ONLY after 5s without
-    -- key/mouse input - so background bells can't yank focus mid-keystroke,
-    -- while opening a link while idle still takes you to it. Every focus
-    -- change + urgent decision is logged to /tmp/urgency-guard.log.
+    -- key/mouse input - so background bells can't yank focus mid-keystroke.
+    -- Browsers are exempt there, because a link-open is always preceded by
+    -- input and would otherwise never win the idle gate. Every focus change +
+    -- urgent decision is logged to /tmp/urgency-guard.log.
     focus_on_activate = false,
     -- DP-1 is VRR-capable (G-Sync) but VRR latches VRR_ENABLED on the CRTC
     -- across VT switches: kmscon's fixed-refresh atomic commits then stall
@@ -356,7 +377,11 @@ hl.config({
     -- focus follows mouse ENABLED: hovering a window focuses it (click-only was
     -- 2026-10-09 follow_mouse=0, reverted per request).
     follow_mouse = 1,
-    resolve_binds_by_sym = true,
+    -- Binds resolve against the first layout in kb_layout (us), by keycode,
+    -- so every Latin Lucid chord keeps working while ru is the active layout.
+    -- Setting this true matches the symbol actually typed instead: in ru every
+    -- letter bind silently stops firing.
+    resolve_binds_by_sym = false,
     touchpad = { natural_scroll = false },
   },
   -- idle-hide off (inactive_timeout = 0 disables it); typing-hide via
@@ -451,9 +476,25 @@ gooPresetOptional = "resize_stretch=0.0"
 ---- KEYBINDINGS ----
 ---------------------
 local mod = "SUPER"
--- Lucid shell launcher on bare SUPER tap only (not after SUPER+chord).
--- Plain release binds can't tell tap from chord, so track it: arm on Super
--- press, disarm on any other SUPER+key press, toggle on release only if armed.
+-- app launches go through Lucid's launch placeholder, the same held tile the
+-- launcher uses, instead of spawning straight from the compositor
+local lucid_launch = (os.getenv("HOME") or "") .. "/.config/quickshell/scripts/lucid-launch"
+local function lucid_shquote(s)
+  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+local function lucid_app(cmd, title, icon, class)
+  local out = lucid_shquote(lucid_launch) .. " -c " .. lucid_shquote(cmd)
+  if title then out = out .. " --title " .. lucid_shquote(title) end
+  if icon then out = out .. " --icon " .. lucid_shquote(icon) end
+  if class then out = out .. " --class " .. lucid_shquote(class) end
+  return hl.dsp.exec_cmd(out)
+end
+-- Lucid shell launcher on a bare SUPER tap only (never on a SUPER chord).
+-- The old version armed on the Super bind and disarmed on a finite list of
+-- known chords, so any binding added later slipped through and opened the
+-- launcher too. Watch the physical key stream instead: a tap is clean only
+-- if no other key goes down while SUPER is held. 133/134 are the XKB
+-- keycodes for left/right Super (Meta_L/Meta_R are the same physical keys).
 -- (The Lucid launcher works with the dock hidden via Prefs.dockEnabled=false.)
 local super_tap_armed = false
 -- Forward-declared here (assigned in the tmux section, NEVER redeclare with
@@ -461,8 +502,61 @@ local super_tap_armed = false
 -- so any SUPER+chord evaluated globally after a tmux Super press kills tap
 -- intent exactly like a global chord does. Must be one shared cell.
 local tmux_super_armed = false
-local function super_tap_arm() super_tap_armed = true end
-local function super_tap_disarm() super_tap_armed = false tmux_super_armed = false end
+local super_keycodes = { [133] = true, [134] = true }
+local super_down = 0
+local other_down = 0
+local super_tap_dirty = false
+
+local function super_tap_arm()
+  if super_tap_armed or super_tap_dirty then return end
+  super_tap_armed = true
+  -- Take the launcher's keyboard while SUPER is still held. Lucid keeps every
+  -- character typed before the tap is recognised and hands it to the search
+  -- field when the release opens the panel.
+  hl.dispatch(hl.dsp.global("quickshell:launcherArm"))
+end
+local function super_tap_disarm()
+  local was_armed = super_tap_armed
+  super_tap_armed = false
+  tmux_super_armed = false
+  if super_down > 0 then super_tap_dirty = true end
+  if was_armed then
+    hl.dispatch(hl.dsp.global("quickshell:launcherDisarm"))
+  end
+end
+-- custom.lua is dofile'd later and needs to clear this cell for late-bound
+-- chords (SUPER+R), which otherwise shadow the transparent disarm binding.
+_G.lucid_super_tap_disarm = super_tap_disarm
+
+hl.on("input.keyboard.key", function(code, time, state)
+  if super_keycodes[code] then
+    if state == 1 then
+      if super_down == 0 then
+        -- a key or modifier already held before SUPER makes this a chord
+        super_tap_dirty = other_down > 0
+      end
+      super_down = super_down + 1
+      super_tap_arm()
+    elseif state == 0 then
+      super_down = math.max(0, super_down - 1)
+      if super_down == 0 then super_tap_dirty = false end
+    end
+    return
+  end
+
+  if state == 1 then
+    other_down = other_down + 1
+  elseif state == 0 then
+    other_down = math.max(0, other_down - 1)
+    return
+  end
+
+  -- press or repeat of any non-Super key while SUPER is held: a chord
+  if super_down > 0 then
+    super_tap_dirty = true
+    if super_tap_armed then super_tap_disarm() end
+  end
+end)
 
 -- >>> quick-translate tap disarm >>>
 -- SUPER+T is a chord, not a bare Super tap. Clear the tap intent before the
@@ -498,7 +592,7 @@ end
 for _, mb in ipairs({ "mouse:272", "mouse:273", "mouse_up", "mouse_down" }) do
   hl.bind("SUPER + " .. mb, super_tap_disarm, { mouse = true, transparent = true, non_consuming = true, description = "disarm launcher tap (" .. mb .. ")" })
 end
-hl.bind(mod .. " + Return", hl.dsp.exec_cmd("foot"))
+hl.bind(mod .. " + Return", lucid_app("foot", "Terminal", "utilities-terminal", "foot"))
 -- Pibble keybinds removed 2026-10-27; SUPER tap opens the Lucid launcher.
 hl.bind(mod .. " + W", hl.dsp.exec_cmd("qs ipc call -- launcher wallpaper"), { description = "Lucid wallpaper picker (SUPER+W)" })
 -- Ported from legacy hyprland.conf (lua is the live config; conf-only binds
@@ -709,14 +803,11 @@ hl.define_submap("tmux", function()
   tmuxBind("c", hl.dsp.exec_cmd("qs ipc call -- launcher toggle"))
   -- x closes the focused window.
   tmuxBind("x", hl.dsp.window.close())
-  -- Layout fallbacks (resolve_binds_by_sym = true): in the RU phonetic
-  -- layout the X/C positions send Cyrillic_ha/Cyrillic_es, so the sym binds
-  -- above never fire there and the catchall silently eats the submap.
-  -- NOTE: do NOT use "code:NN" here — Hyprland 0.56.2's Lua bind parser
-  -- turns any "code:" spec into an empty-key bind (key="", keycode=0),
-  -- which then matches KEY_UNKNOWN events (e.g. Xbox Elite paddles).
-  tmuxBind("Cyrillic_ha", hl.dsp.window.close())
-  tmuxBind("Cyrillic_es", hl.dsp.exec_cmd("qs ipc call -- launcher toggle"))
+  -- These single letters resolve by keycode against the first layout (us), so
+  -- the same physical keys fire under ru as under us and no Cyrillic_ha /
+  -- Cyrillic_es aliases are needed. NOTE: never use "code:NN" here — the
+  -- 0.56.2 Lua bind parser turns it into a keycode-0 bind that then matches
+  -- KEY_UNKNOWN events (e.g. Xbox Elite paddles).
   tmuxBind("z", hl.dsp.window.fullscreen({ mode = 1 }))
   -- f = true fullscreen (mode 0), matching the pre-2026-10 tmux submap.
   tmuxBind("f", hl.dsp.window.fullscreen({ mode = 0 }))
@@ -779,11 +870,11 @@ hl.define_submap("tmux", function()
   -- F16 = open kitty from inside tmux mode too (global binds don't fire in submaps)
   -- The ",phonetic_winkeys" keymap maps FK16 to XF86Launch7, so bind that
   -- keysym. Do NOT use "code:NN" (broken in the 0.56.2 Lua bind parser).
-  tmuxBind("XF86Launch7", hl.dsp.exec_cmd("kitty"))
-  tmuxBind("F16", hl.dsp.exec_cmd("kitty"))
+  tmuxBind("XF86Launch7", lucid_app("kitty", "Terminal", "utilities-terminal", "kitty"))
+  tmuxBind("F16", lucid_app("kitty", "Terminal", "utilities-terminal", "kitty"))
   -- F17 = open nautilus from inside tmux mode too (FK17 = XF86Launch8)
-  tmuxBind("XF86Launch8", hl.dsp.exec_cmd("nautilus --new-window"))
-  tmuxBind("F17", hl.dsp.exec_cmd("nautilus --new-window"))
+  tmuxBind("XF86Launch8", lucid_app("nautilus --new-window", "Files", "system-file-manager", "org.gnome.Nautilus"))
+  tmuxBind("F17", lucid_app("nautilus --new-window", "Files", "system-file-manager", "org.gnome.Nautilus"))
   tmuxSticky("left", hl.dsp.focus({ direction = "left" }))
   tmuxSticky("right", hl.dsp.focus({ direction = "right" }))
   tmuxSticky("up", hl.dsp.focus({ direction = "up" }))
@@ -938,6 +1029,11 @@ hl.window_rule({ name = "kitty-glass", match = { class = "kitty" }, no_blur = tr
 -- own translucency (no toggle-managed opacity file like kitty has). Flip
 -- this back to no_blur=false if glass is left off for good.
 hl.window_rule({ name = "zen-glass", match = { class = "zen" }, no_blur = true })
+
+-- Skyrim (Proton): map the game window fullscreen from the start. Without this
+-- Hyprland tiles the menu at ~2491x1313 and the game then resizes to 2560x1440
+-- when a new game loads, which recreates the DXVK/ReShade swap chain and crashes.
+hl.window_rule({ name = "skyrim-fullscreen", match = { title = "^Skyrim Special Edition$" }, fullscreen = true })
 
 -- LucidShot's capture overlay has its own layer namespace so recordings can
 -- leave it out. lucidcap captures the *workspace*, and a no_screen_share

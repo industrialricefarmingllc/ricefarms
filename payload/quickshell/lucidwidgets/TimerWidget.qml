@@ -141,7 +141,7 @@ WidgetBody {
                         anchors.horizontalCenter: parent.horizontalCenter
                         role: "labelMedium"
                         color: w.inkDim
-                        text: w.preview ? "5 min timer" : (w.timer ? w.timer.label : "")
+                        text: w.preview ? Tr.t("5 min timer") : (w.timer ? w.timer.label : "")
                     }
 
                     LText {
@@ -151,7 +151,7 @@ WidgetBody {
                         rounded: 100
                         tabular: true
                         color: w.ink
-                        text: w.done ? "Done" : Chrono.countdown(w.remain)
+                        text: w.done ? Tr.t("Done") : Chrono.countdown(w.remain)
                     }
 
                 }
@@ -190,7 +190,7 @@ WidgetBody {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: w.done ? "close" : "more_time"
                     tintOverride: w.ink
-                    tooltip: w.done ? "Dismiss" : "Add a minute"
+                    tooltip: w.done ? Tr.t("Dismiss") : Tr.t("Add a minute")
                     onClicked: {
                         if (!w.timer)
                             return ;
@@ -223,7 +223,7 @@ WidgetBody {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "titleSmall"
                 color: w.ink
-                text: "Start a timer"
+                text: Tr.t("Start a timer")
             }
 
             Grid {
@@ -250,7 +250,7 @@ WidgetBody {
                             role: "labelLarge"
                             weight: 660
                             color: w.ink
-                            text: pre.modelData + " min"
+                            text: pre.modelData + Tr.t(" min")
                         }
 
                         StateLayer {
@@ -285,7 +285,7 @@ WidgetBody {
             y: Theme.dp(14)
             role: "titleSmall"
             color: w.ink
-            text: w.phase === "idle" ? "Pomodoro" : Chrono.phaseLabel(w.phase)
+            text: w.phase === "idle" ? Tr.t("Pomodoro") : Chrono.phaseLabel(w.phase)
         }
 
         Item {
@@ -434,7 +434,7 @@ WidgetBody {
             role: "labelMedium"
             tabular: true
             color: w.inkDim
-            text: "Lap " + Chrono.laps.length + " · " + Chrono.clock(Chrono.laps[Chrono.laps.length - 1] - (Chrono.laps.length > 1 ? Chrono.laps[Chrono.laps.length - 2] : 0), true)
+            text: Tr.t("Lap ") + Chrono.laps.length + " · " + Chrono.clock(Chrono.laps[Chrono.laps.length - 1] - (Chrono.laps.length > 1 ? Chrono.laps[Chrono.laps.length - 2] : 0), true)
         }
 
         Row {

@@ -19,18 +19,18 @@ Column {
     }
 
     SettingCard {
-        title: "MODULES"
+        title: Tr.t("MODULES")
         visible: !page.inSheet
 
         SettingRow {
-            title: "Arrange the bar"
-            description: "Modules are arranged on the bar itself. In edit mode the desktop shades over: drag a module along the bar to move it, pull one down off the bar to take it out, click the link between two neighbours to join them, and right-click any of them for its looks and options."
+            title: Tr.t("Arrange the bar")
+            description: Tr.t("Modules are arranged on the bar itself. In edit mode the desktop shades over: drag a module along the bar to move it, pull one down off the bar to take it out, click the link between two neighbours to join them, and right-click any of them for its looks and options.")
             enabled: Prefs.barEnabled
             disabledReason: "The bar is switched off, so there is nothing to arrange."
             showDivider: false
 
             M3Button {
-                text: "Edit the bar"
+                text: Tr.t("Edit the bar")
                 variant: "filled"
                 iconPath: "edit"
                 enabled: Prefs.barEnabled
@@ -42,12 +42,12 @@ Column {
     }
 
     SettingCard {
-        title: "STYLE"
+        title: Tr.t("STYLE")
 
         SettingRow {
-            title: "Bar style"
+            title: Tr.t("Bar style")
             resetKey: "barStyle"
-            description: "Islands float free of the screen edge. Notches sit flush against it, squaring off the corners that meet it. Full bar joins every module on one continuous strip across the top."
+            description: Tr.t("Islands float free of the screen edge. Notches sit flush against it, squaring off the corners that meet it. Full bar joins every module on one continuous strip across the top.")
             showDivider: false
 
             M3Segmented {
@@ -73,12 +73,12 @@ Column {
     }
 
     SettingCard {
-        title: "OPENING BEHAVIOUR"
+        title: Tr.t("OPENING BEHAVIOUR")
 
         SettingRow {
-            title: "Auto-hide"
+            title: Tr.t("Auto-hide")
             resetKey: "barAutoHide"
-            description: "The bar slides off the top of the screen and comes back when the pointer reaches the edge, or while one of its panels is open. Windows use the space it leaves."
+            description: Tr.t("The bar slides off the top of the screen and comes back when the pointer reaches the edge, or while one of its panels is open. Windows use the space it leaves.")
 
             M3Switch {
                 checked: Prefs.barAutoHide
@@ -90,9 +90,9 @@ Column {
         }
 
         SettingRow {
-            title: "Open on hover"
+            title: Tr.t("Open on hover")
             resetKey: "barHoverOpen"
-            description: "Rest the pointer on a module and its panel opens by itself, no click needed; move away and it closes again. A panel opened this way leaves the keyboard with whatever window had it - click the panel to take focus, exactly as a clicked-open one does. The workspace overview still needs a click."
+            description: Tr.t("Rest the pointer on a module and its panel opens by itself, no click needed; move away and it closes again. A panel opened this way leaves the keyboard with whatever window had it - click the panel to take focus, exactly as a clicked-open one does. The workspace overview still needs a click.")
 
             M3Switch {
                 checked: Prefs.barHoverOpen
@@ -104,8 +104,8 @@ Column {
         }
 
         SettingRow {
-            title: "Pop-up mode"
-            description: "Modules stop morphing their own pill into a panel. The pill stays put in the bar and the panel appears below it as a pop-up."
+            title: Tr.t("Pop-up mode")
+            description: Tr.t("Modules stop morphing their own pill into a panel. The pill stays put in the bar and the panel appears below it as a pop-up.")
 
             M3Switch {
                 checked: Prefs.barPopupMode
@@ -117,9 +117,9 @@ Column {
         }
 
         SettingRow {
-            title: "Notched pop-ups"
+            title: Tr.t("Notched pop-ups")
             resetKey: "barPopupNotched"
-            description: "A pop-up grows straight down out of its module, or out of the group the module is joined into, and their corners curve into each other the way a notch meets the top of the screen. Off, it floats below with a gap."
+            description: Tr.t("A pop-up grows straight down out of its module, or out of the group the module is joined into, and their corners curve into each other the way a notch meets the top of the screen. Off, it floats below with a gap.")
             enabled: Prefs.barPopupMode
             disabledReason: "Only applies in pop-up mode."
 
@@ -134,9 +134,9 @@ Column {
         }
 
         SettingRow {
-            title: "Pop-up distance"
+            title: Tr.t("Pop-up distance")
             resetKey: "barPopupGap"
-            description: "The gap between a module's pill and the panel it opens."
+            description: Tr.t("The gap between a module's pill and the panel it opens.")
             enabled: Prefs.barPopupMode && !Prefs.barPopupNotched
             disabledReason: Prefs.barPopupMode ? "A notched pop-up hangs flush from its module - switch Notched pop-ups off to float it." : "Only applies in pop-up mode."
             showDivider: false
@@ -160,12 +160,12 @@ Column {
     }
 
     SettingCard {
-        title: "LAYOUT"
+        title: Tr.t("LAYOUT")
 
         SettingRow {
-            title: "Bar height"
+            title: Tr.t("Bar height")
             resetKey: "barHeight"
-            description: "How tall each module's resting pill is."
+            description: Tr.t("How tall each module's resting pill is.")
             stacked: true
 
             M3Slider {
@@ -183,9 +183,9 @@ Column {
         }
 
         SettingRow {
-            title: "Distance from top"
+            title: Tr.t("Distance from top")
             resetKey: "barTopMargin"
-            description: "How far the bar floats below the top edge of the screen."
+            description: Tr.t("How far the bar floats below the top edge of the screen.")
             enabled: !Prefs.barFlush
             disabledReason: "Notches and the full bar sit flush against the screen edge by definition - set Bar style back to Islands above to float the bar."
             stacked: true
@@ -206,9 +206,9 @@ Column {
         }
 
         SettingRow {
-            title: "Side margin"
+            title: Tr.t("Side margin")
             resetKey: "barSideMargin"
-            description: "Inset from the left and right screen edges."
+            description: Tr.t("Inset from the left and right screen edges.")
             stacked: true
 
             M3Slider {
@@ -226,9 +226,9 @@ Column {
         }
 
         SettingRow {
-            title: "Edge blend"
+            title: Tr.t("Edge blend")
             resetKey: "barNotchFlare"
-            description: "How far notched corners sweep out: a notched module's upper corners into the top of the screen, and a panel's into the bar it hangs from. Only drawn where there is room for it - modules packed close together keep their square corners rather than leaving a spike of wallpaper between them."
+            description: Tr.t("How far notched corners sweep out: a notched module's upper corners into the top of the screen, and a panel's into the bar it hangs from. Only drawn where there is room for it - modules packed close together keep their square corners rather than leaving a spike of wallpaper between them.")
             enabled: page.blendsAnything
             disabledReason: "Nothing on the bar is notched - set Bar style to Notches above, turn on notched pop-ups, or join two modules."
             stacked: true
@@ -249,9 +249,9 @@ Column {
         }
 
         SettingRow {
-            title: "Screen corners"
+            title: Tr.t("Screen corners")
             resetKey: "barFullCorner"
-            description: "How far the full bar's strip curves down into the left and right screen edges, and into the sides of a panel that opens from it."
+            description: Tr.t("How far the full bar's strip curves down into the left and right screen edges, and into the sides of a panel that opens from it.")
             enabled: Prefs.barFull
             disabledReason: "Only the full bar meets the screen edges - set Bar style to Full bar above."
             stacked: true
@@ -272,9 +272,9 @@ Column {
         }
 
         SettingRow {
-            title: "Animation speed"
+            title: Tr.t("Animation speed")
             resetKey: "barMotionScale"
-            description: "Scales every transition in the bar - hovers, pills growing and shrinking, modules appearing and leaving - on top of the shell-wide Animation speed on the General page. Above 1.00x the bar moves more slowly than the rest of the shell."
+            description: Tr.t("Scales every transition in the bar - hovers, pills growing and shrinking, modules appearing and leaving - on top of the shell-wide Animation speed on the General page. Above 1.00x the bar moves more slowly than the rest of the shell.")
             stacked: true
 
             M3Slider {
@@ -293,9 +293,9 @@ Column {
         }
 
         SettingRow {
-            title: "Module spacing"
+            title: Tr.t("Module spacing")
             resetKey: "barSpacing"
-            description: "The gap between neighbouring pills."
+            description: Tr.t("The gap between neighbouring pills.")
             stacked: true
 
             M3Slider {
@@ -313,9 +313,9 @@ Column {
         }
 
         SettingRow {
-            title: "Hover growth"
+            title: Tr.t("Hover growth")
             resetKey: "barHoverGrow"
-            description: "How far a pill swells under the pointer to show it opens. Capped at half the module spacing."
+            description: Tr.t("How far a pill swells under the pointer to show it opens. Capped at half the module spacing.")
             showDivider: false
             stacked: true
 
@@ -336,12 +336,12 @@ Column {
     }
 
     SettingCard {
-        title: "GROUPS"
+        title: Tr.t("GROUPS")
 
         SettingRow {
-            title: "Lines between joined modules"
+            title: Tr.t("Lines between joined modules")
             resetKey: "barJoinDividers"
-            description: "A faint line where two joined modules meet. Off, a group reads as one piece."
+            description: Tr.t("A faint line where two joined modules meet. Off, a group reads as one piece.")
             enabled: Prefs.barEnabled
 
             M3Switch {
@@ -354,9 +354,9 @@ Column {
         }
 
         SettingRow {
-            title: "Middle clearance"
+            title: Tr.t("Middle clearance")
             resetKey: "barZoneGap"
-            description: "How close the middle may come to either side before it gives way and slides along."
+            description: Tr.t("How close the middle may come to either side before it gives way and slides along.")
             showDivider: false
             stacked: true
 
@@ -377,13 +377,13 @@ Column {
     }
 
     SettingCard {
-        title: "NOTIFICATIONS"
+        title: Tr.t("NOTIFICATIONS")
         visible: !page.inSheet
 
         SettingRow {
-            title: "Do not disturb"
+            title: Tr.t("Do not disturb")
             resetKey: "doNotDisturb"
-            description: "Notifications are still collected in the list, but no popup is shown."
+            description: Tr.t("Notifications are still collected in the list, but no popup is shown.")
 
             M3Switch {
                 checked: Prefs.doNotDisturb
@@ -395,12 +395,12 @@ Column {
         }
 
         SettingRow {
-            title: "Everything else"
-            description: "How long a popup stays, quiet hours, sound and which applications may interrupt you all live on their own page."
+            title: Tr.t("Everything else")
+            description: Tr.t("How long a popup stays, quiet hours, sound and which applications may interrupt you all live on their own page.")
             showDivider: false
 
             M3Button {
-                text: "Notifications…"
+                text: Tr.t("Notifications…")
                 variant: "tonal"
                 onClicked: Prefs.settingsRequested("notifications")
             }
@@ -410,13 +410,13 @@ Column {
     }
 
     SettingCard {
-        title: "SYSTEM MODULE"
+        title: Tr.t("SYSTEM MODULE")
         visible: !page.inSheet
 
         SettingRow {
-            title: "Keyboard layout"
+            title: Tr.t("Keyboard layout")
             resetKey: "showKbLayout"
-            description: "Shows the active keyboard layout next to the network icon. Click it to switch to the next layout."
+            description: Tr.t("Shows the active keyboard layout next to the network icon. Click it to switch to the next layout.")
 
             M3Switch {
                 checked: Prefs.showKbLayout
@@ -428,14 +428,14 @@ Column {
         }
 
         SettingRow {
-            title: "Game mode: turn on"
+            title: Tr.t("Game mode: turn on")
             resetKey: "gameModeOnCmd"
-            description: "Left empty, with the command below, game mode is Lucid's own: animations, blur, shadows, rounded corners and gaps go off, and come back as they were. Or give a shell command of your own for the Game mode tile (under Edit tiles in the control centre); it runs through bash, so pipes and && work."
+            description: Tr.t("Left empty, with the command below, game mode is Lucid's own: animations, blur, shadows, rounded corners and gaps go off, and come back as they were. Or give a shell command of your own for the Game mode tile (under Edit tiles in the control centre); it runs through bash, so pipes and && work.")
             stacked: true
 
             M3TextField {
                 width: parent.width
-                placeholder: "Lucid's own, or e.g. sudo -n g15-gamemode on"
+                placeholder: Tr.t("Lucid's own, or e.g. sudo -n g15-gamemode on")
                 text: Prefs.gameModeOnCmd
                 onAccepted: (v) => {
                     return Prefs.gameModeOnCmd = v;
@@ -445,14 +445,14 @@ Column {
         }
 
         SettingRow {
-            title: "Game mode: turn off"
+            title: Tr.t("Game mode: turn off")
             resetKey: "gameModeOffCmd"
-            description: "The command that switches your own game mode off again. Leave both empty for Lucid's."
+            description: Tr.t("The command that switches your own game mode off again. Leave both empty for Lucid's.")
             stacked: true
 
             M3TextField {
                 width: parent.width
-                placeholder: "Lucid's own, or e.g. sudo -n g15-gamemode off"
+                placeholder: Tr.t("Lucid's own, or e.g. sudo -n g15-gamemode off")
                 text: Prefs.gameModeOffCmd
                 onAccepted: (v) => {
                     return Prefs.gameModeOffCmd = v;
@@ -462,15 +462,15 @@ Column {
         }
 
         SettingRow {
-            title: "Game mode: status check"
+            title: Tr.t("Game mode: status check")
             resetKey: "gameModeStatusCmd"
-            description: "Optional, and not needed for Lucid's own. Exits 0 while your game mode is on, so the toggle stays right when something else (a keybind, a script) changes it. Checked whenever the panel opens."
+            description: Tr.t("Optional, and not needed for Lucid's own. Exits 0 while your game mode is on, so the toggle stays right when something else (a keybind, a script) changes it. Checked whenever the panel opens.")
             showDivider: false
             stacked: true
 
             M3TextField {
                 width: parent.width
-                placeholder: "e.g. test -f /run/g15-gamemode.state"
+                placeholder: Tr.t("e.g. test -f /run/g15-gamemode.state")
                 text: Prefs.gameModeStatusCmd
                 onAccepted: (v) => {
                     return Prefs.gameModeStatusCmd = v;

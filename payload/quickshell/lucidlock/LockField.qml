@@ -161,7 +161,7 @@ Item {
         anchors.rightMargin: Theme.dp(12)
         anchors.verticalCenter: parent.verticalCenter
         transformOrigin: Item.Left
-        text: Lockscreen.lockedOut ? "Locked" : (Lockscreen.phase === "prompting" && Lockscreen.prompt !== "" ? Lockscreen.prompt : "Password")
+        text: Lockscreen.lockedOut ? Tr.t("Locked") : (Lockscreen.phase === "prompting" && Lockscreen.prompt !== "" ? Lockscreen.prompt : Tr.t("Password"))
         color: Lockscreen.focused ? Theme.subtext : Theme.subtextDim
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontBodyLg
@@ -170,6 +170,7 @@ Item {
         opacity: field.vacant && !Lockscreen.busy ? 1 : 0
         scale: 0.94 + 0.06 * opacity
         visible: opacity > 0.01
+        Accessible.ignored: true
 
         Behavior on opacity {
             NumberAnimation {
@@ -242,6 +243,13 @@ Item {
             visible: !Lockscreen.secret
         }
 
+        Accessible.name: Lockscreen.phase === "prompting" && Lockscreen.prompt !== "" ? Lockscreen.prompt : Tr.t("Password")
+        Accessible.description: Tr.t("Type your password to unlock")
+        Accessible.editable: !input.readOnly
+        Accessible.passwordEdit: Lockscreen.secret
+        Accessible.focusable: true
+        Accessible.focused: input.activeFocus
+
         // the beads have no caret: a secret is typed at its end, and only a
         // selection grown back from there may hold the cursor anywhere else
         onCursorPositionChanged: Qt.callLater(field.pin)
@@ -298,7 +306,7 @@ Item {
             glyphSize: Theme.dp(19)
             glyph: field.reveal ? "eyeOff" : "eye"
             glyphColor: Theme.subtext
-            tooltip: field.reveal ? "Hide" : "Show"
+            tooltip: field.reveal ? Tr.t("Hide") : Tr.t("Show")
             visible: Lockscreen.secret && input.text.length > 0 && !Lockscreen.busy
             onClicked: {
                 field.reveal = !field.reveal;

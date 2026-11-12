@@ -1,4 +1,5 @@
 //@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING=gray
+//@ pragma EnableQtWebEngineQuick
 // qt's default subpixel text splits into colour fringes on translucent surfaces
 import "./lucidbar"
 import "./lucidcorners"
@@ -18,6 +19,7 @@ import "./lucidswitch"
 import "./lucidupdate"
 import "./lucidwidgets"
 import "./squircle"
+import "./lucidgate"
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
@@ -29,6 +31,10 @@ ShellRoot {
 
     // Referenced so the background spatial warmer is instantiated at startup.
     readonly property bool spatialWarmAllowed: SpatialWarm.allowed
+
+    // Referenced so the per-wallpaper soundtrack is alive before a card is
+    // placed (and keeps following wallpaper changes if the card is removed).
+    readonly property bool ambienceReady: Ambience.loaded
 
     // True once the running liquid-glass-hypr plugin understands the
     // two-shape `u` union geometry. 0.8.32 is the first build with it; until
@@ -515,6 +521,11 @@ ShellRoot {
                 var by = bar.glassQ(isBarPill ? m.y + m.surfaceY : m.y);
                 var bw = bar.glassQ(isBarPill ? m.surfaceWidth : m.width);
                 var bh = bar.glassQ(isBarPill ? m.surfaceHeight : m.height);
+                // Notch bar: the glass shape is lifted by notchTopInset and
+                // extended upward. Its top rim is clipped off-screen while
+                // the bottom edge stays in place; the QML content keeps a
+                // matching 2px top inset (BarPill.compactFace).
+                var barClip = bar.notchTopInset;
                 // Transform morph: the laid-out bar box stays compact, so the
                 // bridge only needs the compact pill while the QML shader
                 // animates, and one final full-size pill at the offset where
@@ -525,9 +536,9 @@ ShellRoot {
                         var corT = m.cornerRadius !== undefined ? m.cornerRadius : (Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius);
                         return [{
                             "x": bar.glassQ((isBarPill ? m.x + m.surfaceX : m.x) + m.transformOffsetX),
-                            "y": by,
+                            "y": by - barClip,
                             "w": bar.glassQ(m.transformWidth),
-                            "h": bar.glassQ(m.transformHeight),
+                            "h": bar.glassQ(m.transformHeight) + barClip,
                             "r": [topT, topT, corT, corT]
                         }];
                     }
@@ -535,9 +546,9 @@ ShellRoot {
                     var corC = m.closedRadius !== undefined ? m.closedRadius : (Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius);
                     return [{
                         "x": bx,
-                        "y": by,
+                        "y": by - barClip,
                         "w": bw,
-                        "h": bh,
+                        "h": bh + barClip,
                         "r": [topC, topC, corC, corC]
                     }];
                 }
@@ -548,9 +559,9 @@ ShellRoot {
                     var pillTop = m.pillTopRadius !== undefined ? m.pillTopRadius : top;
                     out.push({
                         "x": bx,
-                        "y": by,
+                        "y": by - barClip,
                         "w": bw,
-                        "h": bh,
+                        "h": bh + barClip,
                         "r": [pillTop, pillTop, Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius, Prefs.barNotch ? Prefs.barNotchRadius : Prefs.barPillRadius]
                     });
                     if (m.anyOpen === true)
@@ -564,9 +575,9 @@ ShellRoot {
                 } else {
                     out.push({
                         "x": bx,
-                        "y": by,
+                        "y": by - barClip,
                         "w": bw,
-                        "h": bh,
+                        "h": bh + barClip,
                         "r": [top, top, cor, cor]
                     });
                 }
@@ -652,9 +663,9 @@ ShellRoot {
                 var fr = b.last ? bar.notchFlare(b.last, false) : 0;
                 out.push({
                     "x": bar.glassQ(b.x),
-                    "y": 0,
+                    "y": -bar.notchTopInset,
                     "w": Math.max(1, bar.glassQ(b.w)),
-                    "h": bar.glassQ(b.h),
+                    "h": bar.glassQ(b.h + bar.notchTopInset),
                     "r": side === "left" ? [0, 0, b.r, 0] : (side === "right" ? [0, 0, 0, b.r] : [0, 0, b.r, b.r]),
                     "fl": [fl, fr]
                 });
@@ -1172,6 +1183,10 @@ ShellRoot {
 
             }
             readonly property real sideMargin: Theme.dp(Prefs.barSideMargin)
+            // Notch bar: lift the glass shape 2px above the screen edge and
+            // give the content a 2px top margin. The top rim is clipped away;
+            // the content keeps its distance from the visible glass edge.
+            readonly property real notchTopInset: (Prefs.barNotch && Prefs.liquidGlassEnabled) ? Theme.dp(2) : 0
 
             // busy: a panel is open somewhere on the bar, so it stays out
             // regardless of the pointer. held: the pointer is on the reveal
@@ -1944,15 +1959,15 @@ ShellRoot {
         onTextResult: (status) => {
             snapMod.finishTextRead();
             if (status === "copied")
-                toastMod.popup("copy", "Text copied", false);
+                toastMod.popup("copy", Tr.t("Text copied"), false);
             else if (status === "notool")
-                toastMod.popup("alert", "Install tesseract to copy text", true);
+                toastMod.popup("alert", Tr.t("Install tesseract to copy text"), true);
             else
-                toastMod.popup("alert", "No text found", true);
+                toastMod.popup("alert", Tr.t("No text found"), true);
         }
         onColorResult: (value, hex, status) => {
             if (status === "notool") {
-                toastMod.popup("alert", "Install hyprpicker to pick colours", true);
+                toastMod.popup("alert", Tr.t("Install hyprpicker to pick colours"), true);
             } else if (status === "ok") {
                 snapMod.open = false;
                 if (hex === "")
@@ -1978,7 +1993,7 @@ ShellRoot {
         onRecordingSaved: (file) => {
             return screenshotMod.announce(file, "video");
         }
-        onFreezeFailed: (why) => toastMod.popup("alert", "Couldn't capture the screen", true)
+        onFreezeFailed: (why) => toastMod.popup("alert", Tr.t("Couldn't capture the screen"), true)
     }
 
     ShotPreview {
@@ -2059,6 +2074,54 @@ ShellRoot {
         function conceal(id: string): void {
             for (let i = 0; i < revealPanels.instances.length; i++)
                 revealPanels.instances[i].endReveal(id);
+        }
+
+    }
+
+    // Launches that start outside the shell write a request and raise this
+    // shortcut; scripts can also use `qs ipc call launch run ...`. Both end at
+    // the same LaunchGhost the launcher uses.
+    GlobalShortcut {
+        name: "launch"
+        description: Tr.t("Lucid: launch an application with a placeholder")
+        onPressed: Launch.pollRequests()
+    }
+
+    IpcHandler {
+        target: "launchghost"
+
+        function trace(on: bool): string {
+            Launch.setTrace(on);
+            return "trace " + on;
+        }
+
+        function status(): string {
+            return Launch.status();
+        }
+
+    }
+
+    IpcHandler {
+        target: "launch"
+
+        // qs ipc call launch open 'foot'
+        function open(command: string): string {
+            if (command === "")
+                return "usage: open <command>";
+            return Launch.launch(command, {}) ? "ok" : "rejected";
+        }
+
+        // qs ipc call launch run <command> <title> <icon> <wmClass> <base> <workspace>
+        function run(command: string, title: string, icon: string, wmClass: string, base: string, workspace: string): string {
+            if (command === "")
+                return "usage: run <command> [title] [icon] [wmClass] [base] [workspace]";
+            return Launch.launch(command, {
+                "title": title,
+                "icon": icon,
+                "wmClass": wmClass,
+                "base": base,
+                "workspace": workspace
+            }) ? "ok" : "rejected";
         }
 
     }
@@ -2230,5 +2293,14 @@ ShellRoot {
 
         target: Prefs
     }
+
+
+    // >>> lucid-gate (managed by ~/src/lucid-gate/install.sh)
+    // The foreground half: a layer-shell gate over the window that asked, and a
+    // corner pill while a task is running.  State lives in GateCore.
+    GateOverlay {
+        id: gateOverlay
+    }
+    // <<< lucid-gate
 
 }

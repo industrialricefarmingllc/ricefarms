@@ -44,6 +44,7 @@ Item {
 
     signal chosen(var key)
 
+    Accessible.role: Accessible.Grouping
     implicitHeight: Theme.dp(40)
     implicitWidth: Theme.dp(240)
     opacity: seg.enabled ? 1 : Theme.disabledContent
@@ -76,13 +77,35 @@ Item {
                 width: seg.options.length === 0 ? 0 : seg.width >= seg.fitWidth ? (seg.width - seg._gaps) / seg.options.length : cell.content + (seg.width - seg._gaps - seg._contentSum) / seg.options.length
                 height: seg.height
 
+                activeFocusOnTab: seg.enabled
+                Accessible.role: Accessible.RadioButton
+                Accessible.name: Tr.t(cell.modelData.label || cell.modelData.key)
+                Accessible.checkable: true
+                Accessible.checked: cell.selected
+                Accessible.selected: cell.selected
+                Accessible.focusable: seg.enabled
+                Accessible.focused: cell.activeFocus
+                Accessible.onPressAction: seg.chosen(cell.modelData.key)
+                Keys.onSpacePressed: seg.chosen(cell.modelData.key)
+                Keys.onReturnPressed: seg.chosen(cell.modelData.key)
+                Keys.onEnterPressed: seg.chosen(cell.modelData.key)
+                Keys.onLeftPressed: {
+                    if (cell.index > 0)
+                        seg.chosen(seg.options[cell.index - 1].key);
+                }
+                Keys.onRightPressed: {
+                    if (cell.index + 1 < seg.options.length)
+                        seg.chosen(seg.options[cell.index + 1].key);
+                }
+
                 LText {
                     id: probe
 
                     visible: false
                     role: "labelLarge"
                     weight: 620
-                    text: cell.modelData.label
+                    text: Tr.t(cell.modelData.label)
+                    Accessible.ignored: true
                 }
 
                 Rectangle {
@@ -174,8 +197,9 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         role: "labelLarge"
                         weight: cell.selected ? 620 : 520
-                        text: cell.modelData.label
+                        text: Tr.t(cell.modelData.label)
                         color: cell.selected ? Theme.fgPrimary : Theme.subtext
+                        Accessible.ignored: true
                     }
 
                 }
@@ -187,10 +211,22 @@ Item {
                     tint: cell.selected ? Theme.fgPrimary : Theme.text
                     disabled: !seg.enabled
                     onClicked: {
+                        cell.forceActiveFocus();
                         if (!cell.selected)
                             seg.chosen(cell.modelData.key);
 
                     }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -Theme.dp(2)
+                    radius: Math.max(box.topLeftRadius, box.topRightRadius) + Theme.dp(2)
+                    color: "transparent"
+                    border.width: cell.activeFocus && seg.enabled ? Theme.dp(2) : 0
+                    border.color: Theme.accent
+                    visible: border.width > 0 && Prefs.a11yFocusRing
+                    z: 10
                 }
 
             }

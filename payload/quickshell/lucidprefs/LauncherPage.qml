@@ -7,12 +7,12 @@ Column {
     spacing: Theme.dp(26)
 
     SettingCard {
-        title: "PANEL"
+        title: Tr.t("PANEL")
 
         SettingRow {
-            title: "Width"
+            title: Tr.t("Width")
             resetKey: "launcherWidth"
-            description: "How wide the panel opens. Wider fits longer application names and the whole mode set at once."
+            description: Tr.t("How wide the panel opens. Wider fits longer application names and the whole mode set at once.")
             stacked: true
 
             M3Segmented {
@@ -36,9 +36,9 @@ Column {
         }
 
         SettingRow {
-            title: "Content size"
+            title: Tr.t("Content size")
             resetKey: "launcherContentScale"
-            description: "Scales everything inside the panel together \u2014 the head, the search field, the icons and the text \u2014 and the panel with it. Separate from the shell-wide font scale on the General page."
+            description: Tr.t("Scales everything inside the panel together \u2014 the head, the search field, the icons and the text \u2014 and the panel with it. Separate from the shell-wide font scale on the General page.")
             stacked: true
 
             M3Slider {
@@ -56,9 +56,9 @@ Column {
         }
 
         SettingRow {
-            title: "Search field"
+            title: Tr.t("Search field")
             resetKey: "launcherSearchPosition"
-            description: "At the bottom it lands where the panel grows from, right above the dock. At the top the results read downward from it, the way Material's search view is laid out."
+            description: Tr.t("At the bottom it lands where the panel grows from, right above the dock. At the top the results read downward from it, the way Material's search view is laid out.")
             stacked: true
 
             M3Segmented {
@@ -79,9 +79,9 @@ Column {
         }
 
         SettingRow {
-            title: "Row height"
+            title: Tr.t("Row height")
             resetKey: "launcherDensity"
-            description: "Comfortable gives each result the full 56dp Material list row. Compact trims it so more results fit before the panel has to scroll."
+            description: Tr.t("Comfortable gives each result the full 56dp Material list row. Compact trims it so more results fit before the panel has to scroll.")
             stacked: true
 
             M3Segmented {
@@ -102,9 +102,9 @@ Column {
         }
 
         SettingRow {
-            title: "Mode bar"
+            title: Tr.t("Mode bar")
             resetKey: "launcherModeBar"
-            description: "The head of the panel: the mark, the modes as one row of pills, and what the results add up to. Tab walks the modes, Ctrl and a digit jumps straight to one, and the prefixes work either way."
+            description: Tr.t("The head of the panel: the mark, the modes as one row of pills, and what the results add up to. Tab walks the modes, Ctrl and a digit jumps straight to one, and the prefixes work either way.")
             showDivider: false
 
             M3Switch {
@@ -119,12 +119,12 @@ Column {
     }
 
     SettingCard {
-        title: "RESULTS"
+        title: Tr.t("RESULTS")
 
         SettingRow {
-            title: "Frequent applications first"
+            title: Tr.t("Frequent applications first")
             resetKey: "launcherFrequentFirst"
-            description: "With nothing typed, the applications you open most are grouped above the full alphabetical list."
+            description: Tr.t("With nothing typed, the applications you open most are grouped above the full alphabetical list.")
 
             M3Switch {
                 checked: Prefs.launcherFrequentFirst
@@ -136,9 +136,9 @@ Column {
         }
 
         SettingRow {
-            title: "Show what Return will do"
+            title: Tr.t("Show what Return will do")
             resetKey: "launcherActionHints"
-            description: "The selected row says whether Return opens it, copies it or applies it."
+            description: Tr.t("The selected row says whether Return opens it, copies it or applies it.")
 
             M3Switch {
                 checked: Prefs.launcherActionHints
@@ -150,9 +150,9 @@ Column {
         }
 
         SettingRow {
-            title: "Settings in results"
+            title: Tr.t("Settings in results")
             resetKey: "launcherSettingsResults"
-            description: "Searching also looks through this app's own pages, so a setting is one search away rather than a hunt through the rail."
+            description: Tr.t("Searching also looks through this app's own pages, so a setting is one search away rather than a hunt through the rail.")
 
             M3Switch {
                 checked: Prefs.launcherSettingsResults
@@ -164,9 +164,9 @@ Column {
         }
 
         SettingRow {
-            title: "Open windows"
+            title: Tr.t("Open windows")
             resetKey: "launcherWindows"
-            description: "A search also finds the windows you have open, by their app or their title, ranked with the apps. Return switches to it."
+            description: Tr.t("A search also finds the windows you have open, by their app or their title, ranked with the apps. Return switches to it.")
 
             M3Switch {
                 checked: Prefs.launcherWindows
@@ -178,9 +178,9 @@ Column {
         }
 
         SettingRow {
-            title: "Application actions"
+            title: Tr.t("Application actions")
             resetKey: "launcherAppActions"
-            description: "What an app offers besides opening, such as New Private Window: listed under it when you type its name, and found on their own from three letters."
+            description: Tr.t("What an app offers besides opening, such as New Private Window: listed under it when you type its name, and found on their own from three letters.")
 
             M3Switch {
                 checked: Prefs.launcherAppActions
@@ -192,9 +192,9 @@ Column {
         }
 
         SettingRow {
-            title: "A line under each application"
+            title: Tr.t("A line under each application")
             resetKey: "launcherAppDescriptions"
-            description: "What the app says it is, from its desktop entry, under its name."
+            description: Tr.t("What the app says it is, from its desktop entry, under its name.")
 
             M3Switch {
                 checked: Prefs.launcherAppDescriptions
@@ -206,9 +206,9 @@ Column {
         }
 
         SettingRow {
-            title: "Calculator"
+            title: Tr.t("Calculator")
             resetKey: "launcherCalculator"
-            description: "Type a sum and the answer takes a card above the results, set in display type. Return copies it."
+            description: Tr.t("Type a sum and the answer takes a card above the results, set in display type. Return copies it.")
             showDivider: false
 
             M3Switch {
@@ -223,12 +223,12 @@ Column {
     }
 
     SettingCard {
-        title: "POWER BUTTONS"
+        title: Tr.t("POWER BUTTONS")
 
         SettingRow {
-            title: "Power buttons by the search field"
+            title: Tr.t("Power buttons by the search field")
             resetKey: "launcherPowerChips"
-            description: "Round buttons at the end of the search field while nothing is typed. Restart, shut down and log out turn red on the first press and act on the second."
+            description: Tr.t("Round buttons at the end of the search field while nothing is typed. Restart, shut down and log out turn red on the first press and act on the second.")
 
             M3Switch {
                 checked: Prefs.launcherPowerChips
@@ -240,9 +240,9 @@ Column {
         }
 
         SettingRow {
-            title: "Which buttons"
+            title: Tr.t("Which buttons")
             resetKey: "launcherPowerButtons"
-            description: "They keep this order whatever order you pick them in."
+            description: Tr.t("They keep this order whatever order you pick them in.")
             enabled: Prefs.launcherPowerChips
             disabledReason: "The power buttons are switched off."
             stacked: true
@@ -281,11 +281,11 @@ Column {
     }
 
     SettingCard {
-        title: "HIDDEN APPLICATIONS"
+        title: Tr.t("HIDDEN APPLICATIONS")
 
         SettingRow {
-            title: "Left out of the results"
-            description: Prefs.hiddenLauncherApps.length === 0 ? "Nothing is hidden. Hover any application in the launcher and press the eye to drop it from the list \u2014 entries the system already marks as hidden, or as belonging to another desktop, never show in the first place." : "Applications you dropped from the launcher. Pick one to bring it back. They still launch from the dock and still match a running window."
+            title: Tr.t("Left out of the results")
+            description: Prefs.hiddenLauncherApps.length === 0 ? Tr.t("Nothing is hidden. Hover any application in the launcher and press the eye to drop it from the list \u2014 entries the system already marks as hidden, or as belonging to another desktop, never show in the first place.") : Tr.t("Applications you dropped from the launcher. Pick one to bring it back. They still launch from the dock and still match a running window.")
             stacked: true
             showDivider: Prefs.hiddenLauncherApps.length > 0
 
@@ -308,13 +308,13 @@ Column {
         }
 
         SettingRow {
-            title: "Show them all again"
-            description: "Empties the list in one go."
+            title: Tr.t("Show them all again")
+            description: Tr.t("Empties the list in one go.")
             visible: Prefs.hiddenLauncherApps.length > 0
             showDivider: false
 
             M3Button {
-                text: "Show all"
+                text: Tr.t("Show all")
                 variant: "text"
                 onClicked: Prefs.launcherHiddenApps = ""
             }
@@ -324,18 +324,18 @@ Column {
     }
 
     SettingCard {
-        title: "SEARCH"
+        title: Tr.t("SEARCH")
 
         SettingRow {
-            title: "Prefixes"
-            description: "> commands  ·  : emoji  ·  ? the web  ·  $ run a command line. Type one at the start of the field, or pick the mode from the head."
+            title: Tr.t("Prefixes")
+            description: Tr.t("> commands  ·  : emoji  ·  ? the web  ·  $ run a command line. Type one at the start of the field, or pick the mode from the head.")
             stacked: true
         }
 
         SettingRow {
-            title: "Offer a web search"
+            title: Tr.t("Offer a web search")
             resetKey: "launcherWebRow"
-            description: "End every search with a row that looks it up on the web, or opens it if it is an address."
+            description: Tr.t("End every search with a row that looks it up on the web, or opens it if it is an address.")
 
             M3Switch {
                 checked: Prefs.launcherWebRow
@@ -347,9 +347,9 @@ Column {
         }
 
         SettingRow {
-            title: "Open typed addresses first"
+            title: Tr.t("Open typed addresses first")
             resetKey: "launcherAddressFirst"
-            description: "Something that reads as an address, like example.com, gets a row of its own at the top when no app or window matches it better."
+            description: Tr.t("Something that reads as an address, like example.com, gets a row of its own at the top when no app or window matches it better.")
 
             M3Switch {
                 checked: Prefs.launcherAddressFirst
@@ -361,9 +361,9 @@ Column {
         }
 
         SettingRow {
-            title: "Power actions in results"
+            title: Tr.t("Power actions in results")
             resetKey: "launcherPowerSearch"
-            description: "Lock, suspend, log out, restart and shut down turn up when you type them, from three letters. Restart, shut down and log out ask for a second Return."
+            description: Tr.t("Lock, suspend, log out, restart and shut down turn up when you type them, from three letters. Restart, shut down and log out ask for a second Return.")
 
             M3Switch {
                 checked: Prefs.launcherPowerSearch
@@ -375,9 +375,9 @@ Column {
         }
 
         SettingRow {
-            title: "Search engine"
+            title: Tr.t("Search engine")
             resetKey: "launcherSearchEngine"
-            description: "Used by the web row and the ? prefix."
+            description: Tr.t("Used by the web row and the ? prefix.")
             stacked: true
             showDivider: false
 
@@ -410,11 +410,11 @@ Column {
     }
 
     SettingCard {
-        title: "CLIPBOARD"
+        title: Tr.t("CLIPBOARD")
 
         SettingRow {
-            title: "Clipboard history"
-            description: "Keeps what you copy so the launcher can hand it back. Type > clip in the launcher, or pick Clipboard History from the command list. Needs cliphist installed."
+            title: Tr.t("Clipboard history")
+            description: Tr.t("Keeps what you copy so the launcher can hand it back. Type > clip in the launcher, or pick Clipboard History from the command list. Needs cliphist installed.")
             enabled: Clip.available
             disabledReason: "cliphist is not installed. Install it and the history starts recording straight away."
 
@@ -429,17 +429,17 @@ Column {
         }
 
         SettingRow {
-            title: "Clear clipboard history"
-            description: "Discards every entry cliphist has stored, including images."
+            title: Tr.t("Clear clipboard history")
+            description: Tr.t("Discards every entry cliphist has stored, including images.")
             enabled: Clip.available
             showDivider: false
 
             M3Button {
-                text: "Clear history"
+                text: Tr.t("Clear history")
                 variant: "text"
                 destructive: true
                 enabled: Clip.available
-                onClicked: Prefs.askConfirm("Clear clipboard history?", "Every entry cliphist has stored is discarded, images included. This cannot be undone.", "Clear", Prefs.clearClipboardToken)
+                onClicked: Prefs.askConfirm(Tr.t("Clear clipboard history?"), Tr.t("Every entry cliphist has stored is discarded, images included. This cannot be undone."), Tr.t("Clear"), Prefs.clearClipboardToken)
             }
 
         }

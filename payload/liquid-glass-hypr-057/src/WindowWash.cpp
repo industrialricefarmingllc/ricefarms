@@ -104,8 +104,10 @@ void ensureShaders() {
         return;
     if (!s->shader)
         s->shader = makeShared<CShader>();
-    if (!s->shader->createProgram(SHADERS.at("glass.vert"), SHADERS.at("wash.frag"), true))
+    if (!s->shader->createProgram(SHADERS.at("glass.vert"), SHADERS.at("wash.frag"), true)) {
+        std::ofstream("/tmp/lucid-wash.log", std::ios::app) << "wash: shader compile failed\n";
         return;
+    }
 
     const GLuint p = s->shader->program();
     s->proj   = glGetUniformLocation(p, "proj");
@@ -469,8 +471,17 @@ void lg::drawQueuedWash(PHLMONITOR monitor, const SP<IFramebuffer>& target, cons
     if (!monitor || !target)
         return;
     auto it = g_queuedWash.find(monitor->m_id);
-    if (it == g_queuedWash.end())
+    if (it == g_queuedWash.end()) {
+        static int n0 = 0;
+        if (n0++ < 5)
+            std::ofstream("/tmp/lucid-wash.log", std::ios::app) << "end: no queued wash\n";
         return;
+    }
+    {
+        static int n1 = 0;
+        if (n1++ < 5)
+            std::ofstream("/tmp/lucid-wash.log", std::ios::app) << "end: queued=" << it->second.size() << "\n";
+    }
     if (!it->second.empty()) {
         CRenderContext ctx;
         ctx.m_data.pMonitor       = monitor;
@@ -549,7 +560,7 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
     glUniform1f(s->power, draw.power);
     const bool light = lightTheme();
     glUniform1f(s->soft, light ? 1.F : 0.F);
-    glUniform1f(s->darkOpacity, 0.05F);
+    glUniform1f(s->darkOpacity, 0.10F);
     glUniform1f(s->fade, std::clamp(draw.alpha, 0.F, 1.F));
 
     const int cx0 = std::clamp((int)std::floor(damage.x), 0, w);
@@ -559,11 +570,9 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
 
     glEnable(GL_BLEND);
     if (light) {
-#ifndef GL_MULTIPLY_KHR
-#define GL_MULTIPLY_KHR 0x9294
-#endif
-        // True GPU multiply; source alpha (0.1) supplies the 10% coverage.
-        glBlendEquation(GL_MULTIPLY_KHR);
+        // Source already contains 1 - a*(1-wash); multiply it by the dest.
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_ONE, GL_ZERO);
     } else {
         // Dark mode: screen. src is the 15%-scaled raw blurred wallpaper.
         glBlendEquation(GL_FUNC_ADD);

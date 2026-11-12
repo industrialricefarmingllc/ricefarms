@@ -43,7 +43,7 @@ Column {
 
     Text {
         width: tokens.width
-        text: Templates.roles.length === 0 ? "There are no colours yet. They come with the next change of theme or wallpaper." : (tokens.copied !== "" ? "Copied " + tokens.copied : "Click a colour to copy its variable.")
+        text: Templates.roles.length === 0 ? Tr.t("There are no colours yet. They come with the next change of theme or wallpaper.") : (tokens.copied !== "" ? Tr.t("Copied ") + tokens.copied : Tr.t("Click a colour to copy its variable."))
         color: tokens.copied !== "" ? Theme.accent : Theme.subtext
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontBody

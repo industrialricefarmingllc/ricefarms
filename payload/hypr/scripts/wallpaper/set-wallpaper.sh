@@ -698,14 +698,26 @@ if [[ "${THEME_ONLY:-0}" != "1" ]]; then
                     fi
                 fi
                 # A daemon that is still finishing the previous transition can
-                # reject one request; retry before reporting the apply failed.
+                # reject one request. It can also answer success while the
+                # visible output is still the still frame put in for the scene
+                # renderer reset; for a Workshop scene, require `current` to
+                # name that scene's id, not just a successful RPC.
                 applied=0
-                for _attempt in 1 2 3; do
+                for _attempt in 1 2 3 4 5 6 7 8; do
                     if skwd-helm apply "$SKWD_TARGET" >/dev/null 2>&1; then
-                        applied=1
-                        break
+                        if [[ "$SKWD_TARGET" != we:* ]]; then
+                            applied=1
+                            break
+                        fi
+                        _scene="${SKWD_TARGET#we:}"
+                        _current=$(skwd-helm current 2>/dev/null \
+                            | awk -F'\t' '$1 !~ /^HEADLESS/ && $2 ~ /^[0-9]+$/ { print $2; exit }' || true)
+                        if [[ "$_current" == "$_scene" ]]; then
+                            applied=1
+                            break
+                        fi
                     fi
-                    sleep 0.15
+                    sleep 0.2
                 done
                 [[ "$applied" == "1" ]] \
                     || echo "warning: skwd could not apply $SKWD_TARGET" >&2

@@ -347,7 +347,7 @@ Item {
             }
 
             BarText {
-                text: "Artist  -  Song"
+                text: Tr.t("Artist  -  Song")
             }
 
             MiniPlay {
@@ -994,7 +994,7 @@ Item {
 
             BarText {
                 visible: values
-                text: "On"
+                text: Tr.t("On")
                 font.pixelSize: Theme.fontLabelLg
             }
 
@@ -1354,7 +1354,7 @@ Item {
                     id: startLabelText
 
                     anchors.centerIn: parent
-                    text: "Start"
+                    text: Tr.t("Start")
                     color: Theme.fgAccent
                     font.pixelSize: Theme.fs(12)
                 }

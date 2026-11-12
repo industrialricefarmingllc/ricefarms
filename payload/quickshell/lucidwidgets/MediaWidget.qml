@@ -216,7 +216,7 @@ WidgetBody {
     // a blanked or off-screen card has no progress bar to move, so do not run
     // a per-frame handler for it
     FrameAnimation {
-        running: w.visible && w.playing && w.showProgress && !w.preview && !w.scrubbing
+        running: w.primaryScreen && w.visible && w.playing && w.showProgress && !w.preview && !w.scrubbing
         onTriggered: w.livePos = Math.min(w.length, w.posBase + (Date.now() - w.posStamp) / 1000)
     }
 
@@ -224,7 +224,7 @@ WidgetBody {
     Timer {
         interval: 1000
         repeat: true
-        running: w.visible && w.playing && w.showProgress && !w.preview && !w.scrubbing
+        running: w.primaryScreen && w.visible && w.playing && w.showProgress && !w.preview && !w.scrubbing
         onTriggered: {
             if (w.player)
                 w.player.positionChanged();

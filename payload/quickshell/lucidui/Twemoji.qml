@@ -16,9 +16,18 @@ Item {
     id: root
 
     property string emoji: ""
+    // A server emoji's own PNG/GIF. This Qt build has no WebP plugin, so the
+    // CDN link is asked for PNG (or GIF when animated) rather than letting the
+    // source be a Twemoji SVG.
+    property string imageSource: ""
+    // Animated server emoji use AnimatedImage; static PNGs stay on Image.
+    property bool animated: false
+    // lets a closed/hidden picker stop decoding frames
+    property bool playing: true
     property real size: 24
     property color fallbackColor: Theme.text
     readonly property string asset: Twemoji.assetName(root.emoji)
+    readonly property bool remote: root.imageSource !== ""
 
     implicitWidth: root.size
     implicitHeight: root.size
@@ -27,18 +36,32 @@ Item {
         id: art
 
         anchors.fill: parent
-        source: root.asset === "" ? "" : Qt.resolvedUrl("../assets/twemoji/" + root.asset + ".svg")
+        source: root.remote && root.animated ? "" : (root.remote ? root.imageSource : (root.asset === "" ? "" : Qt.resolvedUrl("../assets/twemoji/" + root.asset + ".svg")))
         sourceSize.width: Math.max(1, Math.ceil(root.size * 4))
         sourceSize.height: Math.max(1, Math.ceil(root.size * 4))
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
-        visible: status === Image.Ready
+        visible: !(root.remote && root.animated) && status === Image.Ready
+    }
+
+    AnimatedImage {
+        id: animatedArt
+
+        anchors.fill: parent
+        source: root.remote && root.animated ? root.imageSource : ""
+        sourceSize.width: Math.max(32, Math.ceil(root.size * 2))
+        sourceSize.height: Math.max(32, Math.ceil(root.size * 2))
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        asynchronous: true
+        playing: root.playing
+        visible: root.remote && root.animated && status === AnimatedImage.Ready
     }
 
     Text {
         anchors.centerIn: parent
-        visible: !art.visible
+        visible: !root.remote && !art.visible
         text: root.emoji
         color: root.fallbackColor
         font.family: "Noto Color Emoji"

@@ -14,6 +14,8 @@ Item {
 
     signal picked(var key)
 
+    Accessible.role: Accessible.PageTabList
+
     readonly property int currentIndex: {
         for (var i = 0; i < tabs.options.length; i++) {
             if (tabs.options[i].key === tabs.current)
@@ -47,9 +49,44 @@ Item {
                 width: row.width / Math.max(1, rep.count)
                 height: row.height
 
+                activeFocusOnTab: true
+                Accessible.role: Accessible.PageTab
+                Accessible.name: Tr.t(tab.modelData.label || tab.modelData.key)
+                Accessible.selected: tab.on
+                Accessible.focusable: true
+                Accessible.focused: tab.activeFocus
+                Accessible.onPressAction: tabs.picked(tab.modelData.key)
+                Keys.onSpacePressed: tabs.picked(tab.modelData.key)
+                Keys.onReturnPressed: tabs.picked(tab.modelData.key)
+                Keys.onEnterPressed: tabs.picked(tab.modelData.key)
+                Keys.onLeftPressed: {
+                    if (tab.index > 0)
+                        tabs.picked(tabs.options[tab.index - 1].key);
+                }
+                Keys.onRightPressed: {
+                    if (tab.index + 1 < tabs.options.length)
+                        tabs.picked(tabs.options[tab.index + 1].key);
+                }
+                Keys.onPressed: (event) => {
+                    if (tabs.options.length === 0)
+                        return ;
+
+                    if (event.key === Qt.Key_Home)
+                        tabs.picked(tabs.options[0].key);
+                    else if (event.key === Qt.Key_End)
+                        tabs.picked(tabs.options[tabs.options.length - 1].key);
+                    else
+                        return ;
+
+                    event.accepted = true;
+                }
+
                 StateLayer {
                     tint: tab.on ? Theme.primary : Theme.text
-                    onClicked: tabs.picked(tab.modelData.key)
+                    onClicked: {
+                        tab.forceActiveFocus();
+                        tabs.picked(tab.modelData.key);
+                    }
                 }
 
                 Grid {
@@ -71,11 +108,22 @@ Item {
                     }
 
                     LText {
-                        text: tab.modelData.label || ""
+                        text: Tr.t(tab.modelData.label || "")
                         role: "titleSmall"
                         color: tab.on ? (tabs.secondary ? Theme.text : Theme.primary) : Theme.subtext
+                        Accessible.ignored: true
                     }
 
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: Theme.dp(3)
+                    radius: Theme.dp(6)
+                    color: "transparent"
+                    border.width: tab.activeFocus ? Theme.dp(2) : 0
+                    border.color: Theme.primary
+                    visible: border.width > 0 && Prefs.a11yFocusRing
                 }
 
             }

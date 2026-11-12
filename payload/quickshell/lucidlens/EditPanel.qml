@@ -275,7 +275,7 @@ Rectangle {
     function auto() {
         var st = panel.win.info && panel.win.info.histogram ? panel.win.info.histogram.stats : null;
         if (!st) {
-            panel.win.say("Still looking at the picture…");
+            panel.win.say(Tr.t("Still looking at the picture…"));
             return ;
         }
         var spread = st.hi - st.lo;
@@ -362,7 +362,7 @@ Rectangle {
                         spacing: Theme.dp(18)
 
                         Heading {
-                            text: "Shape"
+                            text: Tr.t("Shape")
                         }
 
                         Flow {
@@ -385,7 +385,7 @@ Rectangle {
 
                             IconButton {
                                 icon: "crop_rotate"
-                                tooltip: panel.win.cropPortrait ? "Make it wide" : "Make it tall"
+                                tooltip: panel.win.cropPortrait ? Tr.t("Make it wide") : Tr.t("Make it tall")
                                 variant: "tonal"
                                 checkable: true
                                 checked: panel.win.cropPortrait
@@ -400,7 +400,7 @@ Rectangle {
                         }
 
                         Heading {
-                            text: "Turn"
+                            text: Tr.t("Turn")
                         }
 
                         Row {
@@ -410,7 +410,7 @@ Rectangle {
                                 variant: "tonal"
                                 size: "m"
                                 icon: "rotate_left"
-                                tooltip: "Rotate left"
+                                tooltip: Tr.t("Rotate left")
 
                                 Tip {
                                 }
@@ -422,7 +422,7 @@ Rectangle {
                                 variant: "tonal"
                                 size: "m"
                                 icon: "rotate_right"
-                                tooltip: "Rotate right"
+                                tooltip: Tr.t("Rotate right")
 
                                 Tip {
                                 }
@@ -434,7 +434,7 @@ Rectangle {
                                 variant: "tonal"
                                 size: "m"
                                 icon: "flip"
-                                tooltip: "Flip side to side"
+                                tooltip: Tr.t("Flip side to side")
 
                                 Tip {
                                 }
@@ -447,7 +447,7 @@ Rectangle {
                                 size: "m"
                                 icon: "flip"
                                 rotation: 90
-                                tooltip: "Flip upside down"
+                                tooltip: Tr.t("Flip upside down")
 
                                 Tip {
                                 }
@@ -459,7 +459,7 @@ Rectangle {
 
                         AdjustSlider {
                             width: parent.width
-                            label: "Straighten"
+                            label: Tr.t("Straighten")
                             from: -45
                             to: 45
                             stepSize: 0.5
@@ -485,13 +485,13 @@ Rectangle {
                             role: "bodyMedium"
                             color: Theme.subtext
                             wrapMode: Text.Wrap
-                            text: "Drag the corners or the edges to crop, or drag inside to move the crop. Shift keeps its shape."
+                            text: Tr.t("Drag the corners or the edges to crop, or drag inside to move the crop. Shift keeps its shape.")
                         }
 
                         Button {
                             variant: "outlined"
                             icon: "restart_alt"
-                            text: "Reset the crop"
+                            text: Tr.t("Reset the crop")
                             disabled: !panel.e.crop && !panel.e.angle && !panel.e.turns && !panel.e.flipH && !panel.e.flipV
                             onClicked: panel.win.change({
                                 "crop": null,
@@ -515,76 +515,76 @@ Rectangle {
                         Button {
                             variant: "tonal"
                             icon: "auto_fix_high"
-                            text: "Auto"
+                            text: Tr.t("Auto")
                             onClicked: panel.auto()
                         }
 
                         Heading {
-                            text: "Light"
+                            text: Tr.t("Light")
                         }
 
                         Adjuster {
                             key: "exposure"
-                            label: "Exposure"
+                            label: Tr.t("Exposure")
                         }
 
                         Adjuster {
                             key: "contrast"
-                            label: "Contrast"
+                            label: Tr.t("Contrast")
                         }
 
                         Adjuster {
                             key: "highlights"
-                            label: "Highlights"
+                            label: Tr.t("Highlights")
                         }
 
                         Adjuster {
                             key: "shadows"
-                            label: "Shadows"
+                            label: Tr.t("Shadows")
                         }
 
                         Heading {
-                            text: "Colour"
+                            text: Tr.t("Colour")
                         }
 
                         Adjuster {
                             key: "saturation"
-                            label: "Saturation"
+                            label: Tr.t("Saturation")
                         }
 
                         Adjuster {
                             key: "vibrance"
-                            label: "Vibrance"
+                            label: Tr.t("Vibrance")
                         }
 
                         Adjuster {
                             key: "warmth"
-                            label: "Warmth"
+                            label: Tr.t("Warmth")
                         }
 
                         Adjuster {
                             key: "tint"
-                            label: "Tint"
+                            label: Tr.t("Tint")
                         }
 
                         Heading {
-                            text: "Finish"
+                            text: Tr.t("Finish")
                         }
 
                         Adjuster {
                             key: "fade"
-                            label: "Fade"
+                            label: Tr.t("Fade")
                             from: 0
                         }
 
                         Adjuster {
                             key: "vignette"
-                            label: "Vignette"
+                            label: Tr.t("Vignette")
                         }
 
                         Adjuster {
                             key: "mono"
-                            label: "Black and white"
+                            label: Tr.t("Black and white")
                             from: 0
                         }
 
@@ -707,7 +707,7 @@ Rectangle {
                         AdjustSlider {
                             width: parent.width
                             visible: (panel.e.filter || "") !== ""
-                            label: "Strength"
+                            label: Tr.t("Strength")
                             from: 0
                             to: 100
                             origin: 0
@@ -726,7 +726,7 @@ Rectangle {
                             role: "bodyMedium"
                             color: Theme.subtext
                             wrapMode: Text.Wrap
-                            text: "A look sets the adjustments; fine-tune it under Adjust."
+                            text: Tr.t("A look sets the adjustments; fine-tune it under Adjust.")
                         }
 
                     }
@@ -820,7 +820,7 @@ Rectangle {
                         }
 
                         Heading {
-                            text: "Colour"
+                            text: Tr.t("Colour")
                             visible: ["redact", "eraser"].indexOf(panel.app.prefs.tool) < 0
                         }
 
@@ -897,7 +897,7 @@ Rectangle {
                         }
 
                         Heading {
-                            text: "Size"
+                            text: Tr.t("Size")
                             visible: panel.app.prefs.tool !== "eraser"
                         }
 
@@ -956,7 +956,7 @@ Rectangle {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - fillSwitch.width - Theme.dp(12)
                                 role: "bodyLarge"
-                                text: panel.app.prefs.tool === "text" ? "Put the words on a label" : "Fill the shape"
+                                text: panel.app.prefs.tool === "text" ? Tr.t("Put the words on a label") : Tr.t("Fill the shape")
                             }
 
                             Switch {
@@ -976,13 +976,13 @@ Rectangle {
                             role: "bodyMedium"
                             color: Theme.subtext
                             wrapMode: Text.Wrap
-                            text: panel.app.prefs.tool === "text" ? "Click where the words go, type, then press Enter." : panel.app.prefs.tool === "redact" ? "Drag over what should be hidden: it is drawn back in blocks too coarse to read." : panel.app.prefs.tool === "eraser" ? "Click a drawing to take it away." : "Draw on the picture. Ctrl+Z takes the last mark back. Shift keeps a line straight and a shape even."
+                            text: panel.app.prefs.tool === "text" ? Tr.t("Click where the words go, type, then press Enter.") : panel.app.prefs.tool === "redact" ? Tr.t("Drag over what should be hidden: it is drawn back in blocks too coarse to read.") : panel.app.prefs.tool === "eraser" ? Tr.t("Click a drawing to take it away.") : Tr.t("Draw on the picture. Ctrl+Z takes the last mark back. Shift keeps a line straight and a shape even.")
                         }
 
                         Button {
                             variant: "outlined"
                             icon: "delete"
-                            text: "Clear the drawings"
+                            text: Tr.t("Clear the drawings")
                             disabled: !panel.e.marks || panel.e.marks.length === 0
                             onClicked: panel.win.change({
                                 "marks": []

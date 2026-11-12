@@ -222,7 +222,7 @@ Item {
     LText {
         anchors.centerIn: grid
         visible: root.entries.length === 0
-        text: root.query.trim() === "" ? "No widgets available" : "No widgets match"
+        text: root.query.trim() === "" ? Tr.t("No widgets available") : Tr.t("No widgets match")
         role: "bodyMedium"
         color: Theme.subtext
     }

@@ -29,7 +29,14 @@ apply_if_needed() {
     mode=$(cat "$THEME_FILE" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
     [[ "$mode" == "light" || "$mode" == "dark" ]] || return 0
     wall=$(cat "$WALL_FILE" 2>/dev/null | tr -d '\n' | xargs || true)
-    [[ -n "$wall" && -f "$wall" ]] || return 0
+    # current_wallpaper is only the still under a video/scene. Re-applying
+    # that would replace the live wallpaper with its thumbnail; prefer the
+    # real moving target when one is recorded.
+    live=$(head -n1 "$CACHE/current_live_wallpaper" 2>/dev/null || true)
+    if [[ "$live" == skwd:* || ( -n "$live" && -f "$live" ) ]]; then
+        wall="$live"
+    fi
+    [[ -n "$wall" && ( "$wall" == skwd:* || -f "$wall" ) ]] || return 0
 
     # Already applied by set-wallpaper? Its fast-path signature covers the
     # wallpaper, mode, theme and prefs, so this is exact, not a time window.

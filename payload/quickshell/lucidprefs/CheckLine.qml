@@ -10,10 +10,26 @@ Item {
     property bool danger: false
     property bool enabled: true
     property string icon: ""
+    property string accessibleName: ""
+    property string accessibleDescription: ""
 
     readonly property color mark: check.danger ? Theme.error : Theme.accent
 
     signal toggled()
+
+    activeFocusOnTab: check.enabled
+    Accessible.role: Accessible.CheckBox
+    Accessible.name: check.accessibleName !== "" ? check.accessibleName : check.label
+    Accessible.description: check.accessibleDescription
+    Accessible.checkable: true
+    Accessible.checked: check.checked
+    Accessible.focusable: check.enabled
+    Accessible.focused: check.activeFocus
+    Accessible.onPressAction: check.toggled()
+    Accessible.onToggleAction: check.toggled()
+    Keys.onSpacePressed: check.toggled()
+    Keys.onReturnPressed: check.toggled()
+    Keys.onEnterPressed: check.toggled()
 
     implicitWidth: box.width + Theme.dp(9) + (check.icon !== "" ? appIcon.width + Theme.dp(9) : 0) + text.implicitWidth
     implicitHeight: check.icon !== "" ? Theme.dp(26) : Theme.dp(22)
@@ -90,6 +106,7 @@ Item {
         font.pixelSize: Theme.fontLabel
         font.variableAxes: Theme.axes(Theme.fontLabel, (check.checked) ? 640 : 420, 0)
         font.bold: check.checked
+        Accessible.ignored: true
     }
 
     MouseArea {
@@ -99,7 +116,21 @@ Item {
         hoverEnabled: true
         enabled: check.enabled
         cursorShape: Qt.PointingHandCursor
-        onClicked: check.toggled()
+        onClicked: {
+            check.forceActiveFocus();
+            check.toggled();
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: Theme.dp(7)
+        color: "transparent"
+        border.width: check.activeFocus && check.enabled ? Theme.dp(2) : 0
+        border.color: Theme.accent
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
 }

@@ -89,7 +89,7 @@ All `plugin:liquidglass:*`, all live (`hyprctl keyword ...`):
 
 | key | default | QML Prefs twin |
 |---|---|---|
-| `enabled` | 1 | — (master switch) |
+| `enabled` | 1 | — (master switch for glass bodies; `rim_light` is independent and keeps drawing the border rim when this is 0) |
 | `namespaces` | `quickshell` | — (substring match on layer namespace) |
 | `power` | 3.0 | `liquidGlassPower` |
 | `shape_width` / `shape_height` | 3.5 | `liquidGlassWidth/Height` |
@@ -100,7 +100,7 @@ All `plugin:liquidglass:*`, all live (`hyprctl keyword ...`):
 | `capture_scale` | 4.0 | — (working-res divisor for capture + Kawase chain: 4 = quarter-res, ~4x less scratch and ~3-4x less chain traffic for a near-identical blurred backdrop; blur strength auto-corrected so the look matches; 2 = old half-res) |
 | `glow_weight,bias,edge0,edge1` | 0.25/0/0.5/-0.5 | `liquidGlassGlow*` |
 | `opacity` | 0.23 | `liquidGlassOpacity` (linear: 0 = clear, 1 = solid) |
-| `tint` | `0x191113ff` | `Theme.bgOpaque` (tuner pushes live later) |
+| `tint` | `0x191113ff` | `Theme.bgOpaque`: computed live from matugen `surface_container` + the Theme.qml surface ramp (`surfaceTint` / `surfaceDarkness` prefs), not the raw `surface` role |
 | `use_pill` | 1 | pill vs superellipse shape mode |
 | `shadow_color` | `0x1a1a1a66` | `Theme.hyprShadow` (rgb + alpha) |
 | `shadow_offset_x/y` | 0 / 10 | `hyprShadowOffsetX/Y` |
@@ -126,6 +126,10 @@ All `plugin:liquidglass:*`, all live (`hyprctl keyword ...`):
 | `rim_shade` | `0.009` | — (inner rim shade / bevel depth) |
 | `glass_rim` | `1` | — (same Apple rim light inside every glass surface: Lucid pills + kitty/zen panes) |
 | `glass_rim_width` | `1.1` | — (glass-body hairline width, logical px) |
+| `rim_follow` | `1` | — (steer the rim diagonal toward the cursor; horizontal mirror only) |
+| `rim_follow_strength` | `0.2` | — (cursor angle gain; small = subtle) |
+| `rim_follow_max` | `15.0` | — (max deviation from `rim_angle`, degrees) |
+| `rim_follow_smoothing` | `0.3` | — (exponential filter time constant, seconds) |
 
 Corner radii are per-pill from geometry (no global needed). `box/corner`
 derivations (`menuWidth`, notch square corners) live in QML, as before.
@@ -167,8 +171,15 @@ relief:
 - two opposite simulated sources (top-left key + bottom-right fill) light
   the facing edges; each source **fades along the edge** away from its corner
   instead of running uniformly down the whole side;
-- `rim_angle` sets the diagonal (135 = top-left/bottom-right), `rim_splay`
-  wraps light around the flanks, `rim_shade` adds the inner bevel shadow.
+- `rim_angle` sets the base diagonal (135 = top-left/bottom-right),
+  `rim_splay` wraps light around the flanks, `rim_shade` adds the inner bevel
+  shadow;
+- `rim_follow` slowly steers that diagonal toward the cursor, horizontally
+  mirrored (not vertically), by `rim_follow_strength` gain and at most
+  `rim_follow_max` degrees. The angle is filtered over
+  `rim_follow_smoothing` seconds (default 0.3s) and converted per monitor, so
+  identical layouts on different outputs follow the same global pointer
+  correctly. Small pointer movements are dead-zoned and only nudge the light.
 
 The band is `rim_width` logical px wide and is drawn outside the window (the
 same band the native border occupied), so window content is not covered. A

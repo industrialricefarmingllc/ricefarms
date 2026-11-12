@@ -22,11 +22,29 @@ PanelWindow {
     property bool panelVisible: false
     property bool maskActive: false
     property real revealRadius: 0
+    // Toggle the layer's keyboard focus once after the wallpaper iris closes;
+    // mapping an overlay above this surface can leave it drawn but unfocused.
+    property bool focusKick: false
+    // SUPER arms the launcher on press (before the tap is recognised on
+    // release). Take the keyboard at that instant and buffer what is typed, so
+    // characters pressed while the panel is still laying out are handed to the
+    // search field instead of falling into the window underneath.
+    property bool inputArmed: false
+    property string queuedInput: ""
 
     property bool launcherGlassReady: false
     readonly property bool glassOn: root.launcherGlassReady && Prefs.liquidGlassEnabled
     readonly property bool maskedGlass: root.maskActive && root.maskCapable
     property bool maskCapable: false
+    // Probe cadence. A compositor without the plugin used to be asked twice a
+    // second for the whole session (~2 process spawns/s). Back off to one ask
+    // per 5 s, still fast enough to notice a plugin option being enabled.
+    property int probeDelay: 500
+
+    function noteProbe(ok) {
+        if (!ok)
+            root.probeDelay = Math.min(5000, root.probeDelay * 2);
+    }
 
     // This plugin build can clip its glass to a published circle. Until the
     // compositor restarts onto one, keep the opaque reveal (publishing the
@@ -37,12 +55,15 @@ PanelWindow {
         command: ["hyprctl", "getoption", "plugin:liquidglass:mask_support"]
         running: true
         stdout: StdioCollector {
-            onStreamFinished: root.maskCapable = text.indexOf("int: 1") !== -1
+            onStreamFinished: {
+                root.maskCapable = text.indexOf("int: 1") !== -1;
+                root.noteProbe(root.maskCapable);
+            }
         }
     }
 
     Timer {
-        interval: 500
+        interval: root.probeDelay
         repeat: true
         running: !root.maskCapable
         onTriggered: maskProbe.running = true
@@ -54,12 +75,15 @@ PanelWindow {
         command: ["hyprctl", "getoption", "plugin:liquidglass:launcher_glass"]
         running: true
         stdout: StdioCollector {
-            onStreamFinished: root.launcherGlassReady = text.indexOf("int: 1") !== -1
+            onStreamFinished: {
+                root.launcherGlassReady = text.indexOf("int: 1") !== -1;
+                root.noteProbe(root.launcherGlassReady);
+            }
         }
     }
 
     Timer {
-        interval: 500
+        interval: root.probeDelay
         repeat: true
         running: !root.launcherGlassReady
         onTriggered: glassProbe.running = true
@@ -72,7 +96,9 @@ PanelWindow {
     color: "transparent"
     exclusiveZone: -1
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: root.panelVisible && !root.closing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: (root.inputArmed || (root.panelVisible && !root.closing && !root.focusKick))
+        ? WlrKeyboardFocus.Exclusive
+        : WlrKeyboardFocus.None
     WlrLayershell.namespace: "lucid-launcher"
     mask: Region { item: root.panelVisible ? face : null }
 
@@ -178,6 +204,15 @@ PanelWindow {
         retargetAnim.restart();
     }
 
+    onMaskActiveChanged: if (root.dock)
+        root.dock.launcherAnimating = root.maskActive
+
+    // Freeze the idle 3D wallpaper drift while the launcher is up. It is
+    // invisible behind the panel and its 30 Hz fullscreen repaint on every
+    // output is the largest source of render-thread contention during the
+    // reveal. SpatialShake parks its timer rather than resetting the pose.
+    onPanelVisibleChanged: SpatialWall.launcherOpen = root.panelVisible
+
     Connections {
         target: face
 
@@ -195,6 +230,17 @@ PanelWindow {
                 return ;
 
             if (root.dock.menuOpen) {
+                // An open that came through IPC (the tmux Super path, older
+                // keybinds) never reaches toggleLauncher(), so take the queued
+                // characters here instead of leaving them buffered and the
+                // catcher holding focus.
+                if (root.inputArmed) {
+                    const queued = root.queuedInput;
+                    root.inputArmed = false;
+                    root.queuedInput = "";
+                    if (queued !== "")
+                        root.dock.setSearchText(queued);
+                }
                 closeHide.stop();
                 // settle the body before the surface becomes visible, so a
                 // reopen never shows the last session's expanded content
@@ -307,6 +353,12 @@ PanelWindow {
         targetScreen: root.screen
         surfaceW: root.width
         surfaceH: root.height
+        // 8 ms = one frame at 120 Hz. The reveal runs at the output's rate
+        // (165 Hz here), and publishing at the default 4 ms queued more writes
+        // than FileView could finish: the extra ones were canceled, and the
+        // churn competed with the animation itself. One frame of glass lag is
+        // invisible on a feathered circular mask.
+        coalesceMs: 8
         // Shape is the live committed surface box while the launcher is open.
         // The layer surface stays mapped even when closed, so gate on the
         // actual open state, not on the always-mapped layer. `closing` is
@@ -378,10 +430,17 @@ PanelWindow {
             if (root.toast)
                 root.toast.popup("widgets", name + " added", false);
         }
-        onEmojiCopied: (emoji) => {
+        onEmojiCopied: (emoji, image, label, animated, key) => {
+            if (root.dock)
+                root.dock.recordEmojiUse(key);
             Quickshell.execDetached(["wl-copy", "--", emoji]);
             if (root.toast)
-                root.toast.popup("copy", emoji + " copied!", false);
+                root.toast.present({
+                    "image": image,
+                    "animated": animated,
+                    "icon": image === "" ? "copy" : "",
+                    "label": (label || emoji) + " copied!"
+                });
             if (root.dock)
                 root.dock.menuOpen = false;
         }
@@ -429,6 +488,38 @@ PanelWindow {
     Component.onCompleted: if (root.dock) root.dock.externalFace = face
     Component.onDestruction: if (root.dock) root.dock.externalFace = null
 
+    // A transparent focus holder, outside the visual reveal. It exists only
+    // while SUPER is down so the compositor already has a place to send keys
+    // before the face is shown; every character is queued here and handed to
+    // the search field when the tap opens the launcher.
+    Item {
+        id: inputCatcher
+
+        anchors.fill: parent
+        visible: root.inputArmed
+        enabled: root.inputArmed
+        focus: root.inputArmed
+        z: 1000
+
+        Keys.onPressed: (event) => {
+            if (!root.inputArmed)
+                return ;
+            // A chord, not typing: let its bind act. The launcher is disarmed
+            // by the same key in Hyprland, which also clears this buffer.
+            if ((event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) !== 0)
+                return ;
+            if (event.key === Qt.Key_Backspace) {
+                root.queuedInput = root.queuedInput.slice(0, Math.max(0, root.queuedInput.length - 1));
+                event.accepted = true;
+                return ;
+            }
+            if (event.text !== "" && event.text.charCodeAt(0) >= 32) {
+                root.queuedInput += event.text;
+                event.accepted = true;
+            }
+        }
+    }
+
     // Tab walks the launcher tabs until the language rail is engaged; then the
     // rail's own keys cycle languages without the window shortcut intercepting.
     Shortcut {
@@ -461,8 +552,40 @@ PanelWindow {
         root.bodyOpen = true;
         face.cycleMode(dir);
     }
+    function restorePickerFocus() {
+        if (!root.panelVisible || root.closing || !face)
+            return ;
+        root.focusKick = true;
+        refocusTimer.restart();
+    }
+
+    Timer {
+        id: refocusTimer
+
+        interval: 60
+        repeat: false
+        onTriggered: {
+            root.focusKick = false;
+            if (face)
+                face.focusSearch();
+        }
+    }
+
+    Connections {
+        target: Theme
+
+        function onRevealActiveChanged() {
+            if (!Theme.revealActive)
+                root.restorePickerFocus();
+        }
+    }
+
     function startOpen() {
         root.closing = false;
+        // A pending focus kick from a previous wallpaper/iris session must not
+        // leave the freshly opened panel without keyboard focus.
+        root.focusKick = false;
+        refocusTimer.stop();
         // An interrupted close may not have reached finishClose yet. Start from
         // the collapsed head, then re-derive the body from the requested tab so
         // the previous session's expanded body cannot be inherited.
@@ -511,24 +634,86 @@ PanelWindow {
         if (root.dock)
             root.dock.menuOpen = false;
     }
+    // Called the moment SUPER goes down, not when the tap is recognised. The
+    // keyboard is taken immediately; anything typed before the panel is ready
+    // stays in queuedInput and is replayed by toggleLauncher().
+    function armLauncher() {
+        if (!root.dock || root.dock.menuOpen || root.inputArmed)
+            return ;
+        root.queuedInput = "";
+        root.inputArmed = true;
+        inputCatcher.forceActiveFocus();
+    }
+    // A SUPER chord won: give the keyboard straight back and drop whatever was
+    // buffered, because no launcher will open from this press.
+    function disarmLauncher() {
+        if (!root.inputArmed)
+            return ;
+        root.inputArmed = false;
+        root.queuedInput = "";
+    }
     function toggleLauncher() {
         const d = root.dock;
         if (!d)
             return ;
+        const queued = root.inputArmed ? root.queuedInput : "";
+        root.inputArmed = false;
         if (!d.menuOpen) {
             d.pinnedMode = "apps";
-            d.setSearchText("");
+            d.setSearchText(queued);
         }
         d.aimLauncher();
         d.menuOpen = !d.menuOpen;
+        root.queuedInput = "";
+    }
+
+    // Direct-tab entry from a compositor global. No `qs ipc call` process, so
+    // the chord cannot race the Super release or leave the tap armed.
+    function openEmoji() {
+        const d = root.dock;
+        if (!d)
+            return ;
+        root.inputArmed = false;
+        root.queuedInput = "";
+        d.selectMode("emoji");
+        d.aimLauncher();
+        d.menuOpen = true;
+    }
+
+    // If a release or a disarm is ever lost, never leave the launcher holding
+    // exclusive keyboard focus invisibly.
+    Timer {
+        interval: 6000
+        running: root.inputArmed
+        onTriggered: root.disarmLauncher()
     }
 
     // Hyprland calls this directly as `global, quickshell:launcher`; it avoids
     // spawning `qs ipc call` (a ~450 ms process start) on the Super keybind.
     GlobalShortcut {
         name: "launcher"
-        description: "Toggle the Lucid application launcher"
+        description: Tr.t("Toggle the Lucid application launcher")
         onPressed: root.toggleLauncher()
+    }
+
+    GlobalShortcut {
+        name: "launcherEmoji"
+        description: Tr.t("Open the Lucid launcher on the Emoji tab")
+        onPressed: root.openEmoji()
+    }
+
+    // SUPER press/release arrive separately: arm on the press while the tap is
+    // still ambiguous, disarm if the press turns out to be a chord.
+    GlobalShortcut {
+        name: "launcherArm"
+        description: Tr.t("Lucid: hold the keyboard for a pending launcher tap")
+        onPressed: root.armLauncher()
+    }
+
+    GlobalShortcut {
+        name: "launcherDisarm"
+        description: Tr.t("Lucid: release the keyboard after a launcher chord")
+        onPressed: root.disarmLauncher()
     }
 
     HyprlandFocusGrab {
@@ -551,8 +736,6 @@ PanelWindow {
         running: root.visible && root.dock && root.dock.menuOpen
         onTriggered: {
             grabArm.armed = true;
-            if (face && face.consumeTranslateLanguageFocus && face.consumeTranslateLanguageFocus())
-                return;
             // Do not steal focus back from a language row the user has just
             // engaged while the focus grab was arming.
             if (face && !face.translateLanguageEngaged)

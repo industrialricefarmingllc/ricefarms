@@ -88,8 +88,8 @@ Column {
         visible: Monitors.moduleProbed && !Monitors.moduleInstalled
 
         SettingRow {
-            title: "Nothing here will be applied"
-            warning: "Display rules come from Lucid's Hyprland config, and yours does not load them. Run the installer with --with-hypr, or copy modules/monitors.lua from Lucid into your own hypr config. Everything below still records what you pick."
+            title: Tr.t("Nothing here will be applied")
+            warning: Tr.t("Display rules come from Lucid's Hyprland config, and yours does not load them. Run the installer with --with-hypr, or copy modules/monitors.lua from Lucid into your own hypr config. Everything below still records what you pick.")
             showDivider: false
         }
 
@@ -99,21 +99,21 @@ Column {
         visible: Monitors.probed && Monitors.liveCount === 0
 
         SettingRow {
-            title: "No displays found"
-            warning: "hyprctl reported no outputs at all, which usually means the shell is not talking to Hyprland."
+            title: Tr.t("No displays found")
+            warning: Tr.t("hyprctl reported no outputs at all, which usually means the shell is not talking to Hyprland.")
             showDivider: false
         }
 
     }
 
     SettingCard {
-        title: "ARRANGEMENT"
-        subtitle: "Where each display sits next to the others. Windows and the pointer cross at the edges you line up here."
+        title: Tr.t("ARRANGEMENT")
+        subtitle: Tr.t("Where each display sits next to the others. Windows and the pointer cross at the edges you line up here.")
         visible: Monitors.liveCount > 0
 
         SettingRow {
-            title: Monitors.liveCount > 1 ? "Drag a display to move it" : "This display"
-            description: Monitors.liveCount > 1 ? "A display always lands against another one, never on top of it and with no gap between them. Pointing at one shows its number on the real display. Click one to pick it and move it with the arrow keys; double-click it to jump to its settings." : "Double-click it to jump to its settings. With a second display plugged in, this is where you arrange them."
+            title: Monitors.liveCount > 1 ? Tr.t("Drag a display to move it") : Tr.t("This display")
+            description: Monitors.liveCount > 1 ? Tr.t("A display always lands against another one, never on top of it and with no gap between them. Pointing at one shows its number on the real display. Click one to pick it and move it with the arrow keys; double-click it to jump to its settings.") : Tr.t("Double-click it to jump to its settings. With a second display plugged in, this is where you arrange them.")
             stacked: true
             showDivider: false
 
@@ -133,7 +133,7 @@ Column {
                 Text {
                     width: parent.width
                     visible: monitorMap.activeFocus && monitorMap.movable && monitorMap.placed.indexOf(page.focusKey) >= 0
-                    text: monitorMap.dragging && monitorMap.byKeys ? "Enter puts it there, Escape puts it back." : "The arrow keys move " + Monitors.shortLabel(page.focusKey) + " round the others; with Shift they slide it along the edge it is on."
+                    text: monitorMap.dragging && monitorMap.byKeys ? Tr.t("Enter puts it there, Escape puts it back.") : Tr.t("The arrow keys move ") + Monitors.shortLabel(page.focusKey) + Tr.t(" round the others; with Shift they slide it along the edge it is on.")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBodyMd
@@ -177,7 +177,7 @@ Column {
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width - Theme.dp(46) - asideButton.width - Theme.dp(12)
-                            text: aside.off ? Monitors.shortLabel(aside.modelData) + " (" + Monitors.nameOf(aside.modelData) + ") is switched off." : Monitors.shortLabel(aside.modelData) + " (" + Monitors.nameOf(aside.modelData) + ") shows the same picture as " + Monitors.mirrorOf(aside.modelData) + "."
+                            text: aside.off ? Monitors.shortLabel(aside.modelData) + " (" + Monitors.nameOf(aside.modelData) + Tr.t(") is switched off.") : Monitors.shortLabel(aside.modelData) + " (" + Monitors.nameOf(aside.modelData) + Tr.t(") shows the same picture as ") + Monitors.mirrorOf(aside.modelData) + "."
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodyMd
@@ -188,7 +188,7 @@ Column {
                             id: asideButton
 
                             anchors.verticalCenter: parent.verticalCenter
-                            text: aside.off ? "Switch on" : "Stop mirroring"
+                            text: aside.off ? Tr.t("Switch on") : Tr.t("Stop mirroring")
                             variant: "tonal"
                             onClicked: {
                                 if (aside.off)
@@ -206,7 +206,7 @@ Column {
                     spacing: Theme.dp(8)
 
                     M3Button {
-                        text: "Arrange automatically"
+                        text: Tr.t("Arrange automatically")
                         variant: "text"
                         visible: Monitors.liveCount > 1
                         enabled: Monitors.keys.some((k) => {
@@ -216,13 +216,13 @@ Column {
                     }
 
                     M3Button {
-                        text: "Identify"
+                        text: Tr.t("Identify")
                         variant: "text"
                         onClicked: Monitors.identify()
                     }
 
                     M3Button {
-                        text: "Settings for " + Monitors.shortLabel(page.focusKey)
+                        text: Tr.t("Settings for ") + Monitors.shortLabel(page.focusKey)
                         variant: "text"
                         visible: page.focusKey !== "" && Monitors.output(page.focusKey) !== null
                         onClicked: page.reveal(page.focusKey)
@@ -288,8 +288,8 @@ Column {
 
                     readonly property var list: Monitors.resolutionsOf(unit.key)
 
-                    title: "Resolution"
-                    description: resRow.list.length > 1 ? "" : "The only mode this display offers."
+                    title: Tr.t("Resolution")
+                    description: resRow.list.length > 1 ? "" : Tr.t("The only mode this display offers.")
                     stacked: true
                     enabled: unit.on
                     disabledReason: page.offReason
@@ -317,8 +317,8 @@ Column {
 
                     readonly property var rates: Monitors.ratesOf(unit.key, Monitors.currentRes(unit.key))
 
-                    title: "Refresh rate"
-                    description: rateRow.rates.length > 1 ? "" : "The only rate at this resolution."
+                    title: Tr.t("Refresh rate")
+                    description: rateRow.rates.length > 1 ? "" : Tr.t("The only rate at this resolution.")
                     stacked: true
                     enabled: unit.on
                     disabledReason: page.offReason
@@ -347,7 +347,7 @@ Column {
                     readonly property real scale: Monitors.scaleOf(unit.key)
                     readonly property string room: Monitors.logicalSize(unit.key, scaleRow.scale)
 
-                    title: "Scale"
+                    title: Tr.t("Scale")
                     description: {
                         const room = scaleRow.room !== "" ? scaleRow.room + " of room for windows" : "";
                         if (!Monitors.isCleanScale(unit.key, scaleRow.scale))
@@ -377,8 +377,8 @@ Column {
                 }
 
                 SettingRow {
-                    title: "Orientation"
-                    description: "Which way up the picture is drawn, for a display that is physically turned."
+                    title: Tr.t("Orientation")
+                    description: Tr.t("Which way up the picture is drawn, for a display that is physically turned.")
                     stacked: true
                     enabled: unit.on
                     disabledReason: page.offReason
@@ -401,8 +401,8 @@ Column {
                 }
 
                 SettingRow {
-                    title: "Adaptive sync"
-                    description: "Lets the display follow whatever frame rate it is being fed, which smooths out games. Some panels flicker on the desktop with it always on, which is what the middle setting is for."
+                    title: Tr.t("Adaptive sync")
+                    description: Tr.t("Lets the display follow whatever frame rate it is being fed, which smooths out games. Some panels flicker on the desktop with it always on, which is what the middle setting is for.")
                     stacked: true
                     enabled: unit.on
                     disabledReason: page.offReason
@@ -435,8 +435,8 @@ Column {
                         return o.key !== unit.key && Monitors.isOn(o.key);
                     })
 
-                    title: "Mirror another display"
-                    description: "Shows the same picture as the display you pick, at this one's own resolution. Its place in the arrangement above stops applying."
+                    title: Tr.t("Mirror another display")
+                    description: Tr.t("Shows the same picture as the display you pick, at this one's own resolution. Its place in the arrangement above stops applying.")
                     stacked: true
                     visible: Monitors.liveCount > 1
                     enabled: unit.on
@@ -463,8 +463,8 @@ Column {
                 }
 
                 SettingRow {
-                    title: "Use this display"
-                    description: "Switching it off leaves it black and moves its workspaces to the others."
+                    title: Tr.t("Use this display")
+                    description: Tr.t("Switching it off leaves it black and moves its workspaces to the others.")
                     visible: Monitors.liveCount > 1
                     enabled: Monitors.canTurnOff(unit.key)
                     disabledReason: "This is the only display left on, so it has to stay."
@@ -480,13 +480,13 @@ Column {
                 }
 
                 SettingRow {
-                    title: "Back to automatic"
-                    description: "Drops everything set for this display and lets Hyprland pick its mode, scale and place again."
+                    title: Tr.t("Back to automatic")
+                    description: Tr.t("Drops everything set for this display and lets Hyprland pick its mode, scale and place again.")
                     visible: Monitors.isTouched(unit.key)
                     showDivider: false
 
                     M3Button {
-                        text: "Reset"
+                        text: Tr.t("Reset")
                         variant: "text"
                         destructive: true
                         onClicked: Monitors.clear(unit.key)
@@ -501,14 +501,14 @@ Column {
     }
 
     SettingCard {
-        title: "SHELL"
-        subtitle: "The bar, the dock, the volume popup and the toasts are one of each, so they sit together on one display unless you send the bar or the dock to another, or put a bar on every display. The wallpaper, the desktop menu and the lock screen are drawn on every display either way."
+        title: Tr.t("SHELL")
+        subtitle: Tr.t("The bar, the dock, the volume popup and the toasts are one of each, so they sit together on one display unless you send the bar or the dock to another, or put a bar on every display. The wallpaper, the desktop menu and the lock screen are drawn on every display either way.")
         visible: Monitors.liveCount > 1
 
         SettingRow {
-            title: "Put the shell on"
+            title: Tr.t("Put the shell on")
             resetKey: "monitorShellScreen"
-            description: "Automatic leaves the choice to Hyprland, which is usually the display you were last on when the shell started. A display picked here is remembered by what it is, so it keeps the shell even if it comes back on another port. Widgets with no display of their own follow it too."
+            description: Tr.t("Automatic leaves the choice to Hyprland, which is usually the display you were last on when the shell started. A display picked here is remembered by what it is, so it keeps the shell even if it comes back on another port. Widgets with no display of their own follow it too.")
             stacked: true
 
             M3Chips {
@@ -526,9 +526,9 @@ Column {
         }
 
         SettingRow {
-            title: "The bar on its own"
+            title: Tr.t("The bar on its own")
             resetKey: "monitorBarScreen"
-            description: "For a bar that belongs on a different display to the dock, or one on every display. Left alone it goes wherever the shell went. With a bar everywhere, notification popups still come out of the shell's own display."
+            description: Tr.t("For a bar that belongs on a different display to the dock, or one on every display. Left alone it goes wherever the shell went. With a bar everywhere, notification popups still come out of the shell's own display.")
             stacked: true
 
             M3Chips {
@@ -549,9 +549,9 @@ Column {
         }
 
         SettingRow {
-            title: "The dock on its own"
+            title: Tr.t("The dock on its own")
             resetKey: "monitorDockScreen"
-            description: "Same for the dock, and the launcher it opens into."
+            description: Tr.t("Same for the dock, and the launcher it opens into.")
             stacked: true
             showDivider: false
 
@@ -572,12 +572,12 @@ Column {
     }
 
     SettingCard {
-        title: "WORKSPACES"
-        subtitle: "Workspaces 1 to " + Monitors.workspaceCount + " either open on whichever display you are on, or each belong to one display and always open there."
+        title: Tr.t("WORKSPACES")
+        subtitle: Tr.t("Workspaces 1 to ") + Monitors.workspaceCount + Tr.t(" either open on whichever display you are on, or each belong to one display and always open there.")
         visible: Monitors.liveCount > 1 || Monitors.workspacesSplit
 
         SettingRow {
-            title: "Workspaces"
+            title: Tr.t("Workspaces")
             resetKey: "monitorWorkspaces"
             description: {
                 if (!Monitors.workspacesSplit)
@@ -606,9 +606,9 @@ Column {
         }
 
         SettingRow {
-            title: "Group by display"
+            title: Tr.t("Group by display")
             resetKey: "workspacesByDisplay"
-            description: "The bar's workspace dots and the overview fall into one run per display, each under the display's number, and the accent follows the display you are on."
+            description: Tr.t("The bar's workspace dots and the overview fall into one run per display, each under the display's number, and the accent follows the display you are on.")
             visible: Monitors.workspaceKeys.length > 1
 
             M3Switch {
@@ -630,7 +630,7 @@ Column {
                 readonly property var mine: Monitors.workspacesOf(wsRow.modelData)
 
                 title: Monitors.nameOf(wsRow.modelData)
-                description: wsRow.mine.length > 0 ? "Starts on workspace " + wsRow.mine[0] + ". Pick a number to move that workspace here." : "No workspace of its own yet. Pick a number to move one here."
+                description: wsRow.mine.length > 0 ? Tr.t("Starts on workspace ") + wsRow.mine[0] + Tr.t(". Pick a number to move that workspace here.") : Tr.t("No workspace of its own yet. Pick a number to move one here.")
                 stacked: true
 
                 M3Chips {
@@ -658,13 +658,13 @@ Column {
 
         SettingRow {
             visible: Monitors.workspacesSplit && Monitors.workspaceKeys.length > 1
-            title: "Split evenly"
-            description: "Workspaces 1 to " + Monitors.workspaceCount + " in runs, from the leftmost display to the rightmost."
+            title: Tr.t("Split evenly")
+            description: Tr.t("Workspaces 1 to ") + Monitors.workspaceCount + Tr.t(" in runs, from the leftmost display to the rightmost.")
             showDivider: false
 
             M3Button {
                 variant: "tonal"
-                text: "Split"
+                text: Tr.t("Split")
                 onClicked: Monitors.splitEvenly()
             }
 
@@ -673,12 +673,12 @@ Column {
     }
 
     SettingCard {
-        title: "NIGHT LIGHT"
+        title: Tr.t("NIGHT LIGHT")
 
         SettingRow {
-            title: "Night light"
-            description: NightLight.available ? NightLight.status + ". Warms every display so evenings are easier on the eyes; hyprsunset does the tinting." : ""
-            warning: NightLight.available ? "" : "hyprsunset is not installed, so there is nothing to warm the screen with."
+            title: Tr.t("Night light")
+            description: NightLight.available ? NightLight.status + Tr.t(". Warms every display so evenings are easier on the eyes; hyprsunset does the tinting.") : ""
+            warning: NightLight.available ? "" : Tr.t("hyprsunset is not installed, so there is nothing to warm the screen with.")
 
             M3Switch {
                 checked: NightLight.active
@@ -690,9 +690,9 @@ Column {
         }
 
         SettingRow {
-            title: "Warmth"
+            title: Tr.t("Warmth")
             resetKey: "nightLightTemp"
-            description: NightLight.temperature + " K. Lower is warmer; 6500 K would leave the screen as it is."
+            description: NightLight.temperature + Tr.t(" K. Lower is warmer; 6500 K would leave the screen as it is.")
             stacked: true
 
             M3Slider {
@@ -710,7 +710,7 @@ Column {
         }
 
         SettingRow {
-            title: "Schedule"
+            title: Tr.t("Schedule")
             resetKey: "nightLightSchedule"
             description: {
                 if (Prefs.nightLightSchedule === "sun") {
@@ -747,9 +747,9 @@ Column {
         }
 
         SettingRow {
-            title: "Between"
+            title: Tr.t("Between")
             visible: Prefs.nightLightSchedule === "custom"
-            description: "Written as 21:00. An end earlier than the start runs through midnight."
+            description: Tr.t("Written as 21:00. An end earlier than the start runs through midnight.")
             showDivider: false
 
             Row {
@@ -772,7 +772,7 @@ Column {
 
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "to"
+                    text: Tr.t("to")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBody
@@ -800,19 +800,19 @@ Column {
     }
 
     SettingCard {
-        title: "RESET"
+        title: Tr.t("RESET")
         visible: Monitors.liveCount > 0
 
         SettingRow {
-            title: "Reset every display"
-            description: "Every display back to its preferred mode, unscaled, placed automatically, and the shell back to wherever Hyprland puts it."
+            title: Tr.t("Reset every display")
+            description: Tr.t("Every display back to its preferred mode, unscaled, placed automatically, and the shell back to wherever Hyprland puts it.")
             showDivider: false
 
             M3Button {
-                text: "Reset"
+                text: Tr.t("Reset")
                 variant: "text"
                 destructive: true
-                onClicked: Prefs.askReset("Reset every display?", "Every display goes back to its preferred resolution and refresh rate, scale 100%, upright, placed automatically and switched on. The shell goes back to Hyprland's choice of display.", Prefs.resetMonitorsToken)
+                onClicked: Prefs.askReset(Tr.t("Reset every display?"), Tr.t("Every display goes back to its preferred resolution and refresh rate, scale 100%, upright, placed automatically and switched on. The shell goes back to Hyprland's choice of display."), Prefs.resetMonitorsToken)
             }
 
         }

@@ -41,17 +41,21 @@ Item {
     width: 0
     height: 0
 
+    // one instance per concurrent launch; the first keeps the original titles
+    // so a placeholder left by the single-ghost build is adopted after reload
+    property int slot: 0
+    readonly property bool legacySlot: root.slot === 0
     readonly property string parkWorkspace: "special:lucid-launch"
     readonly property string parkName: root.parkWorkspace.replace("special:", "")
-    readonly property string stableTitle: "lucid-launch-placeholder"
+    readonly property string stableTitle: root.legacySlot ? "lucid-launch-placeholder" : "lucid-launch-placeholder-" + root.slot
     // The held tile is drawn by a workspace-bound floating window, not by the
     // layer overlay: Hyprland renders it inside the workspace, so its own
     // workspace slide/fade applies without reimplementing any of it.
-    readonly property string ghostTitle: "lucid-launch-ghost"
+    readonly property string ghostTitle: root.legacySlot ? "lucid-launch-ghost" : "lucid-launch-ghost-" + root.slot
     // a function dispatch, so it only puts the parking workspace away when it
     // is really on screen and is a no-op otherwise
     readonly property string hideParkDispatch: "function() local s = hl.get_active_special_workspace() if not s or s.name ~= \"" + root.parkWorkspace + "\" then return end hl.dispatch(hl.dsp.workspace.toggle_special(\"" + root.parkName + "\")) end"
-    readonly property int launchTimeoutMs: 10000
+    property int launchTimeoutMs: 10000
     // The compositor's own corner geometry, not decoration:rounding as written:
     // CWindow::rounding() multiplies that by rounding_power / 2 to keep the
     // perceived roundness constant, so this is the radius the real windows
@@ -114,6 +118,9 @@ Item {
     property bool appMatched: false
     property bool wsReasserted: false
     property string appAddr: ""
+    // the workspace the openwindow event named, so a class match can reveal
+    // without waiting for the IPC client list to catch up
+    property string appWs: ""
 
     // Multi-step apps (steam, discord, …) open a chain of helper/updater
     // windows before the real one. They carry the launch token in their
@@ -127,6 +134,8 @@ Item {
     property var pinned: ({})
     property var pinRetry: []
     readonly property int pinRetryMs: 70
+    property var tokenRetry: []
+    readonly property int tokenRetryMs: 40
     property var known: ({})
     property var candidates: []
     property var stats: ({})
@@ -136,7 +145,7 @@ Item {
         if (!root.trace)
             return;
 
-        console.log("lucid-launch " + Date.now() + " " + msg);
+        console.log("lucid-launch[" + root.slot + "] " + Date.now() + " " + msg);
     }
 
     function stamp(key, value) {
@@ -189,8 +198,10 @@ Item {
     // reservation window the compositor's default border, shadow and blur.
     // The alternation also repairs a window left with the old title by a
     // previous build.
-    readonly property string ruleCode: "hl.window_rule({ name = \"lucid-launch-placeholder\", match = { title = \"^(lucid-launch-placeholder|Launching )\" }, workspace = \"" + root.parkWorkspace + "\", border_size = 0, no_border = true, rounding = 0, no_rounding = true, no_shadow = true, no_blur = true, no_anim = true, no_initial_focus = true })"
-        + "; hl.window_rule({ name = \"lucid-launch-ghost\", match = { title = \"^lucid-launch-ghost$\" }, workspace = \"" + root.parkWorkspace + "\", float = true, border_size = 0, no_border = true, rounding = 0, no_rounding = true, no_shadow = true, no_blur = true, no_anim = true, no_initial_focus = true, no_focus = true })"
+    readonly property string ruleTitle: root.legacySlot ? "^(lucid-launch-placeholder|Launching )" : "^" + root.stableTitle + "$"
+    readonly property string ghostRuleTitle: "^" + root.ghostTitle + "$"
+    readonly property string ruleCode: "hl.window_rule({ name = \"lucid-launch-placeholder-" + root.slot + "\", match = { title = \"" + root.ruleTitle + "\" }, workspace = \"" + root.parkWorkspace + "\", border_size = 0, no_border = true, rounding = 0, no_rounding = true, no_shadow = true, no_blur = true, no_anim = true, no_initial_focus = true })"
+        + "; hl.window_rule({ name = \"lucid-launch-ghost-" + root.slot + "\", match = { title = \"" + root.ghostRuleTitle + "\" }, workspace = \"" + root.parkWorkspace + "\", float = true, border_size = 0, no_border = true, rounding = 0, no_rounding = true, no_shadow = true, no_blur = true, no_anim = true, no_initial_focus = true, no_focus = true })"
 
     Process {
         id: ruleProc
@@ -445,7 +456,9 @@ Item {
         id: overlay
 
         screen: root.overlayScreen
-        visible: true
+        // the primary ghost keeps its layer warm for the launcher; the pool
+        // members map theirs only while they are holding a launch
+        visible: root.legacySlot || root.phase !== "idle"
         color: "transparent"
         exclusiveZone: -1
         WlrLayershell.layer: WlrLayer.Overlay
@@ -917,13 +930,48 @@ Item {
     }
 
     // ---- public ----------------------------------------------------------
-    readonly property bool available: root.ready && root.phase === "idle" && root.placeholderAddr !== ""
+    // a ghost whose overlay is still moving to another output is not free yet
+    readonly property bool available: root.ready && root.phase === "idle" && !root.warming && root.placeholderAddr !== ""
+    property bool warming: false
+    property var pendingLaunch: null
 
     // the launcher tells the overlay where it lives before an icon is picked,
     // so the layer surface has already moved when the seed is needed
     function prepare(screen) {
         if (screen && root.overlayScreen !== screen && root.phase === "idle")
             root.overlayScreen = screen;
+    }
+
+    // Move the overlay before seeding when a launch is for another output.
+    // Setting the screen and seeding in the same frame would place the icon
+    // against the old output's origin, so it would appear on the wrong display
+    // until the surface catches up.
+    function prepareAndLaunch(info) {
+        if (root.phase !== "idle" || root.warming || !root.ready || !info)
+            return false;
+        if (!info.screen || root.overlayScreen === info.screen)
+            return root.launch(info);
+
+        root.overlayScreen = info.screen;
+        root.pendingLaunch = info;
+        root.warming = true;
+        warmTimer.restart();
+        return true;
+    }
+
+    Timer {
+        id: warmTimer
+
+        interval: 60
+        onTriggered: {
+            var info = root.pendingLaunch;
+            root.pendingLaunch = null;
+            root.warming = false;
+            if (!info)
+                return;
+            if (!root.launch(info))
+                Launch.execNow(info);
+        }
     }
 
     // info: { command, title, iconSource, iconRect, wmClass, base, screen }
@@ -935,10 +983,14 @@ Item {
         root.token = "lucid-" + Date.now() + "-" + Math.floor(Math.random() * 1e9);
         root.tile = null;
         root.phase = "preparing";
-        root.targetWs = "";
+        // a caller that already knows where the launch belongs (a special
+        // workspace, for instance) skips the focused-monitor lookup
+        root.targetWs = info.workspace ? String(info.workspace) : "";
+        root.launchTimeoutMs = info.timeoutMs > 0 ? Number(info.timeoutMs) : 10000;
         root.appMatched = false;
         root.wsReasserted = false;
         root.appAddr = "";
+        root.appWs = "";
         root.candidates = [];
         // the previous chain's pin is superseded by this launch
         pinTimer.stop();
@@ -952,6 +1004,13 @@ Item {
         root.ghostPlaced = false;
         root.ghostChecks = 0;
         root.tileAdopted = false;
+        // probes from the previous launch must not delay this one
+        tokenRetryTimer.stop();
+        root.tokenRetry = [];
+        tokenProbe.queue = [];
+        tokenProbe.current = null;
+        if (tokenProbe.running)
+            tokenProbe.running = false;
         root.stats = {
             "started": Date.now(),
             "screen": (info.screen ? info.screen.name : ""),
@@ -972,7 +1031,10 @@ Item {
         // app's tile. The title is deliberately left alone: it is what the
         // no-border/no-shadow/no-blur rule matches on.
         root.placeholderParked = false;
-        root.lookupWorkspace();
+        if (root.targetWs !== "")
+            root.lookupPlaceholder();
+        else
+            root.lookupWorkspace();
         return true;
     }
 
@@ -1060,7 +1122,7 @@ Item {
 
                         if (t === root.ghostTitle && ghost === "")
                             ghost = String(c.address || "");
-                        else if ((t === root.stableTitle || t.indexOf("Launching ") === 0) && addr === "")
+                        else if ((t === root.stableTitle || (root.legacySlot && t.indexOf("Launching ") === 0)) && addr === "")
                             addr = String(c.address || "");
                     }
                 } catch (e) {
@@ -1253,6 +1315,7 @@ Item {
 
             if (event.name === "closewindow") {
                 var closed = "0x" + String(event.data).split(",")[0];
+                Launch.releaseWindow(closed);
                 if (closed === root.placeholderAddr) {
                     root.placeholderAddr = "";
                     root.ready = false;
@@ -1314,18 +1377,19 @@ Item {
                 root.known[addr] = true;
                 root.traceLog("open " + addr + " " + ws + " " + cls + " " + title);
 
+                // keep the candidate so a failed probe still ends in the
+                // fallback, but the launch token claims the window first: in
+                // a burst of the same app a class match is ambiguous, and
+                // every ghost would grab the first window.
+                root.candidates.push({"addr": addr, "cls": cls, "ws": ws});
+                fallback.restart();
+                if (root.checkToken(addr, cls, ws))
+                    return;
                 if (root.classMatches(cls)) {
+                    root.traceLog("class-match " + addr);
                     root.matchWindow(addr, cls, ws);
                     return;
                 }
-
-                // the env token is the exact answer for apps whose class says
-                // nothing useful (and for anything that renames its app_id)
-                if (root.checkToken(addr, cls, ws))
-                    return;
-
-                root.candidates.push({"addr": addr, "cls": cls, "ws": ws});
-                fallback.restart();
                 return;
             }
 
@@ -1399,30 +1463,110 @@ Item {
         return 0;
     }
 
+    // openwindow arrives before refreshToplevels has folded the new toplevel
+    // in, so pidOf() is often 0 on the first look. A serialized probe with a
+    // few retries finds the pid a frame or two later; without this a launch
+    // with no class match had to wait for the 1.3 s candidate fallback.
     Process {
         id: tokenProbe
 
-        property string addr: ""
-        property string cls: ""
-        property string ws: ""
+        property var queue: []
+        property var current: null
+
+        function push(job) {
+            queue.push(job);
+            pump();
+        }
+
+        function pump() {
+            if (running || queue.length === 0)
+                return;
+
+            current = queue.shift();
+            // 0 = our token, 1 = no token, 2 = a token of another launch
+            // still on screen, 3 = a stale token from an old launch. 2 must
+            // never class-match (in a burst every window shares the class);
+            // 1 and 3 may, with the claim map breaking ties.
+            command = ["sh", "-c",
+                "t=\"$1\"; p=\"$2\"; a=\"$3\"; " +
+                "e=$(tr '\\0' '\\n' < \"/proc/$p/environ\" 2>/dev/null | sed -n 's/^LUCID_LAUNCH_TOKEN=//p' | head -n1); " +
+                "[ -z \"$e\" ] && exit 1; " +
+                "[ \"$e\" = \"$t\" ] && exit 0; " +
+                "case \" $a \" in *\" $e \"*) exit 2;; esac; " +
+                "exit 3",
+                "sh", current.token, String(current.pid), Launch.activeTokens()];
+            running = true;
+        }
 
         onExited: (code) => {
-            if (code === 0 && root.phase === "waiting")
-                root.matchWindow(tokenProbe.addr, tokenProbe.cls, tokenProbe.ws);
+            var job = current;
+            current = null;
+            if (job) {
+                root.traceLog("token-result " + code + " " + job.addr + " waiting " + Launch.waitingCount());
+            }
+            if (job && root.phase === "waiting" && job.token === root.token) {
+                if (code === 0) {
+                    root.matchWindow(job.addr, job.cls, job.ws);
+                } else if ((code === 1 || code === 3) && root.classMatches(job.cls)) {
+                    // no token, or a token left in a long-lived process: the
+                    // class is all this window has, and the claim map keeps a
+                    // burst from putting two launches on one window
+                    root.matchWindow(job.addr, job.cls, job.ws);
+                } else if (code === 2) {
+                    // another launch's window: never let the fallback guess it
+                    root.candidates = root.candidates.filter((c) => {
+                        return c.addr !== job.addr;
+                    });
+                }
+            }
+            pump();
         }
     }
 
-    function checkToken(addr, cls, ws) {
-        var pid = root.pidOf(addr);
-        if (!pid)
+    function checkToken(addr, cls, ws, attempt) {
+        if (root.phase !== "waiting" || root.token === "")
             return false;
 
-        tokenProbe.addr = addr;
-        tokenProbe.cls = cls;
-        tokenProbe.ws = ws;
-        tokenProbe.command = ["sh", "-c", "grep -qaF \"$1\" /proc/$2/environ 2>/dev/null", "sh", "LUCID_LAUNCH_TOKEN=" + root.token, String(pid)];
-        tokenProbe.running = true;
+        var pid = root.pidOf(addr);
+        if (!pid) {
+            if ((attempt || 0) < 8) {
+                root.tokenRetry.push({
+                    "addr": addr,
+                    "cls": cls,
+                    "ws": ws,
+                    "attempt": (attempt || 0) + 1
+                });
+                if (!tokenRetryTimer.running)
+                    tokenRetryTimer.start();
+                return true;
+            }
+            if (root.classMatches(cls)) {
+                root.matchWindow(addr, cls, ws);
+                return true;
+            }
+            return false;
+        }
+
+        tokenProbe.push({
+            "addr": addr,
+            "cls": cls,
+            "ws": ws,
+            "pid": pid,
+            "token": root.token
+        });
         return true;
+    }
+
+    Timer {
+        id: tokenRetryTimer
+
+        interval: root.tokenRetryMs
+        onTriggered: {
+            var pending = root.tokenRetry;
+            root.tokenRetry = [];
+            for (var i = 0; i < pending.length; i++)
+                root.checkToken(pending[i].addr, pending[i].cls, pending[i].ws, pending[i].attempt);
+        }
     }
 
     // A serialized probe: a step in the chain may open while the previous
@@ -1523,8 +1667,25 @@ Item {
         onTriggered: {
             if (root.phase !== "waiting" || root.candidates.length === 0)
                 return;
+            // in a burst another ghost's window may be the first candidate;
+            // never steal it by guessing
+            if (Launch.waitingCount() > 1)
+                return;
 
-            var c = root.candidates[0];
+            var c = null;
+            for (var i = 0; i < root.candidates.length; i++) {
+                var cand = root.candidates[i];
+                if (Launch.isClaimed(cand.addr, root))
+                    continue;
+                if (c === null)
+                    c = cand;
+                if (root.classMatches(cand.cls)) {
+                    c = cand;
+                    break;
+                }
+            }
+            if (c === null)
+                return;
             root.traceLog("fallback " + c.addr);
             root.matchWindow(c.addr, c.cls, c.ws);
         }
@@ -1533,9 +1694,17 @@ Item {
     function matchWindow(addr, cls, ws) {
         if (root.phase !== "waiting")
             return;
+        // another ghost already took this window; its class may match ours,
+        // but the launch token said it belongs to that one
+        if (Launch.isClaimed(addr, root)) {
+            root.traceLog("already-claimed " + addr);
+            return;
+        }
+        Launch.claimWindow(addr, root);
 
         root.appMatched = true;
         root.appAddr = addr;
+        root.appWs = String(ws || "");
         root.stamp("opened", [cls, ws, addr]);
         root.traceLog("matched " + addr + " " + cls);
 
@@ -1581,12 +1750,11 @@ Item {
         fallback.stop();
         tilePoll.stop();
         regainFocus.stop();
-        handoverHold.stop();
 
         // the app is already tiled beside the placeholder; taking the
         // placeholder away lets dwindle give the app the whole held tile. the
-        // overlay keeps drawing the tile, so that split and the expansion it
-        // causes are never visible: only the app's final frame is underneath.
+        // overlay keeps drawing the tile through that split and expansion,
+        // and the iris opens as soon as the app's window is up.
         if (root.placeholderAddr !== "" && root.placeholderAddr !== root.appAddr) {
             root.send("dispatch hl.dsp.window.move({ workspace = \"" + root.parkWorkspace + "\", window = \"address:" + root.placeholderAddr + "\", follow = false })");
             root.placeholderParked = true;
@@ -1599,13 +1767,81 @@ Item {
 
         root.stamp("finish", matched);
 
-        // wait for the real window to finish growing into the freed tile before
-        // opening the iris, or the circle would reveal it while it is still the
-        // half-width split beside the placeholder
+        // the app's window is already up. Nothing else needs to be shown: skip
+        // the settle and move-animation holds and open the iris on the next
+        // frame, so the placeholder lasts only as long as its reveal.
         if (matched && root.appAddr !== "" && root.tile) {
+            Qt.callLater(root.revealLoaded);
+        } else {
+            root.fadeTile();
+            resetTimer.restart();
+        }
+    }
+
+    // the matched window has mapped; reveal it now. A window still being
+    // rehomed keeps the old settle path, so the iris cannot open on another
+    // workspace's content.
+    function revealLoaded(fromSettle) {
+        if (root.phase !== "done")
+            return;
+
+        // the openwindow event named the launch workspace, so the window is
+        // already where it belongs; no need to wait for the client list. If
+        // the list already has it and it has moved, fall through to the rehome
+        // path instead of revealing another workspace's content.
+        if (root.appWs !== "" && root.appWs === root.targetWs) {
+            var known = root.readClient(root.appAddr);
+            if (!known || known.ws === root.targetWs) {
+                root.revealNow();
+                return;
+            }
+        }
+
+        var r = root.readAppRect();
+        if (r === null) {
+            // the window is not on the launch workspace yet; give the IPC a
+            // couple of frames and, if it opened elsewhere, pull it back once
+            var c = root.readClient(root.appAddr);
+            if (c && c.ws !== "" && root.targetWs !== "" && c.ws !== root.targetWs && !root.wsReasserted) {
+                root.wsReasserted = true;
+                root.traceLog("rehome-late " + c.ws + " -> " + root.targetWs);
+                root.stats.rehomedLate = [c.ws, root.targetWs];
+                root.send("dispatch hl.dsp.window.move({ workspace = \"" + root.targetWs + "\", window = \"address:" + root.appAddr + "\", follow = " + (root.launchWorkspaceShown ? "true" : "false") + " })");
+            }
+            if (fromSettle === true) {
+                // the poll is already running; let its own timeout own the
+                // give-up, and never restart it from zero here
+                if (++settlePoll.tries > 80) {
+                    root.traceLog("reveal-miss " + root.appAddr);
+                    root.fadeTile();
+                    resetTimer.restart();
+                    return;
+                }
+                settlePoll.restart();
+                return;
+            }
             settlePoll.tries = 0;
             settlePoll.restart();
-        } else {
+            return;
+        }
+
+        root.revealNow();
+    }
+
+    function revealNow() {
+        if (!root.launchWorkspaceShown) {
+            root.traceLog("loaded-elsewhere " + root.overlayWorkspace + " (launch " + root.targetWs + ")");
+            root.finishTile();
+            resetTimer.restart();
+            return;
+        }
+
+        if (root.appAddr !== "")
+            root.send("dispatch hl.dsp.focus({ window = \"address:" + root.appAddr + "\" })");
+
+        root.traceLog("reveal-loaded");
+        root.revealTile();
+        if (!root.tileRevealing() && !overlay.fadingOut) {
             root.fadeTile();
             resetTimer.restart();
         }
@@ -1678,9 +1914,9 @@ Item {
                 stop();
                 root.stats.appFinal = [r.x, r.y, r.width, r.height];
                 root.stamp("settled", [r.x, r.y, r.width, r.height]);
-                // the rect is already the tile, but the window is still
-                // animating into it; let the motion finish under the ghost
-                handoverHold.restart();
+                // the window is on the tile: reveal it now, the placeholder
+                // has nothing left to hold
+                root.revealLoaded(true);
                 return;
             }
 
@@ -1694,7 +1930,7 @@ Item {
                     root.stats.appFinal = [r.x, r.y, r.width, r.height];
                     root.adoptTile(r);
                     root.stamp("settled", [r.x, r.y, r.width, r.height]);
-                    handoverHold.restart();
+                    root.revealLoaded(true);
                     return;
                 }
             }
@@ -1709,73 +1945,13 @@ Item {
                     root.stats.appFinal = [r.x, r.y, r.width, r.height];
                 root.traceLog("settle-timeout " + JSON.stringify(r) + " overlap " + overlap);
                 if (r && overlap >= 0.5) {
-                    handoverHold.restart();
+                    root.revealLoaded(true);
                 } else {
                     // the app never took the tile (a small dialog, another
                     // workspace, …): fade the ghost and release the phase
                     root.fadeTile();
                     resetTimer.restart();
                 }
-            }
-        }
-    }
-
-    Timer {
-        id: handoverHold
-
-        // one poll frame for the detection plus the compositor's own move
-        // animation; without it the iris opens on a half-sized window
-        interval: Math.max(0, root.moveAnimMs) + 40
-
-        onTriggered: {
-            if (root.phase !== "done")
-                return;
-
-            var c = root.readClient(root.appAddr);
-            var shown = root.launchWorkspaceShown;
-
-            // The hold gives focus and the app time to drift. Re-assert the
-            // launch workspace once, then give the move its own animation
-            // before the iris; if it still is not there, do not reveal another
-            // workspace's content.
-            if (c && c.ws !== "" && root.targetWs !== "" && c.ws !== root.targetWs) {
-                if (!root.wsReasserted) {
-                    root.wsReasserted = true;
-                    root.traceLog("rehome-late " + c.ws + " -> " + root.targetWs);
-                    root.stats.rehomedLate = [c.ws, root.targetWs];
-                    root.send("dispatch hl.dsp.window.move({ workspace = \"" + root.targetWs + "\", window = \"address:" + root.appAddr + "\", follow = " + (shown ? "true" : "false") + " })");
-                    handoverHold.restart();
-                    return;
-                }
-
-                root.traceLog("handover-off-workspace " + c.ws);
-                root.fadeTile();
-                resetTimer.restart();
-                return;
-            }
-
-            // the user is looking at another workspace: the app still belongs
-            // to the launch workspace, but there is nothing to reveal here
-            if (!shown) {
-                root.traceLog("handover-elsewhere " + root.overlayWorkspace + " (launch " + root.targetWs + ")");
-                root.finishTile();
-                resetTimer.restart();
-                return;
-            }
-
-            if (root.appAddr !== "") {
-                // make the launch workspace the one on screen again: the iris
-                // only makes sense over the window it is revealing
-                root.send("dispatch hl.dsp.focus({ window = \"address:" + root.appAddr + "\" })");
-            }
-
-            root.traceLog("handover " + root.moveAnimMs + " ws " + (c ? c.ws : "?"));
-            root.revealTile();
-            // revealOut is a no-op if the tile visual was already fading; never
-            // leave the phase stuck on "done" in that case
-            if (!root.tileRevealing() && !overlay.fadingOut) {
-                root.fadeTile();
-                resetTimer.restart();
             }
         }
     }
@@ -1864,11 +2040,11 @@ Item {
         // outlasts the failure crossfade as well as the iris
         interval: 300
         onTriggered: {
-            handoverHold.stop();
             root.phase = "idle";
             root.req = null;
             root.appMatched = false;
             root.appAddr = "";
+            root.appWs = "";
             root.tile = null;
             root.placeholderParked = true;
             placeholder.title = root.stableTitle;
@@ -1893,7 +2069,7 @@ Item {
             // "Launching " is a title an older build used; accept it so a
             // window left that way is found, then put the stable title back so
             // the window rule matches it again
-            if (o && o.address && (title === root.stableTitle || title.indexOf("Launching ") === 0)) {
+            if (o && o.address && (title === root.stableTitle || (root.legacySlot && title.indexOf("Launching ") === 0))) {
                 if (title !== root.stableTitle)
                     placeholder.title = root.stableTitle;
                 if (root.placeholderAddr !== o.address) {
@@ -1960,7 +2136,9 @@ Item {
     }
 
     function placeGhost(rect) {
-        if (!root.useGhost || !rect)
+        // find the live ghost window by title before moving it: a cached
+        // address can have been reused by an app after a reload
+        if (!rect || !root.findGhost() || root.ghostAddr === "")
             return;
 
         ghost.finishReveal();
@@ -2026,7 +2204,7 @@ Item {
     }
 
     function parkGhost() {
-        if (root.ghostAddr === "")
+        if (!root.findGhost() || root.ghostAddr === "")
             return;
         ghost.finishReveal();
         root.send("dispatch hl.dsp.window.move({ workspace = \"" + root.parkWorkspace + "\", window = \"address:" + root.ghostAddr + "\", follow = false })");
@@ -2098,7 +2276,13 @@ Item {
 
             // cheap refresher: this also repairs a stale address after a hot
             // reload, without touching a window that is still mapped
-            root.findGhost();
+            if (root.findGhost() && root.ghostAddr !== "") {
+                var g = root.readClient(root.ghostAddr);
+                // a ghost left on a launch workspace after a failed park is
+                // one of the stray transparent windows this cleans up
+                if (g && g.ws !== root.parkWorkspace)
+                    root.parkGhost();
+            }
             if (root.findPlaceholder())
                 return;
 
@@ -2119,33 +2303,4 @@ Item {
         root.probeAnimations();
     }
 
-    IpcHandler {
-        target: "launchghost"
-
-        function trace(on: bool): string {
-            root.trace = on;
-            return "trace " + on;
-        }
-
-        function status(): string {
-            return JSON.stringify({
-                "ready": root.ready,
-                "phase": root.phase,
-                "placeholder": root.placeholderAddr,
-                "parked": root.placeholderParked,
-                "moveMs": root.moveAnimMs,
-                "target": root.targetWs,
-                "overlayWs": root.overlayWorkspace,
-                "shown": root.launchWorkspaceShown,
-                "ghost": [ghost.width, ghost.height, root.ghostAddr],
-                "ghostPlaced": root.ghostPlaced,
-                "pin": {
-                    "on": root.pinning,
-                    "ws": root.pinWs,
-                    "class": root.pinClass
-                },
-                "stats": root.stats
-            });
-        }
-    }
 }

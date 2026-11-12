@@ -120,7 +120,7 @@ Column {
     }
 
     SettingCard {
-        title: "SHORTCUTS"
+        title: Tr.t("SHORTCUTS")
 
         Repeater {
             model: page.shotBinds
@@ -142,12 +142,12 @@ Column {
         }
 
         SettingRow {
-            title: page.shotBinds.length > 0 ? "Change them" : "No shortcut reaches LucidShot"
-            description: "Print opens the capture overlay out of the box. Anything here can be rebound, and the commands are qs ipc call snap open, region, window, screen, text, color, video or edit, and screenshot full, window or text."
+            title: page.shotBinds.length > 0 ? Tr.t("Change them") : Tr.t("No shortcut reaches LucidShot")
+            description: Tr.t("Print opens the capture overlay out of the box. Anything here can be rebound, and the commands are qs ipc call snap open, region, window, screen, text, color, video or edit, and screenshot full, window or text.")
             showDivider: false
 
             M3Button {
-                text: "Keybinds…"
+                text: Tr.t("Keybinds…")
                 variant: "tonal"
                 onClicked: win.show("keybinds")
             }
@@ -157,12 +157,12 @@ Column {
     }
 
     SettingCard {
-        title: "SCREENSHOTS"
+        title: Tr.t("SCREENSHOTS")
 
         SettingRow {
-            title: "After a capture"
+            title: Tr.t("After a capture")
             resetKey: "shotPreview"
-            description: Prefs.shotPreview === "preview" ? "It flies into a card in the corner: open it, mark it up, pin it, read its text, drag it into an app or delete it. Recordings get one too." : (Prefs.shotPreview === "notify" ? "A notification says where it went, with a button to mark it up. Screenshots are on the clipboard either way." : "Nothing shows. Screenshots are still copied to the clipboard.")
+            description: Prefs.shotPreview === "preview" ? Tr.t("It flies into a card in the corner: open it, mark it up, pin it, read its text, drag it into an app or delete it. Recordings get one too.") : (Prefs.shotPreview === "notify" ? Tr.t("A notification says where it went, with a button to mark it up. Screenshots are on the clipboard either way.") : Tr.t("Nothing shows. Screenshots are still copied to the clipboard."))
 
             M3Segmented {
                 width: Math.max(Theme.dp(300), fitWidth)
@@ -185,10 +185,10 @@ Column {
         }
 
         SettingRow {
-            title: "The card stays for"
+            title: Tr.t("The card stays for")
             resetKey: "shotPreviewSeconds"
             enabled: Prefs.shotPreview === "preview"
-            description: "Resting the pointer on the card holds it for as long as you like. Text read off a capture stays a little longer."
+            description: Tr.t("Resting the pointer on the card holds it for as long as you like. Text read off a capture stays a little longer.")
             stacked: true
 
             M3Slider {
@@ -207,9 +207,9 @@ Column {
         }
 
         SettingRow {
-            title: "Keep a file"
+            title: Tr.t("Keep a file")
             resetKey: "shotSaveFile"
-            description: Prefs.shotSaveFile ? "Every capture is saved as a PNG and copied to the clipboard." : "Captures are only copied. The card can still save one you want to keep."
+            description: Prefs.shotSaveFile ? Tr.t("Every capture is saved as a PNG and copied to the clipboard.") : Tr.t("Captures are only copied. The card can still save one you want to keep.")
 
             M3Switch {
                 checked: Prefs.shotSaveFile
@@ -221,7 +221,7 @@ Column {
         }
 
         SettingRow {
-            title: "Folder"
+            title: Tr.t("Folder")
             resetKey: "shotFolder"
             enabled: Prefs.shotSaveFile
             description: page.pretty(Prefs.shotFolder !== "" ? Prefs.shotFolder : page.shotDefault)
@@ -230,13 +230,13 @@ Column {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Open"
+                    text: Tr.t("Open")
                     variant: "text"
                     onClicked: Quickshell.execDetached(["sh", "-c", "mkdir -p \"$1\" && xdg-open \"$1\"", "sh", Prefs.shotFolder !== "" ? Prefs.shotFolder : page.shotDefault])
                 }
 
                 M3Button {
-                    text: shotPicker.running ? "Choosing…" : "Change…"
+                    text: shotPicker.running ? Tr.t("Choosing…") : Tr.t("Change…")
                     enabled: !shotPicker.running
                     onClicked: page.pickFolder(shotPicker, "Save screenshots to", Prefs.shotFolder !== "" ? Prefs.shotFolder : page.shotDefault)
                 }
@@ -246,9 +246,9 @@ Column {
         }
 
         SettingRow {
-            title: "Window corners"
+            title: Tr.t("Window corners")
             resetKey: "shotRoundWindows"
-            description: Prefs.shotRoundWindows ? "A window taken whole keeps its rounded corners, cut out clear." : "A window is taken square, corners and all."
+            description: Prefs.shotRoundWindows ? Tr.t("A window taken whole keeps its rounded corners, cut out clear.") : Tr.t("A window is taken square, corners and all.")
 
             M3Switch {
                 checked: Prefs.shotRoundWindows
@@ -260,9 +260,9 @@ Column {
         }
 
         SettingRow {
-            title: "Magnifier"
+            title: Tr.t("Magnifier")
             resetKey: "shotLoupe"
-            description: Prefs.shotLoupe ? "A lens shows the pixels under the pointer while you drag out a region. The colour picker always has one." : "Regions are dragged out without the lens."
+            description: Prefs.shotLoupe ? Tr.t("A lens shows the pixels under the pointer while you drag out a region. The colour picker always has one.") : Tr.t("Regions are dragged out without the lens.")
 
             M3Switch {
                 checked: Prefs.shotLoupe
@@ -274,9 +274,9 @@ Column {
         }
 
         SettingRow {
-            title: "Reading text in"
+            title: Tr.t("Reading text in")
             resetKey: "shotOcrLang"
-            description: page.ocrLangs.length > 1 ? "Pick every language your screens are in. Each one makes reading a little slower." : "Install more tesseract languages (tesseract-data-*) and they show up here."
+            description: page.ocrLangs.length > 1 ? Tr.t("Pick every language your screens are in. Each one makes reading a little slower.") : Tr.t("Install more tesseract languages (tesseract-data-*) and they show up here.")
             stacked: true
             showDivider: false
 
@@ -300,10 +300,10 @@ Column {
     }
 
     SettingCard {
-        title: "RECORDING"
+        title: Tr.t("RECORDING")
 
         SettingRow {
-            title: "Folder"
+            title: Tr.t("Folder")
             resetKey: "recordFolder"
             description: page.pretty(Prefs.recordFolder !== "" ? Prefs.recordFolder : page.recordDefault)
 
@@ -311,13 +311,13 @@ Column {
                 spacing: Theme.dp(8)
 
                 M3Button {
-                    text: "Open"
+                    text: Tr.t("Open")
                     variant: "text"
                     onClicked: Quickshell.execDetached(["sh", "-c", "mkdir -p \"$1\" && xdg-open \"$1\"", "sh", Prefs.recordFolder !== "" ? Prefs.recordFolder : page.recordDefault])
                 }
 
                 M3Button {
-                    text: recordPicker.running ? "Choosing…" : "Change…"
+                    text: recordPicker.running ? Tr.t("Choosing…") : Tr.t("Change…")
                     enabled: !recordPicker.running
                     onClicked: page.pickFolder(recordPicker, "Save recordings to", Prefs.recordFolder !== "" ? Prefs.recordFolder : page.recordDefault)
                 }
@@ -327,9 +327,9 @@ Column {
         }
 
         SettingRow {
-            title: "Count down first"
+            title: Tr.t("Count down first")
             resetKey: "recordCountdown"
-            description: Prefs.recordCountdown > 0 ? "A count of " + Prefs.recordCountdown + " before it starts, to get your windows ready. A click on it calls the recording off. The overlay's timer button changes it for one recording." : "It starts the moment you press record."
+            description: Prefs.recordCountdown > 0 ? Tr.t("A count of ") + Prefs.recordCountdown + Tr.t(" before it starts, to get your windows ready. A click on it calls the recording off. The overlay's timer button changes it for one recording.") : Tr.t("It starts the moment you press record.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(260), fitWidth)
@@ -355,9 +355,9 @@ Column {
         }
 
         SettingRow {
-            title: "Frame rate"
+            title: Tr.t("Frame rate")
             resetKey: "recordFps"
-            description: Prefs.recordFps > 0 ? "A steady " + Prefs.recordFps + " frames a second, which video editors like best." : "Frames are taken as the screen changes, which keeps files small. Some video editors prefer a steady rate."
+            description: Prefs.recordFps > 0 ? Tr.t("A steady ") + Prefs.recordFps + Tr.t(" frames a second, which video editors like best.") : Tr.t("Frames are taken as the screen changes, which keeps files small. Some video editors prefer a steady rate.")
 
             M3Segmented {
                 width: Math.max(Theme.dp(260), fitWidth)
@@ -380,9 +380,9 @@ Column {
         }
 
         SettingRow {
-            title: "Encoder"
+            title: Tr.t("Encoder")
             resetKey: "recordEncoder"
-            description: Prefs.recordEncoder === "software" ? "x264 on the processor: works everywhere, uses more power." : (Prefs.recordEncoder === "hardware" ? "The graphics card's own encoder, and nothing else: if it cannot start, the recording fails." : "The graphics card's own encoder (VA-API), and x264 on the processor if that cannot start.")
+            description: Prefs.recordEncoder === "software" ? Tr.t("x264 on the processor: works everywhere, uses more power.") : (Prefs.recordEncoder === "hardware" ? Tr.t("The graphics card's own encoder, and nothing else: if it cannot start, the recording fails.") : Tr.t("The graphics card's own encoder (VA-API), and x264 on the processor if that cannot start."))
             showDivider: false
 
             M3Segmented {
@@ -408,15 +408,15 @@ Column {
     }
 
     SettingCard {
-        title: "PINS"
+        title: Tr.t("PINS")
 
         SettingRow {
-            title: "Pinned captures"
-            description: "Pin a capture from the editor or its card and it floats over your windows. Drag it about, scroll to size it, Ctrl and scroll to see through it, double-click to let it go."
+            title: Tr.t("Pinned captures")
+            description: Tr.t("Pin a capture from the editor or its card and it floats over your windows. Drag it about, scroll to size it, Ctrl and scroll to see through it, double-click to let it go.")
             showDivider: false
 
             M3Button {
-                text: "Unpin all"
+                text: Tr.t("Unpin all")
                 variant: "tonal"
                 onClicked: Quickshell.execDetached(["qs", "ipc", "call", "snap", "unpin"])
             }

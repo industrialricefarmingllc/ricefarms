@@ -74,7 +74,7 @@ Scope {
                         spacing: Theme.dp(6)
 
                         Text {
-                            text: "Keep these display settings?"
+                            text: Tr.t("Keep these display settings?")
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontTitleLg
@@ -82,7 +82,7 @@ Scope {
                         }
 
                         Text {
-                            text: (Monitors.trialLeft === 1 ? "Going back to the previous ones in " + Monitors.trialLeft + " second." : "Going back to the previous ones in " + Monitors.trialLeft + " seconds.")
+                            text: (Monitors.trialLeft === 1 ? Tr.t("Going back to the previous ones in ") + Monitors.trialLeft + Tr.t(" second.") : Tr.t("Going back to the previous ones in ") + Monitors.trialLeft + Tr.t(" seconds."))
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodyMd
@@ -98,13 +98,13 @@ Scope {
                             spacing: Theme.dp(8)
 
                             M3Button {
-                                text: "Go back"
+                                text: Tr.t("Go back")
                                 variant: "text"
                                 onClicked: Monitors.revertTrial()
                             }
 
                             M3Button {
-                                text: "Keep"
+                                text: Tr.t("Keep")
                                 variant: "filled"
                                 onClicked: Monitors.keepTrial()
                             }

@@ -26,6 +26,22 @@ out vec4 fragColor;
 // radius as a fraction of the output width is cornerSize / 1600.
 // Keep in sync with `cornerSize` there.
 const float CORNER_FRAC = 19.0 / 1600.0;
+
+// Ambient-eink service knobs. reading_mode.glsl itself keeps the old
+// behaviour (full e-ink, no dim); lucid-ambient-eink rewrites these two
+// numbers into generated copies under ~/.cache/lucid/ambient-eink/shaders.
+const float EINK_MIX  = 1.0;
+const float BLACK_DIM = 0.0;
+// AMBIENT_TRANSITION_PRELUDE
+
+// Physically meaningful dimming: a 25% black layer removes 25% of linear
+// luminance, not 25% of the sRGB code value (which would be much darker).
+vec3 dimLinear(vec3 c, float amount) {
+    c = clamp(c, 0.0, 1.0);
+    vec3 lin = pow(c, vec3(2.2));
+    lin *= max(0.0, 1.0 - amount);
+    return pow(max(lin, vec3(0.0)), vec3(1.0 / 2.2));
+}
 // Superellipse exponent of the bezel cutout: matches the shared squircle
 // smoothing at its default f = 0.5 (n = 2 + 4f = 4). If the Lucid slider
 // moves far off default, a sub-pixel sliver of the crescent may ink-map;
@@ -161,6 +177,9 @@ float vignette(vec2 uv) {
 
 void main() {
     vec4 pixColor = texture(tex, v_texcoord);
+    float einkMix = EINK_MIX;
+    float blackDim = BLACK_DIM;
+    // AMBIENT_TRANSITION_APPLY
 
     // Exempt the fake rounded screen corners: geometry + near-black check
     // (the blackness guard keeps desktop content shaded normally if the
@@ -169,7 +188,9 @@ void main() {
     float cornerR = outRes.x * CORNER_FRAC;
     if (inCornerCrescent(gl_FragCoord.xy, outRes, cornerR)
         && dot(pixColor.rgb, vec3(0.299, 0.587, 0.114)) < 0.05) {
-        fragColor = pixColor;
+        // Keep the bezel black, but let the ambient service's plain black
+        // layer dim it just like every other pixel.
+        fragColor = vec4(dimLinear(pixColor.rgb, blackDim), pixColor.a);
         return;
     }
     
@@ -243,6 +264,12 @@ void main() {
     
     // linear interpolation. paints the gray value onto our specific color palette.
     vec3 finalColor = mix(inkColor, paperColor, gray);
-    
-    fragColor = vec4(finalColor, pixColor.a);
+
+    // Ambient service: blend the e-ink look over the untouched pixels, then
+    // lay a plain neutral-black layer on top. Manual Reading Mode keeps
+    // EINK_MIX=1.0 / BLACK_DIM=0.0 and is visually unchanged.
+    vec3 outColor = mix(pixColor.rgb, finalColor, einkMix);
+    outColor = dimLinear(outColor, blackDim);
+
+    fragColor = vec4(outColor, pixColor.a);
 }

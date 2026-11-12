@@ -235,7 +235,7 @@ PanelWindow {
                     anchors.horizontalCenter: parent.horizontalCenter
                     role: "titleMedium"
                     color: Qt.rgba(1, 1, 1, 0.72)
-                    text: ses.armed !== "" ? "Press it again to go ahead, Esc to stay" : (Sys.uptime > 0 ? "Up for " + Sys.duration(Sys.uptime) : " ")
+                    text: ses.armed !== "" ? Tr.t("Press it again to go ahead, Esc to stay") : (Sys.uptime > 0 ? Tr.t("Up for ") + Sys.duration(Sys.uptime) : " ")
                 }
 
             }
@@ -417,7 +417,7 @@ PanelWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 role: "labelLarge"
                 color: Qt.rgba(1, 1, 1, 0.5)
-                text: "← → to choose  ·  Enter to go  ·  Esc to stay"
+                text: Tr.t("← → to choose  ·  Enter to go  ·  Esc to stay")
             }
 
         }

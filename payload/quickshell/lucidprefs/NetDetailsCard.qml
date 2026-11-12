@@ -29,7 +29,7 @@ SettingCard {
         card.editing = true;
     }
 
-    title: (card.info.type === "wifi" ? "WI-FI" : (card.info.type === "ethernet" ? "WIRED" : card.info.type.toUpperCase())) + "  ·  " + card.info.name
+    title: (card.info.type === "wifi" ? Tr.t("WI-FI") : (card.info.type === "ethernet" ? Tr.t("WIRED") : card.info.type.toUpperCase())) + "  ·  " + card.info.name
 
     onUuidChanged: {
         if (card.uuid !== "")
@@ -44,8 +44,8 @@ SettingCard {
     }
 
     SettingRow {
-        title: "Addresses"
-        description: card.info.connection !== "" ? "On “" + card.info.connection + "”, " + card.info.state + "." : "Not carrying a connection."
+        title: Tr.t("Addresses")
+        description: card.info.connection !== "" ? Tr.t("On “") + card.info.connection + "”, " + card.info.state + "." : Tr.t("Not carrying a connection.")
         stacked: true
 
         Grid {
@@ -94,10 +94,10 @@ SettingCard {
     }
 
     SettingRow {
-        title: "How this connection gets its address"
+        title: Tr.t("How this connection gets its address")
         visible: card.uuid !== ""
         enabled: !Net.busy
-        description: card.manual ? "Set by hand. The values below are what NetworkManager will use next time it connects." : "From the router, over DHCP. Switch to By hand to pin an address."
+        description: card.manual ? Tr.t("Set by hand. The values below are what NetworkManager will use next time it connects.") : Tr.t("From the router, over DHCP. Switch to By hand to pin an address.")
         warning: Net.lastError
         stacked: true
         showDivider: false
@@ -171,7 +171,7 @@ SettingCard {
 
                     M3Button {
                         variant: "filled"
-                        text: Net.busy ? "Applying…" : "Apply and reconnect"
+                        text: Net.busy ? Tr.t("Applying…") : Tr.t("Apply and reconnect")
                         enabled: !Net.busy && card.address.trim() !== ""
                         onClicked: {
                             Net.setManual(card.uuid, card.address.trim(), card.gateway.trim(), card.dns.trim());
@@ -182,7 +182,7 @@ SettingCard {
 
                     M3Button {
                         variant: "text"
-                        text: "Cancel"
+                        text: Tr.t("Cancel")
                         visible: card.editing && !card.manual
                         onClicked: card.editing = false
                     }
@@ -198,7 +198,7 @@ SettingCard {
                 FieldPair {
                     width: Theme.dp(340)
                     name: "Use these DNS servers instead of the router's"
-                    hint: "leave empty to use the router's"
+                    hint: Tr.t("leave empty to use the router's")
                     value: Net.detail["ipv4.dns"] || ""
                     onAccepted: (v) => {
                         return Net.setDns(card.uuid, v.trim());

@@ -84,16 +84,16 @@ Column {
         visible: Specials.moduleProbed && !Specials.moduleInstalled
 
         SettingRow {
-            title: "The keys are not set up"
-            warning: "These workspaces come with Lucid's Hyprland config, and yours does not load it. Run the installer with --with-hypr, or copy modules/specials.lua and the special workspace binds from Lucid's modules/binds.lua into your own."
+            title: Tr.t("The keys are not set up")
+            warning: Tr.t("These workspaces come with Lucid's Hyprland config, and yours does not load it. Run the installer with --with-hypr, or copy modules/specials.lua and the special workspace binds from Lucid's modules/binds.lua into your own.")
             showDivider: false
         }
 
     }
 
     SettingCard {
-        title: "WORKSPACES"
-        subtitle: "Each one slides over the workspace you are on, and the same keys put it away again."
+        title: Tr.t("WORKSPACES")
+        subtitle: Tr.t("Each one slides over the workspace you are on, and the same keys put it away again.")
 
         Repeater {
             model: Specials.spaces.map((s) => {
@@ -123,7 +123,7 @@ Column {
                     M3Button {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: Specials.keysOf(spaceRow.modelData).length === 0 && Keybinds.loaded && !Keybinds.missing
-                        text: spaceRow.bind ? "Edit key" : "Set a key"
+                        text: spaceRow.bind ? Tr.t("Edit key") : Tr.t("Set a key")
                         variant: "text"
                         onClicked: {
                             if (spaceRow.bind)
@@ -145,7 +145,7 @@ Column {
                         visible: spaceRow.space.own === true
                         destructive: true
                         iconPath: "delete"
-                        onClicked: Prefs.askConfirm("Delete " + spaceRow.space.label + "?", "Its windows come back to the workspace you are on" + (spaceRow.bind ? ", and its key (" + Keybinds.tokens(spaceRow.bind.keys).join(" + ") + ") is removed from keybinds.json" : "") + ".", "Delete", "special-delete:" + spaceRow.modelData)
+                        onClicked: Prefs.askConfirm(Tr.t("Delete ") + spaceRow.space.label + "?", Tr.t("Its windows come back to the workspace you are on") + (spaceRow.bind ? Tr.t(", and its key (") + Keybinds.tokens(spaceRow.bind.keys).join(" + ") + Tr.t(") is removed from keybinds.json") : "") + ".", Tr.t("Delete"), "special-delete:" + spaceRow.modelData)
                     }
 
                     M3Switch {
@@ -164,12 +164,12 @@ Column {
 
         SettingRow {
             visible: page.formKey === ""
-            title: "Make your own"
-            description: "A workspace of your own, with its own key, mark and apps."
+            title: Tr.t("Make your own")
+            description: Tr.t("A workspace of your own, with its own key, mark and apps.")
             showDivider: false
 
             M3Button {
-                text: "New workspace"
+                text: Tr.t("New workspace")
                 variant: "tonal"
                 iconPath: "add"
                 onClicked: page.openForm("+")
@@ -179,10 +179,10 @@ Column {
 
         SettingRow {
             visible: page.formKey !== ""
-            title: page.formNew ? "New workspace" : "Edit " + (Specials.space(page.formKey) || {
+            title: page.formNew ? Tr.t("New workspace") : Tr.t("Edit ") + (Specials.space(page.formKey) || {
                 "label": ""
             }).label
-            description: page.formNew ? "A name, and the mark it shows in the bar. Its key comes next, and its apps are added below." : "A name, and the mark it shows in the bar."
+            description: page.formNew ? Tr.t("A name, and the mark it shows in the bar. Its key comes next, and its apps are added below.") : Tr.t("A name, and the mark it shows in the bar.")
             stacked: true
             showDivider: false
 
@@ -194,7 +194,7 @@ Column {
                     id: nameField
 
                     width: Math.min(parent.width, Theme.dp(360))
-                    placeholder: "Notes"
+                    placeholder: Tr.t("Notes")
                     text: page.formName
                     commitOnBlur: false
                     error: page.formName.length > 0 && page.formName.trim() === ""
@@ -253,14 +253,14 @@ Column {
                     spacing: Theme.dp(8)
 
                     M3Button {
-                        text: page.formNew ? "Create" : "Save"
+                        text: page.formNew ? Tr.t("Create") : Tr.t("Save")
                         variant: "filled"
                         enabled: page.formName.trim() !== ""
                         onClicked: page.submitForm()
                     }
 
                     M3Button {
-                        text: "Cancel"
+                        text: Tr.t("Cancel")
                         variant: "text"
                         onClicked: page.formKey = ""
                     }
@@ -274,8 +274,8 @@ Column {
     }
 
     SettingCard {
-        title: "APPS"
-        subtitle: "The key starts whichever of these is not running yet. Anything else you open while a workspace is up stays in it too."
+        title: Tr.t("APPS")
+        subtitle: Tr.t("The key starts whichever of these is not running yet. Anything else you open while a workspace is up stays in it too.")
 
         Repeater {
             model: ["music", "comms", "todo", "sysmon"].concat(Specials.ownSpaces.map((s) => {
@@ -311,7 +311,7 @@ Column {
                 stacked: true
                 enabled: Specials.isOn(modelData)
                 disabledReason: space.label + " is switched off above, so its key does nothing."
-                description: apps.length > 0 ? "" : (space.own ? "Nothing yet. Add the apps its key should bring up." : "None of the " + page.kinds[modelData] + " Lucid knows are installed: " + page.known(modelData) + ".")
+                description: apps.length > 0 ? "" : (space.own ? Tr.t("Nothing yet. Add the apps its key should bring up.") : Tr.t("None of the ") + page.kinds[modelData] + Tr.t(" Lucid knows are installed: ") + page.known(modelData) + ".")
 
                 Column {
                     width: parent.width
@@ -334,7 +334,7 @@ Column {
                     }
 
                     M3Button {
-                        text: "Add an app"
+                        text: Tr.t("Add an app")
                         variant: "text"
                         iconPath: "add"
                         enabled: appsRow.enabled
@@ -350,12 +350,12 @@ Column {
     }
 
     SettingCard {
-        title: "BEHAVIOUR"
+        title: Tr.t("BEHAVIOUR")
 
         SettingRow {
-            title: "Keep apps in their workspace"
+            title: Tr.t("Keep apps in their workspace")
             resetKey: "specialKeepApps"
-            description: "The apps picked above always open inside their workspace, from the launcher and the dock too, and the key pulls them back in if you moved them out."
+            description: Tr.t("The apps picked above always open inside their workspace, from the launcher and the dock too, and the key pulls them back in if you moved them out.")
 
             M3Switch {
                 checked: Prefs.specialKeepApps
@@ -367,9 +367,9 @@ Column {
         }
 
         SettingRow {
-            title: "Put away on workspace change"
+            title: Tr.t("Put away on workspace change")
             resetKey: "specialHideOnSwitch"
-            description: "Switching to another workspace hides whatever is up, instead of carrying it along over the next one."
+            description: Tr.t("Switching to another workspace hides whatever is up, instead of carrying it along over the next one.")
 
             M3Switch {
                 checked: Prefs.specialHideOnSwitch
@@ -381,9 +381,9 @@ Column {
         }
 
         SettingRow {
-            title: "Dim behind"
+            title: Tr.t("Dim behind")
             resetKey: "specialDim"
-            description: "How far the workspace underneath darkens while one is up."
+            description: Tr.t("How far the workspace underneath darkens while one is up.")
             stacked: true
 
             M3Slider {
@@ -401,9 +401,9 @@ Column {
         }
 
         SettingRow {
-            title: "Blur behind"
+            title: Tr.t("Blur behind")
             resetKey: "specialBlur"
-            description: "Blur the workspace underneath as well. It is redrawn blurred on every frame while one is up, so it costs more than dimming alone."
+            description: Tr.t("Blur the workspace underneath as well. It is redrawn blurred on every frame while one is up, so it costs more than dimming alone.")
 
             M3Switch {
                 checked: Prefs.specialBlur
@@ -415,9 +415,9 @@ Column {
         }
 
         SettingRow {
-            title: "Margin around"
+            title: Tr.t("Margin around")
             resetKey: "specialGaps"
-            description: "Room between the windows and the edges of the screen, so what is underneath shows around them like a card. At 0 they keep the gaps of any other workspace."
+            description: Tr.t("Room between the windows and the edges of the screen, so what is underneath shows around them like a card. At 0 they keep the gaps of any other workspace.")
             stacked: true
             showDivider: false
 
@@ -438,18 +438,18 @@ Column {
     }
 
     SettingCard {
-        title: "RESET"
+        title: Tr.t("RESET")
 
         SettingRow {
-            title: "Reset special workspaces"
-            description: "Every workspace back on, each one back to the first of its apps that is installed, and the behaviour above back to how it ships. The workspaces you made stay as they are."
+            title: Tr.t("Reset special workspaces")
+            description: Tr.t("Every workspace back on, each one back to the first of its apps that is installed, and the behaviour above back to how it ships. The workspaces you made stay as they are.")
             showDivider: false
 
             M3Button {
-                text: "Reset"
+                text: Tr.t("Reset")
                 variant: "text"
                 destructive: true
-                onClicked: Prefs.askReset("Reset special workspaces?", "Every workspace goes back on, each one back to the first of its apps that is installed, and the behaviour settings back to how they ship.", Prefs.resetSpecialsToken)
+                onClicked: Prefs.askReset(Tr.t("Reset special workspaces?"), Tr.t("Every workspace goes back on, each one back to the first of its apps that is installed, and the behaviour settings back to how they ship."), Prefs.resetSpecialsToken)
             }
 
         }

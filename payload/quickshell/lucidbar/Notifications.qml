@@ -888,7 +888,7 @@ BarPill {
 
                             Text {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: root.popupOverflow + " more"
+                                text: root.popupOverflow + Tr.t(" more")
                                 color: Theme.subtext
                                 font.family: Theme.fontFamily
                                 font.bold: true
@@ -965,7 +965,7 @@ BarPill {
                 Text {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Notifications"
+                    text: Tr.t("Notifications")
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.weight: Font.DemiBold
@@ -1028,7 +1028,7 @@ BarPill {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     visible: Notifs.rows.length > 0 && Prefs.notifGrouping
-                    label: "Expand all"
+                    label: Tr.t("Expand all")
                     labelColor: Theme.subtext
                     onClicked: Notifs.expandAll()
                 }
@@ -1056,7 +1056,7 @@ BarPill {
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "You're all caught up"
+                        text: Tr.t("You're all caught up")
                         color: Theme.subtext
                         font.family: Theme.fontFamily
                         font.weight: Font.DemiBold
@@ -1066,7 +1066,7 @@ BarPill {
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: Notifs.dnd ? "Notifications are being held back" : "New notifications will show up here"
+                        text: Notifs.dnd ? Tr.t("Notifications are being held back") : Tr.t("New notifications will show up here")
                         color: Theme.subtextDim
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fs(10)
@@ -1242,7 +1242,7 @@ BarPill {
                 NotifTextButton {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    label: "Clear all"
+                    label: Tr.t("Clear all")
                     enabled: root.notifCount > 0
                     onClicked: Notifs.clearAll()
                 }

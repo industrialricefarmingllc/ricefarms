@@ -98,7 +98,7 @@ WidgetBody {
             anchors.horizontalCenter: parent.horizontalCenter
             role: "labelLarge"
             color: w.inkDim
-            text: WeatherSource.lastError !== "" ? "Weather unavailable" : "Fetching weather"
+            text: WeatherSource.lastError !== "" ? Tr.t("Weather unavailable") : Tr.t("Fetching weather")
         }
 
     }
@@ -177,7 +177,7 @@ WidgetBody {
             LText {
                 role: "bodySmall"
                 color: w.inkDim
-                text: w.days.length ? "High " + w.t(w.days[0].maxC, w.days[0].maxF) + " · Low " + w.t(w.days[0].minC, w.days[0].minF) : ""
+                text: w.days.length ? Tr.t("High ") + w.t(w.days[0].maxC, w.days[0].maxF) + Tr.t(" · Low ") + w.t(w.days[0].minC, w.days[0].minF) : ""
             }
 
         }

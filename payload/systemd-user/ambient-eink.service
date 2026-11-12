@@ -1,0 +1,17 @@
+[Unit]
+Description=Weather-aware ambient e-ink dimming for Hyprland
+Documentation=file:%h/.local/bin/lucid-ambient-eink
+PartOf=graphical-session.target
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/lucid-ambient-eink
+ExecStop=%h/.local/bin/lucid-ambient-eink --restore
+Restart=on-failure
+RestartSec=15
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target

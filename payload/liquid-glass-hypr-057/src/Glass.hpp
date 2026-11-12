@@ -11,6 +11,7 @@
 // A surface with no (or unreadable) geometry file is skipped silently: glass
 // simply doesn't draw there. That is also the no-plugin-misconfig fallback.
 
+#include "RimFollow.hpp"
 #include <hyprland/src/desktop/view/LayerSurface.hpp>
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
@@ -99,6 +100,9 @@ struct SLayerRingU {
     GLint frameEnable = -1, frameScale = -1, seed = -1, frieze = -1, gilt = -1, relief = -1;
     GLint shCol = -1, shA = -1, shOff = -1, shBlur = -1;
     GLint flare = -1, push = -1, squircleF = -1;
+    // Apple rim light (same ring.frag branch as window borders). Layer
+    // borders defaulted to the legacy bevel before rim-only widgets needed it.
+    GLint rimLight = -1, rimStrength = -1, rimWidth = -1, rimAngle = -1, rimSplay = -1, rimShade = -1;
 };
 
 class CGlassLayer {
@@ -110,6 +114,13 @@ class CGlassLayer {
 
     void render(Render::CRenderContext& ctx, PHLMONITOR monitor);
 
+    // Rim-only mode (master switch off): capture the backdrop before the
+    // layer content, then draw just the Apple rim on top of it after. The
+    // capture and the draw are separate pass elements so the rim is not
+    // buried under the QML fallback background.
+    void captureRim(Render::CRenderContext& ctx, PHLMONITOR monitor);
+    void drawRim(Render::CRenderContext& ctx, PHLMONITOR monitor);
+
     // Union of last frame's pills in monitor-local LOGICAL px (for the pass
     // element's boundingBox). Lags one frame behind morphs; padded for the
     // shadow halo. Survives empty-geometry frames (file deleted) so the pass
@@ -120,6 +131,9 @@ class CGlassLayer {
             return std::nullopt;
         return m_boundsLog;
     }
+
+    // Damage only the edge bands (pointer motion, cursor-follow rim).
+    void damageRim();
 
   private:
     static constexpr int PAD_PX = 32; // refraction bleed around each pill
@@ -179,6 +193,16 @@ class CGlassLayer {
     // Last rendered pill union (logical, padded). See glassBounds().
     CBox m_boundsLog{0, 0, 0, 0};
     bool m_boundsOk = false;
+    Vector2D m_lastMonPos{0, 0};
+    // Rim-only frame handoff: captureRim() fills these in the pre pass,
+    // drawRim() consumes them after the layer content. m_rimCapBox is the
+    // framebuffer-px capture region; m_halfA holds its quarter-res copy.
+    std::vector<SPill> m_rimPills;
+    CBox m_rimCapBox{0, 0, 0, 0};
+    bool m_rimReady = false;
+    // One smoothed cursor-follow state per pill (the bar's pills reorder only
+    // on layout changes; a state follows its slot).
+    std::vector<lg::SRimFollowState> m_rimFollow;
     // Cached geometry state: if the shared scan generation, the surface box
     // and the tune generation are unchanged, the pills from last frame are
     // still exact. Lets render() skip loadGeometry entirely on frames whose

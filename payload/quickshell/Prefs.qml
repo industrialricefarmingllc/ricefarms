@@ -392,7 +392,7 @@ Singleton {
     }
     readonly property var barLayoutGroups: root.parseBarLayout(root.barLayout)
     readonly property var widgetKeys: ["widgetsEnabled", "widgetSnap", "widgetLockAll", "widgetHideFullscreen", "widgetOnTop"]
-    readonly property var idleKeys: ["idleDim", "idleDimAfter", "idleDimLevel", "idleDimKeyboard", "idleLock", "idleLockAfter", "idleScreenOff", "idleScreenOffAfter", "idleSuspend", "idleSuspendAfter", "idleSuspendOnAc", "idleLockBeforeSleep", "idleWakeAfterSleep", "idleRespectInhibitors", "idleWhileMedia"]
+    readonly property var idleKeys: ["idleDim", "idleDimAfter", "idleDimLevel", "idleDimKeyboard", "idleLock", "idleLockAfter", "idleScreenOff", "idleScreenOffAfter", "idleSuspend", "idleSuspendAfter", "idleSuspendOnAc", "idleLockBeforeSleep", "idleWakeAfterSleep", "idleRespectInhibitors", "idleWhileMedia", "idleGamepad"]
     readonly property var envKeys: ["envCursorTheme", "envCursorSize", "envCursorShadow", "envIconTheme", "envGtkTheme", "envQtStyle", "envQtPlatformTheme", "envColorScheme", "envFontSync", "envAppFont", "envAppFontSize", "envDocumentFont", "envDocumentFontSize", "envMonoFont", "envMonoFontSize", "envApplyGtk", "envApplyQt", "envApplyHypr", "envAdopted"]
     readonly property var specialKeys: ["specialScratchpad", "specialMusic", "specialComms", "specialTodo", "specialSysmon", "specialMusicApps", "specialCommsApps", "specialTodoApps", "specialSysmonApps", "specialKeepApps", "specialHideOnSwitch", "specialDim", "specialBlur", "specialGaps"]
     readonly property var glassKeys: ["glassApps", "glassValues"]
@@ -409,6 +409,10 @@ Singleton {
     property alias fontScale: s.fontScale
     property alias uiScale: s.uiScale
     property alias cornerScale: s.cornerScale
+    // accessibility: focus rims, spoken status changes, and a still interface
+    property alias a11yFocusRing: s.a11yFocusRing
+    property alias a11yAnnounce: s.a11yAnnounce
+    property alias a11yReduceMotion: s.a11yReduceMotion
     // room the bar and dock keep clear of windows, past their own size: added to
     // their exclusive zones, in real pixels like hyprland's gaps
     property alias shellGap: s.shellGap
@@ -786,6 +790,7 @@ Singleton {
     property alias idleWakeAfterSleep: s.idleWakeAfterSleep
     property alias idleRespectInhibitors: s.idleRespectInhibitors
     property alias idleWhileMedia: s.idleWhileMedia
+    property alias idleGamepad: s.idleGamepad
 
     property alias desktopSelection: s.desktopSelection
     property alias desktopMenu: s.desktopMenu
@@ -1020,6 +1025,9 @@ Singleton {
         "fontScale": 1,
         "uiScale": 1,
         "cornerScale": 1,
+        "a11yFocusRing": true,
+        "a11yAnnounce": true,
+        "a11yReduceMotion": false,
         "shellGap": 0,
         "wallpaperFolder": "",
         "wallpaperPickerStyle": "strip",
@@ -1132,7 +1140,7 @@ Singleton {
         "locationTz": "",
         "timeZoneAuto": true,
         "doNotDisturb": false,
-        "toastTimeout": 5,
+        "toastTimeout": 4,
         "toastOnLayout": true,
         "toastOnGameMode": true,
         "toastOnBattery": true,
@@ -1156,8 +1164,8 @@ Singleton {
         "quietHours": false,
         "quietFrom": 1320,
         "quietTo": 420,
-        "notifSound": false,
-        "notifSoundName": "glint",
+        "notifSound": true,
+        "notifSoundName": "bell",
         "notifSoundVolume": 0.6,
         "notifSoundUrgentOnly": false,
         "sysSounds": true,
@@ -1221,7 +1229,7 @@ Singleton {
         "liquidGlassGlowBias": 0.0,
         "liquidGlassGlowEdge0": 0.5,
         "liquidGlassGlowEdge1": -0.5,
-        "liquidGlassOpacity": 0.23,
+        "liquidGlassOpacity": 0.82,
         "squircleF": 0.8,
         "clipboardEnabled": true,
         "widgetsEnabled": true,
@@ -1263,6 +1271,7 @@ Singleton {
         "idleWakeAfterSleep": true,
         "idleRespectInhibitors": true,
         "idleWhileMedia": true,
+        "idleGamepad": true,
         "desktopSelection": true,
         "desktopMenu": true,
         "desktopIcons": false,
@@ -1797,6 +1806,9 @@ Singleton {
             property real fontScale: 1
             property real uiScale: 1
             property real cornerScale: 1
+            property bool a11yFocusRing: true
+            property bool a11yAnnounce: true
+            property bool a11yReduceMotion: false
             property int shellGap: 0
             property string wallpaperFolder: ""
             property string wallpaperPickerStyle: "strip"
@@ -1919,7 +1931,7 @@ Singleton {
             property string locationTz: ""
             property bool timeZoneAuto: true
             property bool doNotDisturb: false
-            property int toastTimeout: 5
+            property int toastTimeout: 4
             property bool toastOnLayout: true
             property bool toastOnGameMode: true
             property bool toastOnBattery: true
@@ -1943,8 +1955,8 @@ Singleton {
             property bool quietHours: false
             property int quietFrom: 1320
             property int quietTo: 420
-            property bool notifSound: false
-            property string notifSoundName: "glint"
+            property bool notifSound: true
+            property string notifSoundName: "bell"
             property real notifSoundVolume: 0.6
             property bool notifSoundUrgentOnly: false
             property bool sysSounds: true
@@ -2008,7 +2020,7 @@ Singleton {
             property real liquidGlassGlowBias: 0.0
             property real liquidGlassGlowEdge0: 0.5
             property real liquidGlassGlowEdge1: -0.5
-            property real liquidGlassOpacity: 0.23
+            property real liquidGlassOpacity: 0.82
             property real squircleF: 0.8
             property bool clipboardEnabled: true
             property bool widgetsEnabled: true
@@ -2050,6 +2062,7 @@ Singleton {
             property bool idleWakeAfterSleep: true
             property bool idleRespectInhibitors: true
             property bool idleWhileMedia: true
+            property bool idleGamepad: true
             property bool desktopSelection: true
             property bool desktopMenu: true
             property bool desktopIcons: false

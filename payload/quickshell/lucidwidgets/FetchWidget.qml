@@ -90,7 +90,7 @@ WidgetBody {
                 LText {
                     role: "labelMedium"
                     color: w.inkDim
-                    text: "Lucid on " + (w.info.os || "Linux")
+                    text: Tr.t("Lucid on ") + (w.info.os || Tr.t("Linux"))
                 }
 
             }

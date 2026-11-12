@@ -44,19 +44,22 @@ struct Vertex { float x, y, z, u, v; };
 
 // Bumped with the geometry constants. A reader that sees an older magic or
 // version rebuilds instead of loading a mesh from the previous refinement.
-constexpr char diskMagic[8] = {'L', 'U', 'C', 'I', 'D', 'M', '2', '\0'};
-constexpr quint32 diskVersion = 2;
+// v3 stores a UInt32 index buffer and a deduplicated vertex buffer.
+constexpr char diskMagic[8] = {'L', 'U', 'C', 'I', 'D', 'M', '3', '\0'};
+constexpr quint32 diskVersion = 3;
 
 struct DiskHeader {
     char magic[8];
     quint32 version;
     quint32 stride;
     quint64 vertices;
+    quint64 indices;
     float minX, minY, minZ;
     float maxX, maxY, maxZ;
     float focus;
     float background;
 };
+static_assert(sizeof(DiskHeader) == 64, "mesh cache header must stay 64 bytes");
 
 QString cacheDir() {
     QString base = qEnvironmentVariable("XDG_CACHE_HOME");
@@ -119,19 +122,23 @@ bool readMeshCache(const QString &cacheKey, MeshBuildResult *result)
         return false;
     if (std::memcmp(header.magic, diskMagic, sizeof(diskMagic)) != 0
             || header.version != diskVersion || header.stride != sizeof(Vertex)
-            || header.vertices == 0)
+            || header.vertices == 0 || header.indices == 0
+            || header.indices % 3 != 0)
         return false;
-    const qint64 expected = qint64(header.vertices) * qint64(sizeof(Vertex));
-    if (file.size() != qint64(sizeof(header)) + expected)
+    const qint64 expectedVertices = qint64(header.vertices) * qint64(sizeof(Vertex));
+    const qint64 expectedIndices = qint64(header.indices) * qint64(sizeof(quint32));
+    if (file.size() != qint64(sizeof(header)) + expectedVertices + expectedIndices)
         return false;
-    result->vertices = file.read(expected);
-    if (result->vertices.size() != expected)
+    result->vertices = file.read(expectedVertices);
+    result->indices = file.read(expectedIndices);
+    if (result->vertices.size() != expectedVertices
+            || result->indices.size() != expectedIndices)
         return false;
     result->minimum = QVector3D(header.minX, header.minY, header.minZ);
     result->maximum = QVector3D(header.maxX, header.maxY, header.maxZ);
     result->focusDistance = header.focus;
     result->backgroundDistance = header.background;
-    result->triangles = int(header.vertices / 3);
+    result->triangles = int(header.indices / 3);
     result->refinedCells = 0;
     result->ok = true;
     return true;
@@ -158,24 +165,45 @@ void trimMeshCache(bool force)
     QDir dir(cacheDir());
     QFileInfoList files = dir.entryInfoList({"*.mesh"}, QDir::Files, QDir::Time);
     qint64 total = 0;
-    for (const QFileInfo &info : files)
+    for (const QFileInfo &info : files) {
+        // A geometry-format bump leaves files that this build can never read.
+        // Drop them on sight instead of waiting for the size limit; on this
+        // machine a stale refinement generation held ~2 GB.
+        QFile file(info.absoluteFilePath());
+        bool stale = false;
+        if (file.open(QIODevice::ReadOnly)) {
+            DiskHeader header{};
+            stale = file.read(reinterpret_cast<char *>(&header), sizeof(header))
+                        != qint64(sizeof(header))
+                || std::memcmp(header.magic, diskMagic, sizeof(diskMagic)) != 0
+                || header.version != diskVersion;
+        }
+        if (stale) {
+            QFile::remove(info.absoluteFilePath());
+            continue;
+        }
         total += info.size();
+    }
     // Oldest first: entryInfoList sorts newest first.
     for (int i = files.size() - 1; i >= 0 && total > limit; --i) {
+        const QString path = files[i].absoluteFilePath();
+        if (!QFileInfo::exists(path))
+            continue;
         total -= files[i].size();
-        QFile::remove(files[i].absoluteFilePath());
+        QFile::remove(path);
     }
 }
 
 bool writeMeshCache(const QString &cacheKey, const MeshBuildResult &result)
 {
-    if (!result.ok || result.vertices.isEmpty())
+    if (!result.ok || result.vertices.isEmpty() || result.indices.isEmpty())
         return false;
     DiskHeader header{};
     std::memcpy(header.magic, diskMagic, sizeof(diskMagic));
     header.version = diskVersion;
     header.stride = sizeof(Vertex);
     header.vertices = quint64(result.vertices.size() / sizeof(Vertex));
+    header.indices = quint64(result.indices.size() / sizeof(quint32));
     header.minX = result.minimum.x();
     header.minY = result.minimum.y();
     header.minZ = result.minimum.z();
@@ -189,7 +217,8 @@ bool writeMeshCache(const QString &cacheKey, const MeshBuildResult &result)
     if (!file.open(QIODevice::WriteOnly))
         return false;
     if (file.write(reinterpret_cast<const char *>(&header), sizeof(header)) != qint64(sizeof(header))
-            || file.write(result.vertices) != result.vertices.size()) {
+            || file.write(result.vertices) != result.vertices.size()
+            || file.write(result.indices) != result.indices.size()) {
         file.cancelWriting();
         return false;
     }
@@ -290,7 +319,6 @@ MeshBuildResult buildDepthMesh(const QString &depthFile, const QString &matteFil
     const double cropV = std::min(1.0, sourceAspect / aspect);
     const double offsetU = (1.0 - cropU) * 0.5;
     const double offsetV = (1.0 - cropV) * 0.5;
-    std::array<Vertex, columns * rows> vertices{};
     double maximumDistance = 0.0;
     float minX = std::numeric_limits<float>::max(), minY = minX, minZ = minX;
     float maxX = std::numeric_limits<float>::lowest(), maxY = maxX, maxZ = maxX;
@@ -315,23 +343,31 @@ MeshBuildResult buildDepthMesh(const QString &depthFile, const QString &matteFil
         maxZ = std::max(maxZ, vertex.z);
         return vertex;
     };
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < columns; ++x) {
-            const int sampleX = x * edgeRefinement;
-            const int sampleY = y * edgeRefinement;
-            const size_t index = static_cast<size_t>(y) * columns + x;
-            vertices[index] = makeVertex(sampleX, sampleY);
-        }
-    }
 
-    std::vector<Vertex> triangles;
-    triangles.reserve(static_cast<size_t>(columns - 1) * (rows - 1) * 6);
-    int refinedCells = 0;
-    auto appendTriangle = [&](const Vertex &a, const Vertex &b, const Vertex &c) {
-        triangles.insert(triangles.end(), {a, b, c});
+    // Vertices live on the fine grid. A direct coordinate -> index table makes
+    // deduplication O(1) and lets adjacent cells and refined patches share the
+    // same vertex instead of emitting a three-vertex soup per triangle.
+    std::vector<quint32> gridIndex(static_cast<size_t>(fineColumns) * fineRows,
+                                   0xffffffffu);
+    std::vector<Vertex> vertices;
+    vertices.reserve(static_cast<size_t>(columns) * rows * 2);
+    auto vertexAt = [&](int x, int y) -> quint32 {
+        quint32 &slot = gridIndex[static_cast<size_t>(y) * fineColumns + x];
+        if (slot != 0xffffffffu)
+            return slot;
+        slot = static_cast<quint32>(vertices.size());
+        vertices.push_back(makeVertex(x, y));
+        return slot;
     };
+
+    std::vector<quint32> indices;
+    indices.reserve(static_cast<size_t>(columns - 1) * (rows - 1) * 6 * 3);
+    int refinedCells = 0;
+    auto appendTriangle = [&](quint32 a, quint32 b, quint32 c) {
+        indices.push_back(a); indices.push_back(b); indices.push_back(c);
+    };
+    constexpr int patchSize = edgeRefinement + 1;
     for (int y = 0; y + 1 < rows; ++y) for (int x = 0; x + 1 < columns; ++x) {
-        const int tl = y * columns + x, tr = tl + 1, bl = tl + columns, br = bl + 1;
         const int fineX = x * edgeRefinement;
         const int fineY = y * edgeRefinement;
         double cellMin = 1.0, cellMax = 0.0;
@@ -347,19 +383,20 @@ MeshBuildResult buildDepthMesh(const QString &depthFile, const QString &matteFil
         }
         if (foreground && maximumAlpha == 0) continue;
         if (cellMax - cellMin <= refinementThreshold) {
-            appendTriangle(vertices[tl], vertices[bl], vertices[tr]);
-            appendTriangle(vertices[tr], vertices[bl], vertices[br]);
+            const int fx1 = fineX + edgeRefinement;
+            const int fy1 = fineY + edgeRefinement;
+            appendTriangle(vertexAt(fineX, fineY), vertexAt(fineX, fy1),
+                           vertexAt(fx1, fineY));
+            appendTriangle(vertexAt(fx1, fineY), vertexAt(fineX, fy1),
+                           vertexAt(fx1, fy1));
             continue;
         }
         ++refinedCells;
 
-        constexpr int patchSize = edgeRefinement + 1;
-        std::array<Vertex, patchSize * patchSize> patchVertices;
+        std::array<quint32, patchSize * patchSize> patch;
         for (int sy = 0; sy < patchSize; ++sy) {
-            for (int sx = 0; sx < patchSize; ++sx) {
-                const int index = sy * patchSize + sx;
-                patchVertices[index] = makeVertex(fineX + sx, fineY + sy);
-            }
+            for (int sx = 0; sx < patchSize; ++sx)
+                patch[sy * patchSize + sx] = vertexAt(fineX + sx, fineY + sy);
         }
         for (int sy = 0; sy < edgeRefinement; ++sy) {
             for (int sx = 0; sx < edgeRefinement; ++sx) {
@@ -367,19 +404,21 @@ MeshBuildResult buildDepthMesh(const QString &depthFile, const QString &matteFil
                 const int b = a + 1;
                 const int c = a + patchSize;
                 const int d = c + 1;
-                appendTriangle(patchVertices[a], patchVertices[c], patchVertices[b]);
-                appendTriangle(patchVertices[b], patchVertices[c], patchVertices[d]);
+                appendTriangle(patch[a], patch[c], patch[b]);
+                appendTriangle(patch[b], patch[c], patch[d]);
             }
         }
     }
-    if (triangles.empty())
+    if (indices.empty())
         return result;
-    result.vertices = QByteArray(reinterpret_cast<const char *>(triangles.data()),
-        static_cast<qsizetype>(triangles.size() * sizeof(Vertex)));
+    result.vertices = QByteArray(reinterpret_cast<const char *>(vertices.data()),
+        static_cast<qsizetype>(vertices.size() * sizeof(Vertex)));
+    result.indices = QByteArray(reinterpret_cast<const char *>(indices.data()),
+        static_cast<qsizetype>(indices.size() * sizeof(quint32)));
     result.minimum = QVector3D(minX, minY, minZ);
     result.maximum = QVector3D(maxX, maxY, maxZ);
     result.backgroundDistance = static_cast<float>(maximumDistance + 0.25);
-    result.triangles = int(triangles.size() / 3);
+    result.triangles = int(indices.size() / 3);
     result.refinedCells = refinedCells;
     result.ok = true;
     return result;

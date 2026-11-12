@@ -258,7 +258,7 @@ PanelWindow {
     readonly property var launcherResultsModel: resultsModel
     // the unfiltered app wall's model, separate from the mixed result stream
     readonly property var launcherAppsModel: appsModel
-    readonly property var launcherEmojiModel: emojiGridModel
+    readonly property var launcherEmojiModel: emojiView
     readonly property var launcherPickerModel: dockWindow.pickerModel
     // dropped once the dock is back on, or once that display is unplugged:
     // a surface sent to a dead display is never drawn
@@ -327,6 +327,50 @@ PanelWindow {
     // the launcher face is ~64mb of delegates and nothing shows it until the
     // menu opens, so it is built on the first open and then kept
     property bool launcherBuilt: false
+    // The Emoji wall and the wallpaper picker build their models on first use:
+    // a 4.6 MB server inventory to parse and sort, and a slot item for every
+    // wallpaper in the folder. The picker still decodes only the cards near the
+    // selection; the rest are bare slots. Warm both once the shell has settled
+    // (and again after the first open's reveal) and keep them, so the first
+    // visit to either tab is a switch rather than a construction.
+    property bool launcherTabsWarmed: false
+    property bool launcherTabsWarmPending: false
+
+    function warmLauncherTabs() {
+        if (dockWindow.launcherTabsWarmed)
+            return ;
+
+        // never build either model while the launcher is resizing
+        if (dockWindow.morphing) {
+            dockWindow.launcherTabsWarmPending = true;
+            return ;
+        }
+        dockWindow.launcherTabsWarmPending = false;
+        dockWindow.launcherTabsWarmed = true;
+        // both emoji FileViews read their JSON only while this is on; setting it
+        // now parses the cache and builds the full index in the background
+        dockWindow.emojiWanted = true;
+        // the picker binds to the filtered copies, which otherwise wait for the
+        // first visit to the tab
+        dockWindow.syncPickerFilter();
+        if (dockWindow.launcherItem && typeof dockWindow.launcherItem.prewarmTabs === "function")
+            dockWindow.launcherItem.prewarmTabs();
+    }
+
+    Timer {
+        id: launcherWarmTimer
+
+        // late enough not to compete with the shell's own start-up work; an
+        // open before that restarts it for just after the reveal
+        interval: 800
+        repeat: false
+        onTriggered: dockWindow.warmLauncherTabs()
+    }
+
+    onMorphingChanged: {
+        if (!dockWindow.morphing && dockWindow.launcherTabsWarmPending)
+            Qt.callLater(dockWindow.warmLauncherTabs);
+    }
 
     // every write to the search field goes through here, so the face is built
     // before anything tries to set text on it
@@ -348,7 +392,7 @@ PanelWindow {
         // put the launch overlay on the launcher's display before an icon is
         // picked, so the seed does not wait on a layer-surface move
         if (dockWindow.menuOpen && dockWindow.externalFace && dockWindow.externalFace.hostScreen)
-            launchGhost.prepare(dockWindow.externalFace.hostScreen);
+            Launch.prepare(dockWindow.externalFace.hostScreen);
 
         dockWindow.pulseMorph();
         dockWindow.contentFadeDelay = dockWindow.menuOpen ? 109 : 0;
@@ -359,16 +403,19 @@ PanelWindow {
             toplevelRefresh.restart();
 
         if (dockWindow.menuOpen) {
+            // The first open warms the Emoji and wallpaper tabs as soon as the
+            // panel has finished revealing, so they are ready by the time a Tab
+            // reaches them. Sessions that never open the launcher warm them
+            // after the shell settles instead (see launcherWarmTimer).
+            if (!dockWindow.launcherTabsWarmed) {
+                launcherWarmTimer.interval = Theme.ms(420);
+                launcherWarmTimer.restart();
+            }
             // no dock on screen means it was opened from elsewhere, so it notches
             dockWindow.launcherFromHidden = !dockWindow.dockShown;
             dockWindow.closingFromHidden = false;
             dockWindow.snapPlacement = true;
             snapClear.restart();
-            // A PWA install drops a new .desktop file in ~/.local/share/applications.
-            // Rescan on open so it is in the wall the first time the launcher is
-            // used, rather than waiting for the 20 s background pass.
-            if (!appScanner.running)
-                appScanner.running = true;
         } else {
             if (dockWindow.launcherItem) {
                 dockWindow.launcherItem.resetTranslate();
@@ -429,6 +476,19 @@ PanelWindow {
     // bumped whenever the wallpaper lists change, so the filtered copies (and
     // their model rebuild) only run when there is something new
     property int wallpaperRevision: 0
+    // path -> jpg cut from wallpaper-thumbs.sh. skwd hands the picker WebP
+    // thumbs this Qt cannot decode, so the local jpg cache is merged over them;
+    // cards then decode 30 KB instead of the 1-20 MB original.
+    property var localThumbPaths: ({})
+    property string localThumbDir: ""
+    property int localThumbItems: -1
+    // Wallhaven sidecar metadata, keyed by local path. Local image rows do not
+    // carry tags themselves; this index merges them into tagsText and survives
+    // source-model rebuilds.
+    property var tagIndexMap: ({})
+    property string tagIndexDir: ""
+    property int tagIndexCount: -1
+    property double tagIndexAt: 0
     // the last query + list state the picker copies were built for
     property string pickerSyncKey: ""
     // set while syncPickerFilter is rebuilding the picker's rows; a call that
@@ -448,7 +508,7 @@ PanelWindow {
         var tl = Hyprland.toplevels.values;
         for (var i = 0; i < tl.length; i++) {
             var o = tl[i].lastIpcObject;
-            if (o && o.class)
+            if (o && o.class && !Launch.isGhostWindow(o))
                 out.push(o);
 
         }
@@ -756,6 +816,33 @@ PanelWindow {
         }
     }
 
+    // The picker knows the next wallpaper before it is applied. Warming its
+    // depth/matte while the user is still looking turns the 8-9 s first-use
+    // generation into a cache hit at click time. 450 ms so sweeping the
+    // pointer across the strip does not spawn a run for every card.
+    readonly property string pickerHoverPath: {
+        const face = dockWindow.launcherItem;
+        if (!face || !dockWindow.pickerMode)
+            return "";
+        const path = face.hoveredWallpaperPath;
+        return path === undefined || path === null ? "" : String(path);
+    }
+    onPickerHoverPathChanged: {
+        if (dockWindow.pickerHoverPath !== "")
+            pickerWarm.restart();
+    }
+
+    Timer {
+        id: pickerWarm
+
+        interval: 450
+        repeat: false
+        onTriggered: {
+            if (dockWindow.pickerMode)
+                SpatialWall.prewarm(dockWindow.pickerHoverPath);
+        }
+    }
+
     readonly property var allCommands: [{
         "id": "wallpaper",
         "name": "Choose Wallpaper",
@@ -837,6 +924,36 @@ PanelWindow {
     readonly property var engine: dockWindow.searchEngines[Prefs.launcherSearchEngine] || dockWindow.searchEngines.duckduckgo
     property var emojiList: []
     property bool emojiWanted: false
+    // Server emoji are a separate, cache-backed list: the Unicode JSON stays
+    // generated and static, while Discord inventories change under us.
+    property var serverEmojiList: []
+    property double serverEmojiFetchedAt: 0
+    property bool serverEmojiLoading: false
+    property double serverEmojiFailedAt: 0
+    // The pure-data index behind the picker. `emojiView` is the filtered view
+    // the wall binds to; it changes identity on every query so only the visible
+    // page is pulled from the index.
+    property var emojiEntries: []
+    property var emojiView: ({
+        "count": 0,
+        "get": function (index) {
+            return null;
+        }
+    })
+    // the query + index size the emoji wall was last filtered for
+    property string emojiSyncKey: ""
+    // usage changed since the last build: re-sort on the next open, not while
+    // the copy is closing the launcher
+    property bool emojiOrderDirty: false
+    readonly property string socialService: {
+        var configured = Quickshell.env("LUCID_SOCIAL_BIN");
+        if (configured !== undefined && configured !== null && String(configured) !== "")
+            return String(configured);
+
+        return Quickshell.env("HOME") + "/src/lucid-social/bin/lucid-social";
+    }
+    readonly property string serverEmojiPath: Quickshell.env("HOME") + "/.cache/lucid-social/emojis.json"
+    readonly property int serverEmojiTtl: 6 * 60 * 60
     // shared with the settings app, see Prefs.themeCatalogue
     readonly property var allThemes: Prefs.themeCatalogue
 
@@ -1032,6 +1149,8 @@ PanelWindow {
             "iconName": opts.iconName || "",
             "glyph": opts.glyph || "",
             "emoji": opts.emoji || "",
+            "image": opts.image || "",
+            "animated": opts.animated === true,
             "swatchBg": opts.swatchBg || "",
             "swatchAccent": opts.swatchAccent || "",
             "trailing": opts.trailing || "",
@@ -1491,39 +1610,191 @@ PanelWindow {
         onTriggered: Hyprland.dispatch("hl.dsp.focus({ window = \"address:" + windowFocus.address + "\" })")
     }
 
-    function syncEmojiWall(q) {
-        emojiGridModel.clear();
-        var list = dockWindow.emojiList;
-        for (var i = 0; i < list.length; i++) {
-            var em = list[i];
-            if (q !== "" && String(em.n).toLowerCase().indexOf(q) === -1 && String(em.k || "").toLowerCase().indexOf(q) === -1 && String(em.s || "").toLowerCase().indexOf(q) === -1)
-                continue;
+    function consumeServerEmoji(text) {
+        try {
+            var value = JSON.parse(text);
+            if (value.schema !== "lucid.social/emojis" || value.schema_version !== 1)
+                return;
 
-            emojiGridModel.append({
-                "key": "emoji-" + i,
-                "title": em.n,
-                "emoji": em.e
-            });
+            dockWindow.serverEmojiList = value.emojis || [];
+            dockWindow.serverEmojiFetchedAt = Number(value.generated_at_unix || 0);
+            dockWindow.rebuildEmojiData();
+        } catch (error) {
+            dockWindow.serverEmojiFailedAt = Date.now();
         }
     }
 
-    function emojiRows(q, limit) {
-        var words = q.toLowerCase().split(/\s+/).filter((x) => {
-            return x !== "";
+    function refreshServerEmoji() {
+        if (dockWindow.serverEmojiLoading || dockWindow.socialService === "")
+            return;
+
+        dockWindow.serverEmojiLoading = true;
+        serverEmojiProc.command = [dockWindow.socialService, "emojis"];
+        serverEmojiProc.running = true;
+    }
+
+    function ensureServerEmoji(force) {
+        if (!dockWindow.emojiWanted || dockWindow.serverEmojiLoading)
+            return;
+
+        var now = Date.now();
+        if (force !== true) {
+            if (dockWindow.serverEmojiFetchedAt > 0 && now / 1000 - dockWindow.serverEmojiFetchedAt < dockWindow.serverEmojiTtl)
+                return;
+
+            if (dockWindow.serverEmojiFailedAt > 0 && now - dockWindow.serverEmojiFailedAt < 60000)
+                return;
+        }
+        dockWindow.refreshServerEmoji();
+    }
+
+    // Hyphens, underscores and runs of whitespace are the same separator for
+    // search. Keeping one canonical form also lets "partyparrot" hit
+    // "party_parrot" through the compact copy of the haystack.
+    function emojiSearchText(value) {
+        return String(value || "").toLowerCase().replace(/[-_\s]+/g, " ").trim();
+    }
+
+    // Server emoji come first in usage order; the Unicode set is the fallback
+    // tail, unless a query names one of them exactly.
+    function sortEmojiEntries(entries) {
+        const counts = usageAdapter.emojiCounts || {};
+        entries.sort(function (a, b) {
+            if (a.fallback !== b.fallback)
+                return a.fallback ? 1 : -1;
+
+            const ua = counts[a.key] || 0;
+            const ub = counts[b.key] || 0;
+            if (ua !== ub)
+                return ub - ua;
+
+            const an = String(a.title || "").toLowerCase();
+            const bn = String(b.title || "").toLowerCase();
+            if (an !== bn)
+                return an < bn ? -1 : 1;
+
+            return String(a.key) < String(b.key) ? -1 : (String(a.key) > String(b.key) ? 1 : 0);
         });
+    }
+
+    // Build the full picker index once, not once per keystroke. Each row keeps
+    // a lowercased haystack beside its display fields, so a query is a plain
+    // string scan over 16k values and the wall then renders only the matches.
+    function rebuildEmojiData() {
         var out = [];
         var list = dockWindow.emojiList;
-        for (var i = 0; i < list.length && out.length < limit; i++) {
+        for (var i = 0; i < list.length; i++) {
             var em = list[i];
-            var hay = em.n + " " + (em.k || "");
-            if (words.length && !words.every((x) => {
-                return hay.indexOf(x) >= 0;
-            }))
+            var emHay = dockWindow.emojiSearchText(String(em.n || "") + " " + String(em.k || "") + " " + String(em.s || ""));
+            out.push({
+                "key": "emoji-" + i,
+                "title": em.n,
+                "nameKey": dockWindow.emojiSearchText(em.n),
+                "subtitle": "",
+                "emoji": em.e,
+                "image": "",
+                "copy": "",
+                "animated": false,
+                "fallback": true,
+                "hay": emHay,
+                "hayCompact": emHay.replace(/ /g, "")
+            });
+        }
+
+        // Server emoji follow the Unicode set. Searching the guild name finds
+        // the ones from that server; "server" finds all of them.
+        var custom = dockWindow.serverEmojiList;
+        for (var j = 0; j < custom.length; j++) {
+            var se = custom[j];
+            var seHay = dockWindow.emojiSearchText(String(se.name || "") + " " + String(se.guild || "") + " server discord custom");
+            out.push({
+                "key": "server-" + se.id,
+                "title": se.name,
+                "nameKey": dockWindow.emojiSearchText(se.name),
+                "subtitle": se.guild || "Server emoji",
+                "emoji": "",
+                "image": se.image || "",
+                "copy": se.copy || "",
+                "animated": se.animated === true,
+                "fallback": false,
+                "hay": seHay,
+                "hayCompact": seHay.replace(/ /g, "")
+            });
+        }
+
+        dockWindow.sortEmojiEntries(out);
+        dockWindow.emojiEntries = out;
+        dockWindow.emojiSyncKey = "";
+        if (dockWindow.mode === "emoji")
+            dockWindow.rebuildResults();
+        else if (dockWindow.emojiWanted)
+            // the warm-up asked for the index ahead of the tab: build the
+            // unfiltered view now so the wall has rows before it is shown
+            dockWindow.syncEmojiWall("");
+    }
+
+    function syncEmojiWall(q) {
+        const entries = dockWindow.emojiEntries;
+        if (dockWindow.emojiOrderDirty) {
+            dockWindow.sortEmojiEntries(entries);
+            dockWindow.emojiOrderDirty = false;
+            dockWindow.emojiSyncKey = "";
+        }
+
+        const key = q + "|" + entries.length;
+        if (key === dockWindow.emojiSyncKey)
+            return ;
+        dockWindow.emojiSyncKey = key;
+
+        const query = dockWindow.emojiSearchText(q);
+        const words = query.split(" ").filter((x) => {
+            return x !== "";
+        });
+        const exactDefaults = [];
+        const rest = [];
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            const hay = entry.hay;
+            const compact = entry.hayCompact;
+            let hit = true;
+            for (let w = 0; w < words.length; w++) {
+                if (hay.indexOf(words[w]) === -1 && compact.indexOf(words[w]) === -1) {
+                    hit = false;
+                    break;
+                }
+            }
+            if (!hit)
                 continue;
 
-            out.push(dockWindow.makeRow("emoji", "emoji-" + i, em.n, "", {
-                "emoji": em.e,
-                "payload": em.e
+            if (query !== "" && entry.fallback && entry.nameKey === query)
+                exactDefaults.push(i);
+            else
+                rest.push(i);
+        }
+        const indices = exactDefaults.concat(rest);
+        // A fresh object is the model change signal: QML does not observe a
+        // plain JS object's count in place.
+        dockWindow.emojiView = {
+            "count": indices.length,
+            "get": function (index) {
+                if (index < 0 || index >= indices.length)
+                    return null;
+
+                return entries[indices[index]];
+            }
+        };
+    }
+
+    function emojiRows(q, limit) {
+        var out = [];
+        var view = dockWindow.emojiView;
+        for (var i = 0; i < view.count && out.length < limit; i++) {
+            var em = view.get(i);
+            out.push(dockWindow.makeRow("emoji", em.key, em.title, em.subtitle, {
+                "emoji": em.emoji,
+                "image": em.image,
+                "animated": em.animated === true,
+                "payload": em.copy || em.emoji
             }));
         }
         return out;
@@ -1614,6 +1885,7 @@ PanelWindow {
             }
         } else if (mode === "emoji") {
             dockWindow.emojiWanted = true;
+            dockWindow.ensureServerEmoji();
             dockWindow.syncEmojiWall(q);
             rows = dockWindow.emojiRows(q, 48);
         } else if (mode === "clipboard") {
@@ -1985,21 +2257,7 @@ PanelWindow {
         focusProbe.running = true;
     }
 
-    // Discord now wipes /proc/<pid>/environ after startup, so an environment
-    // signature alone can no longer tell its three accounts apart. The profile
-    // path is still visible in the command line and in open file descriptors
-    // (the profile databases), so match the signature's value there too.
-    readonly property string focusProbeScript: "mode=\"$1\"; shift; sigs=\"$1\"; shift; " +
-        "for pair in \"$@\"; do pid=\"${pair%%:*}\"; addr=\"${pair#*:}\"; " +
-        "[ -r \"/proc/$pid/environ\" ] || continue; ok=1; " +
-        "for s in $sigs; do value=\"${s#*=}\"; hit=0; " +
-        "if grep -qaF -- \"$s\" \"/proc/$pid/environ\" 2>/dev/null; then hit=1; " +
-        "elif grep -qaF -- \"$value\" \"/proc/$pid/cmdline\" 2>/dev/null; then hit=1; " +
-        "else for f in \"/proc/$pid\"/fd/*; do target=$(readlink \"$f\" 2>/dev/null) || continue; " +
-        "case \"$target\" in *\"$value\"*) hit=1; break ;; esac; done; fi; " +
-        "if [ \"$mode\" = inc ]; then [ \"$hit\" = 1 ] || { ok=0; break; }; " +
-        "else [ \"$hit\" = 1 ] && { ok=0; break; }; fi; done; " +
-        "if [ \"$ok\" = \"1\" ]; then printf '%s' \"$addr\"; exit 0; fi; done"
+    readonly property string focusProbeScript: "mode=\"$1\"; shift; sigs=\"$1\"; shift; for pair in \"$@\"; do pid=\"${pair%%:*}\"; addr=\"${pair#*:}\"; [ -r \"/proc/$pid/environ\" ] || continue; ok=1; for s in $sigs; do if [ \"$mode\" = inc ]; then grep -qaF -- \"$s\" \"/proc/$pid/environ\" || { ok=0; break; }; else grep -qaF -- \"$s\" \"/proc/$pid/environ\" && { ok=0; break; }; fi; done; if [ \"$ok\" = \"1\" ]; then printf '%s' \"$addr\"; exit 0; fi; done"
 
     Process {
         id: focusProbe
@@ -2062,12 +2320,29 @@ PanelWindow {
             Qt.openUrlExternally(row.payload);
         } else if (row.kind === "run") {
             dockWindow.menuOpen = false;
-            Quickshell.execDetached(["sh", "-c", row.payload]);
+            // a typed GUI command is a launch too; shell plumbing (a script,
+            // a pactl call, …) keeps its plain exec
+            var runOpts = {
+                "icon": row.iconName,
+                "rect": dockWindow.rowIconRect(index),
+                "screen": dockWindow.launcherItem ? dockWindow.launcherItem.hostScreen : null
+            };
+            if (!(Launch.looksLikeGui(row.payload) && Launch.run(row.payload, runOpts)))
+                Quickshell.execDetached(["sh", "-c", row.payload]);
         } else if (row.kind === "runterm") {
             dockWindow.menuOpen = false;
             // the shell stays behind the command so its output can be read
-            Quickshell.execDetached(["sh", "-c", "exec xdg-terminal-exec sh -c \"$1; echo; printf 'done, press Return'; read _\"", "sh", row.payload]);
+            var termArgs = ["sh", "-c", "exec xdg-terminal-exec sh -c \"$1; echo; printf 'done, press Return'; read _\"", "sh", row.payload];
+            if (!Launch.runArgv(termArgs, {
+                "title": "Terminal",
+                "icon": "utilities-terminal",
+                "rect": dockWindow.rowIconRect(index),
+                "screen": dockWindow.launcherItem ? dockWindow.launcherItem.hostScreen : null,
+                "timeoutMs": 5000
+            }))
+                Quickshell.execDetached(termArgs);
         } else if (row.kind === "emoji") {
+            dockWindow.recordEmojiUse(row.key);
             Quickshell.execDetached(["wl-copy", "--", row.payload]);
             dockWindow.menuOpen = false;
         } else if (row.kind === "window") {
@@ -2131,7 +2406,7 @@ PanelWindow {
     // held (still starting up, or a launch is already in flight), and the
     // caller should fall back to the plain detached exec
     function ghostLaunch(command, title, iconName, iconRect, wmClass, base) {
-        if (!command || !iconRect || !launchGhost.available)
+        if (!command || !iconRect)
             return false;
 
         var source = iconName !== "" ? IconTheme.pathFor(iconName) : "";
@@ -2140,11 +2415,10 @@ PanelWindow {
         if (source === "")
             source = Quickshell.iconPath("application-x-executable", true);
 
-        return launchGhost.launch({
-            "command": command,
+        return Launch.launch(command, {
             "title": title,
-            "iconSource": source,
-            "iconRect": iconRect,
+            "icon": source,
+            "rect": iconRect,
             "wmClass": wmClass || "",
             "base": base || "",
             "screen": dockWindow.launcherItem ? dockWindow.launcherItem.hostScreen : null
@@ -2210,7 +2484,38 @@ PanelWindow {
         var key = name.toLowerCase();
         counts[key] = (counts[key] || 0) + 1;
         usageAdapter.counts = counts;
+        usageFile.writeAdapter();
         dockWindow.rebuildResults();
+    }
+
+    function recordEmojiUse(key) {
+        if (!key)
+            return;
+
+        // Assign a fresh object: mutating the adapter's own map and writing it
+        // back would not notify JsonAdapter, so the file would never update.
+        var counts = usageAdapter.emojiCounts || {};
+        var next = {};
+        for (var k in counts)
+            next[k] = counts[k];
+        next[key] = (next[key] || 0) + 1;
+        usageAdapter.emojiCounts = next;
+        usageFile.writeAdapter();
+        dockWindow.emojiOrderDirty = true;
+        dockWindow.emojiSyncKey = "";
+    }
+
+    // A Workshop scene's picker row is skwd:we:<id>, while skwd can report its
+    // applied path as a preview.jpg inside the same workshop folder (or its
+    // video file). Exact string equality then misses the row even though it is
+    // the same wallpaper; compare the Workshop id as a second chance.
+    function sameWallpaperPath(a, b) {
+        const pa = String(a || "");
+        const pb = String(b || "");
+        if (pa === pb)
+            return pa !== "";
+        const ia = SkwdWall.workshopIdFor(pa);
+        return ia !== "" && ia === SkwdWall.workshopIdFor(pb);
     }
 
     // a live wallpaper is the video, not the frame set-wallpaper.sh puts under it
@@ -2313,9 +2618,104 @@ PanelWindow {
         Quickshell.execDetached(cmd);
     }
 
+    function localThumbFor(path) {
+        return dockWindow.localThumbPaths[path] || "";
+    }
+
+    // update the two source models in place so the cards keep their delegates
+    // and decoded pictures; syncPickerFilter copies the new thumb through
+    function applyLocalThumbs() {
+        const map = dockWindow.localThumbPaths;
+        const models = [wallpapersModel, liveModel];
+        let touched = false;
+        for (let m = 0; m < models.length; m++) {
+            const model = models[m];
+            for (let i = 0; i < model.count; i++) {
+                const t = map[model.get(i).path];
+                if (t && model.get(i).thumb !== t) {
+                    model.setProperty(i, "thumb", t);
+                    touched = true;
+                }
+            }
+        }
+        if (touched) {
+            dockWindow.wallpaperRevision++;
+            dockWindow.syncPickerFilter();
+        }
+    }
+
+    // A local picture matches when every word of the query is somewhere in its
+    // name, path or Wallhaven tags. Tags do not have to be exact: one query
+    // word is enough to hit a longer tag, and several words can come from
+    // different tags.
+    function wallpaperMatches(name, tagsText, query, path) {
+        const q = String(query || "").toLowerCase().trim();
+        if (q === "")
+            return true;
+        let hay = String(name || "").toLowerCase();
+        if (path)
+            hay += " " + String(path).split("/").pop().toLowerCase();
+        if (tagsText)
+            hay += " " + String(tagsText).toLowerCase();
+        const words = q.split(/[\s,]+/).filter((w) => w !== "");
+        for (let w = 0; w < words.length; w++) {
+            if (hay.indexOf(words[w]) === -1)
+                return false;
+        }
+        return true;
+    }
+
+    // merge the sidecar tag map into the two source lists. The map is kept so a
+    // later source rebuild can put the tags back without another scan.
+    function applyTagIndex(map) {
+        dockWindow.tagIndexMap = map;
+        const models = [wallpapersModel, liveModel];
+        let changed = false;
+        for (let m = 0; m < models.length; m++) {
+            const model = models[m];
+            for (let i = 0; i < model.count; i++) {
+                const row = model.get(i);
+                const meta = map[row.path];
+                if (!meta)
+                    continue;
+                const tagsText = Array.isArray(meta.tags) ? meta.tags.join(", ") : String(meta.tags || "");
+                const name = meta.name || "";
+                if ((row.tagsText || "") !== tagsText) {
+                    model.setProperty(i, "tagsText", tagsText);
+                    changed = true;
+                }
+                if (name !== "" && row.name !== name) {
+                    model.setProperty(i, "name", name);
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            dockWindow.wallpaperRevision++;
+            dockWindow.syncPickerFilter();
+        }
+    }
+
     // skwd's library, split the way the picker keeps it: stills in one list,
     // videos and Wallpaper Engine scenes (both moving) in the other.
     function applySkwdLibrary() {
+        // the jpg cut for each local file is what the cards should decode;
+        // run the folder cutter once per folder/library size
+        if (dockWindow.localThumbDir !== Prefs.wallpaperDir || dockWindow.localThumbItems !== SkwdWall.items.length)
+            localThumbScan.scan(Prefs.wallpaperDir, SkwdWall.items.length);
+
+        // The skwd rows carry no Wallhaven tags. Read the sidecars once per
+        // library size (or ten minutes), and merge them into the source rows.
+        if (!tagIndex.running && SkwdWall.items.length > 0
+                && (dockWindow.tagIndexDir !== Prefs.wallpaperDir
+                    || dockWindow.tagIndexCount !== SkwdWall.items.length
+                    || Date.now() - dockWindow.tagIndexAt > 600000)) {
+            dockWindow.tagIndexDir = Prefs.wallpaperDir;
+            dockWindow.tagIndexCount = SkwdWall.items.length;
+            dockWindow.tagIndexAt = Date.now();
+            tagIndex.running = true;
+        }
+
         // opening the picker again is not a library change: the 142-row split
         // it would rebuild is already in the two source models
         if (dockWindow.appliedSkwdItems === SkwdWall.items && SkwdWall.items.length > 0) {
@@ -2330,7 +2730,7 @@ PanelWindow {
             var row = {
                 "path": e.path,
                 "name": e.name,
-                "thumb": e.thumb,
+                "thumb": dockWindow.localThumbFor(e.path) || e.thumb,
                 "preview": e.preview || "",
                 "key": e.key || "",
                 "kind": e.kind || ""
@@ -2343,6 +2743,10 @@ PanelWindow {
         var changed = wallpaperScanner.fill(wallpapersModel, pictures);
         changed = wallpaperScanner.fill(liveModel, videos) || changed;
         dockWindow.appliedSkwdItems = SkwdWall.items;
+        // a rebuilt source list starts with empty tagsText; put the last
+        // sidecar map back before the picker copies are reconciled
+        if (Object.keys(dockWindow.tagIndexMap).length > 0)
+            dockWindow.applyTagIndex(dockWindow.tagIndexMap);
         dockWindow.syncPickerFilter();
         if (!changed && dockWindow.pickerQuery() === "")
             return ;
@@ -2496,14 +2900,16 @@ PanelWindow {
             for (let i = 0; i < source.count; i++) {
                 const e = source.get(i);
                 const name = e.name !== undefined && e.name !== "" ? e.name : dockWindow.wallpaperName(e.path);
-                if (query === "" || name.toLowerCase().indexOf(query) !== -1)
+                const tagsText = e.tagsText || "";
+                if (dockWindow.wallpaperMatches(name, tagsText, query, e.path))
                     wanted.push({
                     "path": e.path,
                     "name": name,
                     "thumb": e.thumb,
                     "preview": e.preview || "",
                     "key": e.key || "",
-                    "kind": e.kind || ""
+                    "kind": e.kind || "",
+                    "tagsText": tagsText
                 });
             }
             const keep = {};
@@ -2527,7 +2933,9 @@ PanelWindow {
                     if (at !== k)
                         shown.move(at, k, 1);
 
-                    if (shown.get(k).thumb !== wanted[k].thumb || shown.get(k).preview !== wanted[k].preview)
+                    if (shown.get(k).thumb !== wanted[k].thumb
+                            || shown.get(k).preview !== wanted[k].preview
+                            || (shown.get(k).tagsText || "") !== (wanted[k].tagsText || ""))
                         shown.set(k, wanted[k]);
 
                 }
@@ -2548,6 +2956,7 @@ PanelWindow {
                 "preview": e.preview || "",
                 "key": e.key || "",
                 "kind": e.kind || "",
+                "tagsText": e.tagsText || "",
                 "tab": "wallpaper"
             });
         }
@@ -2560,6 +2969,7 @@ PanelWindow {
                 "preview": e.preview || "",
                 "key": e.key || "",
                 "kind": e.kind || "",
+                "tagsText": e.tagsText || "",
                 "tab": "live"
             });
         }
@@ -2600,6 +3010,7 @@ PanelWindow {
                     "preview": e.preview || "",
                     "key": e.key || "",
                     "kind": e.kind || "static",
+                    "tagsText": e.tagsText || "",
                     "tab": e.kind === "steam" ? "live" : "wallpaper"
                 });
             }
@@ -2611,6 +3022,7 @@ PanelWindow {
                     "preview": "",
                     "key": "",
                     "kind": "more",
+                    "tagsText": "",
                     "tab": "wallpaper"
                 });
             // the fetching state occupies a card slot, not a floating pill:
@@ -2624,6 +3036,7 @@ PanelWindow {
                     "preview": "",
                     "key": "",
                     "kind": "status",
+                    "tagsText": "",
                     "tab": "wallpaper"
                 });
         }
@@ -2653,7 +3066,8 @@ PanelWindow {
 
                 const cur = filteredPickerModel.get(k);
                 if (cur.name !== flat[k].name || cur.thumb !== flat[k].thumb || cur.preview !== flat[k].preview
-                        || cur.kind !== flat[k].kind || cur.tab !== flat[k].tab)
+                        || cur.kind !== flat[k].kind || cur.tab !== flat[k].tab
+                        || (cur.tagsText || "") !== (flat[k].tagsText || ""))
                     filteredPickerModel.set(k, flat[k]);
 
             }
@@ -2664,6 +3078,26 @@ PanelWindow {
     // picture on the desktop. The strip's model re-attaches as the picker
     // fades in and a ListView starts at its first card again, so this runs
     // once more when it is actually showing.
+    function pickerIndexForApplied() {
+        const model = dockWindow.pickerModel;
+        const wants = [];
+        function add(p) {
+            if (p && p !== "" && wants.indexOf(p) === -1)
+                wants.push(p);
+        }
+        add(dockWindow.appliedWallpaper);
+        add(dockWindow.currentWallpaperPath());
+        add(SkwdWall.currentPath);
+        add(LiveWall.video);
+        for (let w = 0; w < wants.length; w++) {
+            for (let i = 0; i < model.count; i++) {
+                if (dockWindow.sameWallpaperPath(model.get(i).path, wants[w]))
+                    return i;
+            }
+        }
+        return -1;
+    }
+
     function selectPickerForDisplay() {
         if (!dockWindow.pickerMode || !dockWindow.launcherItem)
             return ;
@@ -2674,13 +3108,8 @@ PanelWindow {
 
         let idx = 0;
         if (dockWindow.pickerQuery() === "") {
-            const want = dockWindow.appliedWallpaper !== "" ? dockWindow.appliedWallpaper : wallpaperState.current;
-            for (let i = 0; i < model.count; i++) {
-                if (model.get(i).path === want) {
-                    idx = i;
-                    break;
-                }
-            }
+            const at = dockWindow.pickerIndexForApplied();
+            idx = at >= 0 ? at : 0;
         }
         const strip = dockWindow.launcherItem.wallStrip;
         dockWindow.pickerPlacePending = false;
@@ -2691,19 +3120,16 @@ PanelWindow {
     }
 
     function syncStripToCurrent(orFirst) {
-        const model = dockWindow.pickerModel;
         // wallpaperState.current is the palette sample for a scene/video, so
-        // prefer the exact path the picker applied or skwd reports.
-        const want = dockWindow.appliedWallpaper !== ""
-            ? dockWindow.appliedWallpaper : dockWindow.currentWallpaperPath();
-        for (let i = 0; i < model.count; i++) {
-            if (model.get(i).path === want) {
-                dockWindow.pickerPlacePending = false;
-                if (dockWindow.launcherItem)
-                    dockWindow.launcherItem.setWallpaperIndex(i);
+        // prefer the exact path the picker applied or skwd reports; the helper
+        // also tries the Workshop id and skwd's own current path.
+        const i = dockWindow.pickerIndexForApplied();
+        if (i >= 0) {
+            dockWindow.pickerPlacePending = false;
+            if (dockWindow.launcherItem)
+                dockWindow.launcherItem.setWallpaperIndex(i);
 
-                return;
-            }
+            return;
         }
         // not in this tab: the index left from the other one may not even exist here
         if (orFirst && dockWindow.launcherItem)
@@ -2767,18 +3193,11 @@ PanelWindow {
         // Delete in the picker is already deliberate. Settings' tile asks
         // first (its action goes straight to removeWorkshopItem), while the
         // picker key must not raise a dialog on a hidden Settings window.
-        // A Workshop item is unsubscribed by its id whichever path shape the
-        // row carries (a scene's skwd:we:<id>, or its video file in the Steam
-        // folder).
+        // A search result that was never downloaded has nothing local to remove.
         const workshopId = SkwdWall.workshopIdFor(path);
         if (workshopId !== "") {
-            if (workshopRemove.running)
+            if (workshopRemove.running || !SkwdWall.entryForPath(path))
                 return ;
-            // Resolve the id from the path itself rather than requiring an
-            // exact SkwdWall.items match: a scene's picker row can be the
-            // skwd:we:<id> form while the library row is its video file (or
-            // the other way round), and that mismatch used to make Delete a
-            // silent no-op for Wallpaper Engine items.
             dockWindow.removeWorkshopItem(workshopId);
             return ;
         }
@@ -2890,7 +3309,8 @@ PanelWindow {
             "thumb": rec.thumb,
             "preview": rec.preview || "",
             "key": rec.key || "",
-            "kind": rec.kind || ""
+            "kind": rec.kind || "",
+            "tagsText": rec.tagsText || ""
         });
         dockWindow.wallpaperRevision++;
         return index;
@@ -3268,6 +3688,7 @@ PanelWindow {
         if (Prefs.loaded)
             wallpaperScanner.scan(false);
 
+        launcherWarmTimer.start();
         dockWindow.seam = dockWindow.splitWanted ? 1 : 0;
     }
 
@@ -3495,11 +3916,7 @@ PanelWindow {
             const idx = strip ? strip.currentIndex : -1;
             const model = dockWindow.pickerModel;
             const path = model && idx >= 0 && idx < model.count ? model.get(idx).path : "";
-            let found = -1;
-            for (let i = 0; model && i < model.count; i++) {
-                if (model.get(i).path === dockWindow.appliedWallpaper)
-                    found = i;
-            }
+            const found = dockWindow.pickerIndexForApplied();
             return JSON.stringify({
                 "found": found,
                 "mode": dockWindow.mode,
@@ -3762,10 +4179,6 @@ PanelWindow {
     }
 
     ListModel {
-        id: emojiGridModel
-    }
-
-    ListModel {
         id: resultsModel
     }
 
@@ -3826,9 +4239,41 @@ PanelWindow {
             } catch (e) {
                 dockWindow.emojiList = [];
             }
-            if (dockWindow.mode === "emoji")
-                dockWindow.rebuildResults();
+            dockWindow.rebuildEmojiData();
 
+        }
+    }
+
+    // The service writes this on its own schedule; the launcher treats it as a
+    // cache and can always keep showing the previous inventory.
+    FileView {
+        id: serverEmojiFile
+
+        path: dockWindow.emojiWanted ? dockWindow.serverEmojiPath : ""
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            dockWindow.consumeServerEmoji(serverEmojiFile.text());
+            dockWindow.ensureServerEmoji();
+        }
+        onLoadFailed: dockWindow.ensureServerEmoji(true)
+    }
+
+    Process {
+        id: serverEmojiProc
+
+        running: false
+        command: []
+
+        onExited: (code) => {
+            dockWindow.serverEmojiLoading = false;
+            if (code === 0) {
+                dockWindow.serverEmojiFailedAt = 0;
+                serverEmojiFile.reload();
+            } else {
+                dockWindow.serverEmojiFailedAt = Date.now();
+            }
         }
     }
 
@@ -3868,12 +4313,13 @@ PanelWindow {
 
         path: Qt.resolvedUrl("./usage.json")
         blockLoading: true
-        onAdapterUpdated: writeAdapter()
+        watchChanges: true
 
         adapter: JsonAdapter {
             id: usageAdapter
 
             property var counts: ({})
+            property var emojiCounts: ({})
         }
 
     }
@@ -3946,9 +4392,6 @@ PanelWindow {
     Process {
         id: appScanner
 
-        // Scan at startup instead of waiting for the first 20 s tick: a PWA
-        // installed before login has no entry in the launcher otherwise.
-        running: true
         command: ["sh", "-c", "for d in \"$HOME/.local/share/applications\" \"$HOME/.local/share/flatpak/exports/share/applications\" /var/lib/flatpak/exports/share/applications /usr/local/share/applications /usr/share/applications /var/lib/snapd/desktop/applications; do [ -d \"$d\" ] && find \"$d\" -maxdepth 1 -name '*.desktop' -print0; done | awk -v RS='\\0' -F/ '!seen[$NF]++ { printf \"%s%c\", $0, 0 }' | xargs -0 -r awk -v de=\"${XDG_CURRENT_DESKTOP:-Hyprland}\" 'function clean(v) { gsub(/\\|/, \" \", v); gsub(/\\r/, \"\", v); return v } function inde(l,   i, j, n, m, a, b) { n = split(l, a, \";\"); m = split(de, b, \":\"); for (i = 1; i <= n; i++) { if (a[i] == \"\") continue; for (j = 1; j <= m; j++) if (a[i] == b[j]) return 1 } return 0 } function flush(   n, e, ids, na, k, id, ae, al) { n = clean(name); e = clean(ex); if (nodisp || hidden) return; if (type != \"\" && type != \"Application\") return; if (only != \"\" && !inde(only)) return; if (notin != \"\" && inde(notin)) return; if (n == \"\" || e == \"\") return; gsub(/ ?%[a-zA-Z]/, \"\", e); sub(/[ \\t]+$/, \"\", e); if (term == \"true\") e = \"kitty -e \" e; al = \"\"; na = split(actlist, ids, \";\"); for (k = 1; k <= na; k++) { id = ids[k]; if (id == \"\" || !(id in AN) || !(id in AE)) continue; ae = clean(AE[id]); gsub(/ ?%[a-zA-Z]/, \"\", ae); sub(/[ \\t]+$/, \"\", ae); if (ae == \"\") continue; if (term == \"true\") ae = \"kitty -e \" ae; al = al (al == \"\" ? \"\" : \"\\036\") clean(AN[id]) \"\\037\" ae } print n \"|\" clean(icon) \"|\" clean(kw \" \" gen \" \" com \" \" cats) \"|\" e \"|\" clean(wm) \"|\" base \"|\" al \"|\" clean(com != \"\" ? com : gen) } BEGINFILE { name=\"\"; icon=\"\"; ex=\"\"; kw=\"\"; gen=\"\"; com=\"\"; cats=\"\"; wm=\"\"; type=\"\"; term=\"\"; only=\"\"; notin=\"\"; nodisp=0; hidden=0; insec=0; actlist=\"\"; act=\"\"; delete AN; delete AE; base=FILENAME; sub(/.*\\//, \"\", base); sub(/\\.desktop$/, \"\", base) } /^[ \\t]*\\[/ { insec = ($0 ~ /^\\[Desktop Entry\\]/) ? 1 : 0; act = \"\"; if ($0 ~ /^\\[Desktop Action /) { act = $0; sub(/^\\[Desktop Action /, \"\", act); sub(/\\].*$/, \"\", act) } next } act != \"\" && /^Name=/ { if (!(act in AN)) AN[act] = substr($0, 6); next } act != \"\" && /^Exec=/ { if (!(act in AE)) AE[act] = substr($0, 6); next } !insec { next } /^Actions=/ { if (actlist == \"\") actlist = substr($0, 9) } /^Name=/ { if (name == \"\") name = substr($0, 6) } /^Icon=/ { if (icon == \"\") icon = substr($0, 6) } /^Exec=/ { if (ex == \"\") ex = substr($0, 6) } /^Keywords=/ { if (kw == \"\") { kw = substr($0, 10); gsub(/;/, \" \", kw) } } /^GenericName=/ { if (gen == \"\") gen = substr($0, 13) } /^Comment=/ { if (com == \"\") com = substr($0, 9) } /^Categories=/ { if (cats == \"\") { cats = substr($0, 12); gsub(/;/, \" \", cats) } } /^StartupWMClass=/ { if (wm == \"\") wm = substr($0, 16) } /^Type=/ { if (type == \"\") type = substr($0, 6) } /^Terminal=/ { if (term == \"\") term = substr($0, 10) } /^OnlyShowIn=/ { if (only == \"\") only = substr($0, 12) } /^NotShowIn=/ { if (notin == \"\") notin = substr($0, 11) } /^NoDisplay=true/ { nodisp = 1 } /^Hidden=true/ { hidden = 1 } ENDFILE { flush() }'"]
 
         stdout: StdioCollector {
@@ -4248,6 +4691,83 @@ PanelWindow {
         }
     }
 
+    // The jpg thumbnail index for the folder. When skwd owns the library its
+    // rows carry WebP cuts Qt cannot read, so this runs on the same folder to
+    // merge a decodable 680x422 jpg over every local path. The script returns
+    // in ~0.16 s for 232 files and spawns only the missing cuts in the
+    // background; it is started only when the folder or library size changes.
+    Process {
+        id: localThumbScan
+
+        property string dir: ""
+        property int items: -1
+        property bool again: false
+        readonly property string script: Qt.resolvedUrl("./wallpaper-thumbs.sh").toString().replace("file://", "")
+
+        function scan(folder, itemCount) {
+            if (folder === "")
+                return ;
+            localThumbScan.dir = folder;
+            localThumbScan.items = itemCount;
+            if (localThumbScan.running) {
+                localThumbScan.again = true;
+                return ;
+            }
+            localThumbScan.command = [localThumbScan.script, folder].concat(Prefs.liveWallpapers ? ["live"] : []);
+            localThumbScan.running = true;
+        }
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var map = {};
+                var lines = text.split("\n");
+                for (var i = 0; i < lines.length; i++) {
+                    var cols = lines[i].split("\t");
+                    if (cols.length > 1 && cols[0].trim() !== "" && cols[1].trim() !== "")
+                        map[cols[0].trim()] = cols[1].trim();
+                }
+                dockWindow.localThumbPaths = map;
+                dockWindow.localThumbDir = localThumbScan.dir;
+                dockWindow.localThumbItems = localThumbScan.items;
+                dockWindow.applyLocalThumbs();
+            }
+        }
+
+        onExited: {
+            if (!localThumbScan.again)
+                return ;
+            localThumbScan.again = false;
+            localThumbScan.scan(localThumbScan.dir, localThumbScan.items);
+        }
+    }
+
+    // Wallhaven sidecars for the local images: one JSON line per image with
+    // tag metadata. Started once per folder/library size, never per keystroke.
+    Process {
+        id: tagIndex
+
+        running: false
+        command: ["bash", Qt.resolvedUrl("./wallhaven-tag-index.sh").toString().replace("file://", ""), Prefs.wallpaperDir]
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var map = {};
+                var lines = String(this.text || "").split("\n");
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim();
+                    if (line === "")
+                        continue;
+                    try {
+                        var entry = JSON.parse(line);
+                        if (entry && entry.path)
+                            map[entry.path] = entry;
+                    } catch (error) {}
+                }
+                dockWindow.applyTagIndex(map);
+            }
+        }
+    }
+
     Process {
         id: wallpaperScanner
 
@@ -4314,6 +4834,13 @@ PanelWindow {
                         model.setProperty(m, "preview", rows[m].preview || "");
                         touched = true;
                     }
+                    // a source row without a tag field (skwd's listing) must not
+                    // erase tags the sidecar index already merged in
+                    if (rows[m].tagsText !== undefined
+                            && (model.get(m).tagsText || "") !== (rows[m].tagsText || "")) {
+                        model.setProperty(m, "tagsText", rows[m].tagsText || "");
+                        touched = true;
+                    }
                 }
                 if (touched)
                     dockWindow.wallpaperRevision++;
@@ -4330,7 +4857,8 @@ PanelWindow {
                     "thumb": rows[r].thumb,
                     "preview": rows[r].preview || "",
                     "key": rows[r].key || "",
-                    "kind": rows[r].kind || ""
+                    "kind": rows[r].kind || "",
+                    "tagsText": rows[r].tagsText || ""
                 });
             }
             dockWindow.wallpaperRevision++;
@@ -4347,13 +4875,26 @@ PanelWindow {
                 for (var i = 0; i < lines.length; i++) {
                     var cols = lines[i].split("\t");
                     var p = cols[0].trim();
-                    if (p !== "")
+                    if (p !== "") {
+                        var tagsText = "";
+                        if (cols.length > 5) {
+                            try {
+                                var tags = JSON.parse(cols[5]);
+                                if (Array.isArray(tags))
+                                    tagsText = tags.join(", ");
+                            } catch (error) {
+                                tagsText = "";
+                            }
+                        }
                         (cols.length > 2 && cols[2].trim() === "video" ? videos : pictures).push({
-                        "path": p,
-                        "thumb": cols.length > 1 ? cols[1].trim() : "",
-                        "preview": cols.length > 3 ? cols[3].trim() : "",
-                        "kind": cols.length > 2 && cols[2].trim() === "video" ? "video" : "static"
-                    });
+                            "path": p,
+                            "name": cols.length > 4 ? cols[4].trim() : "",
+                            "thumb": cols.length > 1 ? cols[1].trim() : "",
+                            "preview": cols.length > 3 ? cols[3].trim() : "",
+                            "kind": cols.length > 2 && cols[2].trim() === "video" ? "video" : "static",
+                            "tagsText": tagsText
+                        });
+                    }
 
                 }
                 var changed = wallpaperScanner.fill(wallpapersModel, pictures);
@@ -4740,7 +5281,7 @@ PanelWindow {
                 DockItem {
                     id: launcherItem
 
-                    displayName: "Launcher"
+                    displayName: Tr.t("Launcher")
                     isToggle: true
                     pointerInside: dockWindow.pointerOnDock
                     toggleActive: dockWindow.menuOpen
@@ -5004,7 +5545,7 @@ PanelWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: Theme.dp(8)
-            text: "dock surface headroom - " + Math.round(parent.width) + " x " + Math.round(parent.height) + " transparent" + (dockWindow.dragging ? " (INPUT LIVE: dragging)" : ", input masked out")
+            text: Tr.t("dock surface headroom - ") + Math.round(parent.width) + Tr.t(" x ") + Math.round(parent.height) + Tr.t(" transparent") + (dockWindow.dragging ? Tr.t(" (INPUT LIVE: dragging)") : Tr.t(", input masked out"))
             color: "#cc80d8ff"
             font.pixelSize: Theme.dp(12)
             font.variableAxes: Theme.axes(12, 420, 0)
@@ -5105,10 +5646,19 @@ PanelWindow {
 
     }
 
-    // the tile a launcher app will fill, held invisibly from the moment the
-    // icon is picked until the app's first window maps
-    LaunchGhost {
-        id: launchGhost
+    // one tile per pool member, so opening several windows in quick succession
+    // does not make each wait for the previous reveal to finish
+    readonly property int launchGhostCount: 6
+
+    Repeater {
+        model: dockWindow.launchGhostCount
+
+        delegate: LaunchGhost {
+            slot: index
+
+            Component.onCompleted: Launch.addGhost(this)
+            Component.onDestruction: Launch.removeGhost(this)
+        }
     }
 
 }

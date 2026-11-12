@@ -37,8 +37,13 @@ eval $UDEV_CMD 2>/dev/null | while read -r line; do
     hyprctl reload >/dev/null 2>&1 || echo "hyprctl reload failed" | tee -a "$LOG"
     echo "[$(date '+%F %T')] hyprctl reload done after hotplug" | tee -a "$LOG"
     # Also ensure qs is still running (quickshell workspace pill)
-    if ! pgrep -x qs >/dev/null 2>&1; then
-      nohup qs >/tmp/qs_hotplug.log 2>&1 &
+    # Use the same anchored check as the hyprland.lua watchdog: the service
+    # runs /usr/bin/qs, while a raw `qs` fallback does not match, which used
+    # to leave two shells (and two BlueZ adapters) alive at once.
+    if ! pgrep -f '^/usr/bin/qs$' >/dev/null 2>&1; then
+      if ! systemctl --user restart quickshell.service >/dev/null 2>&1; then
+        nohup /usr/bin/qs >/tmp/qs_hotplug.log 2>&1 &
+      fi
       echo "[$(date '+%F %T')] qs restarted" | tee -a "$LOG"
     fi
   fi

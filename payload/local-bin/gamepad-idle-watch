@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Stamp gamepad activity so hypridle can treat a controller like a keypress.
+
+Gamepad events go straight to the kernel and never reach Hyprland's libinput
+idle timer, so hypridle thinks you walked away while you are still playing.
+This watcher reads /dev/input/js* (joydev) and refreshes a tiny timestamp file.
+hypridle's generated config uses gamepad-idle-check as its condition_cmd, which
+defers every idle step while that timestamp is fresh.
+
+joydev is deliberate: a game (or Steam Input) can EVIOCGRAB an evdev node and
+hide it from other readers, but joydev keeps delivering events to everyone.
+"""
+
+import fcntl
+import glob
+import json
+import os
+import select
+import shutil
+import signal
+import struct
+import subprocess
+import sys
+import time
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+STATE = os.path.join(RUNTIME, "gamepad-idle-activity")
+LOCK = os.path.join(RUNTIME, "gamepad-idle-watch.lock")
+
+JS_EVENT = struct.Struct("=IhBB")
+JS_EVENT_BUTTON = 0x01
+JS_EVENT_AXIS = 0x02
+JS_EVENT_INIT = 0x80
+
+SCAN_INTERVAL = 2.0      # pick up controllers plugged in after startup
+POLL_INTERVAL = 0.2      # how long one select() may block
+HOLD_REFRESH = 2.0       # keep the stamp warm while a button/stick is held
+WAKE_CHECK_INTERVAL = 3.0
+AXIS_THRESHOLD = int(65534 * 0.10)  # ignore joystick drift, 10% of full travel
+
+_running = True
+
+
+def log(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def stop(_signum, _frame):
+    global _running
+    _running = False
+
+
+def touch():
+    """Create/refresh the state file hypridle's condition command reads."""
+    try:
+        fd = os.open(STATE, os.O_CREAT | os.O_WRONLY, 0o600)
+        os.close(fd)
+        os.utime(STATE, None)
+    except OSError:
+        pass
+
+
+def hypr_env():
+    env = os.environ.copy()
+    if not env.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        for path in glob.glob(os.path.join(RUNTIME, "hypr", "*", ".socket.sock")):
+            env["HYPRLAND_INSTANCE_SIGNATURE"] = os.path.basename(
+                os.path.dirname(path)
+            )
+            break
+    return env
+
+
+def wake_screen():
+    """Undo a sleep hypridle already performed before the gamepad was touched."""
+    env = hypr_env()
+    try:
+        out = subprocess.run(
+            ["hyprctl", "monitors", "-j"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            env=env,
+        )
+        monitors = json.loads(out.stdout) if out.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return
+
+    if not monitors or all(m.get("dpmsStatus", True) for m in monitors):
+        return
+
+    try:
+        subprocess.run(
+            ["hyprctl", "dispatch", 'hl.dsp.dpms({action = "on"})'],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            env=env,
+        )
+        # hypridle would normally restore this from its on-resume.
+        if shutil.which("brightnessctl"):
+            subprocess.run(
+                ["brightnessctl", "-r"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                env=env,
+            )
+        log("screen was off, turned it back on")
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+class Device:
+    __slots__ = ("fd", "path", "axes", "buttons")
+
+    def __init__(self, path, fd):
+        self.fd = fd
+        self.path = path
+        # axis -> (last value, rest value); rest comes from the init event
+        self.axes = {}
+        self.buttons = {}
+
+
+def open_device(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError as e:
+        log(f"cannot open {path}: {e}")
+        return None
+    return Device(path, fd)
+
+
+def close_device(dev):
+    try:
+        os.close(dev.fd)
+    except OSError:
+        pass
+
+
+def drain(dev):
+    """Read and account all queued events. Returns False when the node is gone."""
+    changed = False
+    active = False
+    while True:
+        try:
+            data = os.read(dev.fd, JS_EVENT.size * 64)
+        except BlockingIOError:
+            break
+        except OSError:
+            return False, changed
+        if not data:
+            break
+
+        for off in range(0, len(data) - JS_EVENT.size + 1, JS_EVENT.size):
+            _t, value, etype, number = JS_EVENT.unpack_from(data, off)
+            initial = bool(etype & JS_EVENT_INIT)
+            etype &= ~JS_EVENT_INIT
+
+            if etype == JS_EVENT_AXIS:
+                old = dev.axes.get(number)
+                rest = old[1] if old else value
+                dev.axes[number] = (value, rest)
+                deflected = abs(value - rest) > AXIS_THRESHOLD
+                if deflected and not initial:
+                    changed = True
+                if deflected:
+                    active = True
+            elif etype == JS_EVENT_BUTTON:
+                dev.buttons[number] = value
+                if not initial:
+                    changed = True
+                if value:
+                    active = True
+
+    return True, changed or active
+
+
+def held(devices):
+    for dev in devices.values():
+        if any(dev.buttons.values()):
+            return True
+        for value, rest in dev.axes.values():
+            if abs(value - rest) > AXIS_THRESHOLD:
+                return True
+    return False
+
+
+def main():
+    lock_fd = os.open(LOCK, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log("another gamepad-idle-watch is already running")
+        return 0
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    devices = {}
+    last_scan = 0.0
+    last_touch = 0.0
+    last_wake = 0.0
+
+    while _running:
+        # Hotplug: controllers come and go (including Steam's virtual pad).
+        now = time.monotonic()
+        if now - last_scan >= SCAN_INTERVAL:
+            last_scan = now
+            present = set(glob.glob("/dev/input/js*"))
+            for path in list(devices):
+                if path not in present:
+                    close_device(devices.pop(path))
+            for path in present:
+                if path not in devices:
+                    dev = open_device(path)
+                    if dev is not None:
+                        # The init burst is handled by drain(): it records rest
+                        # positions without being mistaken for new activity.
+                        devices[path] = dev
+                        log(f"watching {path}")
+
+        if not devices:
+            time.sleep(POLL_INTERVAL)
+            continue
+
+        poller = select.poll()
+        for dev in devices.values():
+            poller.register(dev.fd, select.POLLIN)
+
+        for fd, _events in poller.poll(int(POLL_INTERVAL * 1000)):
+            dev = next((d for d in devices.values() if d.fd == fd), None)
+            if dev is None:
+                continue
+            ok, changed = drain(dev)
+            if not ok:
+                close_device(devices.pop(dev.path, dev))
+                continue
+            if changed:
+                now = time.monotonic()
+                touch()
+                last_touch = now
+                if now - last_wake >= WAKE_CHECK_INTERVAL:
+                    last_wake = now
+                    wake_screen()
+
+        # A held trigger/stick is still use, even though it emits no new events.
+        now = time.monotonic()
+        if held(devices) and now - last_touch >= HOLD_REFRESH:
+            touch()
+            last_touch = now
+            if now - last_wake >= WAKE_CHECK_INTERVAL:
+                last_wake = now
+                wake_screen()
+
+    for dev in devices.values():
+        close_device(dev)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

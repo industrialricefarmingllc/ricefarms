@@ -43,14 +43,14 @@ Column {
     }
 
     SettingCard {
-        title: "POPUPS"
+        title: Tr.t("POPUPS")
 
         SettingRow {
-            title: "Show popups"
+            title: Tr.t("Show popups")
             resetKey: "toastEnabled"
             enabled: Prefs.barNotifications
             disabledReason: "Notifications are switched off, so nothing is shown or collected."
-            description: "Slide a notification out of the bar as it arrives. With this off they go straight to the list."
+            description: Tr.t("Slide a notification out of the bar as it arrives. With this off they go straight to the list.")
 
             M3Switch {
                 checked: Prefs.toastEnabled
@@ -63,11 +63,11 @@ Column {
         }
 
         SettingRow {
-            title: "How many at once"
+            title: Tr.t("How many at once")
             resetKey: "toastMaxVisible"
             enabled: Prefs.barNotifications && Prefs.toastEnabled
             disabledReason: "Popups are switched off."
-            description: "A burst of notifications stacks under the bar. Anything past this waits in the list instead."
+            description: Tr.t("A burst of notifications stacks under the bar. Anything past this waits in the list instead.")
             stacked: true
 
             M3Slider {
@@ -85,11 +85,11 @@ Column {
         }
 
         SettingRow {
-            title: "How long one stays"
+            title: Tr.t("How long one stays")
             resetKey: "toastTimeout"
             enabled: Prefs.barNotifications && Prefs.toastEnabled
             disabledReason: "Popups are switched off."
-            description: "The time a popup is left on screen when the application does not ask for something else."
+            description: Tr.t("The time a popup is left on screen when the application does not ask for something else.")
             stacked: true
 
             M3Slider {
@@ -108,11 +108,11 @@ Column {
         }
 
         SettingRow {
-            title: "Let applications set their own"
+            title: Tr.t("Let applications set their own")
             resetKey: "toastUseAppTimeout"
             enabled: Prefs.barNotifications && Prefs.toastEnabled
             disabledReason: "Popups are switched off."
-            description: "Most applications name a duration when they send a notification. Turn this off to give every popup the same time above."
+            description: Tr.t("Most applications name a duration when they send a notification. Turn this off to give every popup the same time above.")
 
             M3Switch {
                 checked: Prefs.toastUseAppTimeout
@@ -125,11 +125,11 @@ Column {
         }
 
         SettingRow {
-            title: "Keep urgent ones up"
+            title: Tr.t("Keep urgent ones up")
             resetKey: "toastCriticalSticky"
             enabled: Prefs.barNotifications && Prefs.toastEnabled
             disabledReason: "Popups are switched off."
-            description: "A notification marked urgent — a low battery, a failed backup — waits for you instead of timing out."
+            description: Tr.t("A notification marked urgent — a low battery, a failed backup — waits for you instead of timing out.")
 
             M3Switch {
                 checked: Prefs.toastCriticalSticky
@@ -142,11 +142,11 @@ Column {
         }
 
         SettingRow {
-            title: "Show the message"
+            title: Tr.t("Show the message")
             resetKey: "toastShowBody"
             enabled: Prefs.barNotifications && Prefs.toastEnabled
             disabledReason: "Popups are switched off."
-            description: "With this off a popup carries the title alone, and the body waits in the list."
+            description: Tr.t("With this off a popup carries the title alone, and the body waits in the list.")
 
             M3Switch {
                 checked: Prefs.toastShowBody
@@ -159,11 +159,11 @@ Column {
         }
 
         SettingRow {
-            title: "Lines of message"
+            title: Tr.t("Lines of message")
             resetKey: "toastBodyLines"
             enabled: Prefs.barNotifications && Prefs.toastEnabled && Prefs.toastShowBody
             disabledReason: "The message body is hidden."
-            description: "How far a long message is allowed to run before it is cut short."
+            description: Tr.t("How far a long message is allowed to run before it is cut short.")
             stacked: true
 
             M3Slider {
@@ -181,11 +181,11 @@ Column {
         }
 
         SettingRow {
-            title: "Show buttons"
+            title: Tr.t("Show buttons")
             resetKey: "toastShowActions"
             enabled: Prefs.barNotifications && Prefs.toastEnabled
             disabledReason: "Popups are switched off."
-            description: "Reply, Open, Snooze — whatever the application offers, on the popup itself. They are always in the list."
+            description: Tr.t("Reply, Open, Snooze — whatever the application offers, on the popup itself. They are always in the list.")
 
             M3Switch {
                 checked: Prefs.toastShowActions
@@ -198,11 +198,11 @@ Column {
         }
 
         SettingRow {
-            title: "Reply without switching"
+            title: Tr.t("Reply without switching")
             resetKey: "notifInlineReply"
             enabled: Prefs.barNotifications
             disabledReason: "Notifications are switched off, so nothing is shown or collected."
-            description: "Chat applications that support it get a message box on the notification itself, so you can answer without leaving what you are doing."
+            description: Tr.t("Chat applications that support it get a message box on the notification itself, so you can answer without leaving what you are doing.")
             showDivider: false
 
             M3Switch {
@@ -218,12 +218,12 @@ Column {
     }
 
     SettingCard {
-        title: "DO NOT DISTURB"
+        title: Tr.t("DO NOT DISTURB")
 
         SettingRow {
-            title: "Do not disturb"
+            title: Tr.t("Do not disturb")
             resetKey: "doNotDisturb"
-            description: "No popups and no sound. Everything is still collected in the list, and the bell in the bar turns to a moon."
+            description: Tr.t("No popups and no sound. Everything is still collected in the list, and the bell in the bar turns to a moon.")
 
             M3Switch {
                 checked: Prefs.doNotDisturb
@@ -235,9 +235,9 @@ Column {
         }
 
         SettingRow {
-            title: "Let urgent ones through"
+            title: Tr.t("Let urgent ones through")
             resetKey: "dndAllowCritical"
-            description: "Notifications marked urgent still appear while you are silenced, however you were silenced."
+            description: Tr.t("Notifications marked urgent still appear while you are silenced, however you were silenced.")
 
             M3Switch {
                 checked: Prefs.dndAllowCritical
@@ -249,9 +249,9 @@ Column {
         }
 
         SettingRow {
-            title: "Silence over a fullscreen window"
+            title: Tr.t("Silence over a fullscreen window")
             resetKey: "dndFullscreen"
-            description: "Films and games are left alone. The notifications wait in the list for you."
+            description: Tr.t("Films and games are left alone. The notifications wait in the list for you.")
 
             M3Switch {
                 checked: Prefs.dndFullscreen
@@ -263,7 +263,7 @@ Column {
         }
 
         SettingRow {
-            title: "Quiet hours"
+            title: Tr.t("Quiet hours")
             resetKey: "quietHours"
             description: page.quietDescription
 
@@ -277,10 +277,10 @@ Column {
         }
 
         SettingRow {
-            title: "Between"
+            title: Tr.t("Between")
             enabled: Prefs.quietHours
             disabledReason: "Quiet hours are switched off."
-            description: "Written as 22:00. An end earlier than the start runs through midnight."
+            description: Tr.t("Written as 22:00. An end earlier than the start runs through midnight.")
             showDivider: false
 
             Row {
@@ -304,7 +304,7 @@ Column {
 
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "to"
+                    text: Tr.t("to")
                     color: Theme.subtext
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontBody
@@ -335,12 +335,12 @@ Column {
     }
 
     SettingCard {
-        title: "SOUND"
+        title: Tr.t("SOUND")
 
         SettingRow {
-            title: "Play a sound"
+            title: Tr.t("Play a sound")
             resetKey: "notifSound"
-            description: "A short chime as a notification arrives. Nothing plays while you are silenced."
+            description: Tr.t("A short chime as a notification arrives. Nothing plays while you are silenced.")
 
             M3Switch {
                 checked: Prefs.notifSound
@@ -352,11 +352,11 @@ Column {
         }
 
         SettingRow {
-            title: "Which sound"
+            title: Tr.t("Which sound")
             resetKey: "notifSoundName"
             enabled: Prefs.notifSound
             disabledReason: "Sound is switched off."
-            description: "Lucid's own set. Picking one plays it."
+            description: Tr.t("The terminal bell or one of Lucid's own chimes. Picking one plays it.")
             stacked: true
 
             Row {
@@ -377,7 +377,7 @@ Column {
                 M3Button {
                     id: playSound
 
-                    text: "Play"
+                    text: Tr.t("Play")
                     variant: "tonal"
                     enabled: Prefs.notifSound
                     onClicked: Sounds.play(Sounds.notifKey(Prefs.notifSoundName), Prefs.notifSoundVolume)
@@ -388,11 +388,11 @@ Column {
         }
 
         SettingRow {
-            title: "Volume"
+            title: Tr.t("Volume")
             resetKey: "notifSoundVolume"
             enabled: Prefs.notifSound
             disabledReason: "Sound is switched off."
-            description: "Relative to whatever the notification sink is set to."
+            description: Tr.t("Relative to whatever the notification sink is set to.")
             stacked: true
 
             M3Slider {
@@ -411,11 +411,11 @@ Column {
         }
 
         SettingRow {
-            title: "Only for urgent ones"
+            title: Tr.t("Only for urgent ones")
             resetKey: "notifSoundUrgentOnly"
             enabled: Prefs.notifSound
             disabledReason: "Sound is switched off."
-            description: "Stay quiet for the ordinary traffic and speak up only for what is marked urgent."
+            description: Tr.t("Stay quiet for the ordinary traffic and speak up only for what is marked urgent.")
             showDivider: false
 
             M3Switch {
@@ -431,12 +431,12 @@ Column {
     }
 
     SettingCard {
-        title: "THE LIST"
+        title: Tr.t("THE LIST")
 
         SettingRow {
-            title: "Show application icons"
+            title: Tr.t("Show application icons")
             resetKey: "notifShowIcons"
-            description: "The sending application's icon beside each notification, in the list and on the popup."
+            description: Tr.t("The sending application's icon beside each notification, in the list and on the popup.")
 
             M3Switch {
                 checked: Prefs.notifShowIcons
@@ -448,9 +448,9 @@ Column {
         }
 
         SettingRow {
-            title: "Group by application"
+            title: Tr.t("Group by application")
             resetKey: "notifGrouping"
-            description: "One application's notifications collapse into a single stack you can open, instead of filling the list one by one."
+            description: Tr.t("One application's notifications collapse into a single stack you can open, instead of filling the list one by one.")
 
             M3Switch {
                 checked: Prefs.notifGrouping
@@ -462,9 +462,9 @@ Column {
         }
 
         SettingRow {
-            title: "Show times"
+            title: Tr.t("Show times")
             resetKey: "notifTimestamps"
-            description: "How long ago each one arrived, beside the application's name, and a heading splitting new ones from the rest."
+            description: Tr.t("How long ago each one arrived, beside the application's name, and a heading splitting new ones from the rest.")
 
             M3Switch {
                 checked: Prefs.notifTimestamps
@@ -476,9 +476,9 @@ Column {
         }
 
         SettingRow {
-            title: "Show progress"
+            title: Tr.t("Show progress")
             resetKey: "notifProgress"
-            description: "File copies, downloads and transfers report how far along they are. This draws it as a bar that fills in place."
+            description: Tr.t("File copies, downloads and transfers report how far along they are. This draws it as a bar that fills in place.")
 
             M3Switch {
                 checked: Prefs.notifProgress
@@ -490,9 +490,9 @@ Column {
         }
 
         SettingRow {
-            title: "Keep at most"
+            title: Tr.t("Keep at most")
             resetKey: "notifMaxHistory"
-            description: "Once the list is this long the oldest notification drops off the end as a new one arrives."
+            description: Tr.t("Once the list is this long the oldest notification drops off the end as a new one arrives.")
             stacked: true
 
             M3Slider {
@@ -509,8 +509,8 @@ Column {
         }
 
         SettingRow {
-            title: "Clear the list"
-            description: "Dismisses everything the shell is holding right now. The applications are not told anything else."
+            title: Tr.t("Clear the list")
+            description: Tr.t("Dismisses everything the shell is holding right now. The applications are not told anything else.")
             showDivider: false
 
             M3Button {
@@ -525,11 +525,11 @@ Column {
     }
 
     SettingCard {
-        title: "APPLICATIONS"
+        title: Tr.t("APPLICATIONS")
 
         SettingRow {
-            title: "Muted applications"
-            description: page.appList.length === 0 ? "Nothing has sent a notification yet. Once something does it is listed here to mute." : "A muted application's notifications are turned away as they arrive — no popup, no sound, nothing in the list."
+            title: Tr.t("Muted applications")
+            description: page.appList.length === 0 ? Tr.t("Nothing has sent a notification yet. Once something does it is listed here to mute.") : Tr.t("A muted application's notifications are turned away as they arrive — no popup, no sound, nothing in the list.")
             stacked: true
             showDivider: page.appList.length > 0
 
@@ -556,15 +556,15 @@ Column {
         }
 
         SettingRow {
-            title: "Mute one by name"
-            description: "Use the name the application gives itself, spelled the same way. Press Enter to add it."
+            title: Tr.t("Mute one by name")
+            description: Tr.t("Use the name the application gives itself, spelled the same way. Press Enter to add it.")
             showDivider: Prefs.notifSeenApps !== ""
 
             M3TextField {
                 id: muteField
 
                 width: Theme.dp(260)
-                placeholder: "Spotify"
+                placeholder: Tr.t("Spotify")
                 onAccepted: (v) => {
                     var name = v.trim();
                     if (name !== "") {
@@ -578,13 +578,13 @@ Column {
         }
 
         SettingRow {
-            title: "Forget the list"
+            title: Tr.t("Forget the list")
             visible: Prefs.notifSeenApps !== ""
-            description: "Empties the roll of applications seen above. Whatever you muted stays muted, and anything that sends a notification is listed again."
+            description: Tr.t("Empties the roll of applications seen above. Whatever you muted stays muted, and anything that sends a notification is listed again.")
             showDivider: false
 
             M3Button {
-                text: "Forget"
+                text: Tr.t("Forget")
                 variant: "text"
                 onClicked: Prefs.notifSeenApps = ""
             }
@@ -594,12 +594,12 @@ Column {
     }
 
     SettingCard {
-        title: "SYSTEM EVENTS"
+        title: Tr.t("SYSTEM EVENTS")
 
         SettingRow {
-            title: "Keyboard layout"
+            title: Tr.t("Keyboard layout")
             resetKey: "toastOnLayout"
-            description: "A small toast at the top of the screen with the layout you switched to."
+            description: Tr.t("A small toast at the top of the screen with the layout you switched to.")
 
             M3Switch {
                 checked: Prefs.toastOnLayout
@@ -611,11 +611,11 @@ Column {
         }
 
         SettingRow {
-            title: "Game mode"
+            title: Tr.t("Game mode")
             resetKey: "toastOnGameMode"
             enabled: Prefs.gameModeStateFile !== ""
             disabledReason: "Game mode is noticed by watching the file its status command checks. Set the status command under Bar → System module to something like test -f /run/gamemode.state."
-            description: "When game mode turns on or off - from the tile, a keybind or anywhere else."
+            description: Tr.t("When game mode turns on or off - from the tile, a keybind or anywhere else.")
 
             M3Switch {
                 checked: Prefs.toastOnGameMode
@@ -628,9 +628,9 @@ Column {
         }
 
         SettingRow {
-            title: "Battery and charger"
+            title: Tr.t("Battery and charger")
             resetKey: "toastOnBattery"
-            description: "Plugging in or out, a full charge, and warnings at 20, 10 and 5 %."
+            description: Tr.t("Plugging in or out, a full charge, and warnings at 20, 10 and 5 %.")
 
             M3Switch {
                 checked: Prefs.toastOnBattery
@@ -642,9 +642,9 @@ Column {
         }
 
         SettingRow {
-            title: "Bluetooth devices"
+            title: Tr.t("Bluetooth devices")
             resetKey: "toastOnBluetooth"
-            description: "A device connecting, with its battery when it reports one, or disconnecting. Switching Bluetooth off stays quiet."
+            description: Tr.t("A device connecting, with its battery when it reports one, or disconnecting. Switching Bluetooth off stays quiet.")
 
             M3Switch {
                 checked: Prefs.toastOnBluetooth
@@ -656,9 +656,9 @@ Column {
         }
 
         SettingRow {
-            title: "USB devices"
+            title: Tr.t("USB devices")
             resetKey: "toastOnUsb"
-            description: "Something plugged into a USB port, or pulled out. The machine's own built-in parts, like the camera, stay quiet."
+            description: Tr.t("Something plugged into a USB port, or pulled out. The machine's own built-in parts, like the camera, stay quiet.")
 
             M3Switch {
                 checked: Prefs.toastOnUsb
@@ -670,9 +670,9 @@ Column {
         }
 
         SettingRow {
-            title: "Camera"
+            title: Tr.t("Camera")
             resetKey: "toastOnCamera"
-            description: "Camera on, with the app using it, and camera off again once it lets go."
+            description: Tr.t("Camera on, with the app using it, and camera off again once it lets go.")
 
             M3Switch {
                 checked: Prefs.toastOnCamera
@@ -684,9 +684,9 @@ Column {
         }
 
         SettingRow {
-            title: "Wi-Fi"
+            title: Tr.t("Wi-Fi")
             resetKey: "toastOnWifi"
-            description: "Joining or losing a network. A quick drop and rejoin, like waking from sleep, stays quiet."
+            description: Tr.t("Joining or losing a network. A quick drop and rejoin, like waking from sleep, stays quiet.")
 
             M3Switch {
                 checked: Prefs.toastOnWifi
@@ -698,9 +698,9 @@ Column {
         }
 
         SettingRow {
-            title: "Sound output"
+            title: Tr.t("Sound output")
             resetKey: "toastOnAudio"
-            description: "The default output changing - speakers to headphones and back."
+            description: Tr.t("The default output changing - speakers to headphones and back.")
 
             M3Switch {
                 checked: Prefs.toastOnAudio
@@ -712,9 +712,9 @@ Column {
         }
 
         SettingRow {
-            title: "Displays"
+            title: Tr.t("Displays")
             resetKey: "toastOnDisplays"
-            description: "A monitor being plugged in or unplugged."
+            description: Tr.t("A monitor being plugged in or unplugged.")
 
             M3Switch {
                 checked: Prefs.toastOnDisplays
@@ -726,9 +726,9 @@ Column {
         }
 
         SettingRow {
-            title: "Power profile"
+            title: Tr.t("Power profile")
             resetKey: "toastOnPower"
-            description: "Balanced, performance or power saver. A switch made by game mode is left to its own toast."
+            description: Tr.t("Balanced, performance or power saver. A switch made by game mode is left to its own toast.")
 
             M3Switch {
                 checked: Prefs.toastOnPower
@@ -740,12 +740,12 @@ Column {
         }
 
         SettingRow {
-            title: "Preview"
-            description: "Plays one of each, one after another, with made-up details."
+            title: Tr.t("Preview")
+            description: Tr.t("Plays one of each, one after another, with made-up details.")
             showDivider: false
 
             M3Button {
-                text: "Preview"
+                text: Tr.t("Preview")
                 variant: "text"
                 onClicked: Quickshell.execDetached(["qs", "ipc", "call", "toastevents", "preview"])
             }

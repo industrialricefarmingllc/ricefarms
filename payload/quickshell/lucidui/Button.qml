@@ -18,9 +18,36 @@ Item {
     property bool danger: false
     property color containerOverride: "transparent"
     property color contentOverride: "transparent"
+    // read by screen readers; falls back to the visible label, then the icon
+    property string accessibleName: ""
+    property string accessibleDescription: ""
 
     signal clicked()
     signal toggled(bool value)
+
+    function activate() {
+        if (btn.disabled)
+            return ;
+
+        if (btn.checkable)
+            btn.toggled(!btn.checked);
+
+        btn.clicked();
+    }
+
+    activeFocusOnTab: !btn.disabled
+    Accessible.role: btn.checkable ? Accessible.CheckBox : Accessible.Button
+    Accessible.name: btn.accessibleName !== "" ? btn.accessibleName : (btn.text !== "" ? btn.text : A11y.iconName(btn.icon, ""))
+    Accessible.description: btn.accessibleDescription
+    Accessible.checkable: btn.checkable
+    Accessible.checked: btn.checkable ? btn.checked : false
+    Accessible.pressed: area.pressed
+    Accessible.focusable: !btn.disabled
+    Accessible.focused: btn.activeFocus
+    Accessible.onPressAction: btn.activate()
+    Keys.onSpacePressed: btn.activate()
+    Keys.onReturnPressed: btn.activate()
+    Keys.onEnterPressed: btn.activate()
 
     readonly property int h: btn.size === "xs" ? Theme.dp(30) : (btn.size === "m" ? Theme.dp(48) : Theme.dp(36))
     readonly property int pad: btn.size === "xs" ? Theme.dp(12) : (btn.size === "m" ? Theme.dp(24) : Theme.dp(16))
@@ -136,13 +163,23 @@ Item {
             disabled: btn.disabled
             onPressedChanged: squish.kick(area.pressed ? -0.1 : 0.08)
             onClicked: {
-                if (btn.checkable)
-                    btn.toggled(!btn.checked);
-
-                btn.clicked();
+                btn.forceActiveFocus();
+                btn.activate();
             }
         }
 
+    }
+
+    // keyboard focus is drawn outside the pill so it never changes its shape
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: -Theme.dp(3)
+        radius: box.radius + Theme.dp(3)
+        color: "transparent"
+        border.width: btn.activeFocus && !btn.disabled ? Theme.dp(2) : 0
+        border.color: Theme.primary
+        visible: border.width > 0 && Prefs.a11yFocusRing
+        z: 10
     }
 
     Row {
@@ -167,6 +204,8 @@ Item {
             text: btn.text
             role: btn.size === "m" ? "titleSmall" : "labelLarge"
             color: btn.content
+            // the button itself carries the accessible name
+            Accessible.ignored: true
         }
 
     }
