@@ -51,8 +51,8 @@
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/desktop/state/ViewState.hpp>
 #include <hyprland/src/desktop/view/LayerSurface.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
-#include <hyprland/src/desktop/Workspace.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
+#include <hyprland/src/workspace/HLWorkspace.hpp>
 #include <hyprland/src/devices/ITouch.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
@@ -86,7 +86,7 @@ namespace {
 #define ES_NAME    "hypr-touch-gestures"
 #define ES_DESC    "Touch gestures: edge-swipe workspaces, pinch to resize, drag windows"
 #define ES_AUTHOR  "Lucid"
-#define ES_VERSION "1.1.15"
+#define ES_VERSION "1.1.16"
 
 HANDLE PHANDLE = nullptr;
 
@@ -116,6 +116,17 @@ enum class ECornerAction : uint8_t {
     OPEN,
     CLOSE,
 };
+
+// 0.57 replaced CWorkspace::m_id with Workspace::WorkspaceID (a variant of
+// numbered/special), so the numbered id is read through std::get_if.
+static int workspaceIDInt(const PHLWORKSPACE& ws) {
+    if (!ws)
+        return -1;
+    const auto ID = ws->id();
+    if (const auto* N = std::get_if<Workspace::SWorkspaceNumberedID>(&ID))
+        return static_cast<int>(N->value);
+    return -1;
+}
 
 // One edge-swipe candidate at a time; the first finger that starts inside an
 // edge band claims it. The workspace slide is driven manually in onMotion.
@@ -494,7 +505,7 @@ PHLLS pibbleLauncher(const PHLMONITOR& mon) {
     for (int layer = 3; layer >= 0; --layer) {
         for (const auto& LS : mon->m_layerSurfaceLayers[layer]) {
             const auto SHARED = LS.lock();
-            if (SHARED && SHARED->m_mapped && SHARED->m_layer >= 3 && SHARED->m_namespace == "quickshell-pibble")
+            if (SHARED && SHARED->mapped() && SHARED->m_layer >= 3 && SHARED->m_namespace == "quickshell-pibble")
                 return SHARED;
         }
     }
@@ -726,16 +737,22 @@ void startSwipePreview() {
 
     const auto BEGIN = MON->m_activeWorkspace;
     std::string STYLE;
-    const int  TARGETID = resolveSwipeTarget(MON, static_cast<int>(BEGIN->m_id), G_GESTURE.vertical, G_GESTURE.dir, STYLE);
-    if (TARGETID <= 0 || TARGETID == BEGIN->m_id) {
-        dbgLog("swipe no target from " + std::to_string(BEGIN->m_id) + " vertical=" + std::to_string(G_GESTURE.vertical) + " dir=" + std::to_string(G_GESTURE.dir));
+    const int  TARGETID = resolveSwipeTarget(MON, workspaceIDInt(BEGIN), G_GESTURE.vertical, G_GESTURE.dir, STYLE);
+    if (TARGETID <= 0 || TARGETID == workspaceIDInt(BEGIN)) {
+        dbgLog("swipe no target from " + std::to_string(workspaceIDInt(BEGIN)) + " vertical=" + std::to_string(G_GESTURE.vertical) + " dir=" + std::to_string(G_GESTURE.dir));
         G_GESTURE = {};
         return;
     }
 
-    auto target = State::workspaceState()->query().id(TARGETID).run();
+    PHLWORKSPACE target;
+    for (const auto& WS : State::workspaceState()->workspacesCopy()) {
+        if (workspaceIDInt(WS) == TARGETID) {
+            target = WS;
+            break;
+        }
+    }
     if (!target)
-        target = State::workspaceState()->create(TARGETID, MON->m_id, std::to_string(TARGETID));
+        target = State::workspaceState()->createNumbered(Workspace::SWorkspaceNumberedID{static_cast<Workspace::WorkspaceIDContainer>(TARGETID)}, MON, std::to_string(TARGETID));
     if (!target) {
         dbgLog("swipe target create failed id=" + std::to_string(TARGETID));
         G_GESTURE = {};
@@ -756,12 +773,12 @@ void startSwipePreview() {
 
     updateSwipePreview();
     if (!G_GESTURE.previewing) {
-        dbgLog("swipe preview failed begin=" + std::to_string(BEGIN->m_id) + " target=" + std::to_string(TARGETID));
+        dbgLog("swipe preview failed begin=" + std::to_string(workspaceIDInt(BEGIN)) + " target=" + std::to_string(TARGETID));
         return;
     }
 
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "swipe preview edge=%s begin=%lld target=%d dir=%d outward=%d style=%s", edgeName(G_GESTURE.edge), (long long)G_GESTURE.begin->m_id,
+    std::snprintf(buf, sizeof(buf), "swipe preview edge=%s begin=%lld target=%d dir=%d outward=%d style=%s", edgeName(G_GESTURE.edge), (long long)workspaceIDInt(G_GESTURE.begin),
                   TARGETID, G_GESTURE.dir, (int)G_GESTURE.outward, STYLE.c_str());
     dbgLog(buf);
 }
@@ -891,12 +908,12 @@ void abortPinchPreview() {
         return;
 
     const auto WINDOW = G_PINCH.window.lock();
-    if (WINDOW && WINDOW->m_isMapped) {
+    if (WINDOW && WINDOW->mapped()) {
         const auto TARGET = WINDOW->layoutTarget();
         TARGET->setPositionGlobal(G_PINCH.originalBox);
         TARGET->warpPositionSize();
 
-        if (!G_PINCH.originalFloating && WINDOW->m_isFloating) {
+        if (!G_PINCH.originalFloating && WINDOW->isFloating()) {
             Pointer::mgr()->warpTo(G_PINCH.originalBox.middle());
             (void)Config::Actions::floatWindow(Config::Actions::TOGGLE_ACTION_DISABLE, WINDOW);
         }
@@ -913,14 +930,14 @@ bool startPinchPreview() {
         return false;
 
     const auto WINDOW = G_PINCH.window.lock();
-    if (!WINDOW || !WINDOW->m_isMapped)
+    if (!WINDOW || !WINDOW->mapped())
         return false;
 
     const auto MODES = Fullscreen::controller()->getFullscreenModes(WINDOW);
     if (MODES.internal != Fullscreen::FSMODE_NONE)
         return false; // never yank a fullscreen/maximized window into a float
 
-    G_PINCH.originalFloating = WINDOW->m_isFloating;
+    G_PINCH.originalFloating = WINDOW->isFloating();
     G_PINCH.originalBox      = CBox{WINDOW->position(Desktop::View::IGeometric::GEOMETRIC_GOAL), WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_GOAL)};
     G_PINCH.originalSize     = G_PINCH.originalBox.size();
     G_PINCH.center           = G_PINCH.originalBox.middle();
@@ -941,7 +958,7 @@ bool startPinchPreview() {
     markPinchConsumed();
 
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "pinch preview begin win=%s floating=%d size=%.0fx%.0f", WINDOW->m_title.c_str(), (int)G_PINCH.originalFloating,
+    std::snprintf(buf, sizeof(buf), "pinch preview begin win=%s floating=%d size=%.0fx%.0f", WINDOW->metadata().title().c_str(), (int)G_PINCH.originalFloating,
                   G_PINCH.originalSize.x, G_PINCH.originalSize.y);
     dbgLog(buf);
     return true;
@@ -953,7 +970,7 @@ void updatePinchPreview() {
 
     const auto WINDOW = G_PINCH.window.lock();
     const auto MON    = G_PINCH.monitor.lock();
-    if (!WINDOW || !WINDOW->m_isMapped || !MON || !WINDOW->m_isFloating) {
+    if (!WINDOW || !WINDOW->mapped() || !MON || !WINDOW->isFloating()) {
         abortPinchPreview();
         return;
     }
@@ -987,7 +1004,7 @@ void updatePinchPreview() {
     // maximized client box is the work area minus the window's reserved
     // extents, which is what hyprctl reports as the window size.
     const auto WORKSPACE = WINDOW->m_workspace;
-    const CBox WORK      = WORKSPACE && WORKSPACE->m_space ? WORKSPACE->m_space->workArea(G_PINCH.originalFloating) : CBox{MON->m_position, MON->m_size};
+    const CBox WORK      = WORKSPACE && WORKSPACE->space() ? WORKSPACE->space()->workArea(G_PINCH.originalFloating) : CBox{MON->m_position, MON->m_size};
     const auto RESERVED  = WINDOW->getFullWindowReservedArea();
     const Vector2D FINAL = (WORK.size() - (RESERVED.topLeft + RESERVED.bottomRight)).clamp(Vector2D{1.0, 1.0}, MON->m_size);
 
@@ -1081,7 +1098,7 @@ void finishPinch() {
             // The live resize is the contract action: leave the window at the
             // size the fingers pulled it down to (floating, on purpose).
             action = "contract (floating at pinched size)";
-        } else if (WINDOW->m_isFloating) {
+        } else if (WINDOW->isFloating()) {
             const auto SIZE = WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_GOAL);
             if (SIZE.x > 320 && SIZE.y > 240) {
                 action = "shrink";
@@ -1106,7 +1123,7 @@ void finishPinch() {
         markPinchConsumed();
 
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "pinch %s scale=%.2f win=%s mode=%d action=%s", EXPAND ? "out" : CONTRACT ? "in" : "none", SCALE, WINDOW->m_title.c_str(),
+    std::snprintf(buf, sizeof(buf), "pinch %s scale=%.2f win=%s mode=%d action=%s", EXPAND ? "out" : CONTRACT ? "in" : "none", SCALE, WINDOW->metadata().title().c_str(),
                   (int)MODES.internal, action.c_str());
     dbgLog(buf);
 }
@@ -1160,7 +1177,7 @@ void maybeStartPinch() {
     B->second.dragBlocked = true;
 
     dbgLog("pinch candidate ids=" + std::to_string(A->first) + "," + std::to_string(B->first) + " dist=" + std::to_string((int)DIST) +
-           " win=" + WA->m_title);
+           " win=" + WA->metadata().title());
 }
 
 // ---------------------------------------------------------------------------
@@ -1190,7 +1207,7 @@ void endDragAtLastPosition() {
     // that was floating before the drag. The cursor is still at the drop
     // point, so the tiling algorithm inserts it into the tile under the
     // finger. Keep the grabbed size for the next float toggle.
-    if (TILE_ON_END && WINDOW && WINDOW->m_isMapped) {
+    if (TILE_ON_END && WINDOW && WINDOW->mapped()) {
         if (const auto TARGET = WINDOW->layoutTarget(); TARGET && TARGET->floating())
             g_layoutManager->changeFloatingMode(TARGET);
 
@@ -1204,7 +1221,7 @@ void endDragAtLastPosition() {
 
 void startDrag(STouch& touch, Event::SCallbackInfo& info) {
     const auto WINDOW = touch.window.lock();
-    if (!WINDOW || !WINDOW->m_isMapped || touch.onLayer)
+    if (!WINDOW || !WINDOW->mapped() || touch.onLayer)
         return;
 
     if (!touch.doubleTapArmed)
@@ -1290,7 +1307,7 @@ void startDrag(STouch& touch, Event::SCallbackInfo& info) {
     g_pSeatManager->sendTouchCancel();
     info.cancelled = true;
 
-    dbgLog("drag begin id=" + std::to_string(touch.id) + " win=" + WINDOW->m_title + " tiled=" + std::to_string((int)WAS_TILE) + " pos=" +
+    dbgLog("drag begin id=" + std::to_string(touch.id) + " win=" + WINDOW->metadata().title() + " tiled=" + std::to_string((int)WAS_TILE) + " pos=" +
            std::to_string((int)touch.px.x) + "," + std::to_string((int)touch.px.y) + " size=" + std::to_string((int)ORIGINAL.size().x) + "x" +
            std::to_string((int)ORIGINAL.size().y));
 }
@@ -1459,7 +1476,7 @@ void onDown(ITouch::SDownEvent e, Event::SCallbackInfo&) {
         if (MATCH && !dragCooldownActive()) {
             touch.doubleTapArmed = true;
             char buf[256];
-            std::snprintf(buf, sizeof(buf), "drag double-tap armed id=%d win=%s", e.touchID, WINDOW->m_title.c_str());
+            std::snprintf(buf, sizeof(buf), "drag double-tap armed id=%d win=%s", e.touchID, WINDOW->metadata().title().c_str());
             dbgLog(buf);
         } else if (MATCH) {
             dbgLog("drag arm blocked: scroll cooldown id=" + std::to_string(e.touchID));
@@ -1753,7 +1770,7 @@ void onUp(ITouch::SUpEvent e, Event::SCallbackInfo& info) {
             G_LAST_TAP.time   = TOUCH.startTime;
             G_LAST_TAP.px     = TOUCH.startPx;
             G_LAST_TAP.window = TAPWINDOW;
-            dbgLog("drag tap recorded id=" + std::to_string(e.touchID) + " win=" + TAPWINDOW->m_title);
+            dbgLog("drag tap recorded id=" + std::to_string(e.touchID) + " win=" + TAPWINDOW->metadata().title());
         }
 
         G_TOUCHES.erase(IT);

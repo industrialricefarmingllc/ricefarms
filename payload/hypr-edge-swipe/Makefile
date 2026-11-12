@@ -9,7 +9,14 @@
 
 CXX ?= g++
 CXXFLAGS = -fPIC -g -O2 -std=c++23 -Wall -Wextra
+# Plugins live in $HOME but link against 0.57 libs in /usr/local/lib
+# (aquamarine .15, hyprland's own deps). Bake that dir into RUNPATH so the
+# plugin loads regardless of the host's loader scope.
+RPATH = $(shell pkg-config --libs-only-L hyprland 2>/dev/null | sed 's/^-L//; s/ -L/:/g')
 LDFLAGS = -shared
+ifneq ($(strip $(RPATH)),)
+LDFLAGS += -Wl,-rpath,$(RPATH)
+endif
 INCLUDES = $(shell pkg-config --cflags hyprland pixman-1 libdrm)
 LIBS = $(shell pkg-config --libs hyprland)
 
