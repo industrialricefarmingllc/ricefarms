@@ -31,12 +31,16 @@ for _a in "$@"; do
 done; unset _a
 if [ "$GOTO" = "--toggle" ]; then GOTO=""; fi
 # --restart delegates to a child "$0 --stop": run it BEFORE the log redirect
-# below. The redirect spawns tee/systemd-cat which inherit fd 200 (flock);
-# any later child would find the lock held (even with 200>&-) and be
-# silently IGNORED. Pre-redirect, 200>&- fully frees it. Falls through to
-# cold start afterwards (same as before).
+# below. The parent MUST release its own flock first: flock belongs to the open
+# file description, so closing fd 200 only in the child does not release the
+# parent's lock (the old 200>&- form made every --stop silently IGNORED).
+# Release, stop, then re-acquire for the cold start in the parent.
 if [ "$GOTO" = "--restart" ]; then
-  200>&- "$0" --stop
+  flock -u 200 2>/dev/null || true
+  exec 200>&-
+  "$0" --stop
+  exec 200>"$LOCK" 2>/dev/null || exec 200>/tmp/desktop-toggle.lock
+  flock -w 30 200 2>/dev/null || true
 fi
 # Early parse: --help/--status print to the terminal, so handle them before
 # stdout is redirected to $LOG below.

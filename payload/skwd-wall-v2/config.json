@@ -35,6 +35,6 @@
     "durationMs": 400
   },
   "weRender": {
-    "fps": 60
+    "fps": 120
   }
 }

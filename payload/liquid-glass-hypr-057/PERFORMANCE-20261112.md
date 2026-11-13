@@ -15,7 +15,7 @@ cursor-rim damage to the edge band.
 |---|---|
 | GPU | NVIDIA GTX 1080 Ti, 11 GB, driver 580.178.04, 1480-1911 MHz |
 | Hyprland | 0.57.0, plugin API 0.8.x, live build before this pass `liquidglass-rimwidgets-20261112c.so` |
-| New build | `liquidglass-perf-20261112.so` (0.8.36), md5 `8189ff43d589dc6be512bd7ea04916b5` |
+| New build | `liquidglass-perf-20261113.so` (0.8.36), md5 `6debb06fadd2e94301c0f577ac3ad6ca` |
 | DP-1 | 2560x1440 **@165 Hz**, scale 4/3, framebuffer 2560x1440 |
 | DP-2 | 3840x2160 @60 Hz, scale 2.0 |
 | DP-3 | 3840x2160 @60 Hz, scale 2.0 |
@@ -262,9 +262,23 @@ frequency of the expensive occurrence (capture cache, rim-band damage).
    identity (the live preset is 0.5); `pow(dot, 2)` → multiply; removed a
    redundant `normalize` on an already-normalized normal. Output A/B against
    the previous shader: PSNR **111-117 dB, max 1/255**.
-8. **Version 0.8.36** built as `liquidglass-perf-20261112.so`; `hyprland.lua`
-   points at it. Never overwrite a mapped `.so`; the running compositor keeps
-   0.8.35 until the next restart.
+8. **Version 0.8.36** built as `liquidglass-perf-20261113.so`; the config
+   points at it. Never overwrite a mapped `.so`; the compositor keeps the
+   previous build until the next restart.
+
+   **Startup loading:** load at `hyprland.start` (first frame) and apply the
+   preset in the same shell command, after `hyprctl plugin load` returns.
+   `hyprctl` is synchronous, so the plugin's config keys exist before the
+   evals run; there is no wall-clock delay in the config.
+
+   **Startup crash root cause (2026-11-13):** the normal session was aborting
+   in `CCompositor::initServer`, but the culprit was the freshly rebuilt
+   `hypr-touch-gestures.so` (23:44), not liquid glass. With that plugin
+   disabled, the same glass build and the full monitor/workspace config boot
+   cleanly across repeated restarts. The 0.57 `end(CRenderContext&)` hook fix
+   in this build is still required (the earlier the stale build called it with
+   a missing argument). Touch gestures are disabled in `custom.lua` until that
+   plugin is rebuilt for 0.57.
 
 ## 5. Validation
 

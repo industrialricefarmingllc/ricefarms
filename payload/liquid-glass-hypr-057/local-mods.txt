@@ -6,12 +6,14 @@
 ?? liquidglass-eink-wash10-20261111.so.pre-rimfollow-20261111-034656
 ?? liquidglass-eink-wash10-20261111.so.pre-stagecap-20261111-035519
 ?? liquidglass-eink-wash10-20261111.so.pre-vertical-20261111-035703
+?? liquidglass-mirrorfix-20261113.so
 ?? liquidglass-perf-20261104-1705.so
 ?? liquidglass-perf-20261104-1726.so
 ?? liquidglass-perf-20261104-1733.so
 ?? liquidglass-perf-20261104-1736.so
 ?? liquidglass-perf-20261106.so
-?? liquidglass-perf-20261112.so
+?? liquidglass-perf-20261112.so.pre-end-hook-broken
+?? liquidglass-perf-20261113.so
 ?? liquidglass-rimlight-20261111.so
 ?? liquidglass-rimlight-20261112.so
 ?? liquidglass-rimwidgets-20261112.so

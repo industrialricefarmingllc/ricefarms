@@ -7,6 +7,7 @@
 #include <hyprland/src/render/Context.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/managers/screenshare/ScreenshareManager.hpp>
 #include <hyprland/src/render/gl/GLFramebuffer.hpp>
 #include <hyprutils/math/Misc.hpp>
 
@@ -501,6 +502,43 @@ void lg::drawQueuedWash(PHLMONITOR monitor, const SP<IFramebuffer>& target, cons
 void lg::clearQueuedWash(PHLMONITOR monitor) {
     if (monitor)
         g_queuedWash.erase(monitor->m_id);
+}
+
+// A monitor/region capture reads the mirror framebuffer, which Hyprland fills
+// from the work buffer before the screen shader and before the wash. Refresh it
+// from the finished output so a screenshot matches the screen. Workspace
+// captures render the scene themselves and are left alone.
+void lg::mirrorFromOutput(PHLMONITOR monitor, const SP<IFramebuffer>& output, const CRegion& damage, bool transformDamage) {
+    if (!monitor || !output || damage.empty())
+        return;
+    if (!Screenshare::mgr()->isOutputBeingSSd(monitor))
+        return;
+
+    auto mirror = monitor->resources()->mirrorFB();
+    if (!mirror || !mirror->isAllocated())
+        return;
+    auto tex = output->getTexture();
+    if (!tex)
+        return;
+
+    CRenderContext ctx;
+    ctx.m_data.pMonitor       = monitor;
+    ctx.m_data.currentFB      = mirror;
+    ctx.m_data.projectionType = RPT_MONITOR;
+    ctx.m_data.fbSize         = mirror->m_size;
+    ctx.m_data.damage         = damage;
+    ctx.m_data.finalDamage    = damage;
+    ctx.m_data.transformDamage = transformDamage;
+
+    g_pHyprRenderer->bindFB(ctx, mirror);
+    g_pHyprRenderer->setViewport(0, 0, (int)mirror->m_size.x, (int)mirror->m_size.y);
+    g_pHyprOpenGL->blend(false);
+    g_pHyprOpenGL->renderTexture(ctx, tex, CBox{{}, mirror->m_size},
+                                 CHyprOpenGLImpl::STextureRenderData{
+                                     .damage = &damage,
+                                     .a      = 1.F,
+                                 });
+    g_pHyprOpenGL->blend(true);
 }
 
 void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, CRenderContext& ctx) {

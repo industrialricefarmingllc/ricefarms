@@ -11,6 +11,28 @@ local M = {}
 
 M.data = os.getenv("HOME") .. "/.config/hypr/lucid-specials.lua"
 
+-- every app a scratchpad starts goes through Lucid's launch placeholder, so
+-- the tile is held and the app grows into it however it was started
+local launcher = (os.getenv("HOME") or "") .. "/.config/quickshell/scripts/lucid-launch"
+
+local function shquote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function launch_cmd(app, ws)
+    local out = shquote(launcher) .. " -c " .. shquote(app.cmd)
+    if type(app.name) == "string" and app.name ~= "" then
+        out = out .. " --title " .. shquote(app.name)
+    end
+    if type(app.class) == "table" and app.class[1] then
+        out = out .. " --class " .. shquote(app.class[1])
+    end
+    if type(ws) == "string" and ws ~= "" then
+        out = out .. " --workspace " .. shquote(ws)
+    end
+    return out
+end
+
 -- the file is data only, so it runs with an empty environment. without it
 -- every workspace is on and holds no apps
 local function config()
@@ -163,7 +185,7 @@ function M.toggle(name)
             end
             if not running and type(app.cmd) == "string" and app.cmd ~= "" then
                 if roams(app) then launches[name] = { app = app, at = os.time() } end
-                hl.dispatch(hl.dsp.exec_cmd(app.cmd, { workspace = target }))
+                hl.dispatch(hl.dsp.exec_cmd(launch_cmd(app, target), { workspace = target }))
             end
         end
         -- a window moved in without follow leaves the keyboard behind the dim

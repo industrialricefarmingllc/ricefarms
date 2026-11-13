@@ -68,6 +68,15 @@ WidgetBody {
     property bool feedAtEnd: false
     property bool feedMorePending: false
     property int feedRequestLimit: 0
+    // A refresh response must not move the model under the reader's wheel.
+    // While the feed is being scrolled, the response is parked here and
+    // applied once the list has been still for a moment.
+    property bool feedScrolling: false
+    property string pendingFeedText: ""
+    // The main feed keeps refreshing while a thread is open. Remember what
+    // the reader was looking at so closing the thread returns there instead
+    // of to a position that the background model updates have moved.
+    property var feedReturnAnchor: null
     property bool pickerOpen: false
     property bool newPostOpen: false
     property var sendTargets: []
@@ -145,25 +154,6 @@ WidgetBody {
     property int threadSeq: 0
     property int threadCommentTotal: -1
     property int feedSeq: 0
-    property int feedAnchorSeq: 0
-    property bool dbgScroll: true
-    property bool feedAnchorOn: true
-    property int dbgYCount: 0
-    property real dbgLastY: 0
-
-    function dbgFeed(tag) {
-        if (!w.dbgScroll || !feedScroll)
-            return;
-        console.log("SCROLLDBG", tag,
-            "cy", feedScroll.contentY.toFixed(1),
-            "ch", feedScroll.contentHeight.toFixed(1),
-            "h", feedScroll.height.toFixed(1),
-            "count", feedScroll.count,
-            "wheel", feedWheel.running,
-            "seq", w.feedAnchorSeq,
-            "items", w.items.length,
-            "shown", w.shownItems.length);
-    }
     property int clockTick: 0
     property string searchQuery: ""
     property string channelQuery: ""
@@ -942,6 +932,15 @@ WidgetBody {
             w.phase = "ready";
         }
     }
+    // Once the feed is visible again, return to the post that was under the
+    // reader before the thread opened. The feed may have refreshed meanwhile.
+    onDetailRevealChanged: {
+        if (!w.detailOpen && w.detailReveal <= 0.01 && w.feedReturnAnchor !== null) {
+            var anchor = w.feedReturnAnchor;
+            w.feedReturnAnchor = null;
+            Qt.callLater(function () { w.restoreFeedAnchor(anchor); });
+        }
+    }
 
     // Ctrl+F is only live while the pointer is over this card, so it cannot
     // steal the shortcut from a focused window elsewhere on the desktop.
@@ -961,107 +960,44 @@ WidgetBody {
         onTriggered: w.clockTick++
     }
 
-    IpcHandler {
-        target: "socialdebug"
-
-        function state(): string {
-            return JSON.stringify({
-                "cy": feedScroll.contentY,
-                "ch": feedScroll.contentHeight,
-                "h": feedScroll.height,
-                "count": feedScroll.count,
-                "ci": feedScroll.currentIndex,
-                "origin": feedScroll.originY,
-                "begin": feedScroll.atYBeginning,
-                "end": feedScroll.atYEnd,
-                "items": w.items.length,
-                "shown": w.shownItems.length,
-                "wheel": feedWheel.running,
-                "seq": w.feedAnchorSeq
-            });
-        }
-
-        function sety(y: real): void {
-            feedWheel.stop();
-            feedScroll.contentY = y;
-            w.dbgFeed("ipc-sety " + y);
-        }
-
-        function wheel(dir: string, count: int): void {
-            var fake = {"angleDelta": {"y": dir === "up" ? 120 : -120}, "pixelDelta": {"y": 0}};
-            for (var i = 0; i < count; i++) {
-                w.feedAnchorSeq++;
-                w.wheelBy(feedScroll, fake, feedWheel);
-            }
-            w.dbgFeed("ipc-wheel " + dir + " " + count);
-        }
-
-        function refresh(): void {
-            w.loadFeed(true, true);
-        }
-
-        function prepend(): void {
-            if (w.items.length === 0)
-                return;
-            var copy = JSON.parse(JSON.stringify(w.items[0]));
-            copy.id = "debug/new/" + Date.now();
-            copy.created_at = new Date().toISOString();
-            w.items = [copy].concat(w.items);
-            w.dbgFeed("ipc-prepend");
-        }
-
-        function topid(): string {
-            var a = w.captureFeedAnchor();
-            return a ? String(a.id) : "";
-        }
-
-        function anchor(on: bool): void {
-            w.feedAnchorOn = on;
-            w.dbgFeed("ipc-anchor " + on);
-        }
-
-        function top(): void {
-            feedScroll.positionViewAtBeginning();
-            w.dbgFeed("ipc-top");
-        }
-
-        function unstick(index: int, offset: real): void {
-            w.dbgFeed("unstick-before");
-            feedScroll.positionViewAtBeginning();
-            feedScroll.positionViewAtIndex(index, ListView.Beginning);
-            feedScroll.contentY = Math.max(0, feedScroll.contentY + offset);
-            w.dbgFeed("unstick-after-a");
-            Qt.callLater(function () {
-                feedScroll.positionViewAtIndex(index, ListView.Beginning);
-                feedScroll.contentY = Math.max(0, feedScroll.contentY + offset);
-                w.dbgFeed("unstick-after-b");
-            });
-        }
-
-        function reorigin(y: real): void {
-            feedScroll.positionViewAtBeginning();
-            Qt.callLater(function () {
-                feedScroll.contentY = y;
-                w.dbgFeed("ipc-reorigin-a " + y);
-                Qt.callLater(function () { w.dbgFeed("ipc-reorigin-b " + y); });
-            });
-        }
-    }
-
-
     Timer {
         interval: 60000
         repeat: true
         running: w.live && !w.preview
         onTriggered: {
             w.lastFeedRefresh = Date.now();
-            if (w.detailOpen) {
-                if (w.detailPost !== null && w.detailPost.source === "discord") {
-                    w.lastThreadRefresh = Date.now();
-                    w.loadThread(w.detailId, w.threadLimit, true);
-                }
-            } else {
-                w.loadFeed(true);
+            // The feed refreshes in the background even while a post is open;
+            // closing the thread should not reveal an hour-old page.
+            w.loadFeed(true);
+            if (w.detailOpen && w.detailPost !== null && w.detailPost.source === "discord") {
+                w.lastThreadRefresh = Date.now();
+                w.loadThread(w.detailId, w.threadLimit, true);
+            }
+        }
+    }
+
+    // The wheel animation is short, but the reader is still "scrolling" for
+    // a moment after it ends. Hold refresh responses until then so a model
+    // update cannot yank the viewport out from under the next notch.
+    Timer {
+        id: feedScrollQuiet
+
+        interval: 700
+        onTriggered: {
+            if (feedScroll.moving || feedScroll.flicking || feedWheel.running) {
+                restart();
+                return ;
+            }
+            w.feedScrolling = false;
+            if (w.pendingFeedText !== "") {
+                w.applyPendingFeed();
+                return ;
+            }
+            if (w.feedDirty) {
+                var refresh = w.feedDirtyRefresh;
+                w.feedDirty = false;
+                w.feedDirtyRefresh = false;
+                Qt.callLater(function () { w.loadFeed(refresh, false); });
             }
         }
     }
@@ -1088,15 +1024,15 @@ WidgetBody {
                 var account = String(ref.account || "");
                 var channelMatch = w.discordEventChannel === "" || channel === "" || channel === w.discordEventChannel;
                 var accountMatch = w.discordEventSlug === "" || account === "" || account === w.discordEventSlug;
-                // Only the conversation on screen updates immediately, and at
-                // most every few seconds; everything else waits for the minute.
+                // The open conversation updates at most every few seconds.
                 if (w.detailPost !== null && w.detailPost.source === "discord" && channelMatch && accountMatch
                     && now - w.lastThreadRefresh >= 5000) {
                     w.lastThreadRefresh = now;
                     w.loadThread(w.detailId, w.threadLimit, true);
                 }
-                return ;
             }
+            if (!w.discordEventRelevant(w.discordEventSlug, w.discordEventChannel))
+                return ;
             if (now - w.lastFeedRefresh < w.discordFeedInterval) {
                 // The event is real; do not drop it just because a refresh
                 // finished a moment ago. Retry when the interval is over.
@@ -1105,10 +1041,8 @@ WidgetBody {
                 return ;
             }
             discordDebounce.interval = 220;
-
-            if (w.discordEventRelevant(w.discordEventSlug, w.discordEventChannel))
-                w.loadFeed(true);
-
+            // The main feed is kept current even while a thread is open.
+            w.loadFeed(true);
         }
     }
 
@@ -1236,12 +1170,27 @@ WidgetBody {
         w.feedLoadingMore = false;
         w.feedAtEnd = false;
         w.feedMorePending = false;
+        // A response for the old source selection must not leak into the new
+        // one while a scroll is being held back.
+        w.pendingFeedText = "";
+        w.feedScrolling = false;
+        w.feedReturnAnchor = null;
+        feedScrollQuiet.stop();
         w.phase = "loading";
     }
 
     function loadFeed(refresh, force) {
         if (w.preview || !w.live || w.service === "")
             return ;
+
+        // A refresh that would move the model is not allowed while the reader
+        // is scrolling. The quiet timer resumes it after the wheel/flick ends.
+        if (refresh === true && force !== true && (w.feedBusy() || w.pendingFeedText !== "")) {
+            w.feedDirty = true;
+            w.feedDirtyRefresh = true;
+            feedScrollQuiet.restart();
+            return ;
+        }
 
         if (feedProc.running) {
             w.feedDirty = true;
@@ -1260,7 +1209,6 @@ WidgetBody {
         w.feedRequestLimit = want;
         w.refreshing = true;
         w.phase = w.items.length > 0 ? w.phase : "loading";
-        w.dbgFeed("loadFeed refresh=" + refresh + " force=" + force);
         feedProc.command = w.feedArgs(want, "", "", refresh, force);
         feedProc.running = true;
     }
@@ -1350,6 +1298,15 @@ WidgetBody {
         }
     }
 
+    function feedBusy() {
+        return w.feedScrolling || feedScroll.moving || feedScroll.flicking || feedWheel.running;
+    }
+
+    function markFeedScrolling() {
+        w.feedScrolling = true;
+        feedScrollQuiet.restart();
+    }
+
     function maybeLoadMoreFeed() {
         if (w.searchQuery !== "")
             return ;
@@ -1385,26 +1342,20 @@ WidgetBody {
         }
         if (best === null)
             return null;
-        if (w.dbgScroll)
-            console.log("SCROLLDBG capture", best.modelData.id, "y", best.y.toFixed(1), "cy", feedScroll.contentY.toFixed(1), "offset", (feedScroll.contentY - best.y).toFixed(1));
         return {
             "id": best.modelData.id,
-            "offset": feedScroll.contentY - best.y,
-            "seq": w.feedAnchorSeq
+            "offset": feedScroll.contentY - best.y
         };
     }
 
+    // Restore the reading position once, after the model has settled. We do
+    // not force a view position: if the delegate is not instantiated yet, the
+    // list keeps its current paint position and the next refresh will pick it
+    // up. This avoids the old behaviour where a late restore could drag the
+    // viewport back down after the reader had already scrolled up.
     function restoreFeedAnchor(anchor) {
-        if (!anchor || !anchor.id)
+        if (!anchor || !anchor.id || w.detailOpen || w.feedBusy())
             return;
-        w.dbgFeed("restore-enter " + anchor.id + " off=" + anchor.offset + " seq=" + anchor.seq);
-        // A refresh must not fight a scroll the reader has already started.
-        if (feedScroll.moving || feedScroll.flicking || feedWheel.running)
-            return;
-
-        var seq = anchor.seq !== undefined ? Number(anchor.seq) : w.feedAnchorSeq;
-        if (seq !== w.feedAnchorSeq)
-            return ;
         var index = -1;
         for (var i = 0; i < w.shownItems.length; i++) {
             if (w.shownItems[i] && w.shownItems[i].id === anchor.id) {
@@ -1413,65 +1364,66 @@ WidgetBody {
             }
         }
         if (index < 0 || index >= feedScroll.count)
-            return ;
-
+            return;
         var offset = anchor.offset;
-        if (w.dbgScroll)
-            console.log("SCROLLDBG restore-apply-start", anchor.id, "index", index, "cy", feedScroll.contentY.toFixed(1), "ch", feedScroll.contentHeight.toFixed(1));
-        feedWheel.stop();
-        // Do not positionViewAtIndex first: that makes the anchor the visual
-        // top of the list if the delegate is not ready yet. Wait for the
-        // delegate that already exists, then restore the pixel offset. Only
-        // force a view position as a last resort.
         var attempt = 0;
-        var forced = false;
-        var passes = 0;
         function apply() {
-            if (seq !== w.feedAnchorSeq)
-                return ;
-            if (feedScroll.moving || feedScroll.flicking || feedWheel.running)
-                return ;
+            if (w.feedBusy())
+                return;
             var item = feedScroll.itemAtIndex(index);
-            if (item !== null) {
-                if (w.dbgScroll)
-                    console.log("SCROLLDBG restore-item", anchor.id, "itemY", item.y.toFixed(1), "target", Math.max(0, item.y + offset).toFixed(1), "pass", passes, "from", feedScroll.contentY.toFixed(1));
-                feedScroll.contentY = Math.max(0, item.y + offset);
-                // The delegate's y can settle one frame after the model gains
-                // items above it; re-apply a couple of times so the offset is
-                // measured against the final layout.
-                if (passes < 2) {
-                    passes++;
+            if (item === null) {
+                if (attempt < 6) {
+                    attempt++;
                     Qt.callLater(apply);
                 }
-                return ;
+                return;
             }
-            if (attempt < 10) {
-                attempt++;
-                Qt.callLater(apply);
-                return ;
-            }
-            if (!forced) {
-                forced = true;
-                if (w.dbgScroll)
-                    console.log("SCROLLDBG restore-forced", anchor.id, "index", index);
-                feedScroll.positionViewAtIndex(index, ListView.Beginning);
-            }
-            if (attempt < 18) {
-                attempt++;
-                Qt.callLater(apply);
-            }
+            var limit = Math.max(0, feedScroll.contentHeight - feedScroll.height);
+            feedScroll.contentY = Math.max(0, Math.min(limit, item.y + offset));
         }
         Qt.callLater(apply);
     }
 
     function consumeFeed(text) {
+        var append = w.feedAppend;
+        if (!append && w.feedBusy()) {
+            // Keep the newest response and apply it after the scroll settles.
+            w.pendingFeedText = text;
+            w.feedAppend = false;
+            w.feedLoadingMore = false;
+            w.refreshing = false;
+            w.lastFeedRefresh = Date.now();
+            feedScrollQuiet.restart();
+            return;
+        }
+        w.applyFeed(text, append);
+    }
+
+    function applyPendingFeed() {
+        if (w.pendingFeedText === "" || w.feedBusy()) {
+            if (w.pendingFeedText !== "")
+                feedScrollQuiet.restart();
+            return;
+        }
+        var text = w.pendingFeedText;
+        w.pendingFeedText = "";
+        w.applyFeed(text, false);
+        if (w.feedDirty) {
+            var refresh = w.feedDirtyRefresh;
+            w.feedDirty = false;
+            w.feedDirtyRefresh = false;
+            Qt.callLater(function () { w.loadFeed(refresh, false); });
+        }
+    }
+
+    function applyFeed(text, append) {
         w.refreshing = false;
         w.lastFeedRefresh = Date.now();
-        var append = w.feedAppend;
         w.feedAppend = false;
         w.feedLoadingMore = false;
-        w.dbgFeed("consume-before anchor=" + (append ? "append" : "refresh"));
-        var anchor = (append || !w.feedAnchorOn) ? null : w.captureFeedAnchor();
+        var anchor = (append || w.detailOpen || w.feedReturnAnchor !== null)
+            ? null
+            : w.captureFeedAnchor();
         try {
             var value = JSON.parse(text);
             if (value.schema !== w.schemaFeed || value.schema_version !== w.schemaVersion)
@@ -1505,7 +1457,6 @@ WidgetBody {
             if (next.length > 3000)
                 next = next.slice(0, 3000);
             w.items = next;
-            w.dbgFeed("consume-after-items");
             if (append) {
                 if (incoming.length < w.feedRequestLimit)
                     w.feedAtEnd = true;
@@ -1520,7 +1471,6 @@ WidgetBody {
                 w.syncDetail();
             if (anchor !== null)
                 Qt.callLater(function () { w.restoreFeedAnchor(anchor); });
-            Qt.callLater(function () { w.dbgFeed("consume-callLater"); });
             if (!append)
                 Qt.callLater(function () { w.maybeLoadMoreFeed(); });
         } catch (error) {
@@ -1538,6 +1488,10 @@ WidgetBody {
                 return ;
             }
         }
+        // A background feed page may no longer contain an old thread's root.
+        // Keep the thread's own copy rather than blanking the open view.
+        if (w.detailOpen)
+            return ;
         w.detailPost = null;
     }
 
@@ -2486,6 +2440,8 @@ WidgetBody {
             return ;
 
         w.pickerOpen = false;
+        if (w.detailId === "")
+            w.feedReturnAnchor = w.captureFeedAnchor();
         w.detailId = post.id;
         w.detailPost = post;
         w.comments = post.comments_preview || [];
@@ -3207,8 +3163,6 @@ WidgetBody {
         anim.from = from;
         anim.to = to;
         anim.restart();
-        if (w.dbgScroll && target === feedScroll)
-            console.log("SCROLLDBG wheel-anim from", from.toFixed(1), "to", to.toFixed(1), "dy", dy, "pending", pending, "max", maxY.toFixed(1));
         return true;
     }
 
@@ -3221,7 +3175,7 @@ WidgetBody {
             return true;
 
         if (target === feedScroll)
-            w.feedAnchorSeq++;
+            w.markFeedScrolling();
         var maxY = Math.max(0, target.contentHeight - target.height);
         if (event.key === Qt.Key_PageUp)
             target.contentY = Math.max(0, target.contentY - target.height * 0.9);
@@ -3336,7 +3290,11 @@ WidgetBody {
                 w.feedAtEnd = true;
             w.feedAppend = false;
             w.feedLoadingMore = false;
-            if (w.feedDirty) {
+            if (w.pendingFeedText !== "") {
+                // The deferred response will be applied when the scroll stops;
+                // do not start another request on top of it.
+                w.feedMorePending = false;
+            } else if (w.feedDirty) {
                 var refresh = w.feedDirtyRefresh;
                 w.feedDirty = false;
                 w.feedDirtyRefresh = false;
@@ -3897,9 +3855,7 @@ WidgetBody {
                     WheelHandler {
                         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                         onWheel: (event) => {
-                            w.feedAnchorSeq++;
-                            if (w.dbgScroll)
-                                console.log("SCROLLDBG wheel angle", event.angleDelta.y, "pixel", event.pixelDelta.y, "cy", feedScroll.contentY.toFixed(1), "ch", feedScroll.contentHeight.toFixed(1), "max", Math.max(0, feedScroll.contentHeight - feedScroll.height).toFixed(1));
+                            w.markFeedScrolling();
                             w.wheelBy(feedScroll, event, feedWheel);
                             event.accepted = true;
                         }
@@ -3917,55 +3873,15 @@ WidgetBody {
 
                     }
 
-                    function clampToContent() {
-                        var maxY = Math.max(0, contentHeight - height);
-                        if (contentY > maxY || contentY < 0) {
-                            feedWheel.stop();
-                            contentY = Math.max(0, Math.min(maxY, contentY));
-                        }
-                    }
-
-                    onFlickStarted: w.feedAnchorSeq++
-                    onContentYChanged: {
-                        w.dbgYCount++;
-                        if (w.dbgScroll && Math.abs(contentY - w.dbgLastY) > 80)
-                            console.log("SCROLLDBG y-jump", w.dbgLastY.toFixed(1), "->", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "ci", currentIndex, "origin", originY.toFixed(1), "begin", atYBeginning, "end", atYEnd, "wheel", feedWheel.running, "moving", moving, "flicking", flicking);
-                        w.dbgLastY = contentY;
-                        if (w.dbgScroll && (w.dbgYCount % 12 === 0 || feedWheel.running))
-                            console.log("SCROLLDBG y", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "wheel", feedWheel.running, "moving", moving, "flicking", flicking);
-                        var limit = Math.max(0, contentHeight - height);
-                        if (contentY < 0 || contentY > limit) {
-                            if (w.dbgScroll)
-                                console.log("SCROLLDBG y-clamp", contentY.toFixed(1), "limit", limit.toFixed(1));
-                            feedWheel.stop();
-                            contentY = Math.max(0, Math.min(limit, contentY));
-                        }
-                        w.maybeLoadMoreFeed();
-                    }
-                    onContentHeightChanged: {
-                        if (w.dbgScroll)
-                            console.log("SCROLLDBG height-changed", contentHeight.toFixed(1), "cy", contentY.toFixed(1), "count", count);
-                        Qt.callLater(clampToContent);
-                        Qt.callLater(w.maybeLoadMoreFeed);
-                    }
-                    onOriginYChanged: {
-                        if (w.dbgScroll)
-                            console.log("SCROLLDBG origin-changed", originY.toFixed(1), "cy", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "count", count, "ci", currentIndex, "begin", atYBeginning);
-                    }
-                    onCountChanged: {
-                        if (w.dbgScroll)
-                            console.log("SCROLLDBG count-changed", count, "cy", contentY.toFixed(1), "ch", contentHeight.toFixed(1), "ci", currentIndex, "origin", originY.toFixed(1));
-                        if (w.dbgScroll)
-                            console.log("SCROLLDBG count-changed", count, "cy", contentY.toFixed(1), "ch", contentHeight.toFixed(1));
-                        feedWheel.stop();
-                        Qt.callLater(clampToContent);
-                    }
-                    onMovementEnded: {
-                        w.dbgFeed("movement-ended");
-                        clampToContent();
-                        w.maybeLoadMoreFeed();
-                    }
-                    onMovementStarted: w.dbgFeed("movement-started")
+                    // Never clamp contentY from a contentHeight change: the
+                    // ListView revises its height estimate while delegates
+                    // load, and clamping during a wheel gesture was what made
+                    // the feed stop following the wheel.
+                    onFlickStarted: w.markFeedScrolling()
+                    onContentYChanged: w.maybeLoadMoreFeed()
+                    onContentHeightChanged: Qt.callLater(w.maybeLoadMoreFeed)
+                    onMovementEnded: w.maybeLoadMoreFeed()
+                    onMovementStarted: w.markFeedScrolling()
                 }
 
                 // scroll affordance: a restrained material rail, not a full bar

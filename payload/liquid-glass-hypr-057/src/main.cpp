@@ -159,9 +159,13 @@ void hkEnd(Render::GL::CHyprOpenGLImpl* self, Render::CRenderContext& ctx) {
     // The scene/work buffer was copied to the output above. Apply the wash
     // only to the output, so the work buffer used by glass backdrop capture
     // never contains the wash (no cross-framebuffer feedback).
-    if (normal && out && mon && out.get() != main.get())
+    if (normal && out && mon && out.get() != main.get()) {
         lg::drawQueuedWash(mon, out, damage, td);
-    else if (mon)
+        // Screencopy reads the mirror, which Hyprland filled from the work
+        // buffer before the screen shader and the wash. Refresh it from the
+        // finished output so a saved screenshot matches the screen.
+        lg::mirrorFromOutput(mon, out, damage, td);
+    } else if (mon)
         lg::clearQueuedWash(mon);
 }
 

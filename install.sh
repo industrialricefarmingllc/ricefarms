@@ -825,6 +825,7 @@ export_payload() {
     [[ -e "$f" ]] && cp -a "$f" "$P/hypr/"
   done
   export_dir "$S/.config/hypr/shaders" "$P/hypr/shaders"
+  export_dir "$S/.config/hypr/modules" "$P/hypr/modules"
   export_dir "$S/.config/hypr/scripts" "$P/hypr/scripts"
   prune_export_junk "$P/hypr"
   export_dir "$S/.config/quickshell" "$P/quickshell"

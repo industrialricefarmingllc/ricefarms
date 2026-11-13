@@ -209,7 +209,14 @@ hl.on("hyprland.start", function()
   -- 2026-11-12 (later): rim line moved onto the window CONTENT edge; the
   -- layer overlay still carries the rim for widgets. Built on the current
   -- washmul-diag source tree.
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-perf-20261112.so")
+  -- 2026-11-13: load at hyprland.start (first frame) and apply the preset in
+  -- the SAME shell command, after hyprctl plugin load returns. `hyprctl` is
+  -- synchronous, so the plugin's config keys exist before the evals run; no
+  -- wall-clock delay is needed or wanted. The startup crash seen earlier was
+  -- the hypr-touch-gestures plugin, not liquid glass.
+  -- 2026-11-13 (later): refreshes the screencopy mirror from the finished
+  -- output, so a saved screenshot includes the screen shader and the wash.
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-perf-20261113.so; hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, hide_window_shadows=0, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1; hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0, rim_follow=1, rim_follow_strength=0.2, rim_follow_max=15.0, rim_follow_smoothing=0.3}}})' >/dev/null 2>&1; true")
   -- Standalone wash is intentionally not loaded; the integrated copy runs above.
   -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-wash || hyprctl plugin load /home/nicerice/src/lucid-wash/lucid-wash-adv.so")
   -- Layer-wide overlay blending is intentionally not loaded; the wash is
@@ -223,7 +230,7 @@ hl.on("hyprland.start", function()
   -- (only top-level code + reloaded handlers do). Stays configurable live via
   -- hyprctl eval (capture_scale 1 = full-res, 2 = half-res, 4 = quarter-res).
   -- No-ops harmlessly if the plugin isn't up yet.
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1 || true")
+  -- hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1 || true")
   -- Liquid glass + goo states are owned by liquid-glass-toggle (prefs.json:
   -- liquidGlassEnabled + gooWorkspacesEnabled). The namespace list only adds
   -- lucid-widgets to the plugin's default quickshell,lucid-launcher so the
@@ -232,12 +239,12 @@ hl.on("hyprland.start", function()
   -- every reload. hide_window_shadows IS pinned to 0
   -- (user preference, 2026-10-24): window drop shadows stay visible even
   -- under glass, instead of only appearing while a window is being damaged.
-  hl.exec_cmd("sleep 0.5; hyprctl eval 'hl.config({plugin={liquidglass={hide_window_shadows=0}}})' >/dev/null 2>&1 || true")
+  -- hl.exec_cmd("sleep 0.5; hyprctl eval 'hl.config({plugin={liquidglass={hide_window_shadows=0}}})' >/dev/null 2>&1 || true")
   -- Apple Liquid Glass rim light on every window border. window_borders
   -- replaces Hyprland's flat border (and the old picture-frame relief) with
   -- the backdrop-tinted rim; frame_enable=0 keeps the ornate frame off.
   -- rim_width is logical px, rim_angle 135 = light from the top-left.
-  hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0, rim_follow=1, rim_follow_strength=0.2, rim_follow_max=15.0, rim_follow_smoothing=0.3}}})' >/dev/null 2>&1 || true")
+  -- hl.exec_cmd("hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0, rim_follow=1, rim_follow_strength=0.2, rim_follow_max=15.0, rim_follow_smoothing=0.3}}})' >/dev/null 2>&1 || true")
   -- Goo morph, applied only once the plugin is actually loaded (see the
   -- gooPreset comment below — a static hl.config() would abort the config).
   -- custom.lua re-applies the persisted gooWorkspacesEnabled afterwards.

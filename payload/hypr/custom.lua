@@ -644,7 +644,12 @@ local function applyCornerState()
   hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q hypr-touch-gestures && hyprctl getoption plugin:touch:corner_enabled 2>/dev/null | grep -q '^int' && hyprctl eval 'hl.config({plugin={touch={corner_enabled=0}}})' >/dev/null 2>&1 || true")
 end
 hl.on("hyprland.start", function()
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q hypr-touch-gestures || hyprctl plugin load /home/nicerice/src/hypr-edge-swipe/hypr-touch-gestures.so")
+  -- DISABLED 2026-11-13: the 23:44 build of hypr-touch-gestures.so aborts or
+  -- hangs Hyprland on every load (startup AND a post-init `hyprctl plugin
+  -- load` froze IPC). The liquid-glass plugin was initially blamed; with touch
+  -- disabled and the same glass build the normal config boots cleanly across
+  -- restarts. Re-enable only after rebuilding/fixing it for Hyprland 0.57.
+  -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q hypr-touch-gestures || hyprctl plugin load /home/nicerice/src/hypr-edge-swipe/hypr-touch-gestures.so")
   cornerTimer = hl.timer(applyCornerState, { timeout = 400, type = "oneshot" })
 end)
 pcall(function() hl.on("config.reloaded", applyCornerState) end)

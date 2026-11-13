@@ -44,6 +44,12 @@ void queueLayerWash(PHLLS surface, PHLMONITOR monitor);
 void drawQueuedWash(PHLMONITOR monitor, const SP<Render::IFramebuffer>& target, const CRegion& damage, bool transformDamage);
 void clearQueuedWash(PHLMONITOR monitor);
 
+// Screencopy reads the mirror framebuffer Hyprland fills from the work buffer,
+// before the final screen shader and before the wash above. While a
+// monitor/region capture is active, refresh it from the finished output so the
+// saved image is what the screen shows.
+void mirrorFromOutput(PHLMONITOR monitor, const SP<Render::IFramebuffer>& output, const CRegion& damage, bool transformDamage);
+
 void windowWashDraw(const SWindowWashDraw& draw, const SP<Render::ITexture>& wash, Render::CRenderContext& ctx);
 } // namespace lg
 

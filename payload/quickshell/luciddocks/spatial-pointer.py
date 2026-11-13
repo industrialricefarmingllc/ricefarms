@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stream the compositor cursor position as `x y` lines at 30 Hz.
+"""Stream the compositor cursor position as `x y` lines at 120 Hz.
 
 A background layer surface with an empty input region never sees pointer
 motion, and giving it a real input region would steal clicks from the desktop.
@@ -84,7 +84,7 @@ def main() -> int:
                     os.replace(temporary, write_to)
                 except OSError:
                     pass
-        time.sleep(1.0 / 60.0)
+        time.sleep(1.0 / 120.0)
 
 
 if __name__ == "__main__":
