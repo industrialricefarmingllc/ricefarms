@@ -1,0 +1,25 @@
+diff --git a/src/io/jsonadapter.cpp b/src/io/jsonadapter.cpp
+index fbf4b1a..899e67c 100644
+--- a/src/io/jsonadapter.cpp
++++ b/src/io/jsonadapter.cpp
+@@ -174,8 +174,18 @@ void JsonAdapter::deserializeRec(const QJsonObject& json, QObject* obj, const QM
+ 				// Calling prop.write with a new QJSValue will cause a property update
+ 				// even if content is identical.
+ 				if (newVariant != oldVariant) {
+-					auto jsValue = qmlEngine(this)->fromVariant<QJSValue>(newVariant);
+-					prop.write(obj, QVariant::fromValue(jsValue));
++					// qmlEngine() can be null while the adapter is being constructed
++					// (blockLoading FileViews deserialize during component creation).
++					// Calling fromVariant on a null engine segfaults, and writing a
++					// bare QVariant into a QML `var` property leaves it without a
++					// script context, so skip the property until the engine exists.
++					if (auto* engine = qmlEngine(this)) {
++						auto jsValue = engine->fromVariant<QJSValue>(newVariant);
++						prop.write(obj, QVariant::fromValue(jsValue));
++					} else {
++						qmlWarning(this) << "no QML engine for property" << prop.name()
++						                 << "- skipping deserialization";
++					}
+ 				}
+ 			} else if (QMetaType::canView(prop.metaType(), QMetaType::fromType<JsonObject*>())) {
+ 				// FIXME: This doesn't support creating descendants of JsonObject, as QMetaType.metaObject()

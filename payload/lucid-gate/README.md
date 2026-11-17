@@ -134,10 +134,17 @@ A full build, from a clean checkout:
 
 ```sh
 git clone --depth 1 --branch v0.3.2 https://github.com/quickshell-mirror/quickshell.git
-cd quickshell && git apply ~/src/lucid-gate/patches/quickshell-webengine.patch
+cd quickshell \
+  && git apply ~/src/lucid-gate/patches/quickshell-webengine.patch \
+  && git apply ~/src/lucid-gate/patches/quickshell-jsonadapter-null-engine.patch
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_JEMALLOC=OFF
 ninja -C build && sudo cmake --install build --prefix /usr/local
 ```
+
+The second patch is a crash fix: a `blockLoading` FileView (e.g. the emoji
+usage adapter in `SocialWidget.qml`) can deserialize before its `JsonAdapter`
+has a QML engine, and `qmlEngine(this)->fromVariant<QJSValue>()` segfaults on
+the null engine. It now skips that property until an engine exists.
 
 `GateWeb.qml` owns one persistent profile for the whole shell:
 
