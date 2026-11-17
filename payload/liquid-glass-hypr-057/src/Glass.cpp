@@ -908,6 +908,8 @@ void CGlassLayer::ensureRing() {
     m_ru.rimShade = loc(rp, "uRimShade");
     m_ru.rimAtInner = loc(rp, "uRimAtInner");
     m_ru.rimShift = loc(rp, "uRimShift");
+    m_ru.rimSampleShift = loc(rp, "uRimSampleShift");
+    m_ru.rimOverlay = loc(rp, "uRimOverlay");
     m_ringOk = true;
 }
 
@@ -1311,6 +1313,14 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
     // m_transformedSize straight in). Do NOT divide by scale: that was
     // shrinking every quad 1.6x toward the corner AND desyncing it from
     // the fb-px uBox/uRadii shape math (=> effectively invisible).
+    std::vector<size_t> drawPills;
+    drawPills.reserve(pills.size());
+
+    // Phase 1: prime/reuse every capture BEFORE drawing any pill. Captures
+    // read the framebuffer; if a pill were drawn first, the next pill's 32 px
+    // bleed would include this surface's already-blurred glass, and the
+    // second pill would blur it again (intra-surface feedback/double blur).
+    g_pHyprOpenGL->setCapStatus(GL_SCISSOR_TEST, false);
     for (size_t pillIdx = 0; pillIdx < pills.size(); ++pillIdx) {
         const auto& lp = pills[pillIdx];
         if (m_rimFollow.size() <= pillIdx)
@@ -1359,9 +1369,18 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
                 continue;
         }
 
-        // Capture region = pill + bleed, clamped to the source.
-        int rx0 = std::max(0, px0 - PAD_PX), ry0 = std::max(0, py0 - PAD_PX);
-        int rx1 = std::min(srcW, px1 + PAD_PX), ry1 = std::min(srcH, py1 + PAD_PX);
+        // Capture region = pill + bleed, clamped to the LAYER SURFACE and the
+        // source. The layer's damage can never cover pixels outside its own
+        // surface, so requiring an off-surface bleed would make the freshness
+        // guard self-damage and skip forever (the heavy edge-pill flicker).
+        // Shadows/neighbours inside the surface are refreshable; the few
+        // off-surface texels are sampled as the clamped texture edge.
+        const int sx0 = (int)std::floor(surfBox.x), sy0 = (int)std::floor(surfBox.y);
+        const int sx1 = (int)std::ceil(surfBox.x + surfBox.w), sy1 = (int)std::ceil(surfBox.y + surfBox.h);
+        int rx0 = std::max(std::max(0, px0 - PAD_PX), sx0);
+        int ry0 = std::max(std::max(0, py0 - PAD_PX), sy0);
+        int rx1 = std::min(std::min(srcW, px1 + PAD_PX), sx1);
+        int ry1 = std::min(std::min(srcH, py1 + PAD_PX), sy1);
         const int rw = rx1 - rx0, rh = ry1 - ry0;
         if (rw < 8 || rh < 8)
             continue;
@@ -1379,10 +1398,13 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         const bool contentOnly = dmgExt.w > 0 && dmgExt.h > 0 && dmgExt.x >= lp.x - 1 && dmgExt.y >= lp.y - 1 &&
             dmgExt.x + dmgExt.w <= lp.x + lp.w + 1 && dmgExt.y + dmgExt.h <= lp.y + lp.h + 1;
         // A window below the overlay could repaint inside the pill without
-        // extending damage outside it. Conservatively refuse the cache when
-        // any main-pass window overlaps the capture region.
+        // extending damage outside it. Its geometry hash catches moves,
+        // resizes, restacks and new windows; content-only changes in a
+        // stationary window are handled by the small-damage rule below.
         const bool winOverlap =
             lg::windowOverlapsRegion(monitor->m_id, CBox{(double)rx0, (double)ry0, (double)rw, (double)rh});
+        const uint64_t winKey =
+            lg::windowRegionKey(monitor->m_id, CBox{(double)rx0, (double)ry0, (double)rw, (double)rh});
         const bool keyOk = cap.valid && cap.rx0 == rx0 && cap.ry0 == ry0 && cap.rw == rw && cap.rh == rh &&
             cap.px0 == px0 && cap.py0 == py0 && cap.px1 == px1 && cap.py1 == py1 &&
             std::fabs(cap.bx - lp.x) < 1e-3 && std::fabs(cap.by - lp.y) < 1e-3 &&
@@ -1392,58 +1414,35 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             cap.unionOn == lp.unionOn && cap.hw == std::max(1, rw / capDiv) && cap.hh == std::max(1, rh / capDiv) &&
             cap.capDiv == capDiv && cap.passes == passes && cap.bokehOn == bokehOn &&
             std::fabs(cap.bokeh - T.bokeh) < 1e-4 && std::fabs(cap.effR - effR) < 1e-4 &&
-            cap.tuneGen == tuneGen && cap.srcW == srcW && cap.srcH == srcH && cap.a && cap.a->getTexture() &&
+            cap.tuneGen == tuneGen && cap.srcW == srcW && cap.srcH == srcH && cap.winKey == winKey &&
+            cap.a && cap.a->getTexture() &&
             (passes == 0 || (cap.b && cap.c && cap.b->getTexture() && cap.c->getTexture())) &&
             (!bokehOn || (cap.t && cap.t->getTexture()));
         // Escape hatch: LIQUIDGLASS_NO_PILL_CACHE=1 disables the reuse path
         // without a rebuild (validated once).
         static const bool noPillCache = std::getenv("LIQUIDGLASS_NO_PILL_CACHE") != nullptr;
         static const bool cacheAny = std::getenv("LIQUIDGLASS_PILL_CACHE_ANY") != nullptr;
-        // Small damage under a window is allowed to reuse for a bounded run:
-        // a caret/cursor blink under tint+blur is invisible, while the next
-        // large change (video, move, resize) exceeds contentOnly and forces a
-        // full capture anyway. 8 frames caps staleness at ~133 ms @60 Hz.
-        const bool smallChange = (double)dmgExt.w * (double)dmgExt.h <= 16384.0;
-        const bool windowOk = !winOverlap || cacheAny || (smallChange && cap.reuseCount < 8);
+        // With a window under the overlay, only reuse for small damage (cursor,
+        // clock digit, progress bar, rotating disc). A move/resize changes
+        // winKey and is already rejected above; a full/video repaint exceeds
+        // 4096 px and recaptures. This keeps the fast path on a static desktop
+        // without letting a moving window leave rectangular stale-backdrop
+        // patches. `LIQUIDGLASS_PILL_CACHE_ANY=1` ignores the window check.
+        const bool smallChange = (double)dmgExt.w * (double)dmgExt.h <= 4096.0;
+        const bool windowOk = !winOverlap || cacheAny || smallChange;
         const bool reuse = keyOk && contentOnly && !lp.unionOn && windowOk && !m_mask.on && !noPillCache;
 
-        // Never sample a partially-repainted PILL. The pill is where this
-        // surface's own content (text, icons, the launcher's mask) lives; if
-        // that area was not repainted this frame, the capture still contains
-        // last frame's content/composited glass and would ghost it.
-        //
-        // The 32px capture bleed is deliberately NOT required. It lies
-        // outside the pill, so the glass does not cover it: those pixels hold
-        // the backdrop (or a neighbour), which is valid even when undamaged.
-        // Requiring it too made every small layer surface skip every other
-        // frame — the client only damages its own surface, never the bleed —
-        // so the pass requested the bleed, drew next frame, then failed again
-        // as soon as any content changed. That draw/skip alternation is the
-        // hover/iris flicker: the mask and moving pills advanced one frame,
-        // froze one frame. Requiring the pill alone keeps the ghost guard
-        // where it matters and lets the shape update every frame.
-        // The notch tabs bleed 2px past the surface edge (published x:-2 /
-        // x+w past the screen edge so no wallpaper hairline shows). Damage can
-        // never cover pixels outside the surface, so testing the raw pill rect
-        // made the two edge tabs fail the guard forever: they were skipped,
-        // damaged themselves, skipped again — no glass on the left/right notch
-        // while the centre clock (wholly inside) kept its glass. Test only the
-        // part of the pill that lies on the surface.
-        const int ix0 = std::max(px0 + 1, (int)std::floor(surfBox.x));
-        const int iy0 = std::max(py0 + 1, (int)std::floor(surfBox.y));
-        const int ix1 = std::min(px1 - 1, (int)std::ceil(surfBox.x + surfBox.w));
-        const int iy1 = std::min(py1 - 1, (int)std::ceil(surfBox.y + surfBox.h));
-        if (!reuse && !lg::damageCovers(ctx, ix0, iy0, ix1, iy1)) {
-            const double invS = 1.0 / (double)monitor->m_scale;
-            g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + rx0 * invS, monitor->m_position.y + ry0 * invS,
-                                            (rx1 - rx0) * invS, (ry1 - ry0) * invS});
-            continue;
-        }
         // Working res: capture_scale divisor (4 = quarter-res chain; the
         // output is blurred anyway, so it upscales back nearly identically).
         const int hw = std::max(1, rw / capDiv), hh = std::max(1, rh / capDiv);
 
         if (!reuse) {
+            // Whether the lower scene has already been repainted across the
+            // whole capture region (including the bleed). We capture either
+            // way and always draw; if the bleed is stale we self-damage it so
+            // the NEXT capture is clean. Never skip: an animated widget hits
+            // this path every frame, and skipping it was the massive flicker.
+            const bool freshBleed = lg::damageCovers(ctx, rx0, ry0, rx1, ry1);
             cap.valid = false;
             ensurePillCap(cap, hw, hh, passes, bokehOn, source->m_drmFormat);
             if (!cap.a || !cap.a->getTexture()
@@ -1488,10 +1487,33 @@ void CGlassLayer::render(Render::CRenderContext& ctx, PHLMONITOR monitor) {
             cap.hw = hw; cap.hh = hh; cap.capDiv = capDiv; cap.passes = passes;
             cap.bokehOn = bokehOn; cap.bokeh = T.bokeh; cap.effR = effR;
             cap.tuneGen = tuneGen; cap.srcW = srcW; cap.srcH = srcH;
-            cap.reuseCount = 0;
-        } else {
-            cap.reuseCount++;
+            cap.winKey = winKey;
+            if (!freshBleed) {
+                const double invS = 1.0 / (double)monitor->m_scale;
+                g_pHyprRenderer->damageBox(CBox{monitor->m_position.x + rx0 * invS,
+                                                monitor->m_position.y + ry0 * invS,
+                                                (rx1 - rx0) * invS, (ry1 - ry0) * invS});
+            }
         }
+
+        drawPills.push_back(pillIdx);
+        continue;
+    }
+
+    // Phase 2: draw the primed captures. The framebuffer now contains this
+    // surface's glass for earlier pills, but the shader samples the clean
+    // per-pill capture (uBlur), not the framebuffer, so no feedback.
+    for (size_t pillIdx : drawPills) {
+        const auto& lp = pills[pillIdx];
+        lg::SPillCapture& cap = m_pillCap[pillIdx];
+        const int px0 = (int)std::floor(lp.x);
+        const int py0 = (int)std::floor(lp.y);
+        const int px1 = (int)std::ceil(lp.x + lp.w);
+        const int py1 = (int)std::ceil(lp.y + lp.h);
+        const int rx0 = std::max(0, px0 - PAD_PX), ry0 = std::max(0, py0 - PAD_PX);
+        const int rx1 = std::min(srcW, px1 + PAD_PX), ry1 = std::min(srcH, py1 + PAD_PX);
+        const int rw = rx1 - rx0, rh = ry1 - ry0;
+        const bool bokehOn = T.bokeh > 0.01f;
 
         // Reused captures skip the blit (and its scissor reset); make sure a
         // scissor left by an earlier pass cannot clip the glass draw. The
@@ -1927,10 +1949,13 @@ void CGlassLayer::drawRim(Render::CRenderContext& ctx, PHLMONITOR monitor) {
 
         glUniformMatrix3fv(m_ru.proj, 1, GL_TRUE, proj.getMatrix().data());
         glUniform1i(m_ru.blur, 0);
-        glUniform4f(m_ru.inner, ix + band, iy + band, lp.w - 2.0f * band, lp.h - 2.0f * band);
+        // Rim-only widgets: overlay just the lit line. The band extends one px
+        // past the pill edge so the line lands exactly on the edge with full
+        // coverage; uRimOverlay keeps the base transparent (no thick border).
+        glUniform4f(m_ru.inner, ix + 1.0f, iy + 1.0f, lp.w - 2.0f, lp.h - 2.0f);
         glUniform2f(m_ru.quad, (float)rw, (float)rh);
-        glUniform1f(m_ru.thick, band);
-        glUniform1f(m_ru.round, lp.r[0]);
+        glUniform1f(m_ru.thick, band + 1.0f);
+        glUniform1f(m_ru.round, lp.r[0] + band);
         glUniform3f(m_ru.tint, ibR, ibG, ibB);
         glUniform3f(m_ru.tint2, ibR, ibG, ibB);
         glUniform1f(m_ru.lerp, 0.0f);
@@ -1952,7 +1977,7 @@ void CGlassLayer::drawRim(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         glUniform1f(m_ru.glowBias, 0.0f);
         glUniform1f(m_ru.throwMax, std::min(24.0f, (float)thick * 1.5f));
         glUniform1f(m_ru.useRadii, 1.0f);
-        glUniform4f(m_ru.radii, lp.r[0], lp.r[1], lp.r[2], lp.r[3]);
+        glUniform4f(m_ru.radii, lp.r[0] + band, lp.r[1] + band, lp.r[2] + band, lp.r[3] + band);
         glUniform4f(m_ru.winRadii, lp.r[0], lp.r[1], lp.r[2], lp.r[3]);
         glUniform2f(m_ru.flare, lp.fl[0], lp.fl[1]);
         glUniform1f(m_ru.squircleF, lp.sq >= 0.0f ? lp.sq : squircleF);
@@ -1977,8 +2002,10 @@ void CGlassLayer::drawRim(Render::CRenderContext& ctx, PHLMONITOR monitor) {
         glUniform1f(m_ru.rimAngle, rimAngle);
         glUniform1f(m_ru.rimSplay, rimSplay);
         glUniform1f(m_ru.rimShade, rimShade);
-        glUniform1f(m_ru.rimAtInner, 0.0f);
-        glUniform1f(m_ru.rimShift, 0.0f);
+        glUniform1f(m_ru.rimAtInner, 1.0f);
+        glUniform1f(m_ru.rimShift, 1.0f);
+        glUniform1f(m_ru.rimSampleShift, band);
+        glUniform1f(m_ru.rimOverlay, 1.0f);
 
         glBindVertexArray(m_vao);
         lg::drawPerDamageRect(ctx, m_rimCapBox, [] { glDrawArrays(GL_TRIANGLE_STRIP, 0, 4); });

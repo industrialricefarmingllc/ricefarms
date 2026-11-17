@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import qs
@@ -10,11 +11,13 @@ import qs
 //   {"id": "...", "path": "/path/to/wall.jpg", "phase": "in"}
 //   {"id": "...", "phase": "out"}
 //
-// "in" grows a circular mask from the bottom-right until it covers the screen.
-// The wallpaper inside is screen-sized, so the circle reveals it in place.
-// "out" collapses the same circle toward the top-left, exposing the already
-// recoloured desktop underneath. The window is click-through and sits on the
-// overlay layer, above the bar, dock and all normal windows.
+// The reveal is skwd-wall's drawing transition, started as soon as the new
+// picture decodes: the old wallpaper becomes paper, an ink sketch of the new
+// one draws itself in, then a liquid pour lands on the photo. It stays up
+// while the palette and wallpaper commit underneath and fades back to the
+// desktop when the apply finishes. The old iris grow remains only as the
+// fallback for a picture that never decoded. The window is click-through and
+// sits on the overlay layer, above the bar, dock and all normal windows.
 //
 // Cost model (what this file is shaped around):
 //   * idle: nothing. The layer surface is unmapped, so the compositor does not
@@ -101,8 +104,24 @@ PanelWindow {
 
     // Grow progress, already in eased space (0 = off-screen, 1 = covered).
     property real cover: 0
-    // Shrink time, 0..1; the InCubic easing is applied in `progress`.
+    // Fallback shrink time, 0..1; the InCubic easing is applied in `progress`.
     property real outT: 0
+    // Drawing transition progress, 0..1, in skwd's own curve.
+    property real drawT: 0
+    property bool drawing: false
+    // The picture on screen when the apply started (the previous target), so
+    // the drawing opens on it instead of cutting to the new wallpaper.
+    property string lastWallpaper: ""
+    property string fromRevealSource: ""
+    property bool useFrom: false
+    // Only the output the user is looking at runs the animated shader. The
+    // others hold a still cover; that is what keeps three 4K layers from
+    // stalling the machine while the apply is working.
+    property bool animateHere: true
+    // Set when the apply has finished under the drawing; the pour is then
+    // allowed to finish before the overlay fades out.
+    property bool closeRequested: false
+    property real closeFade: 0
     property bool leaving: false
 
     // One animator instead of three: the same single progress drives centre and
@@ -163,49 +182,63 @@ PanelWindow {
 
     function beginReveal(id, path) {
         // A duplicate IPC delivery for the same selection must not reset the
-        // in-animation halfway through; that makes the circle look smaller on
-        // some wallpapers depending on timing.
+        // animation halfway through.
         if (root.active && root.lastId === id)
             return;
-        // Stop the previous run's animators. A still-running "out" would
-        // finish later and set active=false, tearing down the new reveal
-        // halfway through; a still-running "in" would fight the new one.
+        // Stop the previous run's animators before reusing them.
         inAnim.stop();
         outAnim.stop();
+        drawTicker.stop();
+        closeTicker.stop();
+        prepareTimer.stop();
+        startDelayTimer.stop();
+        coveredTimer.stop();
         holdTimer.stop();
-        // A new pick that lands while the circle already covers the screen
-        // must not reset it to zero: the desktop would flash before the new
-        // circle grows. Keep the cover, swap the picture inside it, and let
-        // the apply continue under it.
-        const wasCovered = root.active && !root.leaving && !root.pendingIn
-            && root.cover >= 1;
+
+        // The picture on screen right now becomes the drawing's paper source.
+        // That is the target of the previous reveal; a fresh shell has none,
+        // and then the drawing starts from the new picture itself.
+        const previous = root.lastWallpaper;
+        const wasDrawing = root.drawing && root.active;
+        root.lastWallpaper = path || "";
+        // The shell maps a single reveal surface (see shell.qml: three
+        // fullscreen Vulkan layers crashed the NVIDIA driver), so it is
+        // always the one running the drawing. The old per-focus check meant
+        // that applying from another monitor ran no animation at all and
+        // never announced ready/covered.
+        root.animateHere = true;
+
         root.lastId = id;
         Theme.revealActive = true;
         root.wallpaper = path || "";
         root.active = true;
         root.pendingIn = true;
         root.concealRequested = false;
+        root.closeRequested = false;
+        root.closeFade = 0;
         root.heartbeatAt = Date.now();
         root.begunAt = Date.now();
         root.leaving = false;
-        if (!wasCovered) {
-            root.cover = 0;
-            root.outT = 0;
-        }
+        root.cover = 0;
+        root.outT = 0;
+        // A new pick during a drawing must not make the overlay transparent
+        // while the new picture decodes. Hold the finished frame; it is the
+        // previous target, which is also the new drawing's first frame.
+        root.drawing = wasDrawing && root.animateHere;
+        root.drawT = wasDrawing && root.animateHere ? 1 : 0;
+        root.drawStartAt = 0;
+        root.useFrom = false;
+        root.fromRevealSource = "";
+        if (previous && previous !== path)
+            root.fromRevealSource = "file://" + encodeURI(previous);
+
         Quickshell.execDetached(["sh", "-c", "rm -f \"$0\" \"$1\"", root.readyPath, root.coveredPath]);
         // Force the Image through Null/Loading so a Ready status from the
         // previous wallpaper cannot start the new animation early. The decode
-        // is asynchronous now; startIn runs from the status handler once the
+        // is asynchronous; startDraw runs from the status handler once the
         // texture exists.
         root.revealSource = "";
         root.revealSource = "file://" + encodeURI(root.wallpaper);
-        if (wasCovered) {
-            // There is no grow left to wait for. Mark both phases done so the
-            // new apply proceeds under the cover; the new picture replaces
-            // the old one inside the circle when its decode finishes.
-            root.pendingIn = false;
-            Quickshell.execDetached(["sh", "-c", "touch \"$0\" \"$1\"", root.readyPath, root.coveredPath]);
-        }
         if (image.status === Image.Ready)
             Qt.callLater(root.imageReady);
     }
@@ -214,43 +247,111 @@ PanelWindow {
         if (image.status !== Image.Ready)
             return;
         // Render the wallpaper into its FBO once; it is static for the whole
-        // reveal, so there is no reason to re-render it every frame. This
-        // also runs for the already-covered handover, which has no animation.
-        wallpaperSource.scheduleUpdate();
+        // reveal, so there is no reason to re-render it every frame.
+        // Only the animated output samples this texture; the still covers on
+        // the other outputs would otherwise pay for a full-screen grab each.
+        if (root.animateHere)
+            wallpaperSource.scheduleUpdate();
         if (!root.pendingIn)
             return;
-        Qt.callLater(root.startIn);
+        if (!root.animateHere) {
+            root.pendingIn = false;
+            root.drawing = false;
+            root.drawT = 0;
+            return ;
+        }
+        prepareTimer.restart();
     }
 
-    function startIn() {
+    // Start the drawing as soon as the new picture exists. It is the cover
+    // now, not a closing flourish: the overlay is opaque from its first frame
+    // and the commit happens underneath it.
+    function startDraw() {
+        if (!root.pendingIn || !root.active)
+            return;
+        root.pendingIn = false;
+        root.drawing = true;
+        root.drawT = 0;
+        // A conceal that arrived before the decode (a failed apply closing
+        // early) must still let the drawing play out, then close.
+        if (root.concealRequested)
+            root.closeRequested = true;
+        root.drawStartAt = Date.now();
+        root.drawT = 0;
+        drawTicker.start();
+    }
+
+    // Fallback when the picture never decoded: the old iris grow, which can
+    // still cover the commit and then shrink away.
+    function startGrow() {
         if (!root.pendingIn)
             return;
         root.pendingIn = false;
+        if (!root.animateHere)
+            return ;
+        root.drawing = false;
         root.cover = 0;
         Quickshell.execDetached(["sh", "-c", "touch \"$0\"", root.readyPath]);
         inAnim.restart();
     }
 
     function startOut() {
+        if (root.leaving)
+            return;
+        if (!root.animateHere) {
+            root.startClose();
+            return;
+        }
+        if (root.drawing) {
+            // A commit that already arrived lets the drawing finish; only a
+            // silent apply is closed on top of whatever frame it is showing.
+            if (drawTicker.running && root.closeRequested)
+                return ;
+            root.startClose();
+            return;
+        }
         root.leaving = true;
         root.outT = root.tLeave;
         outAnim.restart();
     }
 
-    // The last word: drop the iris without waiting for any animation. Used by
-    // the deadline when the normal close never arrived, so a broken animation
-    // cannot keep the screen covered either.
+    // Crossfade the finished drawing back to the live desktop. For a still
+    // that is the same picture; for a scene it blends the preview frame into
+    // the running scene instead of cutting.
+    function startClose() {
+        if (root.leaving)
+            return;
+        root.leaving = true;
+        root.closeStartAt = Date.now();
+        root.closeFade = 0;
+        closeTicker.start();
+    }
+
+    // The last word: drop the overlay without waiting for any animation. Used
+    // by the deadline when the normal close never arrived, so a broken
+    // animation cannot keep the screen covered either.
     function forceClose() {
         inAnim.stop();
         outAnim.stop();
+        drawTicker.stop();
+        closeTicker.stop();
+        prepareTimer.stop();
+        startDelayTimer.stop();
+        coveredTimer.stop();
         holdTimer.stop();
         root.pendingIn = false;
         root.concealRequested = false;
+        root.closeRequested = false;
         root.completing = false;
         root.leaving = false;
+        root.drawing = false;
+        root.drawT = 0;
+        root.closeFade = 0;
         root.cover = 0;
         root.outT = 0;
         root.wallpaper = "";
+        root.fromRevealSource = "";
+        root.useFrom = false;
         root.revealSource = "";
         Theme.revealActive = false;
         root.active = false;
@@ -259,9 +360,20 @@ PanelWindow {
     function endReveal(id) {
         if (id !== root.lastId || !root.active)
             return;
-        // A conceal that arrives while the circle is still growing must not
-        // interrupt it; that is the "small circle flies across" bug. Defer it
-        // until the grow has completed, then hold the requested 50 ms.
+        if (!root.animateHere) {
+            root.closeRequested = true;
+            root.startClose();
+            return;
+        }
+        // The drawing is the cover now. If the commit lands while it is still
+        // playing, let the pour finish before fading out; if it is still
+        // decoding, defer as before.
+        if (root.drawing) {
+            root.closeRequested = true;
+            if (!drawTicker.running)
+                root.startClose();
+            return;
+        }
         if (root.pendingIn || inAnim.running) {
             root.concealRequested = true;
             return;
@@ -300,6 +412,19 @@ PanelWindow {
         }
     }
 
+    // The overlay is up as soon as the drawing paints. "covered" is held back
+    // until the drawing has finished: it gates the palette and depth work,
+    // and that work blocks the shell's event loop for over a second. Under
+    // the finished frame that stall is invisible; during the animation it is
+    // a visible freeze.
+    Timer {
+        id: coveredTimer
+
+        interval: 60
+        repeat: false
+        onTriggered: Quickshell.execDetached(["sh", "-c", "touch \"$0\"", root.readyPath])
+    }
+
     Timer {
         id: holdTimer
 
@@ -322,10 +447,90 @@ PanelWindow {
         // the same speed; the invisible lead-in is simply not animated.
         duration: Math.max(1, (1 - root.tLeave) * 700)
         easing.type: Easing.Linear
-        onFinished: {
-            Theme.revealActive = false;
-            root.active = false;
-            root.wallpaper = "";
+        onFinished: root.forceClose()
+    }
+
+    // skwd-wall's drawing transition, driven at 30 Hz: the reveal is a
+    // full-screen shader on every output, and this now runs while the apply
+    // is using the machine. A pencil drawing does not need 60 fps, and
+    // halving the frames is what keeps it smooth under that load. Progress is
+    // read from the clock, so a late tick never stretches the animation.
+    readonly property int drawMs: 3000
+    property double drawStartAt: 0
+
+    Timer {
+        id: drawTicker
+
+        interval: 33
+        repeat: true
+        running: false
+        onTriggered: {
+            var now = Date.now();
+            var p = Math.min(1, (now - root.drawStartAt) / root.drawMs);
+            root.drawT = p;
+            if (p < 1)
+                return ;
+            drawTicker.stop();
+            // The apply's mode detection, palette, depth and wallpaper work
+            // all start here, on the finished frame. None of it can stall the
+            // drawing because the drawing is over.
+            Quickshell.execDetached(["sh", "-c", "touch \"$0\" \"$1\"", root.readyPath, root.coveredPath]);
+            // Hold the finished photo until the apply commits; when it has
+            // already finished, close now.
+            if (root.closeRequested)
+                root.startClose();
+        }
+    }
+
+    // Give the wallpaper its FBO frame, then bake the sketch and the stroke
+    // order before the animated pass needs them (the first 8 % only shows the
+    // old picture fading to paper).
+    Timer {
+        id: prepareTimer
+
+        interval: 80
+        repeat: false
+        onTriggered: {
+            if (!root.pendingIn)
+                return ;
+            sketchSource.scheduleUpdate();
+            root.useFrom = root.fromRevealSource !== "" && fromImage.status === Image.Ready;
+            if (root.useFrom)
+                fromSource.scheduleUpdate();
+            startDelayTimer.restart();
+        }
+    }
+
+    // The sketch grab, and on the first apply of a shell session the shader
+    // pipelines and FBOs, are created here. Holding the drawing back for a
+    // few frames keeps that cost out of the first visible frames.
+    Timer {
+        id: startDelayTimer
+
+        interval: 120
+        repeat: false
+        onTriggered: root.startDraw()
+    }
+
+    // The only way the drawing leaves the screen: a short crossfade, never a
+    // cut, because the last frame is the new wallpaper. Driven at 30 Hz like
+    // the drawing: a 180 ms fade is six frames, not thirty at 165 Hz.
+    readonly property int closeMs: 180
+    property double closeStartAt: 0
+
+    Timer {
+        id: closeTicker
+
+        interval: 33
+        repeat: true
+        running: false
+        onTriggered: {
+            var p = Math.min(1, (Date.now() - root.closeStartAt) / root.closeMs);
+            root.closeFade = p;
+            if (p < 1)
+                return ;
+            closeTicker.stop();
+            root.forceClose();
         }
     }
 
@@ -336,11 +541,15 @@ PanelWindow {
     Timer {
         interval: 1000
         repeat: true
-        running: root.active && !outAnim.running
+        running: root.active && !root.leaving
         onTriggered: {
-            if (!root.active || outAnim.running)
+            if (!root.active || root.leaving)
                 return ;
             if (root.heartbeatAt > 0 && Date.now() - root.heartbeatAt < 2500)
+                return ;
+            // The apply has already reported completion; the drawing is
+            // finishing on its own. Only a silent apply is force-closed.
+            if (root.closeRequested)
                 return ;
             console.log("REVEAL watchdog: no heartbeat, closing");
             root.startOut();
@@ -365,7 +574,8 @@ PanelWindow {
         printErrors: false
         onFileChanged: reload()
         onLoaded: {
-            if (root.active && !root.leaving && text().trim() === "0" && Date.now() - root.heartbeatAt > 1500)
+            if (root.active && !root.leaving && !root.closeRequested
+                    && text().trim() === "0" && Date.now() - root.heartbeatAt > 1500)
                 root.startOut();
         }
     }
@@ -401,7 +611,7 @@ PanelWindow {
             if (status === Image.Ready)
                 root.imageReady();
             else if (status === Image.Error && root.pendingIn)
-                root.startIn();
+                root.startGrow();
         }
     }
 
@@ -414,17 +624,100 @@ PanelWindow {
         recursive: false
     }
 
+    // The previous picture, kept as the drawing's paper source. A second Image
+    // is needed: the main one is reused for the new picture, and the
+    // ShaderEffectSource only refreshes when told to.
+    Image {
+        id: fromImage
+
+        x: 0
+        y: 0
+        width: root.sw
+        height: root.sh
+        source: root.fromRevealSource !== "" ? root.fromRevealSource : root.revealSource
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        cache: true
+        sourceSize: root.decodeSize
+        // On the animated output this is hidden and sampled as a texture; on
+        // the others it is the still cover that holds the old picture.
+        visible: root.active && !root.animateHere
+        opacity: 1 - root.closeFade
+        onStatusChanged: {
+            if (status === Image.Ready)
+                fromSource.scheduleUpdate();
+        }
+    }
+
+    ShaderEffectSource {
+        id: fromSource
+
+        sourceItem: fromImage
+        hideSource: root.animateHere
+        live: false
+        recursive: false
+    }
+
+    // The sketch is baked once per apply: the animated pass then only samples
+    // it instead of re-running the line extraction and e-ink paper work on
+    // every frame. It is baked 1:1 with the screen: the XDoG lines are already
+    // soft-edged, and a smaller bake only made the drawing look lower
+    // resolution than the wallpaper it sits on.
+    ShaderEffect {
+        id: inkSketch
+
+        x: 0
+        y: 0
+        width: root.sw
+        height: root.sh
+        visible: true
+        property variant wallpaperTex: wallpaperSource
+        property vector2d itemSize: Qt.vector2d(width, height)
+        property vector2d screenSize: Qt.vector2d(root.sw, root.sh)
+        fragmentShader: Qt.resolvedUrl("wallpaper_sketch.frag.qsb")
+    }
+
+    ShaderEffectSource {
+        id: sketchSource
+
+        sourceItem: inkSketch
+        hideSource: true
+        live: false
+        recursive: false
+    }
+
     ShaderEffect {
         x: 0
         y: 0
         width: root.sw
         height: root.sh
-        visible: root.active
+        visible: root.active && !root.drawing
         property variant wallpaperTex: wallpaperSource
         property vector2d itemSize: Qt.vector2d(root.sw, root.sh)
         property vector2d center: Qt.vector2d(root.cx, root.cy)
         property real radius: root.radius
         fragmentShader: Qt.resolvedUrl("wallpaper_circle.frag.qsb")
+    }
+
+    // The reveal itself. It opens on the picture that was on screen, turns it
+    // into paper, draws the ink sketch of the new one, then pours the photo.
+    ShaderEffect {
+        x: 0
+        y: 0
+        width: root.sw
+        height: root.sh
+        visible: root.active && root.drawing
+        opacity: root.drawing ? 1 - root.closeFade : 1
+        property variant wallpaperTex: wallpaperSource
+        property variant fromTex: root.useFrom ? fromSource : wallpaperSource
+        property variant sketchTex: sketchSource
+        property vector2d itemSize: Qt.vector2d(root.sw, root.sh)
+        property vector2d drawFocus: Qt.vector2d(0.5, 0.5)
+        property real stage: root.drawT
+        // The e-ink palette from reading_mode.glsl.
+        property vector4d paper: Qt.vector4d(0.743922, 0.723922, 0.663922, 1.0)
+        property vector4d ink: Qt.vector4d(0.10, 0.10, 0.12, 1.0)
+        fragmentShader: Qt.resolvedUrl("wallpaper_drawing.frag.qsb")
     }
 
 }

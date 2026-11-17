@@ -25,6 +25,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 VERSION = "0.1.0"
@@ -52,38 +53,13 @@ DEFAULT_TASKS = [
         "reward": 160,
         "icon": "language",
     },
-    {
-        "id": "focus",
-        "name": "Five quiet minutes",
-        "detail": "No gates, no apps",
-        "kind": "timer",
-        "min": 300,
-        "reward": 50,
-        "icon": "timer",
-    },
-    {
-        "id": "typing",
-        "name": "Typing sprint",
-        "detail": "One minute at the keyboard",
-        "kind": "timer",
-        "min": 60,
-        "reward": 20,
-        "icon": "keyboard",
-    },
-    {
-        "id": "debug",
-        "name": "Debug credit",
-        "detail": "Instantly adds Compute",
-        "kind": "instant",
-        "min": 0,
-        "reward": 160,
-        "icon": "developer_board",
-    },
 ]
 
 DEFAULT_CONFIG = {
     "starting_balance": 0,
     "default_cost": 160,
+    # after this many tasks in the rolling day, gates open for free
+    "free_after": 10,
     "place_costs": {
         "opencode": 160,
         "discord": 160,
@@ -116,6 +92,9 @@ def load_config() -> dict:
         value = user.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             cfg[key] = int(value)
+    free_after_value = user.get("free_after")
+    if isinstance(free_after_value, (int, float)) and not isinstance(free_after_value, bool):
+        cfg["free_after"] = max(0, int(free_after_value))
     place_costs = user.get("place_costs")
     if isinstance(place_costs, dict):
         for place, cost in place_costs.items():
@@ -154,6 +133,7 @@ def empty_state(cfg: dict) -> dict:
         "gates": {},
         "sessions": {},
         "awards": {},
+        "daily": {},
         "history": [],
         "stats": {"earned": 0, "spent": 0, "completed": 0},
     }
@@ -187,6 +167,62 @@ def load_state(cfg: dict) -> dict:
     return state
 
 
+def boot_id() -> str:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return ""
+
+
+def day_key(now: float) -> str:
+    # the quota day starts at 02:00 local time
+    return (datetime.fromtimestamp(now) - timedelta(hours=2)).date().isoformat()
+
+
+def sync_daily(state: dict, now: float | None = None) -> dict:
+    """Keep the quota log current.
+
+    A boot starts a fresh day; crossing 02:00 without rebooting carries the
+    previous tasks over (they stay within the rolling 24 h), which is what a
+    machine left on overnight should do.
+    """
+    now = time.time() if now is None else now
+    daily = state.get("daily")
+    if not isinstance(daily, dict):
+        daily = {}
+    bid = boot_id()
+    if bid and daily.get("boot") != bid:
+        daily["log"] = []
+    daily["boot"] = bid or str(daily.get("boot") or "")
+
+    cutoff = now - 24 * 60 * 60
+    log = []
+    for value in daily.get("log") or []:
+        try:
+            stamp = float(value)
+        except (TypeError, ValueError):
+            continue
+        if stamp > cutoff:
+            log.append(stamp)
+    daily["log"] = log[-500:]
+    daily["date"] = day_key(now)
+    state["daily"] = daily
+    return daily
+
+
+def daily_count(state: dict, now: float | None = None) -> int:
+    return len(sync_daily(state, now).get("log") or [])
+
+
+def free_after(cfg: dict) -> int:
+    return max(0, int(cfg.get("free_after", 10)))
+
+
+def unlocks_free(state: dict, cfg: dict) -> bool:
+    goal = free_after(cfg)
+    return goal > 0 and daily_count(state) >= goal
+
+
 def save_state(state: dict, cfg: dict) -> None:
     now = time.time()
     for bucket, ttl in ((state["gates"], GATE_TTL), (state["sessions"], SESSION_TTL)):
@@ -206,6 +242,12 @@ def save_state(state: dict, cfg: dict) -> None:
     if len(awards) > 1000:
         for key in sorted(awards, key=lambda k: awards[k].get("at", 0))[:len(awards) - 1000]:
             del awards[key]
+    sync_daily(state)
+    state["free_after"] = free_after(cfg)
+    free = unlocks_free(state, cfg)
+    for gate in state["gates"].values():
+        if gate.get("state") == "pending":
+            gate["free"] = free
     state["tasks"] = resolved_tasks(cfg)
     state["place_costs"] = cfg["place_costs"]
     state["default_cost"] = cfg["default_cost"]
@@ -257,6 +299,7 @@ def request_gate(state: dict, cfg: dict, place: str, label: str, cost: int | Non
         "created": time.time(),
         "resolved": None,
         "ref": ref,
+        "free": unlocks_free(state, cfg),
     }
     state["gates"][gate["id"]] = gate
     return gate
@@ -293,7 +336,7 @@ def start_session(state: dict, task_id: str, gate_id: str | None = None) -> dict
     return session
 
 
-def complete_session(state: dict, task_id: str, gate_id: str | None = None) -> dict:
+def complete_session(state: dict, cfg: dict, task_id: str, gate_id: str | None = None) -> dict:
     running = [
         s for s in state["sessions"].values()
         if s.get("state") == "running" and s.get("task") == task_id
@@ -306,17 +349,28 @@ def complete_session(state: dict, task_id: str, gate_id: str | None = None) -> d
     if missing > 1.0:
         raise Failure(f"{int(missing + 0.999)}s left on {session.get('taskName', task_id)}")
 
+    now = time.time()
     session["state"] = "done"
-    session["finished"] = time.time()
+    session["finished"] = now
     state["stats"]["completed"] = int(state["stats"].get("completed", 0)) + 1
+    sync_daily(state, now)["log"].append(now)
 
     target_gate = gate_id or session.get("gate") or ""
     gate = state["gates"].get(target_gate) if target_gate else None
     if gate is not None and gate.get("state") == "pending":
         gate["state"] = "granted"
-        gate["resolved"] = time.time()
+        gate["resolved"] = now
         gate["by"] = "task"
-        return {"session": session, "gate": gate, "balance": state["balance"], "awarded": 0}
+        free = unlocks_free(state, cfg)
+        awarded = 0
+        if free:
+            # the place is free today, so the task pays instead of paying the
+            # gate; the unlock itself costs nothing
+            awarded = int(session.get("reward", 0))
+            state["balance"] = int(state["balance"]) + awarded
+            state["stats"]["earned"] = int(state["stats"].get("earned", 0)) + awarded
+        return {"session": session, "gate": gate, "balance": state["balance"],
+                "awarded": awarded, "free": free}
 
     reward = int(session.get("reward", 0))
     state["balance"] = int(state["balance"]) + reward
@@ -324,17 +378,20 @@ def complete_session(state: dict, task_id: str, gate_id: str | None = None) -> d
     return {"session": session, "gate": None, "balance": state["balance"], "awarded": reward}
 
 
-def unlock_gate(state: dict, gate_id: str) -> dict:
+def unlock_gate(state: dict, cfg: dict, gate_id: str) -> dict:
     gate = find_gate(state, gate_id, pending=True)
-    cost = int(gate.get("cost", 0))
+    free = unlocks_free(state, cfg)
+    cost = 0 if free else int(gate.get("cost", 0))
     if int(state["balance"]) < cost:
         raise Failure(f"need {cost - int(state['balance'])} more Compute")
     state["balance"] = int(state["balance"]) - cost
-    state["stats"]["spent"] = int(state["stats"].get("spent", 0)) + cost
+    if cost > 0:
+        state["stats"]["spent"] = int(state["stats"].get("spent", 0)) + cost
     gate["state"] = "granted"
     gate["resolved"] = time.time()
-    gate["by"] = "spend"
-    return {"gate": gate, "balance": state["balance"]}
+    gate["by"] = "free" if free else "spend"
+    gate["free"] = free
+    return {"gate": gate, "balance": state["balance"], "cost": cost, "free": free}
 
 
 def cancel_gate(state: dict, gate_id: str) -> dict:
@@ -391,6 +448,8 @@ class Daemon:
         async with self.lock:
             # config edits apply without restarting the daemon
             self.cfg = load_config()
+            sync_daily(self.state)
+            self.state["free_after"] = free_after(self.cfg)
             tasks = resolved_tasks(self.cfg)
             if self.state.get("tasks") != tasks:
                 self.state["tasks"] = tasks
@@ -413,7 +472,7 @@ class Daemon:
                 return {"ok": True, "gate": gate}
 
             if cmd == "unlock":
-                result = unlock_gate(self.state, str(req.get("gate") or ""))
+                result = unlock_gate(self.state, self.cfg, str(req.get("gate") or ""))
                 save_state(self.state, self.cfg)
                 return {"ok": True, **result}
 
@@ -428,7 +487,7 @@ class Daemon:
                 return {"ok": True, "session": session, "balance": self.state["balance"]}
 
             if cmd == "complete":
-                result = complete_session(self.state, str(req.get("task") or ""), req.get("gate") or None)
+                result = complete_session(self.state, self.cfg, str(req.get("task") or ""), req.get("gate") or None)
                 save_state(self.state, self.cfg)
                 return {"ok": True, **result}
 
@@ -619,6 +678,10 @@ def print_status(resp: dict) -> None:
     now = resp.get("now", time.time())
     print(f"balance  {state.get('balance', 0)} Compute")
     print(f"gates    {sum(1 for g in state.get('gates', {}).values() if g.get('state') == 'pending')} pending")
+    goal = int(state.get("free_after", 10))
+    if goal > 0:
+        done = len((state.get("daily") or {}).get("log") or [])
+        print(f"daily    {done}/{goal} tasks" + ("  (places free)" if done >= goal else ""))
     tasks = state.get("tasks", [])
     if tasks:
         print("tasks")

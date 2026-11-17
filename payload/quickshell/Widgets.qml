@@ -1313,39 +1313,6 @@ Singleton {
             "def": []
         }]
     }, {
-        "id": "opencode",
-        "name": "OpenCode",
-        "blurb": "The sessions open in your OpenCode windows, and which are working.",
-        "variants": [{
-            "id": "list",
-            "name": "Sessions",
-            "blurb": "Every open session, with its status, name and folder.",
-            "w": 320,
-            "h": 320,
-            "resizable": true,
-            "resizeAxis": "vertical",
-            "minH": 160,
-            "maxH": 900
-        }, {
-            "id": "grid",
-            "name": "Status grid",
-            "blurb": "Only each session's loading or done icon, in a small grid.",
-            "w": 152,
-            "h": 152
-        }],
-        "options": [{
-            "key": "hideIdle",
-            "label": "Hide done sessions",
-            "type": "bool",
-            "def": false
-        }, {
-            "key": "showPath",
-            "label": "Show the folder",
-            "type": "bool",
-            "def": true,
-            "variants": ["list"]
-        }]
-    }, {
         "id": "ambience",
         "name": "Ambience",
         "blurb": "A YouTube soundtrack for each wallpaper, looped quietly at half volume.",
@@ -1383,13 +1350,46 @@ Singleton {
         }],
         "options": []
     }, {
+        "id": "opencode",
+        "name": "OpenCode",
+        "blurb": "The sessions open in your OpenCode windows, and which are working.",
+        "variants": [{
+            "id": "list",
+            "name": "Sessions",
+            "blurb": "Every open session, with its status, name and folder.",
+            "w": 320,
+            "h": 320,
+            "resizable": true,
+            "resizeAxis": "vertical",
+            "minH": 160,
+            "maxH": 900
+        }, {
+            "id": "grid",
+            "name": "Status grid",
+            "blurb": "Only each session's loading or done icon, in a small grid.",
+            "w": 152,
+            "h": 152
+        }],
+        "options": [{
+            "key": "hideIdle",
+            "label": "Hide done sessions",
+            "type": "bool",
+            "def": false
+        }, {
+            "key": "showPath",
+            "label": "Show the folder",
+            "type": "bool",
+            "def": true,
+            "variants": ["list"]
+        }]
+    }, {
         "id": "gate",
-        "name": "Gate",
-        "blurb": "Compute, the next task, and what it pays.",
+        "name": "Lucid Gate",
+        "blurb": "Your compute balance, today's tasks and the next gate.",
         "variants": [{
             "id": "quarter",
             "name": "Quarter",
-            "blurb": "A 152 px square with Compute, a swipeable task and its reward.",
+            "blurb": "A 152 px square with the compute balance and the task strip.",
             "w": 152,
             "h": 152
         }],
@@ -1545,7 +1545,6 @@ Singleton {
             { "type": "weather", "variant": "detail", "at": "tr", "x": 1540, "y": 186 },
             { "type": "shortcuts", "variant": "shapes", "at": "tr", "x": 1652, "y": 408 }
         ]
-
     }]
 
     // every way the store finishes loading, an empty or missing file included
@@ -2220,6 +2219,11 @@ Singleton {
 
         opts[key] = value;
         instances.setProperty(i, "optsJson", JSON.stringify(opts));
+        // An everywhere card keeps its options only in the shared entry; board
+        // copies are serialised without opts. Update that copy before saving,
+        // or the next restart silently reverts every option.
+        if (instances.get(i).everywhere === true)
+            root.refreshEverywhereEntry(uid);
         root.save();
     }
 
@@ -2240,7 +2244,24 @@ Singleton {
             return ;
 
         instances.setProperty(i, "optsJson", JSON.stringify(opts));
+        if (instances.get(i).everywhere === true)
+            root.refreshEverywhereEntry(uid);
         root.save();
+    }
+
+    function refreshEverywhereEntry(uid) {
+        var at = root.everywhereIndex(uid);
+        var i = root.indexOf(uid);
+        if (at < 0 || i < 0)
+            return ;
+        // Mutate the shared entry in place. Reassigning everywhereCards here
+        // makes every output rebuild its card model during a plain option
+        // click, which reads as duplicate cards flying in from the other
+        // monitors.
+        var target = root.everywhereCards[at];
+        var fresh = root.entryOf(instances.get(i));
+        for (var key in fresh)
+            target[key] = fresh[key];
     }
 
     // a fresh object each time, or the var never signals
@@ -3282,11 +3303,9 @@ Singleton {
 
     function serialise() {
         // An "everywhere" card is the same widget on every wallpaper; its board
-        // copies need only the place and size, not another copy of its options
-        // (which, for a Social card, are several KB of source lists). Writing
-        // those once in `everywhere` takes the store from ~1 MB to ~200 KB and
-        // the V4 stringify from ~10 ms to ~2 ms, without changing what restore
-        // reads: showBoard merges the shared definition back in by uid.
+        // copies need only the place and size, not another copy of its options.
+        // Writing those once in `everywhere` takes the store from ~1 MB to
+        // ~200 KB and the V4 stringify from ~10 ms to ~2 ms.
         var shared = {};
         for (var s = 0; s < root.everywhereCards.length; s++) {
             var sharedCard = root.everywhereCards[s];

@@ -28,16 +28,16 @@ Item {
 
     readonly property var schedules: [{
         "key": "off",
-        "name": "By hand",
-        "desc": "Only when you turn it on"
+        "name": Tr.t("By hand"),
+        "desc": Tr.t("Only when you turn it on")
     }, {
         "key": "sun",
-        "name": "Sunset to sunrise",
-        "desc": NightLight.sun.polar ? "No sunset where you are today, so 9 pm to 7 am" : NightLight.clock(NightLight.sun.set) + " to " + NightLight.clock(NightLight.sun.rise) + (Loc.place !== "" ? " in " + Loc.place : "")
+        "name": Tr.t("Sunset to sunrise"),
+        "desc": NightLight.sun.polar ? Tr.t("No sunset where you are today, so 9 pm to 7 am") : NightLight.clock(NightLight.sun.set) + Tr.t(" to ") + NightLight.clock(NightLight.sun.rise) + (Loc.place !== "" ? Tr.t(" in ") + Loc.place : "")
     }, {
         "key": "custom",
-        "name": "Set hours",
-        "desc": NightLight.clock(Prefs.nightLightFrom) + " to " + NightLight.clock(Prefs.nightLightTo)
+        "name": Tr.t("Set hours"),
+        "desc": NightLight.clock(Prefs.nightLightFrom) + Tr.t(" to ") + NightLight.clock(Prefs.nightLightTo)
     }]
 
     implicitHeight: col.implicitHeight
@@ -178,7 +178,7 @@ Item {
 
                         Text {
                             width: parent.width
-                            text: option.modelData.name
+                            text: Tr.t(option.modelData.name)
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.bold: true

@@ -32,12 +32,30 @@ Item {
 
     signal closeRequested()
 
+    // the (request, target) pair this view has already opened; the request can
+    // arrive before the overlay names the output, so both changes run this
+    property int openedRequest: -1
+    property string openedTarget: ""
+
+    function maybeOpen() {
+        if (!GateCore.lessonOpen || !root.currentLesson)
+            return ;
+        if (root.openedRequest === GateCore.lessonRequest
+            && root.openedTarget === GateCore.lessonTargetScreen)
+            return ;
+
+        root.openedRequest = GateCore.lessonRequest;
+        root.openedTarget = GateCore.lessonTargetScreen;
+        root.open(GateCore.lessonUrl);
+    }
+
     Component.onCompleted: {
         view.profile = GateWeb.profile;
         view.settings.showScrollBars = false;
         view.settings.scrollAnimatorEnabled = true;
-        if (root.screenName === "" || root.screenName === GateCore.lessonTargetScreen)
-            root.open(GateCore.lessonUrl);
+        // the overlay binds screenName right after the item appears; wait one
+        // turn so this view knows whether it is the target before opening
+        Qt.callLater(root.maybeOpen);
         console.log("lucid-gate: lesson created");
     }
     Component.onDestruction: {
@@ -49,8 +67,10 @@ Item {
         target: GateCore
 
         function onLessonRequestChanged() {
-            if (GateCore.lessonOpen && root.currentLesson)
-                root.open(GateCore.lessonUrl);
+            root.maybeOpen();
+        }
+        function onLessonTargetScreenChanged() {
+            root.maybeOpen();
         }
     }
 
@@ -86,7 +106,10 @@ Item {
     }
 
     function readProbe() {
-        if (view.loading || root.completed || !GateCore.lessonOpen || !root.currentLesson)
+        // pageLoaded also keeps a warm view's old page from reporting its
+        // previous completion while the new load is still starting
+        if (view.loading || !root.pageLoaded || root.completed
+            || !GateCore.lessonOpen || !root.currentLesson)
             return ;
 
         // drive the page-side tick from QML instead of trusting the page's
@@ -117,7 +140,12 @@ Item {
                 else
                     GateCore.completeManualDuolingo();
 
-                GateCore.lingerLesson(2000);
+                // a gate lesson closes itself once the place is open; a lesson
+                // started from the desktop card stays up on its summary
+                if (GateCore.lessonVoluntary)
+                    GateCore.lessonKeepOpen = true;
+                else
+                    GateCore.lingerLesson(2000);
                 return ;
             }
             if (root.completed)
@@ -174,16 +202,8 @@ Item {
             profile: GateWeb.profile
             url: ""
             focus: true
-            opacity: root.pageLoaded ? 1 : 0
+            opacity: GateCore.lessonRevealed ? 1 : 0
             backgroundColor: Theme.isLight ? "#f7f7f7" : "#131f24"
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: Theme.durMedium
-                    easing.type: Easing.OutCubic
-                }
-
-            }
 
             onLoadingChanged: (request) => {
                 if (request.status === WebEngineView.LoadSucceededStatus) {
@@ -198,60 +218,6 @@ Item {
                 GateCore.rememberLessonUrl(String(view.url));
                 root.readProbe();
             }
-        }
-
-        // Launch-style placeholder: the app's own mark on an opaque tile and
-        // the m3 expressive loader until the engine has something to show.
-        Item {
-            id: placeholder
-
-            anchors.fill: parent
-            opacity: root.pageLoaded ? 0 : 1
-            visible: opacity > 0.01
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: Theme.durMedium
-                    easing.type: Easing.OutCubic
-                }
-
-            }
-
-            SquircleRect {
-                anchors.fill: parent
-                radius: Theme.rad(14)
-                fillColor: Theme.surfaceContainer
-            }
-
-            // the m3 expressive loader sits *behind* the app's own mark,
-            // the way the launcher holds a starting app
-            Item {
-                readonly property real markSize: Theme.dp(54)
-
-                anchors.centerIn: parent
-                width: markSize
-                height: width
-
-                // the drawn shape is 0.84 of the item box, so divide by that
-                // to make the visible circle's radius 1.66x the app mark
-                LoadingIndicator {
-                    anchors.centerIn: parent
-                    width: parent.markSize * 1.66 / 0.84
-                    height: width
-                    running: !root.pageLoaded
-                }
-
-                Image {
-                    anchors.centerIn: parent
-                    width: parent.markSize
-                    height: width
-                    source: GateCore.assetsPath + "/duolingo-owl.png"
-                    fillMode: Image.PreserveAspectFit
-                    smooth: true
-                }
-
-            }
-
         }
 
     }

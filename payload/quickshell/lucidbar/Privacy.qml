@@ -33,7 +33,7 @@ BarPill {
     // device; one fed by an output (a visualiser on a speaker's monitor) or by
     // another app is not. read off the links, which are there as soon as it runs
     readonly property var micApps: root.names(Audio.recordStreams.filter((s) => {
-        return root.feedsOf(s).some((src) => {
+        return !root.isPlumbing(root.micLabel(s)) && root.feedsOf(s).some((src) => {
             return !src.isStream && !src.isSink;
         });
     }).map(root.micLabel))
@@ -150,6 +150,20 @@ BarPill {
     // report what was already running as news
     property bool armed: false
 
+    // an app is announced once, not once per stream: some programs (Wine's
+    // pulse driver among them) tear a capture stream down and recreate it
+    // every few seconds, and each recreation used to be a fresh toast
+    property var announced: ({})
+    readonly property int announceGap: 120000
+
+    // streams that only exist to probe the audio graph are plumbing, not
+    // something recording; Wine names its probe "winepulse device refresh"
+    function isPlumbing(label) {
+        const s = String(label || "");
+
+        return /winepulse/i.test(s) && /refresh/i.test(s);
+    }
+
     // an app starting on the microphone, the camera or the screen is worth a
     // toast; Lucid's own recording is not, since you started it
     onRowsChanged: {
@@ -157,15 +171,24 @@ BarPill {
         for (const r of root.rows)
             now[r.kind] = r.apps;
         if (root.armed && Prefs.privacyToast && root.toast) {
+            const t = Date.now();
             for (const kind in now) {
                 const before = root.seen[kind] || [];
                 for (const app of now[kind]) {
                     if (before.indexOf(app) !== -1 || app === "Lucid is recording" || app === "Lucid's recording")
                         continue;
 
+                    if (root.isPlumbing(app))
+                        continue;
+
+                    const last = root.announced[app] || 0;
+                    if (t - last < root.announceGap)
+                        continue;
+
+                    root.announced[app] = t;
                     root.toast.enqueue({
                         "icon": root.icons[kind],
-                        "label": app + " is using " + root.nouns[kind],
+                        "label": Tr.t(app) + Tr.t(" is using ") + Tr.t(root.nouns[kind]),
                         "key": "privacy-" + kind
                     });
                 }
@@ -395,7 +418,7 @@ BarPill {
 
                         Text {
                             width: parent.width
-                            text: useRow.modelData.title
+                            text: Tr.t(useRow.modelData.title)
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodyLg
@@ -404,7 +427,7 @@ BarPill {
 
                         Text {
                             width: parent.width
-                            text: useRow.modelData.apps.join(", ")
+                            text: useRow.modelData.apps.map((a) => Tr.t(a)).join(", ")
                             color: Theme.subtext
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontLabelLg

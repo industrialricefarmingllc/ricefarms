@@ -30,19 +30,21 @@ Item {
             return e.meta;
 
         if (e.kind === "binary")
-            return "Binary data · " + e.meta;
+            return Tr.fmt("Binary data · %1", e.meta);
 
         if (e.kind === "color")
-            return "Colour · " + e.preview.trim();
+            return Tr.fmt("Colour · %1", e.preview.trim());
 
-        const what = e.kind === "url" ? "Link" : (e.kind === "email" ? "Email address" : "Text");
+        const what = e.kind === "url" ? Tr.t("Link") : (e.kind === "email" ? Tr.t("Email address") : Tr.t("Text"));
         if (!preview.textReady)
             return what;
 
         const t = Clip.textBody;
         const lines = t.replace(/\n$/, "").split("\n").length;
         const more = Clip.textTruncated ? "+" : "";
-        return what + " · " + lines + more + (lines === 1 && more === "" ? " line · " : " lines · ") + t.length + more + " characters";
+        const lineText = Tr.fmt(Tr.n("%1 line", "%1 lines", lines), lines + more);
+        const charText = Tr.fmt(Tr.n("%1 character", "%1 characters", t.length), t.length + more);
+        return what + " · " + lineText + " · " + charText;
     }
 
     onEntryChanged: {
@@ -240,13 +242,13 @@ Item {
                 model: [{
                     "symbol": "keyboard_return",
                     "key": "",
-                    "label": "Copy"
+                    "label": Tr.t("Copy")
                 }, {
                     "key": "Del",
-                    "label": "Delete"
+                    "label": Tr.t("Delete")
                 }, {
                     "key": "Ctrl+Shift+Del",
-                    "label": "Clear"
+                    "label": Tr.t("Clear")
                 }]
 
                 Row {

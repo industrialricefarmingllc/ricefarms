@@ -6,6 +6,7 @@ import "./lucidcorners"
 import "./luciddesktop"
 import "./luciddocks"
 import "./lucidkeys"
+import "./lucidaccent"
 import "./lucidlock"
 import "./lucidmoji"
 import "./lucidnews"
@@ -1651,9 +1652,9 @@ ShellRoot {
                 // compositor parses and glass passes by ~27 %. Dragged or
                 // resized surfaces keep the 4 ms default.
                 coalesceMs: 8
-                // The preference is authoritative: with glass off the plugin
-                // must not keep drawing the bar from a stale geometry file.
-                pills: Prefs.liquidGlassEnabled ? bar.glassPills : []
+                // Always publish: with glass off the compositor draws the
+                // rim-only overlay from the same geometry.
+                pills: bar.glassPills
             }
 
             Repeater {
@@ -2047,6 +2048,16 @@ ShellRoot {
         id: osdMod
     }
 
+    // long-press alternate spellings. one transparent, always-mapped overlay
+    // per output so taking keyboard focus is immediate; see Accent.qml.
+    Variants {
+        model: Quickshell.screens
+
+        AccentPicker {
+        }
+
+    }
+
     // Fake rounded screen corners on every monitor (black inverted corners,
     // Overlay layer so they mask windows like a physical rounded bezel). Above
     // the wash, which is clipped to the windows and would otherwise leave the
@@ -2058,7 +2069,10 @@ ShellRoot {
     // The wallpaper-only iris used to hide a synchronized theme commit.
     Variants {
         id: revealPanels
-        model: Quickshell.screens
+        // One reveal surface, on the shell's main output. Mapping three
+        // fullscreen Vulkan overlay layers at once crashed the NVIDIA driver
+        // during wallpaper changes (libnvidia-glcore, beginPass).
+        model: Monitors.mainScreen ? [Monitors.mainScreen] : []
 
         WallpaperReveal {
         }
@@ -2087,6 +2101,14 @@ ShellRoot {
         name: "launch"
         description: Tr.t("Lucid: launch an application with a placeholder")
         onPressed: Launch.pollRequests()
+    }
+
+    // Hyprland's key-repeat watcher raises this when a letter has been held
+    // long enough. The request itself is read from the runtime directory.
+    GlobalShortcut {
+        name: "accent"
+        description: Tr.t("Lucid: alternate spellings for a long-pressed letter")
+        onPressed: Accent.pollRequest()
     }
 
     IpcHandler {

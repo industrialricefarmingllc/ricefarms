@@ -120,7 +120,7 @@ BarPill {
                     const d = Math.floor(s / 86400);
                     const h = Math.floor(s % 86400 / 3600);
                     const m = Math.floor(s % 3600 / 60);
-                    root.uptime = "Up " + (d > 0 ? d + (d === 1 ? " day " : " days ") : "") + (d > 0 || h > 0 ? h + " h " : "") + m + " min";
+                    root.uptime = Tr.t("Up ") + (d > 0 ? d + (d === 1 ? Tr.t(" day ") : Tr.t(" days ")) : "") + (d > 0 || h > 0 ? h + Tr.t(" h ") : "") + m + Tr.t(" min");
                 }
                 root.canHibernate = /"yes"/.test(lines[1] || "");
             }
@@ -237,7 +237,7 @@ BarPill {
                             y: root.gridPanel ? actionIcon.y + actionIcon.height + Theme.dp(8) : (parent.height - height) / 2
                             width: parent.width - x - (root.gridPanel ? Theme.dp(6) : Theme.dp(12))
                             horizontalAlignment: root.gridPanel ? Text.AlignHCenter : Text.AlignLeft
-                            text: actionRow.isArmed ? actionRow.modelData.label + (root.gridPanel ? "?" : Tr.t("? Click again")) : actionRow.modelData.label
+                            text: actionRow.isArmed ? Tr.t(actionRow.modelData.label) + (root.gridPanel ? "?" : Tr.t("? Click again")) : Tr.t(actionRow.modelData.label)
                             color: actionRow.isArmed ? Theme.fgError : Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontBodyLg

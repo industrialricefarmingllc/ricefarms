@@ -1008,15 +1008,15 @@ BarPill {
                     anchors.verticalCenter: parent.verticalCenter
                     text: {
                         if (Notifs.dnd)
-                            return "Do Not Disturb · " + root.notifCount + " waiting";
+                            return Tr.t("Do Not Disturb · ") + root.notifCount + Tr.t(" waiting");
 
                         if (Notifs.quietNow)
-                            return "Quiet hours · " + root.notifCount + " waiting";
+                            return Tr.t("Quiet hours · ") + root.notifCount + Tr.t(" waiting");
 
                         if (root.notifCount === 0)
-                            return "Nothing waiting";
+                            return Tr.t("Nothing waiting");
 
-                        return root.notifCount === 1 ? "1 notification" : root.notifCount + " notifications";
+                        return root.notifCount === 1 ? Tr.t("1 notification") : root.notifCount + Tr.t(" notifications");
                     }
                     color: (Notifs.dnd || Notifs.quietNow) ? Theme.accent : Theme.subtext
                     font.family: Theme.fontFamily

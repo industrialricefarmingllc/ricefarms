@@ -680,3 +680,11 @@ hl.bind("SUPER + R", function()
   if _G.lucid_super_tap_disarm then _G.lucid_super_tap_disarm() end
 end, { transparent = true, non_consuming = true, description = "disarm launcher tap (SUPER+R)" })
 hl.bind("SUPER + R", hl.dsp.global("quickshell:launcherEmoji"), { description = "Emoji (SUPER+R)" })
+
+-- >>> long-press alternate spellings >>>
+-- Observes the compositor's own key events (including state=2 repeats), so
+-- the picker follows input.repeat_delay exactly. See lucid-accent.lua.
+pcall(function()
+  dofile((os.getenv("HOME") or "") .. "/.config/hypr/lucid-accent.lua")
+end)
+-- <<< long-press alternate spellings <<<

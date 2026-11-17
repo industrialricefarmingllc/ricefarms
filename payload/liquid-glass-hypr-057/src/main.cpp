@@ -221,7 +221,8 @@ void hkRenderLayer(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PHL
 
     if (!popups && !lockscreen && surface && surface->mapped()) {
         if (auto wash = lg::washTexture()) {
-            lg::queueLayerWash(surface, monitor);
+            for (const auto& draw : lg::layerWashSnapshots(surface, monitor))
+                ctx.m_pass.add(makeUnique<CWindowWashPassElement>(CWindowWashPassElement::SData{draw, wash}));
         }
     }
 }
@@ -310,8 +311,11 @@ void hkRenderWindow(Render::IHyprRenderer* self, Render::CRenderContext& ctx, PH
     g_originalRenderWindow(self, ctx, window, monitor, presentation, now, decorate, passMode, ignorePosition, standalone);
 
     if (mainPass && !ctx.m_renderingSnapshot && window && window->mapped() && !window->isHidden()) {
-        lg::queueWindowWash(window, monitor, presentation);
         eink::addWindowPass(ctx, window, monitor, presentation);
+        if (auto wash = lg::washTexture()) {
+            if (auto draw = lg::windowWashSnapshot(window, monitor, presentation))
+                ctx.m_pass.add(makeUnique<CWindowWashPassElement>(CWindowWashPassElement::SData{*draw, wash}));
+        }
     }
 
     if (cropShrink)

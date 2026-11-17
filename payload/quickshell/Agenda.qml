@@ -159,27 +159,27 @@ Singleton {
 
         var mins = Math.round((at - Loc.now()) / 60000);
         if (mins < 1)
-            return "now";
+            return Tr.t("now");
 
         if (mins < 60)
-            return "in " + mins + " min";
+            return Tr.t("in ") + mins + Tr.t(" min");
 
         var hrs = Math.round(mins / 60);
         if (hrs < 24)
-            return "in " + hrs + (hrs === 1 ? " hour" : " hours");
+            return Tr.t("in ") + hrs + (hrs === 1 ? Tr.t(" hour") : Tr.t(" hours"));
 
         var days = Math.round(hrs / 24);
-        return days === 1 ? "tomorrow" : "in " + days + " days";
+        return days === 1 ? Tr.t("tomorrow") : Tr.t("in ") + days + Tr.t(" days");
     }
 
     function repeatText(r) {
         switch (r.repeat || "") {
         case "daily":
-            return "Every day";
+            return Tr.t("Every day");
         case "weekdays":
-            return "Weekdays";
+            return Tr.t("Weekdays");
         case "weekly":
-            return "Every " + root.dayStart(r.year, r.month, r.day).toLocaleDateString(Qt.locale(), "dddd");
+            return Tr.t("Every ") + root.dayStart(r.year, r.month, r.day).toLocaleDateString(Qt.locale(), "dddd");
         }
         return "";
     }

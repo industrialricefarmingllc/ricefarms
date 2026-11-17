@@ -161,6 +161,7 @@ ripgrep-all
 rtkit
 sddm
 seahorse
+sioyek-dev
 skwd-deck
 skwd-deck-steamworks
 skwd-paper

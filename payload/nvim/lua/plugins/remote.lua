@@ -43,6 +43,28 @@ return {
         end
       end
 
+      -- remote-nvim launches the server in the remote home directory.  If a
+      -- project directory is configured (`vim.g.remote_cwd`, set by :Dev),
+      -- move the server there before the UI attaches so LSP, grep, and file
+      -- discovery are scoped to a repo instead of the whole home directory.
+      -- `port` is the local end of remote-nvim's SSH tunnel, so a throwaway
+      -- `nvim --clean` client reaches the remote server without knowing its
+      -- real port or installation path.
+      local function remote_cd(port)
+        local cwd = vim.g.remote_cwd
+        if not cwd or cwd == "" then
+          return
+        end
+        vim.fn.jobstart({
+          "nvim",
+          "--clean",
+          "--server",
+          "localhost:" .. port,
+          "--remote-expr",
+          ('execute("cd %s")'):format(vim.fn.fnameescape(cwd)),
+        }, { detach = true })
+      end
+
       require("remote-nvim").setup({
         ssh_config = {
           ssh_binary = "ssh",
@@ -76,6 +98,7 @@ return {
           },
         },
         client_callback = function(port, _)
+          remote_cd(port)
           launch_client(port)
         end,
       })

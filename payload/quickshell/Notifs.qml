@@ -134,7 +134,7 @@ Singleton {
     property var rows: []
 
     function groupKey(n) {
-        return (n.appName || n.desktopEntry || "Unknown").toLowerCase();
+        return (n.appName || n.desktopEntry || Tr.t("Unknown")).toLowerCase();
     }
 
     function isExpanded(key) {
@@ -190,7 +190,7 @@ Singleton {
         return 3;
     }
 
-    readonly property var sectionNames: ["New", "Earlier today", "Yesterday", "Older"]
+    readonly property var sectionNames: [Tr.t("New"), Tr.t("Earlier today"), Tr.t("Yesterday"), Tr.t("Older")]
 
     function regroup() {
         root.timeTick;
@@ -206,7 +206,7 @@ Singleton {
                     groups.push({
                         "kind": "group",
                         "key": k,
-                        "appName": n.appName || "Unknown",
+                        "appName": n.appName || Tr.t("Unknown"),
                         "items": [n],
                         "newestMs": root.arrivals[n.id] || 0
                     });
@@ -220,7 +220,7 @@ Singleton {
                 groups.push({
                     "kind": "group",
                     "key": "n" + e.id,
-                    "appName": e.appName || "Unknown",
+                    "appName": e.appName || Tr.t("Unknown"),
                     "items": [e],
                     "newestMs": root.arrivals[e.id] || 0
                 });
@@ -279,7 +279,7 @@ Singleton {
     // muting an app also clears what it has already put up
     function muteApp(name) {
         Prefs.setMuted(name, true);
-        root.clearGroup((name || "Unknown").toLowerCase());
+        root.clearGroup((name || Tr.t("Unknown")).toLowerCase());
     }
 
     function relLabel(id) {
@@ -290,16 +290,16 @@ Singleton {
 
         var s = Math.max(0, Math.floor((Loc.nowMs() - t) / 1000));
         if (s < 45)
-            return "now";
+            return Tr.t("now");
 
         if (s < 3600)
-            return Math.max(1, Math.round(s / 60)) + "m";
+            return Math.max(1, Math.round(s / 60)) + Tr.t("m");
 
         if (s < 86400)
-            return Math.floor(s / 3600) + "h";
+            return Math.floor(s / 3600) + Tr.t("h");
 
         if (s < 604800)
-            return Math.floor(s / 86400) + "d";
+            return Math.floor(s / 86400) + Tr.t("d");
 
         return new Date(t).toLocaleDateString(Qt.locale(), Locale.ShortFormat);
     }

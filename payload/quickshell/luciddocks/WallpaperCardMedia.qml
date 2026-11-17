@@ -91,17 +91,17 @@ Item {
         if (download === null)
             return "";
         if (download.state === "starting")
-            return "Starting";
+            return Tr.t("Starting");
         if (download.state === "downloading")
-            return media.total > 0 ? "Downloading " + Math.round(media.progress / media.total * 100) + "%" : "Downloading";
+            return media.total > 0 ? Tr.fmt("Downloading %1%", Math.round(media.progress / media.total * 100)) : Tr.t("Downloading");
         if (download.state === "waiting")
-            return download.message || "Subscribe in Steam";
+            return download.message || Tr.t("Subscribe in Steam");
         if (download.state === "applying")
-            return "Applying";
+            return Tr.t("Applying");
         if (download.state === "error")
-            return download.message || "Download failed";
+            return download.message || Tr.t("Download failed");
         if (download.state === "done")
-            return "Ready";
+            return Tr.t("Ready");
         return "";
     }
 

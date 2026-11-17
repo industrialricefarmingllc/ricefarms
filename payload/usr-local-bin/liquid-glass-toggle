@@ -176,6 +176,8 @@ apply_kitty() { # $1 = 0|1
 }
 
 notify() { # $1 = message
+  # gt drives this in the background and keeps its own toggles silent
+  [ "${LG_NOTIFY:-1}" = "0" ] && return 0
   command -v hyprctl >/dev/null 2>&1 && hyprctl notify 5 2500 0 "$1" >/dev/null 2>&1 || true
 }
 

@@ -25,7 +25,7 @@ WidgetBody {
         })
     })
     readonly property bool ready: w.report !== null && w.report !== undefined
-    readonly property string place: WeatherSource.place !== "" ? WeatherSource.place.split(",")[0] : "Here"
+    readonly property string place: WeatherSource.place !== "" ? WeatherSource.place.split(",")[0] : Tr.t("Here")
     readonly property bool night: w.report && w.report.isDay !== undefined ? !w.report.isDay : (Loc.now().getHours() < 6 || Loc.now().getHours() >= 20)
     readonly property var days: w.report && w.report.days ? w.report.days.slice(0, 6) : []
     readonly property var hours: {
@@ -38,20 +38,20 @@ WidgetBody {
     }
 
     readonly property var facts: !w.report ? [] : [{
-        "label": "Feels like",
+        "label": Tr.t("Feels like"),
         "value": w.t(w.report.feelsC, w.report.feelsF)
     }, {
-        "label": "High · Low",
+        "label": Tr.t("High · Low"),
         "value": w.days.length ? w.t(w.days[0].maxC, w.days[0].maxF) + " · " + w.t(w.days[0].minC, w.days[0].minF) : "–"
     }, {
-        "label": "Rain",
+        "label": Tr.t("Rain"),
         "value": (w.report.pop || 0) + "%"
     }, {
-        "label": "Humidity",
+        "label": Tr.t("Humidity"),
         "value": w.report.humidity + "%"
     }, {
-        "label": "Wind",
-        "value": Units.wind(w.report.windKmph, w.report.windMph) + (w.report.windDir ? " " + w.report.windDir : "")
+        "label": Tr.t("Wind"),
+        "value": Units.wind(w.report.windKmph, w.report.windMph) + (w.report.windDir ? " " + Tr.t(w.report.windDir) : "")
     }]
 
     function t(c, f) {
@@ -62,14 +62,14 @@ WidgetBody {
         if (!d || !d.date) {
             const fake = Loc.now();
             fake.setDate(fake.getDate() + i);
-            return i === 0 ? "Today" : fake.toLocaleDateString(Qt.locale(), "ddd");
+            return i === 0 ? Tr.t("Today") : fake.toLocaleDateString(Qt.locale(), "ddd");
         }
-        return i === 0 ? "Today" : new Date(d.date + "T12:00").toLocaleDateString(Qt.locale(), "ddd");
+        return i === 0 ? Tr.t("Today") : new Date(d.date + "T12:00").toLocaleDateString(Qt.locale(), "ddd");
     }
 
     function hourName(h, i) {
         if (i === 0)
-            return "Now";
+            return Tr.t("Now");
 
         if (!h.time)
             return (i * 3) + "h";

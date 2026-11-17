@@ -129,6 +129,11 @@
         },
         {
           "paths": [
+            "/home/dev/dev/rice/nice"
+          ]
+        },
+        {
+          "paths": [
             "/home/dev/dev/rice/openhooks"
           ]
         },

@@ -100,8 +100,6 @@ play_stream() {
     final="$dir/$id.stream"
     rc="$dir/ambience-$group-$id.rc"
 
-    rm -f "$part" "$rc"
-
     head="$dir/$id.head"
     headfmt="$dir/$id.headfmt"
     hsize=0
@@ -115,45 +113,59 @@ play_stream() {
     fi
     use_head=0
     [ "$hsize" -ge 262144 ] && [ -n "$hfmt" ] && use_head=1
+    tries=0
 
-    set -- --no-video --no-config --no-terminal --input-terminal=no --force-window=no
-    [ -n "$filter" ] && set -- "$@" --af="lavfi=[$filter]"
-    set -- "$@" --volume-max=150 --volume=0 --input-ipc-server="$sock" --audio-client-name="$pclient" -- -
-
-    if [ "$use_head" -eq 1 ]; then
-        # the head is the prefix of this same download. Start the real
-        # download at once, drop the bytes the head already covers, and let
-        # cat hand the head to mpv followed by the live remainder.
-        cat "$head" <( { ambience_ytdlp --no-warnings --no-playlist --no-progress --newline \
-                --no-simulate --socket-timeout 20 --retries 2 --fragment-retries 2 \
-                -f "$hfmt" -o - "$url"
-              echo $? > "$rc"
-            } | tail -c +$((hsize + 1)) ) | tee "$part" | mpv "$@"
-    else
-        { ambience_ytdlp --no-warnings --no-playlist --no-progress --newline \
-            --no-simulate --socket-timeout 20 --retries 2 --fragment-retries 2 \
-            -f 'bestaudio/best' --print-to-file 'before_dl:%(format_id)s' "$headfmt" -o - "$url"
-          echo $? > "$rc"
-        } | tee "$part" | python3 "$(dirname "$0")/ambience-head.py" "$head" 1500000 | mpv "$@"
-    fi
-
-    if [ -e "$stopflag" ]; then
+    while :; do
         rm -f "$part" "$rc"
-        exit 0
-    fi
 
-    if [ "$use_head" -eq 1 ] && [ "$(cat "$rc" 2>/dev/null)" != "0" ]; then
-        # the cached prefix no longer matches this source; rebuild it next time
-        rm -f "$head" "$headfmt"
-    fi
+        set -- --no-video --no-config --no-terminal --input-terminal=no --force-window=no
+        [ -n "$filter" ] && set -- "$@" --af="lavfi=[$filter]"
+        set -- "$@" --volume-max=150 --volume=0 --input-ipc-server="$sock" --audio-client-name="$pclient" -- -
 
-    if [ "$(cat "$rc" 2>/dev/null)" = "0" ] && [ -s "$part" ]; then
-        mv "$part" "$final"
-        rm -f "$head" "$headfmt"
-    else
-        rm -f "$part"
-    fi
-    rm -f "$rc"
+        if [ "$use_head" -eq 1 ]; then
+            # the head is the prefix of this same download; skip it in the live
+            # copy so the two pieces join into one continuous stream
+            cat "$head" <( { ambience_ytdlp --no-warnings --no-playlist --no-progress --newline \
+                    --no-simulate --socket-timeout 20 --retries 2 --fragment-retries 2 \
+                    -f "$hfmt" -o - "$url"
+                  echo $? > "$rc"
+                } | tail -c +$((hsize + 1)) ) | tee "$part" | mpv "$@"
+        else
+            { ambience_ytdlp --no-warnings --no-playlist --no-progress --newline \
+                --no-simulate --socket-timeout 20 --retries 2 --fragment-retries 2 \
+                -f 'bestaudio/best' --print-to-file 'before_dl:%(format_id)s' "$headfmt" -o - "$url"
+              echo $? > "$rc"
+            } | tee "$part" | python3 "$(dirname "$0")/ambience-head.py" "$head" 1500000 | mpv "$@"
+        fi
+
+        if [ -e "$stopflag" ]; then
+            rm -f "$part" "$rc"
+            exit 0
+        fi
+
+        if [ "$(cat "$rc" 2>/dev/null)" = "0" ] && [ -s "$part" ]; then
+            break
+        fi
+
+        # a failed player can leave its socket behind; clear it before retrying
+        pkill -f -- "--input-ipc-server=$sock" 2>/dev/null
+        rm -f "$sock" "$part" "$rc"
+
+        if [ "$use_head" -eq 1 ]; then
+            # the cached prefix no longer matches this source; retry from the
+            # live stream without it
+            rm -f "$head" "$headfmt"
+            use_head=0
+            continue
+        fi
+
+        tries=$((tries + 1))
+        [ "$tries" -ge 3 ] && exit 1
+        sleep $((tries * 2))
+    done
+
+    mv "$part" "$final"
+    rm -f "$head" "$headfmt" "$rc" "$sock"
 
     [ -e "$stopflag" ] && exit 0
 

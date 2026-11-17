@@ -6,11 +6,28 @@ All notable changes to Lucid are recorded here, newest first.
 
 ### New
 
+- **Long-press alternate spellings.** Holding a letter for 300 ms raises a
+  glass capsule above the dock with every precomposed spelling
+  of that letter (accents, dots, rings, ligatures, Cyrillic variants) in the
+  same case as the key. Hyprland's repeat delay is used to stop the app's own
+  auto-repeat first, so the picker replaces exactly the one character the
+  press inserted instead of deleting a run of repeats. Lower-case holds wait
+  for the Android-like long press; Shift/Caps take focus just before the
+  repeat. Tab/Shift+Tab and the arrow keys walk the row with a throttled hold-
+  repeat, 1–9 jump straight to a spelling, and Enter restores the window you
+  were typing in and replaces the key you pressed with the chosen letter.
+  Escape or a click outside keeps the original letter. It follows the active
+  layout and Caps Lock, uses the same liquid glass, spring and enter/exit
+  curves as the OSD, and stays out of the way of the lock screen, fullscreen
+  games and other exclusive shell surfaces.
+
 - **French interface.** Lucid's menus, panels, settings pages and status
   messages are translated through a small `Tr` singleton, with the language
   chosen from the session locale or from *Settings → General → Language*.
   The English source strings stay in the QML files, so switching back is
-  instant and needs no reverse catalogue.
+  instant and needs no reverse catalogue. Weather descriptions, event
+  countdowns, world-clock days and offsets, the system panel, Shazam results
+  and the social widget are translated too, including their dynamic labels.
 - **Accessibility.** The shared controls now expose names, roles, states and
   actions through Qt's accessibility tree, draw a keyboard focus rim, and
   respond to Space/Return, arrow keys and Escape. Settings → General gains
@@ -39,6 +56,16 @@ All notable changes to Lucid are recorded here, newest first.
   and bento card stacks follow the finger card by card; and the Tiles picker,
   widget catalogue and result list keep their flick on the panel. Mouse drags
   take the same paths, so the launcher behaves the same with either pointer.
+- **Drawing transition when applying a wallpaper.** The full-screen cover now
+  plays skwd-wall's paper-and-ink transition as soon as the new picture
+  decodes: the old wallpaper becomes paper, the new one draws itself in as an
+  e-ink page (the same tone curve, paper fibres, speckle, Bayer dither and
+  vignette as Reading Mode), then a liquid pour lands on the colour photo.
+  The palette and wallpaper commit underneath it, and it crossfades back to
+  the desktop when the apply finishes. The drawing and its stroke order are
+  baked once per apply, and the cover is a single surface (three fullscreen
+  Vulkan layers crashed the NVIDIA driver), so the apply is never stalled by
+  large screens.
 - **skwd-wall can own the desktop wallpaper.** When the skwd suite is
   installed, *Settings → Theme → skwd-wall engine* hands images, videos and
   Wallpaper Engine scenes to `skwd-walld` and its GPU renderers. Lucid's
@@ -80,6 +107,12 @@ All notable changes to Lucid are recorded here, newest first.
 
 ### Fixed
 
+- **The visualiser's wave is a smooth wave.** The `wave` variant joined cava's
+  band samples with straight segments, so a handful of loud bands read as a
+  sawtooth rather than a wave. It now runs a Catmull–Rom spline through the
+  samples and resamples it every three pixels, so the strip flows as one
+  continuous curve while still following the audio; the frosted-glass mask
+  follows the same curve.
 - **Delete works in every wallpaper picker style again.** The Delete key only
   reached the Strip picker: the Bento and Pills styles (both built on
   `WallpaperSlots`) and the Tiles grid had no `deleteHighlighted()`, so the
@@ -98,6 +131,12 @@ All notable changes to Lucid are recorded here, newest first.
   the glass compositor plugin was on, instead of a separate notch per module.
   Its shoulders use the same pixel-accurate edge as the screen corners, and
   the tab no longer leaves a 1px translucent rim along the screen edge.
+- **Widgets no longer animate in when they load.** Two things moved a card as
+  its board came up: the frame faded and sprang in from 86 % of its size (97 %
+  for cards restored with the board), and every card was first clamped against
+  a zero-sized board, so it sat in the screen's top-left corner and then
+  drifted to its saved spot. Cards now appear at their final place, size and
+  opacity; only leaving, hovering, the bin tint and a carry still animate.
 
 ## v1.20.1 — 2026-10-15
 

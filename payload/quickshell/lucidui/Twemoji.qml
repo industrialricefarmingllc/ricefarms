@@ -42,6 +42,11 @@ Item {
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true
+        // Server emoji are CDN URLs. Decoding one on the GUI thread blocks the
+        // whole shell until the network answers (or gives up), which is what
+        // made reopening the emoji tab after copying one hang for seconds.
+        asynchronous: true
+        cache: true
         visible: !(root.remote && root.animated) && status === Image.Ready
     }
 
@@ -55,6 +60,7 @@ Item {
         fillMode: Image.PreserveAspectFit
         smooth: true
         asynchronous: true
+        cache: true
         playing: root.playing
         visible: root.remote && root.animated && status === AnimatedImage.Ready
     }

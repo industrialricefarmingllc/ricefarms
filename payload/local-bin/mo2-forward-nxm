@@ -13,20 +13,61 @@ LOG="$HOME/.local/share/mo2-skyrim-backup/nxm-forward.log"
 mkdir -p "$(dirname "$LOG")"
 printf '\n=== %s %s\n' "$(date -Is)" "$url" >>"$LOG"
 
-export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam"
-export STEAM_COMPAT_DATA_PATH="$HOME/.local/share/Steam/steamapps/compatdata/489830"
+STEAM="$HOME/.local/share/Steam"
+PROTON_DIR="$STEAM/compatibilitytools.d/GE-Proton11-6-x86_64"
+PROTON="$PROTON_DIR/proton"
+PREFIX="$STEAM/steamapps/compatdata/489830/pfx"
+MO2_WIN='Z:\mnt\vc\Program Files (x86)\MO2\ModOrganizer.exe'
+
+# A running MO2 owns a Wine server in the Skyrim prefix. Starting a second
+# "proton run" creates a *different* Wine session, which cannot reach that
+# server: it sits at steam.exe and the link is never forwarded. Reuse the
+# running instance's Wine environment instead.
+find_running_mo2() {
+    local p pid cmd
+    for p in /proc/[0-9]*; do
+        pid=${p#/proc/}
+        cmd=$(tr '\0' '\n' <"$p/cmdline" 2>/dev/null | head -1)
+        [ "$cmd" = "$MO2_WIN" ] || continue
+        if tr '\0' '\n' <"$p/environ" 2>/dev/null |
+            rg -q '^STEAM_COMPAT_DATA_PATH=.*/compatdata/489830/?$'; then
+            printf '%s\n' "$pid"
+            return 0
+        fi
+    done
+    return 1
+}
+
+mo2_pid=$(find_running_mo2 || true)
+
+if [ -n "$mo2_pid" ]; then
+    # Copy the environment MO2 was started with: WINEDLLOVERRIDES carries
+    # Proton's DXVK overrides, WINEPREFIX points at the same prefix/server.
+    for var in WINEPREFIX WINEDLLOVERRIDES DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR; do
+        val=$(tr '\0' '\n' <"/proc/$mo2_pid/environ" 2>/dev/null |
+            sed -n "s/^$var=//p" | head -1)
+        [ -n "$val" ] && export "$var=$val"
+    done
+    [ -n "${WINEPREFIX:-}" ] || export WINEPREFIX="$PREFIX"
+    export WINEDEBUG=-all
+    export PATH="$PROTON_DIR/files/bin:$PATH"
+
+    # second instance: forwards the link to the running MO2 and exits
+    echo "forwarding to running MO2 (pid $mo2_pid) via wine" >>"$LOG"
+    exec wine "$MO2_WIN" "$url" >>"$LOG" 2>&1
+fi
+
+# Nothing is running: let Proton start MO2 with the link as its argument.
+export STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAM"
+export STEAM_COMPAT_DATA_PATH="$STEAM/steamapps/compatdata/489830"
 export SteamAppId=489830
 export SteamGameId=489830
 export WINEDEBUG=-all
-
-PROTON="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-6-x86_64/proton"
-MO2='Z:\mnt\vc\Program Files (x86)\MO2'
 
 if [ ! -x "$PROTON" ]; then
     echo "Proton not found: $PROTON" | tee -a "$LOG" >&2
     exit 1
 fi
 
-# MO2 forwards an nxm:// argument to the running instance, or starts and
-# handles it itself if MO2 is not running yet.
-exec "$PROTON" run "$MO2\\ModOrganizer.exe" "$url" >>"$LOG" 2>&1
+echo "MO2 not running; launching it with the link" >>"$LOG"
+exec "$PROTON" run "$MO2_WIN" "$url" >>"$LOG" 2>&1

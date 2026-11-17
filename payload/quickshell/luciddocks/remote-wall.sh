@@ -85,6 +85,13 @@ wallhaven)
     tags=$(printf '%s' "$meta" | jq -c '[.data.tags[]?.name // empty] | map(select(. != ""))' 2>/dev/null || echo '[]')
     name=$(printf '%s' "$meta" | jq -r '[(.data.tags // [])[]?.name // empty] | map(select(. != "")) | join(", ")' 2>/dev/null || true)
     [ -n "$name" ] || name="wallhaven-$id"
+    # Keep a user's per-wallpaper mode override when this download rewrites
+    # the metadata file.
+    existing_mode=$(jq -r '(.themeMode // .mode // empty)' "$sidecar" 2>/dev/null || true)
+    case "$existing_mode" in
+        dark | light) ;;
+        *) existing_mode="" ;;
+    esac
     if command -v jq >/dev/null 2>&1; then
         jq -n --arg id "$id" --arg name "$name" --argjson tags "$tags" \
             --arg url "$(printf '%s' "$meta" | jq -r '.data.url // ""' 2>/dev/null || true)" \
@@ -94,7 +101,8 @@ wallhaven)
             --arg resolution "$(printf '%s' "$meta" | jq -r '.data.resolution // ""' 2>/dev/null || true)" \
             --argjson fileSize "$total" \
             --argjson colors "$(printf '%s' "$meta" | jq -c '.data.colors // []' 2>/dev/null || echo '[]')" \
-            '{id:$id,name:$name,tags:$tags,url:$url,source:$source,purity:$purity,category:$category,resolution:$resolution,fileSize:$fileSize,colors:$colors}' \
+            --arg themeMode "$existing_mode" \
+            '{id:$id,name:$name,tags:$tags,url:$url,source:$source,purity:$purity,category:$category,resolution:$resolution,fileSize:$fileSize,colors:$colors} + (if $themeMode == "" then {} else {themeMode:$themeMode} end)' \
             >"$sidecar.tmp" 2>/dev/null && mv -f "$sidecar.tmp" "$sidecar"
     fi
 

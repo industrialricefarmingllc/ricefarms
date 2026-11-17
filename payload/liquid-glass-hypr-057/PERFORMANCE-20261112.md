@@ -15,7 +15,7 @@ cursor-rim damage to the edge band.
 |---|---|
 | GPU | NVIDIA GTX 1080 Ti, 11 GB, driver 580.178.04, 1480-1911 MHz |
 | Hyprland | 0.57.0, plugin API 0.8.x, live build before this pass `liquidglass-rimwidgets-20261112c.so` |
-| New build | `liquidglass-perf-20261113.so` (0.8.36), md5 `6debb06fadd2e94301c0f577ac3ad6ca` |
+| New build | `liquidglass-perf-20261114.so` (0.8.36), md5 `d056d1e541152ff3000747c5afcae228` |
 | DP-1 | 2560x1440 **@165 Hz**, scale 4/3, framebuffer 2560x1440 |
 | DP-2 | 3840x2160 @60 Hz, scale 2.0 |
 | DP-3 | 3840x2160 @60 Hz, scale 2.0 |
@@ -141,11 +141,28 @@ area only:
 | Visualiser 200x100 | 20 k | 0.0032 ms | 34x less |
 | Full pill repaint | 273 k | 0.046 ms | 2.3x less |
 
-The cache is refreshed at least every 8 content-only frames when a window
-overlaps the pill (bounds staleness from a small lower-window change to
-~133 ms @60 Hz), and immediately on any large damage, move, resize, tune
-change, transition, or overlap. `LIQUIDGLASS_NO_PILL_CACHE=1` disables it;
-`LIQUIDGLASS_PILL_CACHE_ANY=1` ignores the window-overlap guard.
+A window under the overlay is handled by geometry, not by blanket
+invalidation: the cache records an FNV hash of every main-pass window box
+intersecting the capture region. A move, resize, restack or new window changes
+the hash and forces a fresh capture; a stationary window with a cursor/clock/
+progress update keeps the cache. With a window overlap, reuse is additionally
+limited to damage ≤ 4096 px, so a full/video repaint recaptures. This is the
+combination that removed the rectangular stale-backdrop patches without
+giving back the fast path on a static desktop.
+Capture covers the **whole capture region** (pill + 32 px bleed, clamped to
+the layer surface). The region is captured either way and the pill ALWAYS
+draws; if the bleed was not freshly repainted, the plugin self-damages it so
+the next capture is clean. Never skipping is what stops the animated-widget
+flicker. The surface clamp is essential: layer damage cannot cover pixels
+outside its own surface; off-surface texels are sampled as the clamped
+texture edge. The bleed holds the previous frame's drop shadow and, for
+adjacent bar pills, the neighbouring pill's previous glass; the freshness
+self-damage is what keeps those out of the next capture.
+Captures are
+batched before any pill is drawn (phase 1/2) so one pill never captures
+another pill's just-drawn glass.
+`LIQUIDGLASS_NO_PILL_CACHE=1` disables the cache entirely;
+`LIQUIDGLASS_PILL_CACHE_ANY=1` ignores the window guard (fast, can ghost).
 
 ## 3. Frequency model
 
@@ -241,9 +258,10 @@ frequency of the expensive occurrence (capture cache, rim-band damage).
 3. **Layer-pill capture cache** (`lg::SPillCapture`). Full-pill blurred
    capture, per pill slot, reused when damage is confined to the pill and the
    backdrop cannot have changed. Skips blit + 4 Kawase passes + bokeh on
-   content-only frames. Conservative guards: geometry/tune/divisor/passes/
-   bokeh key, union/mask opt-out, window-overlap check with a bounded 8-frame
-   reuse run for small changes. `LIQUIDGLASS_NO_PILL_CACHE=1` escape hatch.
+   content-only frames. Guards: geometry/tune/divisor/passes/bokeh key,
+   union/mask opt-out, an FNV hash of overlapping window geometry (moves and
+   resizes invalidate), and a ≤4096 px damage cap when a window overlaps.
+   `LIQUIDGLASS_NO_PILL_CACHE=1` escape hatch.
 4. **Pill interior fast path** (`glass.frag`). Same proof as the window fast
    path: beyond `max(edgePx, 0.35 rMax)` the full-field lens is numerically
    identity, rim/glow are edge-masked, shadow is gated by `pillA`, and the
@@ -262,7 +280,7 @@ frequency of the expensive occurrence (capture cache, rim-band damage).
    identity (the live preset is 0.5); `pow(dot, 2)` → multiply; removed a
    redundant `normalize` on an already-normalized normal. Output A/B against
    the previous shader: PSNR **111-117 dB, max 1/255**.
-8. **Version 0.8.36** built as `liquidglass-perf-20261113.so`; the config
+8. **Version 0.8.36** built as `liquidglass-perf-20261114.so`; the config
    points at it. Never overwrite a mapped `.so`; the compositor keeps the
    previous build until the next restart.
 

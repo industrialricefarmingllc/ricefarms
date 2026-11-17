@@ -19,6 +19,16 @@ The effect is a function of *actual* daylight, not a clock schedule:
     total black through a click-through overlay. When `primary_output` is
     configured, it uses half both values while focused. All scale with the fade.
     Black dimming is applied in linear light, so 25% means 25% less luminance.
+   * The extra inactive-output dimming is normally drawn by Quickshell (a
+     click-through layer). When Quickshell is not running, the same dimming is
+     baked into the generated shader per output (`wl_output`), so inactive
+     monitors stay dimmed with or without the shell. `inactive_dim_via` forces
+     either path.
+   * A game window exempts its monitor from the entire effect: the generated
+     shader returns the untouched frame on that output. Detection is a
+     heuristic over Hyprland's client list (Steam app ids, gamescope, known
+     emulators, fullscreen XWayland, GameMode), with `game_classes` and
+     `game_exclude_classes` to correct it; `game_detection: "off"` disables it.
 
 The result is written as a generated copy of reading_mode.glsl under
 ~/.cache/lucid/ambient-eink/shaders and applied to every output through
@@ -67,6 +77,12 @@ DEFAULTS = {
     "max_shader_mix": 0.20,
     "max_black_overlay": 0.30,
     "max_black_overlay_inactive": 0.75,
+    "inactive_dim_via": "auto",
+    "game_detection": "auto",
+    "game_classes": [],
+    "game_exclude_classes": [],
+    "game_use_gamemode": True,
+    "gamemoded": "gamemoded",
     "primary_output": "",
     "primary_eink_scale": 0.5,
     "primary_dim_scale": 0.5,
@@ -84,6 +100,102 @@ DEFAULTS = {
     "max_weather_age_seconds": 7200,
 }
 CONFIG_FILE = HOME / ".config/lucid/ambient-eink.json"
+
+# Class-name fragments that identify a game (or a game's launcher window) well
+# enough to exempt its monitor from the whole effect. Steam covers Proton and
+# native Steam games; the rest are common native games and emulators. Add your
+# own with `game_classes` in the config.
+GAME_CLASS_MARKERS = (
+    "steam_app_",
+    "gamescope",
+    "retroarch",
+    "dolphin-emu",
+    "pcsx2",
+    "rpcs3",
+    "yuzu",
+    "ryujinx",
+    "citra",
+    "ppsspp",
+    "cemu",
+    "xemu",
+    "duckstation",
+    "mupen64plus",
+    "snes9x",
+    "zsnes",
+    "dosbox",
+    "scummvm",
+    "gzdoom",
+    "vkquake",
+    "ioquake3",
+    "openmw",
+    "minecraft",
+    "factorio",
+    "terraria",
+    "minetest",
+    "luanti",
+    "vintagestory",
+    "wesnoth",
+    "openra",
+    "xonotic",
+    "supertuxkart",
+    "ddnet",
+    "teeworlds",
+    ".exe",
+)
+
+# Fullscreen XWayland windows are usually games, but these are the usual
+# non-games that can go fullscreen and must never count. Strong markers above
+# win over these; the list only gates the generic "fullscreen XWayland" rule.
+GAME_GENERIC_EXCLUDES = (
+    "firefox",
+    "chromium",
+    "chrome",
+    "brave",
+    "vivaldi",
+    "helium",
+    "librewolf",
+    "zen",
+    "mpv",
+    "vlc",
+    "celluloid",
+    "haruna",
+    "smplayer",
+    "obs",
+    "discord",
+    "vesktop",
+    "equicord",
+    "element",
+    "signal",
+    "telegram",
+    "slack",
+    "teams",
+    "zoom",
+    "steam",
+    "spotify",
+    "code",
+    "codium",
+    "zed",
+    "nautilus",
+    "thunar",
+    "pcmanfm",
+    "kitty",
+    "alacritty",
+    "foot",
+    "wezterm",
+    "ghostty",
+    "konsole",
+    "gnome-terminal",
+    "libreoffice",
+    "okular",
+    "zathura",
+    "evince",
+    "gimp",
+    "krita",
+    "blender",
+    "kdenlive",
+    "shotcut",
+    "davinci",
+)
 
 log = logging.getLogger("lucid-ambient-eink")
 
@@ -596,8 +708,9 @@ def quantize_effect(effect: float, step: float) -> float:
 def inactive_extra_dim(cfg: dict, level: float) -> tuple[float, float]:
     """Return (total inactive black dim, extra overlay alpha).
 
-    The screen shader is global, so it carries the focused-screen cap. Other
-    outputs get the rest as a click-through black layer in Quickshell.
+    The screen shader is global, so it carries the focused-screen cap. The
+    extra is normally drawn as a click-through black layer in Quickshell; the
+    caller zeroes it when the shader fallback carries the dimming instead.
     """
     active = max(0.0, min(1.0, float(cfg["max_black_overlay"]) * level))
     inactive = max(
@@ -635,6 +748,8 @@ def render_shader(
     primary_output: int | None = None,
     primary_mix: float | None = None,
     primary_dim: float | None = None,
+    inactive_ratio: float | None = None,
+    game_output: int | None = None,
 ) -> str:
     text = source.read_text(encoding="utf-8")
     for name, value in (("mix", mix), ("dim", dim)):
@@ -667,29 +782,56 @@ def render_shader(
             "    blackDim = mix(AMBIENT_DIM_FROM, AMBIENT_DIM_TO, ambientT);"
         )
 
-    if (
+    primary_boost = (
         focus_output is not None
         and primary_output is not None
         and focus_output == primary_output
         and primary_mix is not None
         and primary_dim is not None
-    ):
-        prelude += (
-            "\nuniform int wl_output;\n"
-            f"const int AMBIENT_FOCUS_OUTPUT = {int(focus_output)};\n"
-            f"const int AMBIENT_PRIMARY_OUTPUT = {int(primary_output)};\n"
-            f"const float AMBIENT_PRIMARY_MIX = {primary_mix:.4f};\n"
-            f"const float AMBIENT_PRIMARY_DIM = {primary_dim:.4f};"
-        )
-        apply_code += (
-            "\n    if (wl_output == AMBIENT_FOCUS_OUTPUT) {\n"
-            "        einkMix = AMBIENT_PRIMARY_MIX;\n"
-            "        blackDim = AMBIENT_PRIMARY_DIM;\n"
+    )
+    focus_branch = focus_output is not None and (primary_boost or inactive_ratio is not None)
+    if focus_branch or game_output is not None:
+        prelude += "\nuniform int wl_output;"
+    if focus_branch:
+        prelude += f"\nconst int AMBIENT_FOCUS_OUTPUT = {int(focus_output)};"
+        if primary_boost:
+            prelude += (
+                f"\nconst int AMBIENT_PRIMARY_OUTPUT = {int(primary_output)};\n"
+                f"const float AMBIENT_PRIMARY_MIX = {primary_mix:.4f};\n"
+                f"const float AMBIENT_PRIMARY_DIM = {primary_dim:.4f};"
+            )
+            apply_code += (
+                "\n    if (wl_output == AMBIENT_FOCUS_OUTPUT) {\n"
+                "        einkMix = AMBIENT_PRIMARY_MIX;\n"
+                "        blackDim = AMBIENT_PRIMARY_DIM;\n"
+                "    }"
+            )
+        if inactive_ratio is not None:
+            ratio = max(1.0, float(inactive_ratio))
+            prelude += f"\nconst float AMBIENT_INACTIVE_RATIO = {ratio:.4f};"
+            # Applies after the transition block, so the extra dimming follows
+            # the same 5 s fade as the focused output. The focused output is
+            # never touched by this branch.
+            apply_code += (
+                "\n    if (wl_output != AMBIENT_FOCUS_OUTPUT)\n"
+                "        blackDim = clamp(blackDim * AMBIENT_INACTIVE_RATIO, 0.0, 1.0);"
+            )
+
+    game_code = ""
+    if game_output is not None:
+        prelude += f"\nconst int AMBIENT_GAME_OUTPUT = {int(game_output)};"
+        # A game owns its output completely: hand back the composited frame
+        # before any e-ink or dimming work. Sits first, so it also beats the
+        # transition and inactive branches.
+        game_code = (
+            "\n    if (wl_output == AMBIENT_GAME_OUTPUT) {\n"
+            "        fragColor = pixColor;\n"
+            "        return;\n"
             "    }"
         )
 
     text = text.replace(PRELUDE_MARKER, prelude, 1)
-    text = text.replace(APPLY_MARKER, apply_code, 1)
+    text = text.replace(APPLY_MARKER, game_code + apply_code, 1)
     return text
 
 
@@ -702,6 +844,8 @@ def generated_shader(
     transition_from_full_eink: bool | None = None,
     focus_output: int | None = None,
     primary_output: int | None = None,
+    inactive_ratio: float | None = None,
+    game_output: int | None = None,
 ) -> Path | None:
     level = max(0.0, min(1.0, float(level)))
     if transition_from is not None and abs(float(transition_from) - level) <= 0.0001:
@@ -747,6 +891,8 @@ def generated_shader(
         primary_output=primary_output,
         primary_mix=primary_mix,
         primary_dim=primary_dim,
+        inactive_ratio=inactive_ratio,
+        game_output=game_output,
     )
     digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
     shader_dir = expand(cfg["cache_dir"]) / "shaders"
@@ -847,6 +993,165 @@ def focused_output(cfg: dict) -> tuple[int | None, str | None]:
     return None, None
 
 
+def quickshell_overlay_present(cfg: dict) -> bool:
+    """True while Lucid's click-through inactive-dim layer is on screen.
+
+    ScreenCorners.qml draws the extra dimming for unfocused outputs as a
+    layer-shell surface named "lucid-corners". When Quickshell is down that
+    surface disappears, and the generated shader has to carry the dimming
+    itself (Hyprland exposes the output id as `wl_output`).
+    """
+    try:
+        result = hypr_run(cfg, ["-j", "layers"])
+        data = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    for output in data.values():
+        if not isinstance(output, dict):
+            continue
+        levels = output.get("levels")
+        if not isinstance(levels, dict):
+            continue
+        for surfaces in levels.values():
+            if not isinstance(surfaces, list):
+                continue
+            for surface in surfaces:
+                if isinstance(surface, dict) and surface.get("namespace") == "lucid-corners":
+                    return True
+    return False
+
+
+def string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip().lower()
+        return [text] if text else []
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip().lower() for item in value if str(item).strip()]
+    return []
+
+
+def gamemode_active(cfg: dict) -> bool:
+    if not bool(cfg.get("game_use_gamemode", True)):
+        return False
+    try:
+        result = subprocess.run(
+            [str(cfg.get("gamemoded", "gamemoded")), "-s"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    text = (result.stdout or "").lower()
+    return "is active" in text and "inactive" not in text
+
+
+def running_game(cfg: dict) -> tuple[int | None, str | None]:
+    """Return (monitor id, label) for a game window, if one is open.
+
+    There is no universal "this is a game" flag on Wayland. This layers the
+    signals that actually work in practice:
+
+      1. class names that only games use (`steam_app_*` for every Steam game,
+         including Proton, plus gamescope and common emulators/native games)
+      2. a fullscreen XWayland window whose class is not a known desktop app
+      3. a fullscreen window while GameMode says a game is running
+
+    `game_classes` and `game_exclude_classes` are exact/substring corrections;
+    `game_detection: "off"` disables the whole thing.
+    """
+    if str(cfg.get("game_detection", "auto")).strip().lower() == "off":
+        return None, None
+
+    try:
+        result = hypr_run(cfg, ["-j", "clients"])
+        clients = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None, None
+    if not isinstance(clients, list):
+        return None, None
+
+    markers = tuple(GAME_CLASS_MARKERS) + tuple(string_list(cfg.get("game_classes")))
+    user_excludes = tuple(string_list(cfg.get("game_exclude_classes")))
+    generic_excludes = GAME_GENERIC_EXCLUDES
+
+    candidates: list[tuple[int, dict, str]] = []
+    fullscreen_clients: list[dict] = []
+
+    for client in clients:
+        if not isinstance(client, dict):
+            continue
+        if not client.get("mapped", True) or client.get("hidden", False):
+            continue
+        cls = str(client.get("class") or "").lower()
+        title = str(client.get("title") or "").lower()
+        if not cls and not title:
+            continue
+        if any(item in cls for item in user_excludes):
+            continue
+        try:
+            fullscreen = int(client.get("fullscreen") or 0) >= 2
+        except (TypeError, ValueError):
+            fullscreen = False
+        try:
+            monitor = int(client["monitor"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        label = cls or title
+        strong = any(marker in cls for marker in markers)
+        generic = (
+            fullscreen
+            and bool(client.get("xwayland"))
+            and not any(item in cls for item in generic_excludes)
+        )
+        if strong:
+            candidates.append((2 if fullscreen else 1, client, label))
+        elif generic:
+            candidates.append((1, client, label))
+        if fullscreen and not any(item in cls for item in generic_excludes):
+            fullscreen_clients.append(client)
+
+    if not candidates and fullscreen_clients and gamemode_active(cfg):
+        # GameMode knows a game is running but not which output. A fullscreen
+        # window is the best guess; failing that, the focused output.
+        for client in fullscreen_clients:
+            candidates.append((1, client, "gamemode"))
+        if not candidates:
+            fid, _ = focused_output(cfg)
+            return (fid, "gamemode") if fid is not None else (None, None)
+
+    if not candidates:
+        return None, None
+
+    if len(candidates) == 1:
+        _, chosen, label = candidates[0]
+        try:
+            return int(chosen["monitor"]), label
+        except (KeyError, TypeError, ValueError):
+            return None, None
+
+    fid, _ = focused_output(cfg)
+
+    def rank(item: tuple[int, dict, str]) -> tuple[int, int, int]:
+        score, client, _ = item
+        try:
+            fullscreen = int(client.get("fullscreen") or 0) >= 2
+        except (TypeError, ValueError):
+            fullscreen = False
+        return (score, 1 if client.get("monitor") == fid else 0, 1 if fullscreen else 0)
+
+    candidates.sort(key=rank, reverse=True)
+    _, chosen, label = candidates[0]
+    try:
+        return int(chosen["monitor"]), label
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
 def output_id_by_name(cfg: dict, name: str) -> int | None:
     if not name:
         return None
@@ -939,6 +1244,8 @@ def animate_to(
     full_eink: bool = False,
     focus_output: int | None = None,
     primary_output: int | None = None,
+    inactive_ratio: float | None = None,
+    game_output: int | None = None,
 ) -> tuple[str, Path | None]:
     """Apply a shader that eases itself from from_level to to_level.
 
@@ -953,6 +1260,8 @@ def animate_to(
         full_eink=full_eink,
         focus_output=focus_output,
         primary_output=primary_output,
+        inactive_ratio=inactive_ratio,
+        game_output=game_output,
     )
     target = generated_shader(
         cfg,
@@ -960,6 +1269,8 @@ def animate_to(
         full_eink=full_eink,
         focus_output=focus_output,
         primary_output=primary_output,
+        inactive_ratio=inactive_ratio,
+        game_output=game_output,
     )
     main = expand(cfg["main_shader"])
     seconds = max(0.0, float(cfg.get("transition_seconds", 5.0)))
@@ -1013,6 +1324,8 @@ def animate_to(
             full_eink=full_eink,
             focus_output=focus_output,
             primary_output=primary_output,
+            inactive_ratio=inactive_ratio,
+            game_output=game_output,
         )
         final = static_actual if static_actual is not None else main
         ok = set_shader(cfg, final)
@@ -1070,6 +1383,8 @@ def apply_effect(
     reading: bool = False,
     focus_output: int | None = None,
     primary_output: int | None = None,
+    inactive_ratio: float | None = None,
+    game_output: int | None = None,
 ) -> tuple[str, Path | None]:
     """Return (action, desired_path). Manual shaders are left untouched."""
     target_level = level if enabled else 0.0
@@ -1079,6 +1394,8 @@ def apply_effect(
         full_eink=reading,
         focus_output=focus_output,
         primary_output=primary_output,
+        inactive_ratio=inactive_ratio,
+        game_output=game_output,
     )
     current = active_shader(cfg)
     if current is None:
@@ -1121,6 +1438,8 @@ def apply_effect(
             full_eink=reading,
             focus_output=focus_output,
             primary_output=primary_output,
+            inactive_ratio=inactive_ratio,
+            game_output=game_output,
         )
 
     if abs(current_level - target_level) < 0.0001:
@@ -1144,6 +1463,8 @@ def apply_effect(
         full_eink=reading,
         focus_output=focus_output,
         primary_output=primary_output,
+        inactive_ratio=inactive_ratio,
+        game_output=game_output,
     )
 
 
@@ -1157,6 +1478,7 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
     loc = read_location(cfg)
     focus_id, focus_name = focused_output(cfg)
     primary_id = output_id_by_name(cfg, str(cfg.get("primary_output", "")))
+    game_id, game_label = running_game(cfg)
     data, weather_age, weather_source = get_weather(cfg, loc)
 
     utc_now = now.astimezone(timezone.utc)
@@ -1283,6 +1605,42 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
 
     level = quantize_effect(effect, float(cfg["effect_step"]))
     inactive_dim, extra_dim = inactive_extra_dim(cfg, level)
+    dim_target = max(0.0, min(1.0, float(cfg["max_black_overlay"]) * level))
+
+    # Quickshell's ScreenCorners layer carries the extra inactive dimming while
+    # it is on screen. Without it, bake the same total into the shader for
+    # every output except the focused one (Hyprland's `wl_output` uniform).
+    via = str(cfg.get("inactive_dim_via", "auto")).strip().lower()
+    if via not in ("quickshell", "shader"):
+        via = "auto"
+    if via == "auto":
+        via = "quickshell" if quickshell_overlay_present(cfg) else "shader"
+    # A game always takes the shader path when the ambient shader is actually
+    # the one on screen: that is the only place the per-output exemption
+    # exists, and it also means the Quickshell overlay publishes 0 instead of
+    # dimming a game that is not focused. If another (manual) shader owns the
+    # screen, leave the overlay alone; the ambient effect is off anyway.
+    if game_id is not None:
+        active_now = active_shader(cfg)
+        ambient_owns = active_now is not None and (
+            is_generated(cfg, active_now)
+            or active_now == ""
+            or same_path(active_now, expand(cfg["main_shader"]))
+            or same_path(active_now, expand(cfg["shader_source"]))
+        )
+        if ambient_owns:
+            via = "shader"
+
+    inactive_ratio = None
+    if (
+        via == "shader"
+        and focus_id is not None
+        and dim_target > 1e-6
+        and inactive_dim > dim_target + 1e-6
+    ):
+        inactive_ratio = max(1.0, inactive_dim / dim_target)
+    if via != "quickshell":
+        extra_dim = 0.0
     if not dry_run:
         write_text(cache_path(cfg, "inactive_extra_dim"), f"{extra_dim:.4f}\n")
 
@@ -1294,6 +1652,8 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
             full_eink=reading,
             focus_output=focus_id,
             primary_output=primary_id,
+            inactive_ratio=inactive_ratio,
+            game_output=game_id,
         )
         action = "dry-run"
     else:
@@ -1305,6 +1665,8 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
             reading=reading,
             focus_output=focus_id,
             primary_output=primary_id,
+            inactive_ratio=inactive_ratio,
+            game_output=game_id,
         )
         auto_target = (
             generated_shader(
@@ -1312,6 +1674,8 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
                 level,
                 focus_output=focus_id,
                 primary_output=primary_id,
+                inactive_ratio=inactive_ratio,
+                game_output=game_id,
             )
             if enabled
             else None
@@ -1322,6 +1686,8 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
             full_eink=True,
             focus_output=focus_id,
             primary_output=primary_id,
+            inactive_ratio=inactive_ratio,
+            game_output=game_id,
         )
         write_text(
             cache_path(cfg, "auto_shader"),
@@ -1350,6 +1716,8 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
             "primary_boost": bool(
                 focus_id is not None and primary_id is not None and focus_id == primary_id
             ),
+            "game_output_id": game_id,
+            "game_window": game_label,
         },
         "sun": {
             "elevation_deg": round(elevation, 2),
@@ -1398,6 +1766,11 @@ def cycle(cfg: dict, dry_run: bool = False, runtime: dict | None = None) -> dict
             "black_overlay": dim,
             "black_overlay_inactive": round(inactive_dim, 4),
             "inactive_extra_dim": round(extra_dim, 4),
+            "inactive_dim_via": via,
+            "inactive_shader_ratio": None
+            if inactive_ratio is None
+            else round(inactive_ratio, 4),
+            "game_exempt": bool(game_id is not None and via == "shader"),
             "action": action,
             "shader": str(desired) if desired else None,
         },
@@ -1473,14 +1846,26 @@ def status(cfg: dict) -> int:
     return 0
 
 
-def focus_watcher(config_path: Path) -> None:
-    last: object = object()
+def state_watcher(config_path: Path) -> None:
+    """Wake the loop when focus moves or Quickshell's overlay comes/goes.
+
+    Without this, losing Quickshell would leave the shader in overlay mode
+    until the next 30 s tick, and inactive outputs would be undimmed for that
+    long. Checking every 1.5 s makes the fallback effectively immediate.
+    """
+    last_focus: object = object()
+    last_overlay: object = object()
+    last_game: object = object()
     while True:
         try:
             cfg = load_config(config_path)
             fid, _ = focused_output(cfg)
-            if fid != last:
-                last = fid
+            overlay = quickshell_overlay_present(cfg)
+            game_id, _ = running_game(cfg)
+            if fid != last_focus or overlay != last_overlay or game_id != last_game:
+                last_focus = fid
+                last_overlay = overlay
+                last_game = game_id
                 WAKE.set()
         except Exception:
             pass
@@ -1502,7 +1887,7 @@ def run_forever(cfg: dict, once: bool, config_path: Path) -> int:
         signal.signal(signal.SIGHUP, wake_handler)
         signal.signal(signal.SIGUSR1, wake_handler)
         WAKE.clear()
-        threading.Thread(target=focus_watcher, args=(config_path,), daemon=True).start()
+        threading.Thread(target=state_watcher, args=(config_path,), daemon=True).start()
     recover_transition(cfg)
     current = active_shader(cfg)
     info = generated_info(cfg, current) if current else None

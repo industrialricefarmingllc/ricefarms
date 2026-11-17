@@ -72,7 +72,7 @@ Item {
 
         LText {
             width: parent.width
-            text: row.task.name || row.task.id
+            text: Tr.t(row.task.name || row.task.id)
             role: row.compact ? "labelLarge" : "titleSmall"
             color: row.ink
             elide: Text.ElideRight
@@ -83,9 +83,11 @@ Item {
             width: parent.width
             text: {
                 if (row.running)
-                    return row.external ? "Lesson in progress" : (row.ready ? "Ready to claim" : GateCore.clock(row.remaining) + " left");
+                    return row.external ? Tr.t("Lesson in progress")
+                        : (row.ready ? Tr.t("Ready to claim")
+                        : Tr.fmt("%1 left", GateCore.clock(row.remaining)));
 
-                return row.task.detail || "";
+                return Tr.t(row.task.detail || "");
             }
             role: "bodySmall"
             color: row.running && row.ready ? row.accent : row.inkDim
@@ -125,7 +127,7 @@ Item {
 
                 LText {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: (row.unlocking ? "unlock" : String(row.task.reward || 0))
+                    text: (row.unlocking ? Tr.t("unlock") : String(row.task.reward || 0))
                     role: "labelSmall"
                     color: row.inkDim
                     tabular: true
@@ -135,7 +137,7 @@ Item {
 
             Button {
                 width: parent.width
-                text: row.task.kind === "duolingo" ? "Study" : (row.task.kind === "browser" ? "Open" : "Start")
+                text: Tr.t(row.task.kind === "duolingo" ? "Study" : (row.task.kind === "browser" ? "Open" : "Start"))
                 variant: "tonal"
                 size: "xs"
                 onClicked: row.startRequested(row.task.id)
@@ -148,7 +150,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width
-            text: row.unlocking ? "Claim" : "Done"
+            text: Tr.t(row.unlocking ? "Claim" : "Done")
             variant: "filled"
             size: "xs"
             onClicked: GateCore.completeTask(row.task.id)
@@ -161,7 +163,7 @@ Item {
             icon: "close"
             variant: "standard"
             size: "xs"
-            tooltip: "Give up on " + (row.task.name || row.task.id)
+            tooltip: Tr.fmt("Give up on %1", Tr.t(row.task.name || row.task.id))
             onClicked: {
                 if (row.session !== null)
                     GateCore.abandon(row.session.id);

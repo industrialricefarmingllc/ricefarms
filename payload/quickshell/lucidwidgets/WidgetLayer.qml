@@ -88,6 +88,19 @@ Variants {
                 pills: deck.glassPills
             }
 
+            // Wash-only bridge: every visible widget card, including bare
+            // cards, published under a prefix the glass plugin ignores.
+            LucidBar.GlassLayout {
+                id: widgetsWash
+                name: "widgets-wash"
+                filePrefix: "liquidwash-"
+                surfaceNamespace: "lucid-widgets"
+                targetScreen: layer.screen
+                surfaceW: layer.width
+                surfaceH: layer.height
+                pills: deck.washPills
+            }
+
             Item {
                 id: deck
 
@@ -121,7 +134,9 @@ Variants {
                 // a seam is handled by each output's own publisher.
                 readonly property var glassPills: {
                     var _ = deck.rev;
-                    if (!Prefs.loaded || !Prefs.liquidGlassEnabled || !layer.visible)
+                    // Publish even with glass off: the compositor's rim-only
+                    // overlay uses the same pill geometry.
+                    if (!Prefs.loaded || !layer.visible)
                         return [];
 
                     var out = [];
@@ -158,6 +173,35 @@ Variants {
                     }
                     return out;
                 }
+                readonly property var washPills: {
+                    var _ = deck.rev;
+                    if (!Prefs.loaded || !layer.visible)
+                        return [];
+
+                    var out = [];
+                    for (var i = 0; i < rep.count; i++) {
+                        var f = rep.itemAt(i);
+                        if (!f || !f.visible || f.closing || f.blanked)
+                            continue;
+
+                        var s = f.scale > 0 ? f.scale : 1;
+                        var w = Math.round(f.width * s * 2) / 2;
+                        var h = Math.round(f.height * s * 2) / 2;
+                        var r = Math.round(f.radius * s * 2) / 2;
+                        var _ = f.x + f.y + f.width + f.height + f.scale + f.radius;
+                        var at = f.mapToItem(deck, 0, 0);
+                        out.push({
+                            "x": Math.round(at.x * 2) / 2,
+                            "y": Math.round(at.y * 2) / 2,
+                            "w": w,
+                            "h": h,
+                            "r": [r, r, r, r],
+                            "sq": Prefs.squircleF
+                        });
+                    }
+                    return out;
+                }
+
                 readonly property bool editing: Widgets.editUid !== "" && deck.editFrame !== null
                 // only ask for keys at all once something you can type into is placed;
                 // on-demand hands focus back the moment a window is clicked, which

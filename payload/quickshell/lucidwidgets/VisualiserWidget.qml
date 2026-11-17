@@ -250,16 +250,19 @@ WidgetBody {
 
         readonly property real base: w.flip ? 0 : w.height
         readonly property int dir: w.flip ? 1 : -1
+        // pixels between resampled points: a polyline straight through the bands
+        // is a sawtooth, and this variant is meant to read as one smooth wave. a
+        // Catmull-Rom through the band peaks, sampled this finely, is the curve a
+        // cubic spline would give and it still goes through every sample
+        readonly property real step: 3
         readonly property var line: {
             if (!curve.visible || w.width <= 0 || w.barCount < 2)
                 return [];
 
-            var out = [];
-            for (var i = 0; i < w.barCount; i++) {
-                var lv = w.level(i);
-                out.push(Qt.point(i / (w.barCount - 1) * w.width, curve.base + curve.dir * Math.max(2, lv * (w.height - 4))));
-            }
-            return out;
+            var pts = [];
+            for (var i = 0; i < w.barCount; i++)
+                pts.push(Qt.point(i / (w.barCount - 1) * w.width, curve.base + curve.dir * Math.max(2, w.level(i) * (w.height - 4))));
+            return curve.spline(pts);
         }
         readonly property var area: {
             if (curve.line.length < 2)
@@ -267,6 +270,34 @@ WidgetBody {
 
             var edge = w.flip ? -3 : w.height + 3;
             return curve.line.concat([Qt.point(w.width, edge), Qt.point(0, edge)]);
+        }
+
+        // x is linear in t, so only the y needs the tangents. the middle term is
+        // the Catmull-Rom blend of the two neighbours' slopes
+        function spline(pts) {
+            var n = pts.length;
+            if (n < 2)
+                return pts;
+
+            var out = [pts[0]];
+            for (var i = 0; i < n - 1; i++) {
+                var p0 = pts[Math.max(0, i - 1)];
+                var p1 = pts[i];
+                var p2 = pts[i + 1];
+                var p3 = pts[Math.min(n - 1, i + 2)];
+                // a wide card with few bands would otherwise get one long chord
+                var steps = Math.max(1, Math.ceil((p2.x - p1.x) / curve.step));
+                var c1 = p2.y - p0.y;
+                var c2 = 2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y;
+                var c3 = 3 * p1.y - p0.y - 3 * p2.y + p3.y;
+                for (var s = 1; s <= steps; s++) {
+                    var t = s / steps;
+                    var y = 0.5 * (2 * p1.y + c1 * t + c2 * t * t + c3 * t * t * t);
+                    // a spiked band overshoots its neighbours; keep it on the card
+                    out.push(Qt.point(p1.x + (p2.x - p1.x) * t, Math.max(0, Math.min(w.height, y))));
+                }
+            }
+            return out;
         }
 
         visible: w.variant === "wave"

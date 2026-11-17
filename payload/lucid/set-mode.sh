@@ -10,7 +10,8 @@
 #   anything else   — a static palette, so apply-theme.sh picks (or synthesises)
 #                     the theme's light variant
 #
-# auto takes it from how bright the wallpaper is (wallpaper-mode.sh).
+# auto takes it from the wallpaper's sidecar when that pins a mode, otherwise
+# from how bright the wallpaper is (wallpaper-mode.sh).
 #
 # the mode itself lives in ~/.cache/current_mode, beside current_theme, because
 # the shell and these scripts both have to agree on it.
@@ -21,8 +22,27 @@ MODE="${1:?usage: set-mode.sh <dark|light|auto>}"
 CACHE_DIR="$HOME/.cache"
 LUCID_DIR="$HOME/.config/lucid"
 
+THEME="$(cat "$CACHE_DIR/current_theme" 2>/dev/null || echo matugen)"
+# current_wallpaper is the still that stands in for a live wallpaper
+SAMPLE="$(cat "$CACHE_DIR/current_wallpaper" 2>/dev/null || true)"
+WALLPAPER="$SAMPLE"
+# with a live wallpaper current_wallpaper is only its first frame. handing that
+# back would set the frame as a still and stop the video, so the video goes back
+LIVE="$(head -n1 "$CACHE_DIR/current_live_wallpaper" 2>/dev/null || true)"
+if [[ "$LIVE" == skwd:* ]]; then
+    # a Wallpaper Engine scene has no file of its own; hand the key back
+    WALLPAPER="$LIVE"
+elif [[ -n "$LIVE" && -f "$LIVE" ]]; then
+    WALLPAPER="$LIVE"
+fi
+
 if [[ "$MODE" == "auto" ]]; then
-    MODE=$("$LUCID_DIR/wallpaper-mode.sh" "$(cat "$CACHE_DIR/current_wallpaper" 2>/dev/null)" 2>/dev/null) \
+    # Prefer the moving file's sidecar. A video has no readable still of its
+    # own, so fall back to the frame current_wallpaper already points at.
+    AUTO_IMAGE="$WALLPAPER"
+    [[ "$LIVE" == skwd:* ]] && AUTO_IMAGE="$SAMPLE"
+    MODE=$("$LUCID_DIR/wallpaper-mode.sh" "$AUTO_IMAGE" 2>/dev/null) \
+        || MODE=$("$LUCID_DIR/wallpaper-mode.sh" "$SAMPLE" 2>/dev/null) \
         || MODE="$(cat "$CACHE_DIR/current_mode" 2>/dev/null || echo dark)"
 fi
 
@@ -37,18 +57,6 @@ printf '%s' "$MODE" > "$CACHE_DIR/current_mode"
 # ~/.cache/quickshell/theme_mode rather than current_mode)
 mkdir -p "$CACHE_DIR/quickshell"
 printf '%s' "$MODE" > "$CACHE_DIR/quickshell/theme_mode.tmp" && mv -f "$CACHE_DIR/quickshell/theme_mode.tmp" "$CACHE_DIR/quickshell/theme_mode"
-
-THEME="$(cat "$CACHE_DIR/current_theme" 2>/dev/null || echo matugen)"
-WALLPAPER="$(cat "$CACHE_DIR/current_wallpaper" 2>/dev/null || true)"
-# with a live wallpaper current_wallpaper is only its first frame. handing that
-# back would set the frame as a still and stop the video, so the video goes back
-LIVE="$(head -n1 "$CACHE_DIR/current_live_wallpaper" 2>/dev/null || true)"
-if [[ "$LIVE" == skwd:* ]]; then
-    # a Wallpaper Engine scene has no file of its own; hand the key back
-    WALLPAPER="$LIVE"
-elif [[ -n "$LIVE" && -f "$LIVE" ]]; then
-    WALLPAPER="$LIVE"
-fi
 
 case "$THEME" in
 matugen | pywal)

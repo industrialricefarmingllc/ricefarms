@@ -52,6 +52,8 @@ struct SRingU {
     GLint frameEnable = -1, frameScale = -1, seed = -1, frieze = -1, gilt = -1, relief = -1;
     GLint rimLight = -1, rimStrength = -1, rimWidth = -1, rimAngle = -1, rimSplay = -1, rimShade = -1;
     GLint rimAtInner = -1, rimShift = -1;
+    GLint rimSampleShift = -1;
+    GLint rimOverlay = -1;
     GLint shCol = -1, shA = -1, shOff = -1, shBlur = -1;
     GLint flare = -1, push = -1;
 } s_ru;
@@ -166,6 +168,8 @@ void ensure() {
     s_ru.rimShade = loc(rp, "uRimShade");
     s_ru.rimAtInner = loc(rp, "uRimAtInner");
     s_ru.rimShift = loc(rp, "uRimShift");
+    s_ru.rimSampleShift = loc(rp, "uRimSampleShift");
+    s_ru.rimOverlay = loc(rp, "uRimOverlay");
     s_ru.shCol = loc(rp, "uShadowColor");
     s_ru.shA = loc(rp, "uShadowA");
     s_ru.shOff = loc(rp, "uShadowOff");
@@ -335,12 +339,11 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     if (rimLight) {
         const float rimLogical = std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_width", 1.75f));
         const float rimPx = rimLogical * (float)monitor->m_scale * ctx.m_data.renderModif.combinedScale();
+        // The band gives the highlight room to fall off. Rim-only draws ONLY
+        // the lit line (uRimOverlay), so a wide band is glow, not a border.
         if (rimPx > (float)scaledBorder)
             bandThick = (int)std::ceil(rimPx);
-        // Extend the band one physical pixel past the content edge so the rim
-        // line can sit ON that edge (see uRimAtInner/uRimShift). Without it
-        // the line lives on the border's outer edge and leaves a hairline gap.
-        innerInset = 1;
+        innerInset = rimOnly ? 1 : 0;
         scaledBorder = bandThick;
     } else {
         scaledBorder = nativeBorder;
@@ -401,7 +404,7 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     gateBox.expand(std::max(4.0f, shPadF));
     CRegion ringRegion = ctx.m_data.damage.copy().intersect(gateBox);
     if (rimLight)
-        ringRegion.subtract(box.copy().expand(-(double)innerInset - 1.0));
+        ringRegion.subtract(box.copy().expand(-(double)innerInset));
     else
         ringRegion.subtract(box.copy().expand(-scaledBorder - (int)std::ceil(roundF)));
     if (ctx.m_data.clipBox.w != 0 && ctx.m_data.clipBox.h != 0)
@@ -610,12 +613,15 @@ bool drawRing(CHyprOpenGLImpl* gl, Render::CRenderContext& ctx, const CBox& box,
     // the line itself takes ~55% of it, floored at one physical pixel.
     glUniform1f(s_ru.rimLight, rimLight ? 1.0f : 0.0f);
     glUniform1f(s_ru.rimStrength, std::max(0.0f, lg::getFloat("plugin:liquidglass:rim_strength", 1.0f)));
-    glUniform1f(s_ru.rimWidth, std::max(0.75f, (float)(rimLight ? bandThick : scaledBorder) * 0.50f));
+    glUniform1f(s_ru.rimWidth,
+                std::max(0.75f, lg::getFloat("plugin:liquidglass:glass_rim_width", 1.1f) * (float)monitor->m_scale));
     glUniform1f(s_ru.rimAngle, rimAngle);
     glUniform1f(s_ru.rimSplay, std::clamp(lg::getFloat("plugin:liquidglass:rim_splay", 0.22f), 0.0f, 1.0f));
     glUniform1f(s_ru.rimShade, std::clamp(lg::getFloat("plugin:liquidglass:rim_shade", 0.009f), 0.0f, 1.0f));
     glUniform1f(s_ru.rimAtInner, rimLight ? 1.0f : 0.0f);
     glUniform1f(s_ru.rimShift, rimLight ? (float)innerInset : 0.0f);
+    glUniform1f(s_ru.rimSampleShift, rimLight ? (float)(rimOnly ? nativeBorder : bandThick) : 0.0f);
+    glUniform1f(s_ru.rimOverlay, rimOnly ? 1.0f : 0.0f);
     // Window drop shadow: same matugen material as the pills, softer alpha.
     glUniform3f(s_ru.shCol, ((shColF >> 24) & 0xFF) / 255.f, ((shColF >> 16) & 0xFF) / 255.f,
                 ((shColF >> 8) & 0xFF) / 255.f);

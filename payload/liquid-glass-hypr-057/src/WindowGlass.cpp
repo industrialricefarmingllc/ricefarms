@@ -727,6 +727,30 @@ bool lg::windowOverlapsRegion(MONITORID mon, const CBox& fbRegion) {
     return false;
 }
 
+uint64_t lg::windowRegionKey(MONITORID mon, const CBox& fbRegion) {
+    // FNV-1a over the integer geometry of the intersecting windows in draw
+    // order. The exact hash is irrelevant; only equal/unequal matters. A
+    // window move/resize, stack change or new window changes it. Window
+    // *content* changes (which keep the box) do not.
+    uint64_t h = 1469598103934665603ull;
+    auto it = WINDOW_BOXES->find(mon);
+    if (it == WINDOW_BOXES->end())
+        return h;
+    auto mix = [&](int64_t v) {
+        h ^= (uint64_t)v;
+        h *= 1099511628211ull;
+    };
+    for (const auto& box : it->second) {
+        if (box.intersection(fbRegion).empty())
+            continue;
+        mix((int64_t)std::llround(box.x));
+        mix((int64_t)std::llround(box.y));
+        mix((int64_t)std::llround(box.w));
+        mix((int64_t)std::llround(box.h));
+    }
+    return h;
+}
+
 void lg::noteWindowBox(PHLWINDOW win, PHLMONITOR mon) {
     if (!win || !mon || !win->mapped() || win->isHidden())
         return;

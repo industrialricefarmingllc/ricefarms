@@ -8,6 +8,7 @@ import Quickshell.Widgets
 import qs
 import qs.lucidicons
 import qs.lucidui
+import "../squircle"
 
 BarPill {
     id: root
@@ -49,8 +50,9 @@ BarPill {
     property real menuY: 0
 
     onMenuItemChanged: {
+        // same quiet settle as the desktop's right-click menu
         if (root.menuItem)
-            sheetJelly.kickAfter(Math.min(0.09, Theme.dp(18) / Math.max(1, menuSheet.height)), Math.round(Theme.barDurShort * 0.3));
+            sheetJelly.kickAfter(Math.min(0.012, Theme.dp(3) / Math.max(1, menuSheet.height)), Math.round(Theme.durEnter * 0.2));
         else
             sheetJelly.rest();
     }
@@ -429,7 +431,7 @@ BarPill {
                 menu: root.menuItem ? root.menuItem.menu : null
             }
 
-            Rectangle {
+            SquircleRect {
                 id: menuSheet
 
                 readonly property real wanted: entryCol.implicitHeight + Theme.dp(12)
@@ -440,10 +442,13 @@ BarPill {
                 x: Math.max(Theme.dp(10) - root.x, Math.min(root.menuX, menuLayer.width - menuSheet.width - Theme.dp(10)))
                 y: root.menuY
                 radius: Theme.radiusSm
-                color: Theme.bg
-                clip: true
+                fillColor: Theme.bg
+                borderWidth: 1
+                borderColor: Theme.alpha(Theme.text, 0.06)
+                smoothing: Prefs.squircleF
                 opacity: root.menuItem !== null ? 1 : 0
-                scale: root.menuItem !== null ? 1 : 0.94
+                // the desktop menu's entrance: grow from 80% and settle
+                scale: root.menuItem !== null ? 1 : 0.8
                 transformOrigin: Item.TopLeft
                 readonly property bool jellyWobbling: sheetJelly.wobbling
                 transform: Jelly {
@@ -452,20 +457,25 @@ BarPill {
                     target: menuSheet
                     anchorX: 0
                     anchorY: 0
-                    frequency: 4.4
+                    // a low, heavily damped settle rather than a visible wobble
+                    frequency: 2.2
+                    damping: 0.7
                 }
 
                 Behavior on opacity {
                     NumberAnimation {
-                        duration: Theme.barDurShort
-                        easing.type: Easing.OutCubic
+                        duration: root.menuItem !== null ? Theme.durEnter : Theme.durQuick
+                        easing.type: Easing.Bezier
+                        easing.bezierCurve: root.menuItem !== null ? Theme.easeEmphasizedDecel : Theme.easeEmphasizedAccel
                     }
 
                 }
 
                 Behavior on scale {
+                    enabled: root.menuItem !== null
+
                     NumberAnimation {
-                        duration: Theme.barDurShort
+                        duration: Theme.durEnter
                         easing.type: Easing.Bezier
                         easing.bezierCurve: Theme.easeEmphasizedDecel
                     }

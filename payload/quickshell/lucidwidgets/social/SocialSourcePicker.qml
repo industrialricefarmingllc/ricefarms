@@ -20,6 +20,16 @@ Item {
     signal toggleSource(string id)
     signal toggleStream(string id)
     signal saveCredential(string sourceId, string key, string value)
+
+    function translateSubtitle(value) {
+        var text = String(value || "");
+        var separator = " · ";
+        var split = text.indexOf(separator);
+        if (split < 0)
+            return Tr.t(text);
+        return text.slice(0, split) + separator + Tr.t(text.slice(split + separator.length));
+    }
+    signal startOAuth(string sourceId)
     signal saveAccount(string sourceId, string accountId, string name, string value)
     signal removeAccount(string sourceId, string accountId)
     signal closeRequested()
@@ -86,7 +96,7 @@ Item {
 
                 LText {
                     role: "labelSmall"
-                    text: picker.sources.length + Tr.t(" available · this card remembers its own selection")
+                    text: picker.sources.length + " available · this card remembers its own selection"
                     color: Theme.subtextDim
                     elide: Text.ElideRight
                     Layout.fillWidth: true
@@ -257,7 +267,7 @@ Item {
                                     LText {
                                         Layout.fillWidth: true
                                         role: "labelSmall"
-                                        text: sourceBlock.modelData.configured === true ? (sourceBlock.modelData.description || "") : ((sourceBlock.modelData.auth_fields || []).length > 0 ? Tr.t("Add credentials below") : (sourceBlock.modelData.message || Tr.t("Add settings in the config")))
+                                        text: sourceBlock.modelData.configured === true ? Tr.t(sourceBlock.modelData.description || "") : ((sourceBlock.modelData.auth_fields || []).length > 0 ? Tr.t("Add credentials below") : Tr.t(sourceBlock.modelData.message || "Add settings in the config"))
                                         color: Theme.subtextDim
                                         elide: Text.ElideRight
                                     }
@@ -290,7 +300,7 @@ Item {
                             width: sourceContent.width
                             spacing: Theme.dp(10)
                             clip: true
-                            height: sourceBlock.open && ((sourceBlock.modelData.auth_fields || []).length > 0 || sourceBlock.modelData.supports_accounts === true || (sourceBlock.modelData.auth_accounts || []).length > 0) ? implicitHeight : 0
+                            height: sourceBlock.open && ((sourceBlock.modelData.auth_fields || []).length > 0 || (sourceBlock.modelData.oauth || ({})).provider !== undefined || sourceBlock.modelData.supports_accounts === true || (sourceBlock.modelData.auth_accounts || []).length > 0) ? implicitHeight : 0
                             opacity: sourceBlock.open ? 1 : 0
                             visible: height > 0.5
 
@@ -329,6 +339,42 @@ Item {
                                     color: picker.authError !== "" ? Theme.error : Theme.primary
                                     elide: Text.ElideRight
                                     width: parent.width - Theme.dp(54)
+                                }
+
+                            }
+
+                            Column {
+                                width: parent.width
+                                spacing: Theme.dp(4)
+                                visible: (sourceBlock.modelData.oauth || ({})).provider !== undefined
+
+                                Button {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: Theme.dp(54)
+                                    variant: "tonal"
+                                    size: "xs"
+                                    text: picker.authBusyKey === sourceBlock.modelData.id + "/oauth"
+                                        ? Tr.t("Waiting for browser…")
+                                        : Tr.t(String((sourceBlock.modelData.oauth || ({})).label || "Sign in with browser"))
+                                    disabled: picker.authBusyKey !== ""
+                                        && picker.authBusyKey !== sourceBlock.modelData.id + "/oauth"
+                                    onClicked: picker.startOAuth(sourceBlock.modelData.id)
+                                }
+
+                                LText {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.leftMargin: Theme.dp(54)
+                                    visible: String((sourceBlock.modelData.oauth || ({})).help || "") !== ""
+                                    role: "labelSmall"
+                                    text: Tr.t(String((sourceBlock.modelData.oauth || ({})).help || ""))
+                                    color: Theme.subtextDim
+                                    wrapMode: Text.Wrap
+                                }
+
+                                Item {
+                                    width: parent.width
+                                    height: Theme.dp(6)
                                 }
 
                             }
@@ -379,7 +425,7 @@ Item {
                                             anchors.left: parent.left
                                             anchors.leftMargin: Theme.dp(54)
                                             role: "labelSmall"
-                                            text: accountRow.modelData.detail || Tr.t("Personal account")
+                                            text: Tr.t(accountRow.modelData.detail || "Personal account")
                                             color: Theme.subtextDim
                                         }
 
@@ -396,7 +442,7 @@ Item {
                                                 variant: "search"
                                                 icon: "lock"
                                                 password: true
-                                                placeholder: Tr.t("Replace ") + accountRow.modelData.label + Tr.t(" token")
+                                                placeholder: Tr.fmt("Replace %1 token", accountRow.modelData.label)
                                                 text: ""
                                                 onAccepted: picker.saveAccount(sourceBlock.modelData.id, accountRow.modelData.id, accountRow.modelData.label, accountInput.text)
 
@@ -420,7 +466,7 @@ Item {
                                             }
 
                                             IconButton {
-                                                icon: picker.authBusyKey === accountRow.busyKey ? "hourglass_top" : "check"
+                                                icon: "check"
                                                 size: "xs"
                                                 enabled: picker.authBusyKey === "" || picker.authBusyKey === accountRow.busyKey
                                                 onClicked: picker.saveAccount(sourceBlock.modelData.id, accountRow.modelData.id, accountRow.modelData.label, accountInput.text)
@@ -513,7 +559,7 @@ Item {
                                     }
 
                                     IconButton {
-                                        icon: picker.authBusyKey === sourceBlock.modelData.id + "/new" ? "hourglass_top" : "add"
+                                        icon: "add"
                                         size: "xs"
                                         enabled: picker.newAccountName !== "" && picker.newAccountToken !== "" && picker.authBusyKey === ""
                                         onClicked: picker.saveAccount(sourceBlock.modelData.id, "", picker.newAccountName, picker.newAccountToken)
@@ -545,7 +591,7 @@ Item {
                                         anchors.left: parent.left
                                         anchors.leftMargin: Theme.dp(54)
                                         role: "labelSmall"
-                                        text: authField.modelData.label + (authField.modelData.required === true ? "" : Tr.t(" · optional"))
+                                        text: Tr.t(authField.modelData.label) + (authField.modelData.required === true ? "" : Tr.t(" · optional"))
                                         color: Theme.subtext
                                     }
 
@@ -562,7 +608,7 @@ Item {
                                             // Match the comment composer's pill input.
                                             variant: "search"
                                             icon: authField.modelData.secret === true ? "lock" : "person"
-                                            placeholder: authField.modelData.placeholder || authField.modelData.label
+                                            placeholder: Tr.t(authField.modelData.placeholder || authField.modelData.label)
                                             password: authField.modelData.secret === true
                                             text: ""
                                             onAccepted: picker.saveCredential(sourceBlock.modelData.id, authField.modelData.key, authInput.text)
@@ -587,7 +633,7 @@ Item {
                                         }
 
                                         IconButton {
-                                            icon: picker.authBusyKey === authField.busyKey ? "hourglass_top" : "check"
+                                            icon: "check"
                                             size: "xs"
                                             enabled: picker.authBusyKey === "" || picker.authBusyKey === authField.busyKey
                                             onClicked: picker.saveCredential(sourceBlock.modelData.id, authField.modelData.key, authInput.text)
@@ -601,7 +647,7 @@ Item {
                                         anchors.leftMargin: Theme.dp(54)
                                         visible: String(authField.modelData.help || "") !== ""
                                         role: "labelSmall"
-                                        text: authField.modelData.help || ""
+                                        text: Tr.t(authField.modelData.help || "")
                                         color: Theme.subtextDim
                                         wrapMode: Text.Wrap
                                     }
@@ -700,7 +746,7 @@ Item {
                                             LText {
                                                 Layout.fillWidth: true
                                                 role: "labelSmall"
-                                                text: streamRow.modelData.configured === false ? Tr.t("Needs credentials") : (streamRow.modelData.subtitle || streamRow.modelData.kind || "")
+                                                text: streamRow.modelData.configured === false ? Tr.t("Needs credentials") : picker.translateSubtitle(streamRow.modelData.subtitle || streamRow.modelData.kind || "")
                                                 color: streamRow.modelData.configured === false ? Theme.error : Theme.subtextDim
                                                 elide: Text.ElideRight
                                             }

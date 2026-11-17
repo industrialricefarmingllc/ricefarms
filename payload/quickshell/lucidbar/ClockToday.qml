@@ -312,7 +312,7 @@ Item {
                 spacing: Theme.dp(6)
 
                 Repeater {
-                    model: page.wx ? [["thermostat", "Feels " + Units.deg(page.wx.feelsC, page.wx.feelsF)], ["water_drop", page.wx.humidity + "%"], ["air", Units.wind(page.wx.windKmph, page.wx.windMph) + " " + (page.wx.windDir || "")], ["umbrella", (page.wx.pop || 0) + "%"], ["light_mode", "UV " + page.wx.uv]] : []
+                    model: page.wx ? [["thermostat", Tr.t("Feels ") + Units.deg(page.wx.feelsC, page.wx.feelsF)], ["water_drop", page.wx.humidity + "%"], ["air", Units.wind(page.wx.windKmph, page.wx.windMph) + " " + Tr.t(page.wx.windDir || "")], ["umbrella", (page.wx.pop || 0) + "%"], ["light_mode", Tr.t("UV ") + page.wx.uv]] : []
 
                     Rectangle {
                         required property var modelData

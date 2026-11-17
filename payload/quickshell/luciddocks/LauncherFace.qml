@@ -74,20 +74,23 @@ Item {
     property int wallCardGap: Theme.dp(10)
     property alias searchText: searchInput.text
     property string highlightQuery: ""
+    // the dock's queued wallpaper filter; Enter must not act on the rows from
+    // before the last keystroke
+    property var pickerFlush: null
     // how many rows can actually be picked, set by the dock as it builds them
     property int resultCount: 0
     readonly property string placeholder: ({
-        "clipboard": "Search clipboard history",
-        "translate": "Type a sentence, or > to ask/refine",
-        "web": "Search the web",
-        "run": "Type a command line",
-        "emoji": "Find an emoji",
-        "commands": "Search commands",
-        "theme": "Search themes",
-        "wallpaper": "Search local, Wallhaven, Workshop",
-        "live": "Search local, Wallhaven, Workshop",
-        "widgets": "Search widgets"
-    })[face.displayMode] || "Search apps and settings"
+        "clipboard": Tr.t("Search clipboard history"),
+        "translate": Tr.t("Type a sentence, or > to ask/refine"),
+        "web": Tr.t("Search the web"),
+        "run": Tr.t("Type a command line"),
+        "emoji": Tr.t("Find an emoji"),
+        "commands": Tr.t("Search commands"),
+        "theme": Tr.t("Search themes"),
+        "wallpaper": Tr.t("Search local, Wallhaven, Workshop"),
+        "live": Tr.t("Search local, Wallhaven, Workshop"),
+        "widgets": Tr.t("Search widgets")
+    })[face.displayMode] || Tr.t("Search apps and settings")
     readonly property string modeIcon: ({
         "commands": "keyboard_command_key",
         "clipboard": "content_paste",
@@ -105,10 +108,11 @@ Item {
         if (face.pickerMode || face.resultCount === 0)
             return "";
 
+        const n = face.resultCount;
         if (face.displayMode === "apps" && face.highlightQuery === "")
-            return face.resultCount + (face.resultCount === 1 ? " app" : " apps");
+            return Tr.fmt(Tr.n("%1 app", "%1 apps", n), n);
 
-        return face.resultCount + (face.resultCount === 1 ? " result" : " results");
+        return Tr.fmt(Tr.n("%1 result", "%1 results", n), n);
     }
     property real targetWidth: width
     property real targetHeight: height
@@ -123,27 +127,27 @@ Item {
     // the launcher's modes, reachable by prefix, by pill or by Ctrl and a digit
     readonly property var modes: [{
         "key": "apps",
-        "label": "Apps",
+        "label": Tr.t("Apps"),
         "icon": "apps"
     }, {
         "key": "translate",
-        "label": "Translate",
+        "label": Tr.t("Translate"),
         "icon": "translate"
     }, {
         "key": "emoji",
-        "label": "Emoji",
+        "label": Tr.t("Emoji"),
         "icon": "mood"
     }, {
         "key": "wallpaper",
-        "label": "Wallpapers",
+        "label": Tr.t("Wallpapers"),
         "icon": "wallpaper"
     }, {
         "key": "widgets",
-        "label": "Widgets",
+        "label": Tr.t("Widgets"),
         "icon": "widgets"
     }, {
         "key": "power",
-        "label": "Power",
+        "label": Tr.t("Power"),
         "icon": "power_settings_new",
         "leaves": true
     }]
@@ -305,6 +309,12 @@ Item {
         face.setWallpaperIndex(which === "end" ? face.wallpaperLocalCount - 1 : 0);
     }
 
+    // Ctrl+R walks a random sequence; Ctrl+Shift+R returns to the card the
+    // previous Ctrl+R landed on. The cursor keeps a forward branch alive only
+    // until a new random pick is made.
+    property var randomPicks: []
+    property int randomPos: -1
+
     // Ctrl+R picks a card from what the picker currently shows, without
     // applying it: Enter or a click still decides. The "more" and "status"
     // placeholders are not wallpapers, so they are skipped.
@@ -327,10 +337,36 @@ Item {
         if (choices.length > 1 && pick === wallStrip.currentIndex)
             pick = choices[(choices.indexOf(pick) + 1) % choices.length];
 
+        var picked = wallStrip.model.get(pick);
+        var picks = face.randomPicks.slice(0, face.randomPos + 1);
+        picks.push(picked ? String(picked.path || "") : "");
+        face.randomPicks = picks;
+        face.randomPos = picks.length - 1;
+
         // A random jump is a deliberate move, like Home/End, so the opening
         // placement timer leaves it where it landed.
         wallStrip.userMoved = true;
         face.setWallpaperIndex(pick);
+    }
+
+    function jumpRandomBack() {
+        if (!wallStrip || face.randomPos <= 0)
+            return ;
+
+        var next = face.randomPos - 1;
+        var path = face.randomPicks[next];
+        if (path === undefined || path === "")
+            return ;
+
+        for (var i = 0; i < wallStrip.count; i++) {
+            var item = wallStrip.model.get(i);
+            if (item && String(item.path || "") === path) {
+                face.randomPos = next;
+                wallStrip.userMoved = true;
+                face.setWallpaperIndex(i);
+                return ;
+            }
+        }
     }
 
     function pickerReachIndex() {
@@ -549,6 +585,9 @@ Item {
         }
 
         if (face.pickerMode) {
+            if (face.pickerFlush)
+                face.pickerFlush();
+
             if (wallStrip)
                 wallStrip.activateCurrent();
 
@@ -600,14 +639,21 @@ Item {
         translatePane.reset();
     }
 
-    onModeChanged: face.requestModeTransition()
+    onModeChanged: {
+        face.randomPicks = [];
+        face.randomPos = -1;
+        face.requestModeTransition();
+    }
     focus: true
     Keys.onEscapePressed: face.closeRequested()
     Keys.onPressed: (event) => {
         if (face.pickerMode && event.key === Qt.Key_R) {
             if ((event.modifiers & Qt.ControlModifier) !== 0
-                    && (event.modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)) === 0) {
-                face.jumpRandom();
+                    && (event.modifiers & (Qt.AltModifier | Qt.MetaModifier)) === 0) {
+                if ((event.modifiers & Qt.ShiftModifier) !== 0)
+                    face.jumpRandomBack();
+                else
+                    face.jumpRandom();
                 event.accepted = true;
                 return ;
             }
@@ -827,7 +873,7 @@ Item {
                 var em = item ? (item.copy || item.emoji || "") : "";
                 if (em !== "") {
                     var image = item && item.image ? item.image : "";
-                    face.emojiCopied(em, image, item ? (item.image ? (item.title || "Emoji") : (item.emoji || "")) : "", item ? item.animated === true : false, item ? item.key : "");
+                    face.emojiCopied(em, image, item ? (item.image ? (item.title || Tr.t("Emoji")) : (item.emoji || "")) : "", item ? item.animated === true : false, item ? item.key : "");
                 }
             }
         }
@@ -850,25 +896,25 @@ Item {
             stableHeight: face.stableContentHeight
             emptyLabel: {
                 if (face.displayMode === "commands")
-                    return "No commands found";
+                    return Tr.t("No commands found");
 
                 if (face.displayMode === "theme")
-                    return "No themes found";
+                    return Tr.t("No themes found");
 
                 if (face.displayMode === "emoji")
-                    return "No emoji match";
+                    return Tr.t("No emoji match");
 
                 if (face.displayMode === "clipboard")
-                    return Clip.available ? "Nothing copied yet" : "Clipboard history is off";
+                    return Clip.available ? Tr.t("Nothing copied yet") : Tr.t("Clipboard history is off");
 
-                return "Nothing matches that";
+                return Tr.t("Nothing matches that");
             }
             emptyHint: {
                 if (face.displayMode === "clipboard")
-                    return Clip.available ? "Anything you copy from here on shows up in this list." : "Install cliphist and what you copy is kept for you.";
+                    return Clip.available ? Tr.t("Anything you copy from here on shows up in this list.") : Tr.t("Install cliphist and what you copy is kept for you.");
 
                 if (face.displayMode === "apps")
-                    return "Try a shorter word, or start with one of these:";
+                    return Tr.t("Try a shorter word, or start with one of these:");
 
                 return "";
             }
@@ -926,11 +972,11 @@ Item {
             Repeater {
                 model: [{
                     "key": "wallpaper",
-                    "label": "Pictures",
+                    "label": Tr.t("Pictures"),
                     "icon": "wallpaper"
                 }, {
                     "key": "live",
-                    "label": "Live",
+                    "label": Tr.t("Live"),
                     "icon": "movie"
                 }]
 
@@ -1290,8 +1336,11 @@ Item {
             Keys.onPressed: (event) => {
                 if (face.pickerMode && event.key === Qt.Key_R) {
                     if ((event.modifiers & Qt.ControlModifier) !== 0
-                            && (event.modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)) === 0) {
-                        face.jumpRandom();
+                            && (event.modifiers & (Qt.AltModifier | Qt.MetaModifier)) === 0) {
+                        if ((event.modifiers & Qt.ShiftModifier) !== 0)
+                            face.jumpRandomBack();
+                        else
+                            face.jumpRandom();
                         event.accepted = true;
                         return ;
                     }

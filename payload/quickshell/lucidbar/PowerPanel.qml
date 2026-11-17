@@ -161,8 +161,8 @@ Item {
                 if (!h)
                     return "";
 
-                const extra = Power.holds.length > 1 ? " (and " + (Power.holds.length - 1) + " more)" : "";
-                return (h.applicationId || "An application") + " is holding " + Power.name(h.profile) + (h.reason ? " - " + h.reason : "") + extra + ".";
+                const extra = Power.holds.length > 1 ? Tr.t(" (and ") + (Power.holds.length - 1) + Tr.t(" more)") : "";
+                return (h.applicationId || Tr.t("An application")) + Tr.t(" is holding ") + Power.name(h.profile) + (h.reason ? " - " + h.reason : "") + extra + ".";
             }
             color: Theme.subtext
             font.family: Theme.fontFamily

@@ -187,11 +187,14 @@ Item {
     }
 
     function clampX(v) {
-        return frame.board ? Math.max(0, Math.min(frame.board.width - frame.cardW, v)) : v;
+        // a board has no size until the compositor has configured its layer.
+        // clamping against zero would park every card in the top-left corner and
+        // the x/y Behaviors would then make it drift into place on load
+        return (frame.board && frame.board.width > 0) ? Math.max(0, Math.min(frame.board.width - frame.cardW, v)) : v;
     }
 
     function clampY(v) {
-        return frame.board ? Math.max(0, Math.min(frame.board.height - frame.cardH, v)) : v;
+        return (frame.board && frame.board.height > 0) ? Math.max(0, Math.min(frame.board.height - frame.cardH, v)) : v;
     }
 
     function siblings() {
@@ -657,8 +660,10 @@ Item {
     z: frame.zOrder
     x: frame.resizing ? frame.resX : (frame.carried && frame.board ? frame.carry.x - frame.board.screenX : frame.clampX(frame.wx))
     y: frame.resizing ? frame.resY : (frame.carried && frame.board ? frame.carry.y - frame.board.screenY : frame.clampY(frame.wy))
-    opacity: (frame.closing || frame.blanked) ? 0 : (frame.appeared ? (frame.overBin ? 0.4 : 1) : 0)
-    scale: frame.closing ? 0.9 : (frame.appeared ? (frame.overBin ? 0.94 : (frame.carried ? 1.025 : (frame.lifting ? 1.0125 : 1))) : (frame.landed ? 1 : (frame.born ? 0.86 : 0.97)))
+    // A card is just there once it is placed: no fade or zoom on load. Only
+    // leaving, the bin, the pointer (hover/lift) and a carry move it.
+    opacity: (frame.closing || frame.blanked) ? 0 : (frame.overBin ? 0.4 : 1)
+    scale: frame.closing ? 0.9 : (frame.overBin ? 0.94 : (frame.carried ? 1.025 : (frame.lifting ? 1.0125 : 1)))
 
     property bool appeared: false
 
@@ -751,7 +756,7 @@ Item {
     }
 
     Behavior on x {
-        enabled: !frame.dragging && !frame.carried && !frame.resizing
+        enabled: frame.appeared && !frame.dragging && !frame.carried && !frame.resizing
 
         NumberAnimation {
             duration: Theme.durMedium
@@ -761,7 +766,7 @@ Item {
     }
 
     Behavior on y {
-        enabled: !frame.dragging && !frame.carried && !frame.resizing
+        enabled: frame.appeared && !frame.dragging && !frame.carried && !frame.resizing
 
         NumberAnimation {
             duration: Theme.durMedium

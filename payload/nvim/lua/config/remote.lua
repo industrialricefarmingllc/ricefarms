@@ -31,9 +31,16 @@ vim.api.nvim_create_user_command("SSH", function(opts)
   remote_start(opts.args)
 end, { nargs = "*", desc = "Alias: remote SSH (RemoteStart)" })
 
-vim.api.nvim_create_user_command("Dev", function()
+-- Project directory the remote server starts in.  remote-nvim otherwise starts
+-- in the remote home directory, which on `dev` holds ~25 GB of monorepos and
+-- ~1.4M files, making LSP, grep and :find crawl.  Override per session with
+-- `:Dev <path>` or `NVIM_REMOTE_CWD=... nvim`.
+local default_remote_cwd = "~/dev/occure"
+
+vim.api.nvim_create_user_command("Dev", function(opts)
+  vim.g.remote_cwd = (opts.args ~= "" and opts.args) or vim.env.NVIM_REMOTE_CWD or default_remote_cwd
   remote_start("dev")
-end, { desc = "Connect to the dev host with remote-nvim" })
+end, { nargs = "?", desc = "Connect to dev (optional remote project directory)" })
 
 vim.api.nvim_create_user_command("SSHStop", function()
   ensure_remote_nvim()

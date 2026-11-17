@@ -147,18 +147,19 @@ ColumnLayout {
                     body.host.endEdit();
             }
 
-            // Rich text renders inline images statically; animated custom
-            // emoji get a live AnimatedImage laid exactly over their <img>
-            // slot, so they animate at emoji size instead of becoming a media
-            // card. The HTML's <img> order matches the document's U+FFFC order.
+            // Rich text reserves a transparent inline slot for Unicode and
+            // animated emoji. A live Twemoji (4x source size) or AnimatedImage
+            // is laid exactly over that slot, so a jumbo emoji is not a 36 px
+            // SVG raster stretched to 70+ px. The HTML <img> order matches the
+            // document's U+FFFC order.
             function syncEmoji() {
                 var images = rendered && rendered.images ? rendered.images : [];
-                var animated = [];
+                var live = [];
                 for (var k = 0; k < images.length; k++) {
-                    if (images[k].animated)
-                        animated.push(k);
+                    if (images[k].animated || String(images[k].emoji || "") !== "")
+                        live.push(k);
                 }
-                if (animated.length === 0) {
+                if (live.length === 0) {
                     if (emojiRects.length > 0)
                         emojiRects = [];
                     return ;
@@ -172,8 +173,8 @@ ColumnLayout {
                 }
 
                 var out = [];
-                for (var a = 0; a < animated.length; a++) {
-                    var index = animated[a];
+                for (var a = 0; a < live.length; a++) {
+                    var index = live[a];
                     var pos = positions[index];
                     if (pos === undefined)
                         continue;
@@ -186,7 +187,9 @@ ColumnLayout {
                         "y": Math.round(top),
                         "width": size,
                         "height": size,
-                        "source": images[index].url
+                        "animated": images[index].animated === true,
+                        "emoji": String(images[index].emoji || ""),
+                        "source": String(images[index].url || "")
                     });
                 }
                 var next = JSON.stringify(out);
@@ -203,20 +206,36 @@ ColumnLayout {
             Repeater {
                 model: bodyEdit.emojiRects
 
-                AnimatedImage {
+                Item {
+                    required property var modelData
+
                     x: modelData.x
                     y: modelData.y
                     width: modelData.width
                     height: modelData.height
-                    source: modelData.source
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    smooth: true
-                    mipmap: true
-                    playing: true
-                    loops: AnimatedImage.Infinite
-                    cache: true
                     z: 1
+
+                    Twemoji {
+                        anchors.fill: parent
+                        visible: modelData.animated !== true
+                        emoji: modelData.emoji
+                        size: modelData.width
+                        fallbackColor: body.ink
+                    }
+
+                    AnimatedImage {
+                        anchors.fill: parent
+                        visible: modelData.animated === true
+                        source: visible ? modelData.source : ""
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        smooth: true
+                        mipmap: true
+                        playing: visible
+                        loops: AnimatedImage.Infinite
+                        cache: true
+                    }
+
                 }
 
             }

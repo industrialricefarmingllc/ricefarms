@@ -56,10 +56,10 @@ BarPill {
         return list.length > 0 ? list[0] : null;
     }
     readonly property bool isPlaying: root.player ? root.player.isPlaying : false
-    readonly property string title: root.player ? (root.player.trackTitle || "Unknown") : "Nothing playing"
+    readonly property string title: root.player ? (root.player.trackTitle || Tr.t("Unknown")) : Tr.t("Nothing playing")
     readonly property string artist: root.player ? root.player.trackArtist : ""
     readonly property string artUrl: root.player ? root.player.trackArtUrl : ""
-    readonly property string sourceName: root.player ? (root.player.identity || "Media player") : ""
+    readonly property string sourceName: root.player ? (root.player.identity || Tr.t("Media player")) : ""
     // the cover across the top, or the record: either way the track goes under it
     readonly property bool heroLayout: (root.coverPanel || root.vinylPanel) && root.player !== null
     // concentric with the panel's own corner
@@ -278,15 +278,15 @@ BarPill {
     function agoText(ts, now) {
         const diff = Math.max(0, now - ts) / 1000;
         if (diff < 60)
-            return "just now";
+            return Tr.t("just now");
 
         if (diff < 3600)
-            return Math.floor(diff / 60) + "m ago";
+            return Math.floor(diff / 60) + Tr.t("m ago");
 
         if (diff < 86400)
-            return Math.floor(diff / 3600) + "h ago";
+            return Math.floor(diff / 3600) + Tr.t("h ago");
 
-        return Math.floor(diff / 86400) + "d ago";
+        return Math.floor(diff / 86400) + Tr.t("d ago");
     }
 
     function volumeGlyphFor(vol) {
@@ -498,7 +498,7 @@ BarPill {
         const images = track.images || {};
         const result = {
             "key": track.key || "",
-            "title": track.title || "Unknown",
+            "title": track.title || Tr.t("Unknown"),
             "artist": track.subtitle || "",
             "album": root.metaValue(track, "Album"),
             "year": root.metaValue(track, "Released"),
@@ -1723,7 +1723,7 @@ BarPill {
                     Marquee {
                         width: parent.width
                         visible: content !== ""
-                        content: root.player !== null ? root.artist : "Start something and it lands here"
+                        content: root.player !== null ? root.artist : Tr.t("Start something and it lands here")
                         scrolling: root.isPlaying
                         textColor: Theme.subtext
                         pixelSize: Theme.typeSize("bodyMedium")
@@ -2506,13 +2506,13 @@ BarPill {
                             text: {
                                 switch (root.shazamState) {
                                 case "listening":
-                                    return "Listening…";
+                                    return Tr.t("Listening…");
                                 case "nomatch":
-                                    return "No match";
+                                    return Tr.t("No match");
                                 case "error":
-                                    return "Couldn't listen";
+                                    return Tr.t("Couldn't listen");
                                 default:
-                                    return root.listenSource === "mic" ? "Identify what's in the room" : "Identify what's playing here";
+                                    return root.listenSource === "mic" ? Tr.t("Identify what's in the room") : Tr.t("Identify what's playing here");
                                 }
                             }
                         }
@@ -2525,20 +2525,20 @@ BarPill {
                             elide: Text.ElideRight
                             text: {
                                 if (root.micQuiet)
-                                    return root.shazamState === "nomatch" ? "The microphone was too quiet to hear it" : root.listenElapsed + "s  ·  the microphone barely hears it";
+                                    return root.shazamState === "nomatch" ? Tr.t("The microphone was too quiet to hear it") : root.listenElapsed + Tr.t("s  ·  the microphone barely hears it");
 
                                 switch (root.shazamState) {
                                 case "listening":
-                                    return root.listenElapsed + "s  ·  tap to stop";
+                                    return root.listenElapsed + Tr.t("s  ·  tap to stop");
                                 case "nomatch":
-                                    return "Nothing recognisable in the last " + root.listenLimit + "s, tap to try again";
+                                    return Tr.t("Nothing recognisable in the last ") + root.listenLimit + Tr.t("s, tap to try again");
                                 case "error":
-                                    return "songrec couldn't reach the mic, the device or Shazam";
+                                    return Tr.t("songrec couldn't reach the mic, the device or Shazam");
                                 default:
                                     if (root.listenSource === "mic")
-                                        return "via songrec  ·  microphone at " + root.micVolume + "%";
+                                        return Tr.t("via songrec  ·  microphone at ") + root.micVolume + "%";
 
-                                    return "via songrec  ·  " + (root.listenDevice === "" ? "default device" : "takes about 10s");
+                                    return Tr.t("via songrec  ·  ") + (root.listenDevice === "" ? Tr.t("default device") : Tr.t("takes about 10s"));
                                 }
                             }
                         }

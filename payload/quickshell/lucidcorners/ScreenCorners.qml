@@ -28,7 +28,10 @@ Scope {
     property color cornerColor: "black"
 
     // The ambient service applies the focused-screen black dimming in the
-    // global shader; this click-through layer adds the rest on other outputs.
+    // global shader, and publishes the extra dimming for other outputs here
+    // while this overlay is on screen. When Quickshell is not running it
+    // bakes that dimming into the shader instead and publishes 0, so the two
+    // paths never stack.
     readonly property real inactiveExtraDim: {
         const v = parseFloat(inactiveDimFile.text());
         return isNaN(v) ? 0 : Math.max(0, Math.min(1, v));

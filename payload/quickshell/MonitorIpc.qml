@@ -29,6 +29,11 @@ IpcHandler {
         return Monitors.rundown();
     }
 
+    // qs ipc call displays focused  -> the output under the pointer
+    function focused(): string {
+        return Monitors.focusedScreen ? Monitors.focusedScreen.name : "";
+    }
+
     function settings(): void {
         Prefs.settingsRequested("displays");
     }

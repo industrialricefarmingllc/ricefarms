@@ -512,14 +512,19 @@ phase_apps() {
 }
 
 install_bucklespring_sounds() {
-  local P="$PAYLOAD_DIR"
-  if [[ -f "$LARGE_DIR/bucklespring-kalih-box-white.tar.zst" ]]; then
-    if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: extract bucklespring-kalih-box-white.tar.zst -> ~/.local/share/bucklespring/";
-    else mkdir -p "$TARGET_HOME/.local/share/bucklespring"; tar --zstd -xf "$LARGE_DIR/bucklespring-kalih-box-white.tar.zst" -C "$TARGET_HOME/.local/share/bucklespring/"; fi
+  local P="$PAYLOAD_DIR" t
+  if compgen -G "$LARGE_DIR/bucklespring-*.tar.zst" >/dev/null; then
+    if [[ $DRY_RUN -eq 1 ]]; then log "DRY-RUN: extract payload-large/bucklespring-*.tar.zst -> ~/.local/share/bucklespring/";
+    else
+      mkdir -p "$TARGET_HOME/.local/share/bucklespring"
+      for t in "$LARGE_DIR"/bucklespring-*.tar.zst; do
+        tar --zstd -xf "$t" -C "$TARGET_HOME/.local/share/bucklespring/" || warn "extract failed: $t"
+      done
+    fi
   elif [[ -d "$P/bucklespring-sounds" ]]; then
     install_dir "$P/bucklespring-sounds" "$TARGET_HOME/.local/share/bucklespring"
   else
-    warn "no bucklespring sounds in payload (expected payload-large/bucklespring-kalih-box-white.tar.zst or payload/bucklespring-sounds/)"
+    warn "no bucklespring sounds in payload (expected payload-large/bucklespring-*.tar.zst or payload/bucklespring-sounds/)"
   fi
 }
 
@@ -1014,8 +1019,9 @@ export_payload() {
   mkdir -p "$P"
   # ---- large tarballs (NOT for git; copy via usb/rsync) ----
   info "building large tarballs (may take a while)..."
-  if [[ -d "$S/.local/share/bucklespring/kalih-box-white" ]]; then
-    tar --zstd -cf "$LARGE_DIR/bucklespring-kalih-box-white.tar.zst" -C "$S/.local/share/bucklespring" kalih-box-white && log "large: bucklespring tarball done"
+  bs_bank=$(sed -n 's|.*-p .*\.local/share/bucklespring/\([^ "]*\).*|\1|p' "$S/.config/systemd/user/bucklespring.service" 2>/dev/null | head -1)
+  if [[ -n "$bs_bank" && -d "$S/.local/share/bucklespring/$bs_bank" ]]; then
+    tar --zstd -cf "$LARGE_DIR/bucklespring-$bs_bank.tar.zst" -C "$S/.local/share/bucklespring" "$bs_bank" && log "large: bucklespring-$bs_bank.tar.zst done"
   fi
   if [[ -f /usr/lib/zed/zed-editor && -f /usr/bin/zeditor ]]; then
     sudo tar --zstd -cf "$LARGE_DIR/zed-custom.tar.zst" /usr/lib/zed/zed-editor /usr/bin/zeditor && log "large: zed-custom.tar.zst done"
@@ -1026,7 +1032,7 @@ export_payload() {
 # payload-large — Git LFS-tracked (see ../.gitattributes)
 # `git clone` smudges these automatically; run `git lfs pull` if it skipped.
 # Keep the same relative path: <repo>/payload-large/
-- bucklespring-kalih-box-white.tar.zst (~/.local/share/bucklespring, ~17M)
+- bucklespring-<bank>.tar.zst (~/.local/share/bucklespring/<bank>, one per installed bank)
 - zed-custom.tar.zst          (/usr/lib/zed + /usr/bin/zeditor, ~350M)
 # Wallpapers are intentionally NOT synced: keep your own set under
 # ~/Pictures/wallpapers/matugen and point current_wallpaper at it.

@@ -1,0 +1,16 @@
+[Unit]
+Description=Lucid Social X browser (private profile on Xvfb)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/lucid-x-browser
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+Environment=DISPLAY=:99
+Environment=WAYLAND_DISPLAY=
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

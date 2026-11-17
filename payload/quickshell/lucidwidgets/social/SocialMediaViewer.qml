@@ -33,6 +33,10 @@ PanelWindow {
     property real reveal: 0
     property bool resolving: false
     property bool failed: false
+    // A resolved CDN URL expires and is bound to the address that signed it.
+    // Once playback failed, the next attempt must bypass the cache.
+    property bool resolveFresh: false
+    property int resolveAttempts: 0
     // True while playback should be running. A resolved source can finish
     // loading after start() returns, so this keeps the player honest until the
     // media is ready instead of needing a second click.
@@ -42,7 +46,12 @@ PanelWindow {
     // look like a prompt for a second click.
     readonly property bool loading: viewer.resolving
         || player.mediaStatus === MediaPlayer.LoadingMedia
+        || player.mediaStatus === MediaPlayer.BufferingMedia
         || player.mediaStatus === MediaPlayer.StalledMedia
+        // Playback starts as soon as the backend has enough of the stream;
+        // until the first frame actually plays, this is still "loading" even
+        // if Qt has not raised a status change yet.
+        || (viewer.wantsPlay && player.playbackState !== MediaPlayer.PlayingState)
 
     signal closeRequested()
     signal dismissed()
@@ -51,7 +60,9 @@ PanelWindow {
     readonly property bool isVideo: String(m.kind || "") === "video"
     readonly property bool inlineVideo: {
         var target = String(m.url || "").toLowerCase().split("?")[0];
-        return target.startsWith("file://") || /\.(mp4|webm|m3u8|mov|mkv|ogv)$/.test(target);
+        var mime = String(m.mime || "").toLowerCase();
+        return target.startsWith("file://") || /\.(mp4|webm|m3u8|mov|mkv|ogv)$/.test(target)
+            || mime.startsWith("video/");
     }
     readonly property bool gifLike: {
         var target = (String(m.url || "") + " " + String(m.external_url || "") + " " + String(m.mime || "")).toLowerCase();
@@ -90,9 +101,26 @@ PanelWindow {
         return Qt.rect(Math.round((sw - w) / 2), Math.round((sh - h) / 2), Math.round(w), Math.round(h));
     }
     readonly property rect startRect: viewer.from.width > 1 && viewer.from.height > 1 ? viewer.from : viewer.targetRect
-    readonly property string imageSource: String(viewer.m.url || viewer.m.thumbnail_url || "")
+    function fullImageSource(value) {
+        var url = String(value || "");
+        if (url.indexOf("pbs.twimg.com/") >= 0) {
+            if (/[?&]name=/.test(url))
+                return url.replace(/([?&]name=)[^&]*/, "$1" + "4096x4096");
+            return url + (url.indexOf("?") >= 0 ? "&" : "?") + "name=4096x4096";
+        }
+        return url;
+    }
+    readonly property string imageSource: viewer.fullImageSource(String(viewer.m.url || viewer.m.thumbnail_url || ""))
     readonly property string videoSource: String(viewer.m.url || viewer.m.external_url || "")
     readonly property string resolveSource: String(viewer.m.external_url || viewer.m.url || "")
+    readonly property string actionUrl: String(viewer.m.external_url || viewer.m.url || "")
+    readonly property string downloadUrl: {
+        var direct = String(player.source || "");
+        if (direct !== "" && /^(https?|file):/i.test(direct))
+            return direct;
+        return String(viewer.m.url || viewer.m.external_url || "");
+    }
+    readonly property string actionFilename: String(viewer.m.filename || "")
 
     screen: viewer.screenObj
     color: "transparent"
@@ -109,6 +137,7 @@ PanelWindow {
     onOpenChanged: {
         if (viewer.open) {
             viewer.failed = false;
+            viewer.resolveAttempts = 0;
             viewer.returning = false;
             viewer.shown = true;
             viewer.reveal = 0;
@@ -125,6 +154,7 @@ PanelWindow {
     }
     onValueChanged: {
         viewer.failed = false;
+        viewer.resolveAttempts = 0;
         if (viewer.open && viewer.shown) {
             viewer.reveal = 0;
             revealAnim.stop();
@@ -154,8 +184,21 @@ PanelWindow {
             return ;
         }
         viewer.resolving = true;
-        resolveProc.command = [viewer.service, "resolve", "--json", "--url", viewer.resolveSource];
+        viewer.resolveAttempts += 1;
+        var args = [viewer.service, "resolve", "--json", "--url", viewer.resolveSource];
+        if (viewer.resolveFresh || viewer.resolveAttempts > 1)
+            args.push("--refresh");
+        resolveProc.command = args;
         resolveProc.running = true;
+    }
+
+    function retryResolve() {
+        if (viewer.resolveAttempts >= 3 || viewer.resolveSource === "" || viewer.service === "")
+            return false;
+        viewer.failed = false;
+        viewer.resolveFresh = true;
+        viewer.start();
+        return true;
     }
 
     function stop() {
@@ -282,7 +325,10 @@ PanelWindow {
                 // The exact texture the card decoded. Same URL and same sourceSize,
                 // so this is a pixmap-cache hit, not another download.
                 anchors.fill: parent
-                visible: !viewer.isVideo && (viewer.gifLike ? fullGif.status !== Image.Ready : fullImage.status !== Image.Ready) && source !== ""
+                // Stay behind the full-resolution image until its fade-in
+                // finishes; hiding on status Ready exposed a one-frame gap.
+                visible: !viewer.isVideo && source !== ""
+                    && (viewer.gifLike ? fullGif.opacity < 0.999 : fullImage.opacity < 0.999)
                 source: viewer.isVideo ? "" : viewer.previewSource
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
@@ -350,10 +396,20 @@ PanelWindow {
                 fillMode: VideoOutput.PreserveAspectFit
             }
 
+            LoadingIndicator {
+                anchors.centerIn: parent
+                width: Theme.dp(48) / Math.max(0.2, cardBox.s)
+                height: width
+                visible: viewer.isVideo && viewer.loading && !viewer.failed
+                running: visible
+                color: Theme.primary
+            }
+
             Icon {
                 anchors.centerIn: parent
-                visible: viewer.isVideo && (viewer.loading || viewer.failed || player.playbackState !== MediaPlayer.PlayingState)
-                name: viewer.loading ? "hourglass_top" : (viewer.failed ? "open_in_new" : "play_arrow")
+                visible: viewer.isVideo && !viewer.loading
+                    && (viewer.failed || player.playbackState !== MediaPlayer.PlayingState)
+                name: viewer.failed ? "open_in_new" : "play_arrow"
                 size: Theme.dp(48) / Math.max(0.2, cardBox.s)
                 color: Theme.text
             }
@@ -377,6 +433,7 @@ PanelWindow {
                     if (viewer.failed) {
                         if (viewer.resolveSource !== "" && viewer.service !== "") {
                             viewer.failed = false;
+                            viewer.resolveFresh = true;
                             viewer.start();
                         } else {
                             var r = viewer.from;
@@ -404,19 +461,36 @@ PanelWindow {
     }
     }
 
-    // A close control that rides just inside the media's top-right corner.
-    IconButton {
-        icon: "close"
-        variant: "filled"
-        size: "s"
-        width: implicitWidth
-        height: implicitHeight
+    // Copy, download and close ride just inside the media's top-right corner.
+    Row {
+        id: mediaActions
+
+        spacing: Theme.dp(6)
         x: Math.round(cardBox.cx + cardBox.visualW / 2 - width - Theme.dp(12))
         y: Math.round(cardBox.cy - cardBox.visualH / 2 + Theme.dp(12))
         z: 10
         opacity: Math.max(0, Math.min(1, (viewer.reveal - 0.25) / 0.4))
         visible: viewer.shown && opacity > 0
-        onClicked: viewer.closeRequested()
+
+        MediaActions {
+            visible: String(viewer.m.kind || "") !== "link" && String(viewer.m.kind || "") !== "embed"
+            url: viewer.actionUrl
+            downloadUrl: viewer.downloadUrl
+            filename: viewer.actionFilename
+            mediaKind: String(viewer.m.kind || "")
+            posterUrl: String(viewer.m.thumbnail_url || "")
+            buttonVariant: "filled"
+            buttonSize: "s"
+            compact: false
+        }
+
+        IconButton {
+            icon: "close"
+            variant: "filled"
+            size: "s"
+            onClicked: viewer.closeRequested()
+        }
+
     }
 
     MediaPlayer {
@@ -428,6 +502,14 @@ PanelWindow {
         videoOutput: output
         audioOutput: AudioOutput {
             muted: viewer.gifLike
+        }
+        // The backend can expose the first decoded frame before it reports a
+        // "loaded" media status. Start then instead of waiting for the whole
+        // stream: progressive HTTP files and HLS should play as they arrive.
+        onHasVideoChanged: {
+            if (player.hasVideo && viewer.wantsPlay && !viewer.resolving
+                    && player.playbackState !== MediaPlayer.PlayingState)
+                player.play();
         }
         // Some streams (HLS manifests in particular) finish loading after the
         // source is assigned, and a play() issued at that moment is dropped.
@@ -446,8 +528,13 @@ PanelWindow {
             }
         }
         onErrorOccurred: (error, errorString) => {
-            if (error !== MediaPlayer.NoError)
-                viewer.failed = true;
+            if (error === MediaPlayer.NoError)
+                return ;
+            // A YouTube CDN URL can expire or be bound to another egress
+            // address. Resolve once more with --refresh before giving up.
+            if (!viewer.inlineVideo && viewer.retryResolve())
+                return ;
+            viewer.failed = true;
         }
     }
 
@@ -464,13 +551,16 @@ PanelWindow {
                     var value = JSON.parse(this.text);
                     if (value.ok === true && String(value.url || "") !== "") {
                         viewer.failed = false;
+                        viewer.resolveFresh = false;
                         player.source = String(value.url);
                         player.play();
-                    } else {
+                    } else if (!viewer.retryResolve()) {
                         viewer.failed = true;
+                        viewer.resolveFresh = true;
                     }
                 } catch (error) {
-                    viewer.failed = true;
+                    if (!viewer.retryResolve())
+                        viewer.failed = true;
                 }
             }
         }

@@ -59,7 +59,10 @@ eval $UDEV_CMD 2>/dev/null | while read -r line; do
     # restart (SIGKILL) a perfectly healthy shell on every hotplug event,
     # because Quickshell handles input hotplug itself. Only start it when it
     # is really gone -- never restart it here.
-    if ! systemctl --user is-active --quiet quickshell.service \
+    # gt / lucid-gamemode park the shell on purpose: its marker means "leave
+    # it down", even after the hyprctl reload above.
+    if [ ! -f "$HOME/.cache/lucid/gt/shell-paused" ] \
+       && ! systemctl --user is-active --quiet quickshell.service \
        && ! pgrep -f '^(/usr/local/bin/(qs|quickshell)|/usr/bin/qs)$' >/dev/null 2>&1; then
       if ! systemctl --user start quickshell.service >/dev/null 2>&1; then
         nohup /usr/local/bin/qs >/tmp/qs_hotplug.log 2>&1 &

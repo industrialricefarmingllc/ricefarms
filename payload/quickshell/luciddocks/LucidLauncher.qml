@@ -22,6 +22,14 @@ PanelWindow {
     property bool panelVisible: false
     property bool maskActive: false
     property real revealRadius: 0
+    // 0 = the QML fill/rim; 1 = the compositor glass/rim. The reveal runs on
+    // the QML side, then these crossfade once the settled shape is published.
+    // glassMix drives the panel fill; rimMix drives the QML hairline and is
+    // used even when the glass master switch is off (plugin rim-only mode).
+    property real glassMix: 0
+    property real rimMix: 0
+    // true between finishOpen and the glass-shape write completing
+    property bool waitingForGlass: false
     // Toggle the layer's keyboard focus once after the wallpaper iris closes;
     // mapping an overlay above this surface can leave it drawn but unfocused.
     property bool focusKick: false
@@ -33,9 +41,16 @@ PanelWindow {
     property string queuedInput: ""
 
     property bool launcherGlassReady: false
+    // True when the compositor plugin exists at all, independent of whether
+    // full glass is enabled. Rim-only mode keeps drawing the edge light when
+    // the master glass switch is off, but it still needs this shape file.
+    property bool pluginPresent: false
     readonly property bool glassOn: root.launcherGlassReady && Prefs.liquidGlassEnabled
-    readonly property bool maskedGlass: root.maskActive && root.maskCapable
-    property bool maskCapable: false
+    // The iris reveal used to publish a new glass mask radius every frame.
+    // That is 20-35 file writes per open on a fast output, and a single slow
+    // FileView write can block long enough to freeze the launcher while the
+    // rest of the shell looks idle. Keep the QML iris, but let the panel use
+    // its own fill until it is fully open; glass then appears in one publish.
     // Probe cadence. A compositor without the plugin used to be asked twice a
     // second for the whole session (~2 process spawns/s). Back off to one ask
     // per 5 s, still fast enough to notice a plugin option being enabled.
@@ -46,18 +61,16 @@ PanelWindow {
             root.probeDelay = Math.min(5000, root.probeDelay * 2);
     }
 
-    // This plugin build can clip its glass to a published circle. Until the
-    // compositor restarts onto one, keep the opaque reveal (publishing the
-    // full pill without the clip would flash a rectangle behind the iris).
     Process {
-        id: maskProbe
+        id: pluginProbe
 
-        command: ["hyprctl", "getoption", "plugin:liquidglass:mask_support"]
+        command: ["hyprctl", "plugin", "list"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
-                root.maskCapable = text.indexOf("int: 1") !== -1;
-                root.noteProbe(root.maskCapable);
+                root.pluginPresent = text.indexOf("liquid-glass-hypr") !== -1;
+                if (!root.pluginPresent)
+                    root.noteProbe(false);
             }
         }
     }
@@ -65,8 +78,8 @@ PanelWindow {
     Timer {
         interval: root.probeDelay
         repeat: true
-        running: !root.maskCapable
-        onTriggered: maskProbe.running = true
+        running: !root.pluginPresent
+        onTriggered: pluginProbe.running = true
     }
 
     Process {
@@ -85,7 +98,7 @@ PanelWindow {
     Timer {
         interval: root.probeDelay
         repeat: true
-        running: !root.launcherGlassReady
+        running: !root.launcherGlassReady && Prefs.liquidGlassEnabled
         onTriggered: glassProbe.running = true
     }
 
@@ -212,6 +225,37 @@ PanelWindow {
     // reveal. SpatialShake parks its timer rather than resetting the pose.
     onPanelVisibleChanged: SpatialWall.launcherOpen = root.panelVisible
 
+    // If the plugin probe or the glass switch settles after the panel is
+    // already open, still run the crossfade instead of leaving the QML fill
+    // sitting over the new glass.
+    onPluginPresentChanged: {
+        if (!root.panelVisible || root.maskActive)
+            return;
+        if (root.pluginPresent) {
+            root.waitingForGlass = false;
+            glassFadeDelay.restart();
+        }
+        else {
+            fillFade.stop();
+            rimFade.stop();
+            root.glassMix = 0;
+            root.rimMix = 0;
+        }
+    }
+
+    onGlassOnChanged: {
+        if (!root.panelVisible || root.maskActive)
+            return;
+        if (root.glassOn) {
+            root.waitingForGlass = false;
+            glassFadeDelay.restart();
+        }
+        else {
+            fillFade.stop();
+            root.glassMix = 0;
+        }
+    }
+
     Connections {
         target: face
 
@@ -257,6 +301,13 @@ PanelWindow {
                 root.closing = true;
                 root.maskActive = true;
                 root.revealRadius = root.revealMax;
+                fillFade.stop();
+                rimFade.stop();
+                glassFadeDelay.stop();
+                glassFadeFallback.stop();
+                root.waitingForGlass = false;
+                root.glassMix = 0;
+                root.rimMix = 0;
                 closeAnim.restart();
                 closeHide.restart();
             }
@@ -277,6 +328,19 @@ PanelWindow {
         onFinished: root.finishOpen()
     }
 
+    // If the reveal loses a frame callback or the animation clock stalls, do
+    // not leave the launcher clipped to a tiny circle for seconds. One second
+    // is still far longer than the 315 ms nominal reveal, so this only fires
+    // when something is genuinely wrong.
+    Timer {
+        id: openWatchdog
+
+        interval: Theme.ms(1000)
+        running: root.maskActive && !root.closing
+        onTriggered: if (root.maskActive && !root.closing)
+            root.finishOpen()
+    }
+
     // A body that arrives mid-reveal (typing, a tab) grows the window. Continue
     // from the current radius to the new revealMax for a short beat instead of
     // either cutting the mask or jumping the radius to the new target.
@@ -290,10 +354,89 @@ PanelWindow {
         onFinished: root.finishOpen()
     }
 
+    NumberAnimation {
+        id: fillFade
+
+        target: root
+        property: "glassMix"
+        // 3 s crossfade from the QML fill into the compositor glass. Fixed
+        // duration (not motion-scaled) because it was requested explicitly.
+        duration: 3000
+        easing.type: Easing.OutCubic
+    }
+
+    NumberAnimation {
+        id: rimFade
+
+        target: root
+        property: "rimMix"
+        // Match the fill crossfade: the QML hairline gives way to the plugin
+        // rim over the same 3 s.
+        duration: 3000
+        easing.type: Easing.OutCubic
+    }
+
+    function beginGlassFade() {
+        root.waitingForGlass = false;
+        if (root.maskActive || !root.panelVisible)
+            return;
+        if (root.pluginPresent) {
+            rimFade.stop();
+            rimFade.from = root.rimMix;
+            rimFade.to = 1;
+            rimFade.restart();
+        }
+        if (root.glassOn) {
+            fillFade.stop();
+            fillFade.from = root.glassMix;
+            fillFade.to = 1;
+            fillFade.restart();
+        }
+    }
+
+    // The shape write completing is the real "glass has loaded" signal; this
+    // small settle lets the compositor read the file before the fill dissolves.
+    Timer {
+        id: glassFadeDelay
+
+        interval: Theme.ms(80)
+        onTriggered: root.beginGlassFade()
+    }
+
+    // If the shape write never completes, do not leave the QML fill on top of
+    // the plugin glass forever; fall back after a quarter second.
+    Timer {
+        id: glassFadeFallback
+
+        interval: Theme.ms(250)
+        onTriggered: if (root.waitingForGlass)
+            root.beginGlassFade()
+    }
+
+    Connections {
+        target: glassBridge
+
+        function onSaveGenerationChanged() {
+            if (!root.waitingForGlass || root.maskActive)
+                return;
+            root.waitingForGlass = false;
+            glassFadeDelay.restart();
+        }
+    }
+
     function finishOpen() {
+        const wasMasked = root.maskActive;
         // release the whole surface once the circle covers it
         root.revealRadius = Math.max(root.width, root.height) * 2;
+        if (wasMasked && root.pluginPresent)
+            root.waitingForGlass = true;
         root.maskActive = false;
+        if (!wasMasked)
+            return;
+        // The settled shape is now published. Start the fallback now; the
+        // normal path starts the fade when the shape write actually completes.
+        if (root.pluginPresent)
+            glassFadeFallback.restart();
     }
 
     Timer {
@@ -324,7 +467,13 @@ PanelWindow {
             property vector2d center: Qt.vector2d(0.5, root.revealCenterY / Math.max(1, root.height))
             property real radius: root.revealRadius / Math.max(1, root.width)
             property real aspect: root.height / Math.max(1, root.width)
-            fragmentShader: "LauncherMask.qsb"
+            // The plugin cannot draw rim-only while the circular mask is on,
+            // so the iris carries the same top-left edge light itself. It is
+            // handed off to the plugin rim when the settled pill appears.
+            property color rimColor: Theme.alpha(Theme.text, Theme.isLightMode ? 0.38 : 0.68)
+            property real rimStrength: 1.0
+            property real rimWidth: Math.max(0.0015, 1.75 / Math.max(1, root.width))
+            fragmentShader: "LauncherIris.qsb"
         }
 
         SquircleRect {
@@ -334,53 +483,43 @@ PanelWindow {
         y: 0
         width: face.width * root.scaleFactor + root.padH * 2 + root.ring * 2
         height: face.height * root.scaleFactor + root.padV * 2 + root.ring * 2
-        // The compositor glass + rim owns the edge when the transparent
-        // glass body is actually drawing. Keep the QML hairline only for the
-        // opaque fallback (glass not ready or mask unsupported).
-        readonly property bool glassSurface: root.glassOn && (!root.maskActive || root.maskedGlass)
-        fillColor: glassSurface ? "transparent" : root.panelFill
-        borderColor: glassSurface ? "transparent" : root.panelBorder
-        borderWidth: glassSurface ? 0 : root.activeBorderWidth
+        // During the reveal/close this is the whole panel. Once the settled
+        // shape is published, glassMix fades the fill into the compositor
+        // glass and rimMix fades the QML hairline into the plugin rim. The
+        // plugin draws rim-only even with the glass master switch off, so the
+        // rim remains visible in both modes.
+        fillColor: Theme.alpha(root.panelFill, root.panelFill.a * (1 - root.glassMix))
+        borderColor: Theme.alpha(root.panelBorder, root.panelBorder.a * (1 - root.rimMix))
+        borderWidth: root.activeBorderWidth
         radius: root.surfaceRadius
         smoothing: root.surfaceSmoothing
         z: -1
     }
 
     LucidBar.GlassLayout {
+        id: glassBridge
         name: "launcher"
         surfaceNamespace: "lucid-launcher"
         targetScreen: root.screen
         surfaceW: root.width
         surfaceH: root.height
-        // 8 ms = one frame at 120 Hz. The reveal runs at the output's rate
-        // (165 Hz here), and publishing at the default 4 ms queued more writes
-        // than FileView could finish: the extra ones were canceled, and the
-        // churn competed with the animation itself. One frame of glass lag is
-        // invisible on a feathered circular mask.
+        // Only the settled panel is published. During the iris the QML fill
+        // and LauncherIris.qsb carry both the panel and its rim; the plugin has
+        // no shape to draw, so full glass stays off and there are no per-frame
+        // geometry writes. Once settled, one publish gives the plugin its pill
+        // (glass or rim-only) and the QML fill/rim crossfade into it.
         coalesceMs: 8
-        // Shape is the live committed surface box while the launcher is open.
-        // The layer surface stays mapped even when closed, so gate on the
-        // actual open state, not on the always-mapped layer. `closing` is
-        // included: the mask circle is still shrinking over the body, and the
-        // same circle clips the glass, so dropping it here made the panel lose
-        // its backdrop for the whole close animation.
-        full: root.panelVisible
-        pills: root.panelVisible ? [{
-            x: root.maskActive ? 0 : surface.x,
-            y: root.maskActive ? 0 : surface.y,
-            w: root.maskActive ? root.width : surface.width,
-            h: root.maskActive ? root.height : surface.height,
-            // The real radius/squircle even while masked: the mask discards
-            // outside the circle anyway, and sending zeros made the last
-            // frames of the iris reveal a square-cornered sheet until the
-            // mask was released and the next geometry write landed.
+        full: root.panelVisible && root.pluginPresent && !root.maskActive
+        pills: (root.panelVisible && root.pluginPresent && !root.maskActive) ? [{
+            x: surface.x,
+            y: surface.y,
+            w: surface.width,
+            h: surface.height,
             r: [root.surfaceRadius, root.surfaceRadius,
                 root.surfaceRadius, root.surfaceRadius],
             sq: root.surfaceSmoothing
         }] : []
-        // Same hard circle as LauncherMask.qsb: centre (width/2, revealCenterY),
-        // radius revealRadius, in surface-local logical px.
-        mask: root.maskedGlass ? { x: root.width / 2, y: root.revealCenterY, r: root.revealRadius } : null
+        mask: null
     }
 
 
@@ -419,6 +558,10 @@ PanelWindow {
         wallCardGap: root.dock ? root.dock.wallCardGap : 0
         appliedWallpaper: root.dock ? root.dock.appliedWallpaper : ""
         highlightQuery: root.dock ? root.dock.filterQuery : ""
+        pickerFlush: () => {
+            if (root.dock)
+                root.dock.flushPickerFilter();
+        }
         showPowerChips: Prefs.launcherPowerChips
         powerButtons: String(Prefs.launcherPowerButtons).split(",")
         armedPower: root.dock ? root.dock.armedPower : ""
@@ -596,6 +739,13 @@ PanelWindow {
         // The surface is already mapped, so the circular gate can start in the
         // same frame without paying the old window-creation cost. Start at a
         // few pixels rather than zero so the first visible frame is the dot.
+        fillFade.stop();
+        rimFade.stop();
+        glassFadeDelay.stop();
+        glassFadeFallback.stop();
+        root.waitingForGlass = false;
+        root.glassMix = 0;
+        root.rimMix = 0;
         root.maskActive = true;
         root.revealRadius = 2;
         closeHide.stop();

@@ -1,0 +1,8 @@
+# Executable names (as shown in /proc/<pid>/comm) that count as a game.
+#
+# Steam/Proton titles are normally detected without an entry here, from their
+# command line under steamapps/common. This list is the fallback for games
+# whose argv[0] is just the .exe name.
+#
+# One name per line; # starts a comment.
+SkyrimSE.exe

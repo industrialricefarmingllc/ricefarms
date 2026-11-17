@@ -10,7 +10,10 @@ local servers = {
   "tailwindcss",
   "bashls",
   "pyright",
-  "gopls",
+  -- "gopls": omitted on purpose.  `dev` runs Go 1.19, which cannot build the
+  -- current gopls (go.mod requires a newer toolchain), so Mason retried the
+  -- install on every connection and always failed.  Re-add it once Go on the
+  -- remote is >= 1.23.
   "rust_analyzer",
   "clangd",
   "marksman",
@@ -74,6 +77,26 @@ return {
       vim.lsp.config("ts_ls", {
         single_file_support = true,
         init_options = { hostInfo = "neovim" },
+        settings = {
+          typescript = {
+            tsserver = {
+              -- Default is 3 GB *per* project and a monorepo spawns several
+              -- (semantic, partial-semantic, typings).  Cap it on big repos.
+              maxTsServerMemory = 1536,
+              watchOptions = {
+                excludeDirectories = {
+                  "**/node_modules",
+                  "**/.git",
+                  "**/dist",
+                  "**/build",
+                  "**/.next",
+                  "**/target",
+                  "**/vendor",
+                },
+              },
+            },
+          },
+        },
       })
 
       vim.lsp.config("pyright", {
@@ -148,10 +171,11 @@ return {
         "prettier",
         "prettierd",
         "ruff",
-        "gofumpt",
-        "goimports",
         "shfmt",
-        "clang-format",
+        -- gofumpt/goimports removed: they need a modern Go toolchain (dev has
+        -- 1.19).  clang-format removed: Mason installs it via pip, which is
+        -- blocked on Debian 12 (externally-managed environment), so it failed
+        -- on every start.  Install it with `apt install clang-format` instead.
       },
       auto_install = true,
       run_on_start = auto_install,

@@ -6,6 +6,7 @@ libsoup 2.74.3-4
 neofetch 7.1.0-4
 paru-debug 2.1.0-2
 portmaster-bin 2.0.0-6
+sioyek-dev 2.0.0.r1170.g1e2f8037-1
 skwd-deck 1.0.0_beta.26-1
 skwd-deck-steamworks 1.0.0_beta.26-1
 skwd-paper 1.0.0_beta.26-1

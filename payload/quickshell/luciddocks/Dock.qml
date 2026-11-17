@@ -419,7 +419,8 @@ PanelWindow {
         } else {
             if (dockWindow.launcherItem) {
                 dockWindow.launcherItem.resetTranslate();
-                dockWindow.launcherItem.cancelTranslateLanguageFocus();
+                if (typeof dockWindow.launcherItem.cancelTranslateLanguageFocus === "function")
+                    dockWindow.launcherItem.cancelTranslateLanguageFocus();
             }
 
             if (dockWindow.launcherFromHidden) {
@@ -480,15 +481,12 @@ PanelWindow {
     // thumbs this Qt cannot decode, so the local jpg cache is merged over them;
     // cards then decode 30 KB instead of the 1-20 MB original.
     property var localThumbPaths: ({})
+    // path -> { name, search } from the same scan. The Wallhaven sidecars keep
+    // the readable title and tags beside each file; wallpaper-thumbs.sh reads
+    // them, and the picker searches them instead of the bare file name.
+    property var localWallpaperMeta: ({})
     property string localThumbDir: ""
     property int localThumbItems: -1
-    // Wallhaven sidecar metadata, keyed by local path. Local image rows do not
-    // carry tags themselves; this index merges them into tagsText and survives
-    // source-model rebuilds.
-    property var tagIndexMap: ({})
-    property string tagIndexDir: ""
-    property int tagIndexCount: -1
-    property double tagIndexAt: 0
     // the last query + list state the picker copies were built for
     property string pickerSyncKey: ""
     // set while syncPickerFilter is rebuilding the picker's rows; a call that
@@ -736,14 +734,43 @@ PanelWindow {
         // a new query never inherits an armed restart
         powerDisarm.stop();
         dockWindow.armedPower = "";
-        dockWindow.rebuildResults();
-        // a query typed in the picker should still jump to its first match
+        // A wallpaper query rebuilds the picker's model and decodes the cards
+        // that land under the selection. Doing that per keystroke made typing
+        // stutter; wait out the burst and filter once. Other tabs are cheap
+        // and stay immediate.
         if (dockWindow.pickerMode)
-            dockWindow.selectPickerForDisplay();
+            pickerFilterTimer.restart();
+        else
+            dockWindow.rebuildResults();
 
         // the face already reset itself, but against the pre-rebuild rows
         if (dockWindow.launcherItem)
             dockWindow.launcherItem.resetSelection();
+    }
+
+    function flushPickerFilter() {
+        if (!pickerFilterTimer.running)
+            return ;
+
+        pickerFilterTimer.stop();
+        dockWindow.rebuildResults();
+        if (dockWindow.pickerMode)
+            dockWindow.selectPickerForDisplay();
+    }
+
+    Timer {
+        id: pickerFilterTimer
+
+        interval: 70
+        repeat: false
+        onTriggered: {
+            if (!dockWindow.pickerMode)
+                return ;
+
+            // a query typed in the picker should still jump to its first match
+            dockWindow.rebuildResults();
+            dockWindow.selectPickerForDisplay();
+        }
     }
     // onModeChanged reads the mode itself: pickerMode and pickerModel may not
     // have caught up with it yet when the handler runs
@@ -845,58 +872,58 @@ PanelWindow {
 
     readonly property var allCommands: [{
         "id": "wallpaper",
-        "name": "Choose Wallpaper",
-        "desc": "Browse and set a new desktop wallpaper",
+        "name": Tr.t("Choose Wallpaper"),
+        "desc": Tr.t("Browse and set a new desktop wallpaper"),
         "glyph": DockIcons.wallpaper
     }, {
         "id": "shuffle",
-        "name": "Shuffle Wallpaper",
-        "desc": "Pick a random wallpaper from this theme's folder",
+        "name": Tr.t("Shuffle Wallpaper"),
+        "desc": Tr.t("Pick a random wallpaper from this theme's folder"),
         "glyph": DockIcons.shuffle
     }, {
         "id": "theme",
-        "name": "Switch Theme",
-        "desc": "Change the colour scheme",
+        "name": Tr.t("Switch Theme"),
+        "desc": Tr.t("Change the colour scheme"),
         "glyph": DockIcons.palette
     }, {
         "id": "clipboard",
-        "name": "Clipboard History",
-        "desc": "Copy something you copied earlier",
+        "name": Tr.t("Clipboard History"),
+        "desc": Tr.t("Copy something you copied earlier"),
         "glyph": DockIcons.clipboard
     }, {
         "id": "power",
-        "name": "Power",
-        "desc": "The full-screen way out: lock, sleep, log out, restart",
+        "name": Tr.t("Power"),
+        "desc": Tr.t("The full-screen way out: lock, sleep, log out, restart"),
         "glyph": DockIcons.power
     }, {
         "id": "widgets",
-        "name": "Widget Panel",
-        "desc": "Drag clocks, meters and notes onto the desktop, or take them off",
+        "name": Tr.t("Widget Panel"),
+        "desc": Tr.t("Drag clocks, meters and notes onto the desktop, or take them off"),
         "glyph": DockIcons.widgets
     }, {
         "id": "keyboard",
-        "name": "On-Screen Keyboard",
-        "desc": "Type with the pointer when there is no keyboard",
+        "name": Tr.t("On-Screen Keyboard"),
+        "desc": Tr.t("Type with the pointer when there is no keyboard"),
         "glyph": DockIcons.keyboard
     }, {
         "id": "emoji",
-        "name": "Emoji",
-        "desc": "Type : and a word, Return copies it",
+        "name": Tr.t("Emoji"),
+        "desc": Tr.t("Type : and a word, Return copies it"),
         "glyph": "mood"
     }, {
         "id": "run",
-        "name": "Run a Command",
-        "desc": "Type $ and a command line",
+        "name": Tr.t("Run a Command"),
+        "desc": Tr.t("Type $ and a command line"),
         "glyph": "terminal_2"
     }, {
         "id": "web",
-        "name": "Search the Web",
-        "desc": "Type ? and what you are looking for",
+        "name": Tr.t("Search the Web"),
+        "desc": Tr.t("Type ? and what you are looking for"),
         "glyph": "travel_explore"
     }, {
         "id": "settings",
-        "name": "Settings",
-        "desc": "Open Lucid's settings",
+        "name": Tr.t("Settings"),
+        "desc": Tr.t("Open Lucid's settings"),
         "glyph": DockIcons.settings
     }]
     readonly property var searchEngines: ({
@@ -922,6 +949,18 @@ PanelWindow {
         }
     })
     readonly property var engine: dockWindow.searchEngines[Prefs.launcherSearchEngine] || dockWindow.searchEngines.duckduckgo
+    // the command rows and headers already on screen follow a live language
+    // change; the query itself stays as it was typed
+    Connections {
+        target: Tr
+
+        function onLanguageChanged() {
+            if (dockWindow.menuOpen)
+                dockWindow.rebuildResults();
+        }
+
+    }
+
     property var emojiList: []
     property bool emojiWanted: false
     // Server emoji are a separate, cache-backed list: the Unicode JSON stays
@@ -1239,13 +1278,15 @@ PanelWindow {
         var out = [];
         for (var i = 0; i < Prefs.settingsPages.length && out.length < limit; i++) {
             var pg = Prefs.settingsPages[i];
-            var hay = (pg.label + " " + pg.title + " " + (pg.keys || "")).toLowerCase();
+            var title = Tr.t(pg.title);
+            var blurb = Tr.t(pg.blurb);
+            var hay = (pg.label + " " + pg.title + " " + (pg.keys || "") + " " + title + " " + blurb).toLowerCase();
             if (!words.every(function(w) {
                 return hay.indexOf(w) >= 0;
             }))
                 continue;
 
-            out.push(dockWindow.makeRow("setting", "set-" + pg.key, pg.title, pg.blurb, {
+            out.push(dockWindow.makeRow("setting", "set-" + pg.key, title, blurb, {
                 "glyph": pg.icon,
                 "payload": pg.key
             }));
@@ -1287,7 +1328,7 @@ PanelWindow {
     }
 
     function urlRow(q) {
-        return dockWindow.makeRow("web", "web-url", "Open " + q, "In your browser", {
+        return dockWindow.makeRow("web", "web-url", Tr.fmt("Open %1", q), Tr.t("In your browser"), {
             "glyph": "open_in_new",
             "payload": /^https?:/.test(q) ? q : "https://" + q
         });
@@ -1295,12 +1336,12 @@ PanelWindow {
 
     function webRow(q, searchOnly) {
         if (dockWindow.looksUrl(q) && !searchOnly)
-            return dockWindow.makeRow("web", "web-url", "Open " + q, "In your browser", {
+            return dockWindow.makeRow("web", "web-url", Tr.fmt("Open %1", q), Tr.t("In your browser"), {
             "glyph": "open_in_new",
             "payload": /^https?:/.test(q) ? q : "https://" + q
         });
 
-        return dockWindow.makeRow("web", "web-search", "Search " + dockWindow.engine.name + " for \u201c" + q + "\u201d", "Opens in your browser", {
+        return dockWindow.makeRow("web", "web-search", Tr.fmt("Search %1 for \u201c%2\u201d", dockWindow.engine.name, q), Tr.t("Opens in your browser"), {
             "glyph": "travel_explore",
             "payload": dockWindow.engine.url + encodeURIComponent(q)
         });
@@ -1310,15 +1351,15 @@ PanelWindow {
     // want a second Return, as on the session screen
     readonly property var powerCommands: Power.actions.map((a) => {
         const more = {
-            "lock": ["Lock the session", "screen", ""],
-            "suspend": ["Sleep, keeping the session in memory", "sleep", ""],
-            "logout": ["End the session", "sign out exit", "log out"],
-            "reboot": ["Reboot the computer", "reboot", "restart"],
-            "shutdown": ["Power the computer off", "shutdown poweroff power off", "shut down"]
+            "lock": [Tr.t("Lock the session"), "screen", ""],
+            "suspend": [Tr.t("Sleep, keeping the session in memory"), "sleep", ""],
+            "logout": [Tr.t("End the session"), "sign out exit", Tr.t("log out")],
+            "reboot": [Tr.t("Reboot the computer"), "reboot", Tr.t("restart")],
+            "shutdown": [Tr.t("Power the computer off"), "shutdown poweroff power off", Tr.t("shut down")]
         }[a.id] || ["", "", ""];
         return {
             "id": a.id,
-            "name": a.label,
+            "name": Tr.t(a.label),
             "desc": more[0],
             "keywords": more[1],
             "confirm": more[2],
@@ -1418,7 +1459,7 @@ PanelWindow {
         var ws = client.workspace ? client.workspace.name : "";
         // special workspaces keep their own name, numbered ones read as words
         if (ws !== "" && client.workspace.id > 0)
-            ws = "Workspace " + ws;
+            ws = Tr.fmt("Workspace %1", ws);
         else if (ws.indexOf("special:") === 0)
             ws = ws.substring(8);
         return dockWindow.makeRow("window", "win-" + client.address, client.title && client.title !== "" ? client.title : name, ws !== "" ? name + " · " + ws : name, {
@@ -1562,7 +1603,7 @@ PanelWindow {
                 }));
             } else if (it.kind === "power") {
                 var armed = dockWindow.armedPower === it.cmd.id;
-                rows.push(dockWindow.makeRow("power", "pow-" + it.cmd.id, it.cmd.name, armed ? "Press Return again to " + it.cmd.confirm : it.cmd.desc, {
+                rows.push(dockWindow.makeRow("power", "pow-" + it.cmd.id, it.cmd.name, armed ? Tr.fmt("Press Return again to %1", it.cmd.confirm) : it.cmd.desc, {
                     "glyph": it.cmd.glyph,
                     "payload": it.cmd.id
                 }));
@@ -1613,7 +1654,7 @@ PanelWindow {
     function consumeServerEmoji(text) {
         try {
             var value = JSON.parse(text);
-            if (value.schema !== "lucid.social/emojis" || value.schema_version !== 1)
+            if (value.schema !== "lucid.social/emojis" || value.schema_version !== 2)
                 return;
 
             dockWindow.serverEmojiList = value.emojis || [];
@@ -1711,7 +1752,7 @@ PanelWindow {
                 "key": "server-" + se.id,
                 "title": se.name,
                 "nameKey": dockWindow.emojiSearchText(se.name),
-                "subtitle": se.guild || "Server emoji",
+                "subtitle": se.guild || Tr.t("Server emoji"),
                 "emoji": "",
                 "image": se.image || "",
                 "copy": se.copy || "",
@@ -1828,9 +1869,9 @@ PanelWindow {
                     often = [];
 
                 if (often.length > 0) {
-                    rows.push(dockWindow.headerRow("Frequent"));
+                    rows.push(dockWindow.headerRow(Tr.t("Frequent")));
                     for (var f = 0; f < often.length; f++) rows.push(dockWindow.rowForApp(often[f].app));
-                    rows.push(dockWindow.headerRow("All apps"));
+                    rows.push(dockWindow.headerRow(Tr.t("All apps")));
                 }
                 for (var r = 0; r < rest.length; r++) rows.push(dockWindow.rowForApp(rest[r].app));
             } else {
@@ -1838,11 +1879,11 @@ PanelWindow {
                 var addressUp = rows.length > 0 && rows[0].key === "web-url";
                 var pages = Prefs.launcherSettingsResults ? dockWindow.settingRows(q, 3) : [];
                 if (pages.length > 0) {
-                    rows.push(dockWindow.headerRow("Settings"));
+                    rows.push(dockWindow.headerRow(Tr.t("Settings")));
                     rows = rows.concat(pages);
                 }
                 if (Prefs.launcherWebRow && calc === "") {
-                    rows.push(dockWindow.headerRow("Web"));
+                    rows.push(dockWindow.headerRow(Tr.t("Web")));
                     rows.push(dockWindow.webRow(dockWindow.queryFor(raw), addressUp));
                 }
             }
@@ -1859,7 +1900,7 @@ PanelWindow {
             if (q !== "") {
                 var found = Prefs.launcherSettingsResults ? dockWindow.settingRows(q, 6) : [];
                 if (found.length > 0) {
-                    rows.push(dockWindow.headerRow("Settings"));
+                    rows.push(dockWindow.headerRow(Tr.t("Settings")));
                     rows = rows.concat(found);
                 }
             }
@@ -1868,20 +1909,20 @@ PanelWindow {
             if (wq !== "")
                 rows.push(dockWindow.webRow(wq));
             else
-                rows.push(dockWindow.headerRow("Type what to search " + dockWindow.engine.name + " for"));
+                rows.push(dockWindow.headerRow(Tr.fmt("Type what to search %1 for", dockWindow.engine.name)));
         } else if (mode === "run") {
             var line = dockWindow.queryFor(raw);
             if (line !== "") {
-                rows.push(dockWindow.makeRow("run", "run-bg", "Run  " + line, "In the background", {
+                rows.push(dockWindow.makeRow("run", "run-bg", Tr.fmt("Run  %1", line), Tr.t("In the background"), {
                     "glyph": "play_arrow",
                     "payload": line
                 }));
-                rows.push(dockWindow.makeRow("runterm", "run-term", "Run in a terminal", "Keeps the window open to read the output", {
+                rows.push(dockWindow.makeRow("runterm", "run-term", Tr.t("Run in a terminal"), Tr.t("Keeps the window open to read the output"), {
                     "glyph": "terminal_2",
                     "payload": line
                 }));
             } else {
-                rows.push(dockWindow.headerRow("Type a command line to run"));
+                rows.push(dockWindow.headerRow(Tr.t("Type a command line to run")));
             }
         } else if (mode === "emoji") {
             dockWindow.emojiWanted = true;
@@ -1908,7 +1949,7 @@ PanelWindow {
                 if (q !== "" && th.name.toLowerCase().indexOf(q) === -1)
                     continue;
 
-                rows.push(dockWindow.makeRow("theme", "theme-" + th.id, th.name, th.desc, {
+                rows.push(dockWindow.makeRow("theme", "theme-" + th.id, Tr.t(th.name), Tr.t(th.desc), {
                     "swatchBg": th.swatchBg,
                     "swatchAccent": th.swatchAccent,
                     "trailing": th.id === dockWindow.currentTheme ? "check" : "",
@@ -2622,75 +2663,59 @@ PanelWindow {
         return dockWindow.localThumbPaths[path] || "";
     }
 
+    // The picker's search key: readable name, its word form (so "cat girl"
+    // finds "cat-girl") and any tags. Built once when the library is read, not
+    // rebuilt from every row on every keystroke.
+    function wallpaperSearchKey(name, tags) {
+        const n = String(name || "");
+        const t = Array.isArray(tags) ? tags.join(" ") : String(tags || "");
+        return (n + " " + n.replace(/[-_\s]+/g, " ") + " " + t).toLowerCase().replace(/[-_\s]+/g, " ").trim();
+    }
+
+    // wallpaper-thumbs.sh ships the Wallhaven sidecar tags as JSON; skwd ships
+    // an array. One reader for both, and a bad sidecar just means no tags.
+    function wallpaperTags(value) {
+        if (Array.isArray(value))
+            return value;
+        try {
+            const parsed = JSON.parse(String(value || ""));
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
     // update the two source models in place so the cards keep their delegates
     // and decoded pictures; syncPickerFilter copies the new thumb through
     function applyLocalThumbs() {
         const map = dockWindow.localThumbPaths;
+        const meta = dockWindow.localWallpaperMeta;
         const models = [wallpapersModel, liveModel];
         let touched = false;
         for (let m = 0; m < models.length; m++) {
             const model = models[m];
             for (let i = 0; i < model.count; i++) {
-                const t = map[model.get(i).path];
-                if (t && model.get(i).thumb !== t) {
+                const row = model.get(i);
+                const t = map[row.path];
+                if (t && row.thumb !== t) {
                     model.setProperty(i, "thumb", t);
+                    touched = true;
+                }
+                const info = meta[row.path];
+                if (!info)
+                    continue;
+                if (info.name !== undefined && info.name !== "" && row.name !== info.name) {
+                    model.setProperty(i, "name", info.name);
+                    touched = true;
+                    row.name = info.name;
+                }
+                if (info.search !== undefined && row.search !== info.search) {
+                    model.setProperty(i, "search", info.search);
                     touched = true;
                 }
             }
         }
         if (touched) {
-            dockWindow.wallpaperRevision++;
-            dockWindow.syncPickerFilter();
-        }
-    }
-
-    // A local picture matches when every word of the query is somewhere in its
-    // name, path or Wallhaven tags. Tags do not have to be exact: one query
-    // word is enough to hit a longer tag, and several words can come from
-    // different tags.
-    function wallpaperMatches(name, tagsText, query, path) {
-        const q = String(query || "").toLowerCase().trim();
-        if (q === "")
-            return true;
-        let hay = String(name || "").toLowerCase();
-        if (path)
-            hay += " " + String(path).split("/").pop().toLowerCase();
-        if (tagsText)
-            hay += " " + String(tagsText).toLowerCase();
-        const words = q.split(/[\s,]+/).filter((w) => w !== "");
-        for (let w = 0; w < words.length; w++) {
-            if (hay.indexOf(words[w]) === -1)
-                return false;
-        }
-        return true;
-    }
-
-    // merge the sidecar tag map into the two source lists. The map is kept so a
-    // later source rebuild can put the tags back without another scan.
-    function applyTagIndex(map) {
-        dockWindow.tagIndexMap = map;
-        const models = [wallpapersModel, liveModel];
-        let changed = false;
-        for (let m = 0; m < models.length; m++) {
-            const model = models[m];
-            for (let i = 0; i < model.count; i++) {
-                const row = model.get(i);
-                const meta = map[row.path];
-                if (!meta)
-                    continue;
-                const tagsText = Array.isArray(meta.tags) ? meta.tags.join(", ") : String(meta.tags || "");
-                const name = meta.name || "";
-                if ((row.tagsText || "") !== tagsText) {
-                    model.setProperty(i, "tagsText", tagsText);
-                    changed = true;
-                }
-                if (name !== "" && row.name !== name) {
-                    model.setProperty(i, "name", name);
-                    changed = true;
-                }
-            }
-        }
-        if (changed) {
             dockWindow.wallpaperRevision++;
             dockWindow.syncPickerFilter();
         }
@@ -2704,18 +2729,6 @@ PanelWindow {
         if (dockWindow.localThumbDir !== Prefs.wallpaperDir || dockWindow.localThumbItems !== SkwdWall.items.length)
             localThumbScan.scan(Prefs.wallpaperDir, SkwdWall.items.length);
 
-        // The skwd rows carry no Wallhaven tags. Read the sidecars once per
-        // library size (or ten minutes), and merge them into the source rows.
-        if (!tagIndex.running && SkwdWall.items.length > 0
-                && (dockWindow.tagIndexDir !== Prefs.wallpaperDir
-                    || dockWindow.tagIndexCount !== SkwdWall.items.length
-                    || Date.now() - dockWindow.tagIndexAt > 600000)) {
-            dockWindow.tagIndexDir = Prefs.wallpaperDir;
-            dockWindow.tagIndexCount = SkwdWall.items.length;
-            dockWindow.tagIndexAt = Date.now();
-            tagIndex.running = true;
-        }
-
         // opening the picker again is not a library change: the 142-row split
         // it would rebuild is already in the two source models
         if (dockWindow.appliedSkwdItems === SkwdWall.items && SkwdWall.items.length > 0) {
@@ -2727,13 +2740,16 @@ PanelWindow {
         var items = SkwdWall.items || [];
         for (var i = 0; i < items.length; i++) {
             var e = items[i];
+            var meta = dockWindow.localWallpaperMeta[e.path] || null;
+            var name = meta && meta.name !== undefined && meta.name !== "" ? meta.name : e.name;
             var row = {
                 "path": e.path,
-                "name": e.name,
+                "name": name,
                 "thumb": dockWindow.localThumbFor(e.path) || e.thumb,
                 "preview": e.preview || "",
                 "key": e.key || "",
-                "kind": e.kind || ""
+                "kind": e.kind || "",
+                "search": meta && meta.search !== undefined ? meta.search : (e.search || dockWindow.wallpaperSearchKey(name, e.tags))
             };
             if (e.kind === "video" || e.kind === "we")
                 videos.push(row);
@@ -2743,10 +2759,6 @@ PanelWindow {
         var changed = wallpaperScanner.fill(wallpapersModel, pictures);
         changed = wallpaperScanner.fill(liveModel, videos) || changed;
         dockWindow.appliedSkwdItems = SkwdWall.items;
-        // a rebuilt source list starts with empty tagsText; put the last
-        // sidecar map back before the picker copies are reconciled
-        if (Object.keys(dockWindow.tagIndexMap).length > 0)
-            dockWindow.applyTagIndex(dockWindow.tagIndexMap);
         dockWindow.syncPickerFilter();
         if (!changed && dockWindow.pickerQuery() === "")
             return ;
@@ -2892,6 +2904,9 @@ PanelWindow {
             return ;
 
         dockWindow.pickerSyncKey = key;
+        // the query and each row's key use the same word form, so "cat girl"
+        // finds "cat-girl" and tags count without touching the file name
+        const needle = query.replace(/[-_\s]+/g, " ").trim();
         const tabs = [[wallpapersModel, filteredWallpapersModel], [liveModel, filteredLiveModel]];
         for (let t = 0; t < tabs.length; t++) {
             const source = tabs[t][0];
@@ -2900,16 +2915,15 @@ PanelWindow {
             for (let i = 0; i < source.count; i++) {
                 const e = source.get(i);
                 const name = e.name !== undefined && e.name !== "" ? e.name : dockWindow.wallpaperName(e.path);
-                const tagsText = e.tagsText || "";
-                if (dockWindow.wallpaperMatches(name, tagsText, query, e.path))
+                const hay = e.search !== undefined ? e.search : dockWindow.wallpaperSearchKey(name, e.tags);
+                if (needle === "" || hay.indexOf(needle) !== -1)
                     wanted.push({
                     "path": e.path,
                     "name": name,
                     "thumb": e.thumb,
                     "preview": e.preview || "",
                     "key": e.key || "",
-                    "kind": e.kind || "",
-                    "tagsText": tagsText
+                    "kind": e.kind || ""
                 });
             }
             const keep = {};
@@ -2933,9 +2947,7 @@ PanelWindow {
                     if (at !== k)
                         shown.move(at, k, 1);
 
-                    if (shown.get(k).thumb !== wanted[k].thumb
-                            || shown.get(k).preview !== wanted[k].preview
-                            || (shown.get(k).tagsText || "") !== (wanted[k].tagsText || ""))
+                    if (shown.get(k).thumb !== wanted[k].thumb || shown.get(k).preview !== wanted[k].preview)
                         shown.set(k, wanted[k]);
 
                 }
@@ -2956,7 +2968,6 @@ PanelWindow {
                 "preview": e.preview || "",
                 "key": e.key || "",
                 "kind": e.kind || "",
-                "tagsText": e.tagsText || "",
                 "tab": "wallpaper"
             });
         }
@@ -2969,7 +2980,6 @@ PanelWindow {
                 "preview": e.preview || "",
                 "key": e.key || "",
                 "kind": e.kind || "",
-                "tagsText": e.tagsText || "",
                 "tab": "live"
             });
         }
@@ -3010,19 +3020,17 @@ PanelWindow {
                     "preview": e.preview || "",
                     "key": e.key || "",
                     "kind": e.kind || "static",
-                    "tagsText": e.tagsText || "",
                     "tab": e.kind === "steam" ? "live" : "wallpaper"
                 });
             }
             if (RemoteWall.hasMore && !RemoteWall.loading)
                 flat.push({
                     "path": "more:remote",
-                    "name": "Load more results",
+                    "name": Tr.t("Load more results"),
                     "thumb": "",
                     "preview": "",
                     "key": "",
                     "kind": "more",
-                    "tagsText": "",
                     "tab": "wallpaper"
                 });
             // the fetching state occupies a card slot, not a floating pill:
@@ -3031,12 +3039,11 @@ PanelWindow {
             if (RemoteWall.loading)
                 flat.push({
                     "path": "status:remote",
-                    "name": RemoteWall.items.length === 0 ? "Searching" : "Loading more",
+                    "name": RemoteWall.items.length === 0 ? Tr.t("Searching") : Tr.t("Loading more"),
                     "thumb": "",
                     "preview": "",
                     "key": "",
                     "kind": "status",
-                    "tagsText": "",
                     "tab": "wallpaper"
                 });
         }
@@ -3066,8 +3073,7 @@ PanelWindow {
 
                 const cur = filteredPickerModel.get(k);
                 if (cur.name !== flat[k].name || cur.thumb !== flat[k].thumb || cur.preview !== flat[k].preview
-                        || cur.kind !== flat[k].kind || cur.tab !== flat[k].tab
-                        || (cur.tagsText || "") !== (flat[k].tagsText || ""))
+                        || cur.kind !== flat[k].kind || cur.tab !== flat[k].tab)
                     filteredPickerModel.set(k, flat[k]);
 
             }
@@ -3309,8 +3315,7 @@ PanelWindow {
             "thumb": rec.thumb,
             "preview": rec.preview || "",
             "key": rec.key || "",
-            "kind": rec.kind || "",
-            "tagsText": rec.tagsText || ""
+            "kind": rec.kind || ""
         });
         dockWindow.wallpaperRevision++;
         return index;
@@ -4720,13 +4725,28 @@ PanelWindow {
         stdout: StdioCollector {
             onStreamFinished: {
                 var map = {};
+                var meta = {};
                 var lines = text.split("\n");
                 for (var i = 0; i < lines.length; i++) {
                     var cols = lines[i].split("\t");
-                    if (cols.length > 1 && cols[0].trim() !== "" && cols[1].trim() !== "")
-                        map[cols[0].trim()] = cols[1].trim();
+                    var p = cols.length > 0 ? cols[0].trim() : "";
+                    if (p === "")
+                        continue;
+
+                    if (cols.length > 1 && cols[1].trim() !== "")
+                        map[p] = cols[1].trim();
+
+                    var name = cols.length > 4 ? cols[4].trim() : "";
+                    var tags = dockWindow.wallpaperTags(cols.length > 5 ? cols[5].trim() : "");
+                    if (name !== "" || tags.length > 0)
+                        meta[p] = {
+                            "name": name,
+                            "tags": tags,
+                            "search": dockWindow.wallpaperSearchKey(name !== "" ? name : dockWindow.wallpaperName(p), tags)
+                        };
                 }
                 dockWindow.localThumbPaths = map;
+                dockWindow.localWallpaperMeta = meta;
                 dockWindow.localThumbDir = localThumbScan.dir;
                 dockWindow.localThumbItems = localThumbScan.items;
                 dockWindow.applyLocalThumbs();
@@ -4738,33 +4758,6 @@ PanelWindow {
                 return ;
             localThumbScan.again = false;
             localThumbScan.scan(localThumbScan.dir, localThumbScan.items);
-        }
-    }
-
-    // Wallhaven sidecars for the local images: one JSON line per image with
-    // tag metadata. Started once per folder/library size, never per keystroke.
-    Process {
-        id: tagIndex
-
-        running: false
-        command: ["bash", Qt.resolvedUrl("./wallhaven-tag-index.sh").toString().replace("file://", ""), Prefs.wallpaperDir]
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                var map = {};
-                var lines = String(this.text || "").split("\n");
-                for (var i = 0; i < lines.length; i++) {
-                    var line = lines[i].trim();
-                    if (line === "")
-                        continue;
-                    try {
-                        var entry = JSON.parse(line);
-                        if (entry && entry.path)
-                            map[entry.path] = entry;
-                    } catch (error) {}
-                }
-                dockWindow.applyTagIndex(map);
-            }
         }
     }
 
@@ -4826,19 +4819,23 @@ PanelWindow {
             if (same) {
                 var touched = false;
                 for (var m = 0; m < rows.length; m++) {
-                    if (model.get(m).thumb !== rows[m].thumb) {
+                    const row = model.get(m);
+                    if (row.thumb !== rows[m].thumb) {
                         model.setProperty(m, "thumb", rows[m].thumb);
                         touched = true;
                     }
-                    if ((model.get(m).preview || "") !== (rows[m].preview || "")) {
+                    if ((row.preview || "") !== (rows[m].preview || "")) {
                         model.setProperty(m, "preview", rows[m].preview || "");
                         touched = true;
                     }
-                    // a source row without a tag field (skwd's listing) must not
-                    // erase tags the sidecar index already merged in
-                    if (rows[m].tagsText !== undefined
-                            && (model.get(m).tagsText || "") !== (rows[m].tagsText || "")) {
-                        model.setProperty(m, "tagsText", rows[m].tagsText || "");
+                    // a sidecar arriving after the first scan changes the
+                    // readable name and what the row can be found by
+                    if (rows[m].name !== undefined && rows[m].name !== "" && row.name !== rows[m].name) {
+                        model.setProperty(m, "name", rows[m].name);
+                        touched = true;
+                    }
+                    if (rows[m].search !== undefined && row.search !== rows[m].search) {
+                        model.setProperty(m, "search", rows[m].search);
                         touched = true;
                     }
                 }
@@ -4851,14 +4848,15 @@ PanelWindow {
             for (var r = 0; r < rows.length; r++) {
                 var base = rows[r].path.substring(rows[r].path.lastIndexOf("/") + 1);
                 var dot = base.lastIndexOf(".");
+                var name = rows[r].name !== undefined && rows[r].name !== "" ? rows[r].name : (dot > 0 ? base.substring(0, dot) : base);
                 model.append({
                     "path": rows[r].path,
-                    "name": rows[r].name !== undefined && rows[r].name !== "" ? rows[r].name : (dot > 0 ? base.substring(0, dot) : base),
+                    "name": name,
                     "thumb": rows[r].thumb,
                     "preview": rows[r].preview || "",
                     "key": rows[r].key || "",
                     "kind": rows[r].kind || "",
-                    "tagsText": rows[r].tagsText || ""
+                    "search": rows[r].search !== undefined ? rows[r].search : dockWindow.wallpaperSearchKey(name, rows[r].tags)
                 });
             }
             dockWindow.wallpaperRevision++;
@@ -4875,27 +4873,22 @@ PanelWindow {
                 for (var i = 0; i < lines.length; i++) {
                     var cols = lines[i].split("\t");
                     var p = cols[0].trim();
-                    if (p !== "") {
-                        var tagsText = "";
-                        if (cols.length > 5) {
-                            try {
-                                var tags = JSON.parse(cols[5]);
-                                if (Array.isArray(tags))
-                                    tagsText = tags.join(", ");
-                            } catch (error) {
-                                tagsText = "";
-                            }
-                        }
-                        (cols.length > 2 && cols[2].trim() === "video" ? videos : pictures).push({
-                            "path": p,
-                            "name": cols.length > 4 ? cols[4].trim() : "",
-                            "thumb": cols.length > 1 ? cols[1].trim() : "",
-                            "preview": cols.length > 3 ? cols[3].trim() : "",
-                            "kind": cols.length > 2 && cols[2].trim() === "video" ? "video" : "static",
-                            "tagsText": tagsText
-                        });
-                    }
+                    if (p === "")
+                        continue;
 
+                    var name = cols.length > 4 ? cols[4].trim() : "";
+                    if (name === "")
+                        name = dockWindow.wallpaperName(p);
+                    var tags = dockWindow.wallpaperTags(cols.length > 5 ? cols[5].trim() : "");
+                    (cols.length > 2 && cols[2].trim() === "video" ? videos : pictures).push({
+                        "path": p,
+                        "thumb": cols.length > 1 ? cols[1].trim() : "",
+                        "preview": cols.length > 3 ? cols[3].trim() : "",
+                        "kind": cols.length > 2 && cols[2].trim() === "video" ? "video" : "static",
+                        "name": name,
+                        "tags": tags,
+                        "search": dockWindow.wallpaperSearchKey(name, tags)
+                    });
                 }
                 var changed = wallpaperScanner.fill(wallpapersModel, pictures);
                 changed = wallpaperScanner.fill(liveModel, videos) || changed;
@@ -5281,7 +5274,7 @@ PanelWindow {
                 DockItem {
                     id: launcherItem
 
-                    displayName: Tr.t("Launcher")
+                    displayName: "Launcher"
                     isToggle: true
                     pointerInside: dockWindow.pointerOnDock
                     toggleActive: dockWindow.menuOpen
@@ -5441,6 +5434,7 @@ PanelWindow {
                 wallCardGap: dockWindow.wallCardGap
                 appliedWallpaper: dockWindow.appliedWallpaper
                 highlightQuery: dockWindow.filterQuery
+                pickerFlush: () => dockWindow.flushPickerFilter()
                 showPowerChips: Prefs.launcherPowerChips
                 powerButtons: String(Prefs.launcherPowerButtons).split(",")
                 armedPower: dockWindow.armedPower
@@ -5545,7 +5539,7 @@ PanelWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: Theme.dp(8)
-            text: Tr.t("dock surface headroom - ") + Math.round(parent.width) + Tr.t(" x ") + Math.round(parent.height) + Tr.t(" transparent") + (dockWindow.dragging ? Tr.t(" (INPUT LIVE: dragging)") : Tr.t(", input masked out"))
+            text: "dock surface headroom - " + Math.round(parent.width) + " x " + Math.round(parent.height) + " transparent" + (dockWindow.dragging ? " (INPUT LIVE: dragging)" : ", input masked out")
             color: "#cc80d8ff"
             font.pixelSize: Theme.dp(12)
             font.variableAxes: Theme.axes(12, 420, 0)

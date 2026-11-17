@@ -598,7 +598,7 @@ void lg::windowWashDraw(const SWindowWashDraw& draw, const SP<ITexture>& wash, C
     glUniform1f(s->power, draw.power);
     const bool light = lightTheme();
     glUniform1f(s->soft, light ? 1.F : 0.F);
-    glUniform1f(s->darkOpacity, 0.10F);
+    glUniform1f(s->darkOpacity, 0.05F);
     glUniform1f(s->fade, std::clamp(draw.alpha, 0.F, 1.F));
 
     const int cx0 = std::clamp((int)std::floor(damage.x), 0, w);

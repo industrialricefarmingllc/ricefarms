@@ -3,7 +3,7 @@ precision highp float;
 
 // Per-window wallpaper wash, drawn after the window content.
 //
-// Dark mode: raw blurred wallpaper, screen-blended at 10%. Light mode: true
+// Dark mode: raw blurred wallpaper, screen-blended at 5%. Light mode: true
 // GPU multiply (GL_MULTIPLY_KHR) at 10% coverage. Both are clipped to the
 // window's rounded silhouette here; the caller selects the blend equation.
 
@@ -100,7 +100,7 @@ void main() {
         float a = 0.10 * mask * uFade;
         fragColor = vec4(vec3(1.0) - a * (vec3(1.0) - wash.rgb), 1.0);
     } else {
-        // Dark mode: screen the raw blurred wallpaper at 10%.
+        // Dark mode: screen the raw blurred wallpaper at 5%.
         fragColor = vec4(wash.rgb * uDarkOpacity * uFade, 1.0);
     }
 }

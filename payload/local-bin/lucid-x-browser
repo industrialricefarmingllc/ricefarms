@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# A dedicated, invisible Helium instance for Lucid Social's X reader.
+#
+# It runs on its own Xvfb display and uses a private profile, so it never opens
+# a window in the normal session and never fights the real browser for the
+# profile lock.  On every service start only the X/Twitter cookies are copied
+# from the real browser through SQLite's backup API; no other site's session
+# is carried into the virtual profile.
+set -euo pipefail
+
+PORT="${LUCID_X_BROWSER_PORT:-9223}"
+DISPLAY_NUM="${LUCID_X_BROWSER_DISPLAY:-:99}"
+PROFILE="${LUCID_X_BROWSER_PROFILE:-$HOME/.cache/lucid-social/x-browser-profile}"
+SOURCE="${LUCID_X_SOURCE_PROFILE:-$HOME/.config/net.imput.helium}"
+BIN="${LUCID_X_BROWSER_BIN:-/usr/bin/helium-browser}"
+
+if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1; then
+    exit 0
+fi
+
+if ! pgrep -f "Xvfb $DISPLAY_NUM" >/dev/null 2>&1; then
+    Xvfb "$DISPLAY_NUM" -screen 0 1280x900x24 -nolisten tcp \
+        >/dev/null 2>&1 &
+    sleep 0.5
+fi
+
+mkdir -p "$PROFILE/Default"
+
+if [ -f "$SOURCE/Default/Cookies" ]; then
+    if /usr/bin/python3 - "$SOURCE/Default/Cookies" <<'PY'
+import sqlite3
+import sys
+
+try:
+    connection = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
+    count = connection.execute(
+        "select count(*) from cookies where host_key like '%x.com%' and name = 'auth_token'"
+    ).fetchone()[0]
+    connection.close()
+except Exception:
+    count = 0
+raise SystemExit(0 if count else 1)
+PY
+    then
+        cp -a "$SOURCE/Local State" "$PROFILE/Local State" 2>/dev/null || true
+        /usr/bin/python3 - "$SOURCE/Default/Cookies" "$PROFILE/Default/Cookies" <<'PY'
+import sqlite3
+import sys
+
+source = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
+target = sqlite3.connect(sys.argv[2])
+with target:
+    source.backup(target)
+    target.execute(
+        "delete from cookies where host_key not in "
+        "('.x.com','x.com','.twitter.com','twitter.com','.www.x.com','www.x.com')"
+    )
+source.close()
+target.close()
+PY
+    fi
+fi
+
+exec env DISPLAY="$DISPLAY_NUM" "$BIN" \
+    --user-data-dir="$PROFILE" \
+    --profile-directory=Default \
+    --remote-debugging-port="$PORT" \
+    --remote-debugging-address=127.0.0.1 \
+    --password-store=basic \
+    --ozone-platform=x11 \
+    --disable-gpu \
+    --disable-dev-shm-usage \
+    --disable-extensions \
+    --no-first-run \
+    --no-default-browser-check \
+    --hide-crash-restore-bubble \
+    about:blank

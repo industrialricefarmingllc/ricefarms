@@ -171,7 +171,9 @@ return {
           follow_current_file = { enabled = true },
           group_empty_dirs = true,
           hijack_netrw_behavior = "open_default",
-          use_libuv_file_watcher = true,
+          -- Recursive watches over a large monorepo blow past inotify limits
+          -- (max_user_watches) and make Neovim hang.  Refresh manually with R.
+          use_libuv_file_watcher = false,
         },
       })
     end,

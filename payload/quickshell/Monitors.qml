@@ -668,13 +668,34 @@ Singleton {
     readonly property var shellScreen: root.screenFor(Prefs.monitorShellScreen)
     // the display being worked on, for the surfaces that follow you instead
     readonly property var focusedScreen: {
+        // The display under the pointer, which is where transient surfaces
+        // belong: the launcher, bar panels, shots and the session menu should
+        // open under your hand.  Hyprland's focusedMonitor is driven by
+        // cursor movement into a monitor (input.follow_mouse and
+        // misc.mouse_move_focuses_monitor), so it answers that directly.
+        // The active toplevel is only a fallback: its monitor is where the
+        // keyboard is, which is a different question - a window focused on
+        // one display used to pin every popup there while the cursor sat on
+        // another.
         const m = Hyprland.focusedMonitor;
-        if (!m)
-            return null;
-
-        return Quickshell.screens.find((s) => {
-            return s.name === m.name;
-        }) || null;
+        if (m) {
+            const s = Quickshell.screens.find((x) => {
+                return x.name === m.name;
+            });
+            if (s)
+                return s;
+        }
+        const t = Hyprland.activeToplevel;
+        const monId = t && t.lastIpcObject ? t.lastIpcObject.monitor : undefined;
+        if (monId !== undefined && monId !== null) {
+            for (let i = 0; i < Quickshell.screens.length; i++) {
+                const s = Quickshell.screens[i];
+                const cm = Hyprland.monitorFor(s);
+                if (cm && Number(cm.id) === Number(monId))
+                    return s;
+            }
+        }
+        return null;
     }
     // what the rest of the shell means by the main display: the one the bar is
     // on, the first otherwise. widgets and their presets sit on this one

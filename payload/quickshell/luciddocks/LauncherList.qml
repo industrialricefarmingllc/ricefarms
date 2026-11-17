@@ -18,7 +18,7 @@ Item {
     property int revision: 0
     // what to embolden in each title
     property string query: ""
-    property string emptyLabel: "No results"
+    property string emptyLabel: Tr.t("No results")
     property string emptyHint: ""
     // an empty apps search is where the prefixes are worth teaching
     property bool showPrefixes: false
@@ -142,25 +142,25 @@ Item {
         case "app":
         case "command":
         case "action":
-            return "Open";
+            return Tr.t("Open");
         case "window":
-            return "Switch";
+            return Tr.t("Switch");
         case "power":
-            return "Run";
+            return Tr.t("Run");
         case "setting":
-            return "Settings";
+            return Tr.t("Settings");
         case "web":
-            return "Browser";
+            return Tr.t("Browser");
         case "run":
-            return "Run";
+            return Tr.t("Run");
         case "runterm":
-            return "Terminal";
+            return Tr.t("Terminal");
         case "calc":
         case "emoji":
         case "clip":
-            return "Copy";
+            return Tr.t("Copy");
         case "theme":
-            return "Apply";
+            return Tr.t("Apply");
         }
         return "";
     }
@@ -1020,16 +1020,16 @@ Item {
             Repeater {
                 model: [{
                     "prefix": ">",
-                    "label": "Commands"
+                    "label": Tr.t("Commands")
                 }, {
                     "prefix": "?",
-                    "label": "Web"
+                    "label": Tr.t("Web")
                 }, {
                     "prefix": "$",
-                    "label": "Run"
+                    "label": Tr.t("Run")
                 }, {
                     "prefix": ":",
-                    "label": "Emoji"
+                    "label": Tr.t("Emoji")
                 }]
 
                 Item {

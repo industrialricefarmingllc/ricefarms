@@ -659,8 +659,8 @@ PanelWindow {
 
         x: Math.ceil(osdBlurRegion.paintedX - 0.002)
         y: Math.ceil(osdBlurRegion.paintedY - 0.002)
-        width: card.visible ? Math.max(0, Math.floor(osdBlurRegion.paintedX + osdBlurRegion.paintedWidth + 0.002) - Math.ceil(osdBlurRegion.paintedX - 0.002)) : 0
-        height: card.visible ? Math.max(0, Math.floor(osdBlurRegion.paintedY + osdBlurRegion.paintedHeight + 0.002) - Math.ceil(osdBlurRegion.paintedY - 0.002)) : 0
+        width: (osdWindow.cardVisible || card.opacity > 0.15) ? Math.max(0, Math.floor(osdBlurRegion.paintedX + osdBlurRegion.paintedWidth + 0.002) - Math.ceil(osdBlurRegion.paintedX - 0.002)) : 0
+        height: (osdWindow.cardVisible || card.opacity > 0.15) ? Math.max(0, Math.floor(osdBlurRegion.paintedY + osdBlurRegion.paintedHeight + 0.002) - Math.ceil(osdBlurRegion.paintedY - 0.002)) : 0
         radius: Math.round(card.radius * card.scale)
     }
 
@@ -673,7 +673,12 @@ PanelWindow {
         targetScreen: osdWindow.screen
         surfaceW: osdWindow.width
         surfaceH: osdWindow.height
-        pills: card.visible ? [{
+        // Publish from the first frame of the entrance, not once opacity is
+        // already 15% in: otherwise the glass pops in late, mid-animation.
+        // With the scale/rise disabled on glass the pill geometry is constant,
+        // so the bridge writes once instead of every frame.
+        coalesceMs: 8
+        pills: (osdWindow.cardVisible || card.opacity > 0.15) ? [{
             x: osdBlurRegion.paintedX,
             y: osdBlurRegion.paintedY,
             w: osdBlurRegion.paintedWidth,
@@ -691,7 +696,7 @@ PanelWindow {
         readonly property int toggleWidth: osdWindow.cardPadX * 2 + osdWindow.badgeSize + osdWindow.cardGap + Math.ceil(Math.max(labelMetrics.advanceWidth, stateFlip.width)) + Theme.dp(6)
 
         anchors.centerIn: parent
-        anchors.verticalCenterOffset: osdWindow.cardVisible ? 0 : Theme.dp(16)
+        anchors.verticalCenterOffset: (osdWindow.cardVisible || Prefs.liquidGlassEnabled) ? 0 : Theme.dp(16)
         height: osdWindow.isLevelType ? Theme.dp(50) : Theme.dp(56)
         width: osdWindow.isLevelType ? card.levelWidth : card.toggleWidth
         radius: height / 2
@@ -701,8 +706,13 @@ PanelWindow {
         smoothing: 0
 
         opacity: osdWindow.cardVisible ? 1 : 0
-        scale: osdWindow.cardVisible ? 1 : 0.9
-        visible: opacity > 0.15
+        // With compositor glass the card fill is transparent; scaling or rising
+        // the pill means re-rendering the glass every frame.  Keep the geometry
+        // fixed and let the content fade, which is what the plugin likes.
+        scale: Prefs.liquidGlassEnabled ? 1 : (osdWindow.cardVisible ? 1 : 0.9)
+        // visible from the first entrance frame so the card's shader/content is
+        // initialized before the fade starts, not halfway through it
+        visible: osdWindow.cardVisible || opacity > 0.15
         // the offscreen layer and its shadow only exist for the solid card:
         // around glyphs on a glass card they blob. single source of truth.
         layer.enabled: !Prefs.liquidGlassEnabled
@@ -957,7 +967,7 @@ PanelWindow {
         }
 
         Behavior on width {
-            enabled: card.visible
+            enabled: card.visible && !Prefs.liquidGlassEnabled
 
             NumberAnimation {
                 duration: Theme.durMedium
@@ -968,7 +978,7 @@ PanelWindow {
         }
 
         Behavior on height {
-            enabled: card.visible
+            enabled: card.visible && !Prefs.liquidGlassEnabled
 
             NumberAnimation {
                 duration: Theme.durMedium

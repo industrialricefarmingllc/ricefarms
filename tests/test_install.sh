@@ -331,7 +331,7 @@ assert_file_has "AUR manifest has skwd-deck" "$REPO_DIR/payload/manifests-packag
 assert_true "zed settings exist" test -f "$REPO_DIR/payload/zed-config/settings.json"
 assert_true "zed pin recorded" test -f "$REPO_DIR/payload/zed-pin.txt"
 assert_true "buckle service exists" test -f "$REPO_DIR/payload/systemd-user/bucklespring.service"
-assert_file_has "buckle uses kalih-box-white" "$REPO_DIR/payload/systemd-user/bucklespring.service" "kalih-box-white"
+assert_file_has "buckle uses the configured bank" "$REPO_DIR/payload/systemd-user/bucklespring.service" "aula-f75-leobog-reaper"
 assert_true "buckle pin recorded" test -f "$REPO_DIR/payload/bucklespring-pin.txt"
 assert_file_has "build_buckle uses libinput backend" "$REPO_DIR/install.sh" "make libinput=1"
 assert_true "audio-stack exported" test -d "$REPO_DIR/payload/audio-stack"
@@ -490,7 +490,7 @@ assert_file_has "packages include skwd" "$REPO_DIR/install.sh" "skwd-deck"
 assert_true "payload-large README exists" test -f "$REPO_DIR/payload-large/README.md"
 assert_true "wallpapers are not tracked" test ! -e "$REPO_DIR/payload-large/wallpapers-matugen.tar.zst"
 assert_file_has "gitattributes LFS-tracks tarballs" "$REPO_DIR/.gitattributes" "payload-large/*.tar.zst filter=lfs"
-for _tb in bucklespring-kalih-box-white.tar.zst zed-custom.tar.zst; do
+for _tb in bucklespring-aula-f75-leobog-reaper.tar.zst bucklespring-kalih-box-white.tar.zst zed-custom.tar.zst; do
   # NOTE: working tree holds real binaries; the committed form is the LFS
   # pointer in the index — assert on staged content, not the file.
   # NOTE: tests mock $PATH git — use the real binary for index inspection.

@@ -21,23 +21,59 @@ Item {
     signal likeClicked()
     signal deleteRequested()
 
+    HoverHandler {
+        id: rowHover
+    }
+
+    readonly property bool hovered: rowHover.hovered
     readonly property var caps: row.comment.capabilities || ({})
     readonly property var stats: row.comment.stats || ({})
     readonly property int likeCount: row.stats.likes !== null && row.stats.likes !== undefined ? Number(row.stats.likes) : -1
     readonly property bool liked: row.comment.liked === true
     readonly property bool local: row.comment.ref !== undefined && row.comment.ref.local === true
+    readonly property bool continuation: Number(row.comment._group_index
+        !== undefined ? row.comment._group_index : ((row.comment.ref || {})._group_index || 0)) > 0
+    readonly property var segmentItems: {
+        var ref = row.comment.ref || ({});
+        var texts = row.comment.body_segments || [];
+        var groups = ref.segment_media;
+        if (Array.isArray(ref.segment_ids) && Array.isArray(groups) && groups.length === texts.length) {
+            var aligned = [];
+            var ids = ref.segment_ids;
+            for (var i = 0; i < texts.length; i++) {
+                var gap = 0;
+                if (i > 0)
+                    gap = String(ids[i] || "") !== String(ids[i - 1] || "") ? Theme.dp(4) : Theme.dp(4);
+                aligned.push({"text": String(texts[i] || ""), "media": groups[i] || [], "gap": gap});
+            }
+            return aligned;
+        }
+        var fallbackText = texts.length > 0 ? texts.join("\n") : String(row.comment.body || "");
+        return [{"text": fallbackText, "media": row.comment.media || [], "gap": 0}];
+    }
     readonly property real avatarTop: Theme.dp(row.compact ? 4 : 7)
     readonly property real avatarSize: Theme.dp(row.compact ? 24 : 28)
     readonly property real avatarCenter: avatarTop + row.avatarSize / 2
     readonly property real likeTop: row.avatarTop + row.avatarSize + Theme.dp(6)
     readonly property real likeBottom: row.likeTop + Theme.dp(20)
-    readonly property bool likeShown: row.caps.like === true || row.likeCount >= 0
+    readonly property bool likeShown: false
     readonly property real railTop: row.firstInChain ? row.avatarCenter : 0
     readonly property real railBottom: row.lastInChain ? row.avatarCenter : row.height
-    readonly property bool railVisible: !(row.firstInChain && row.lastInChain)
+    readonly property bool railVisible: !row.continuation && !(row.firstInChain && row.lastInChain)
     readonly property bool railCut: row.railVisible && row.likeShown && row.likeTop < row.railBottom
     readonly property var embedded: row.parseEmbeds()
     readonly property string displayBody: embedded.body
+    // Image-only and attachment-only messages have no text body. Do not draw
+    // an empty message bubble above their media.
+    readonly property bool hasBody: {
+        if (String(row.displayBody || "").trim() !== "")
+            return true;
+        for (var i = 0; i < row.segmentItems.length; i++) {
+            if ((row.segmentItems[i].media || []).length > 0)
+                return true;
+        }
+        return (row.comment.media || []).length > 0;
+    }
     readonly property var allMedia: {
         var out = [];
         var media = row.comment.media || [];
@@ -66,7 +102,7 @@ Item {
         var lower = url.toLowerCase();
         var youtube = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/i);
         if (youtube)
-            return {"kind": "video", "url": "https://www.youtube.com/watch?v=" + youtube[1], "external_url": "https://www.youtube.com/watch?v=" + youtube[1], "thumbnail_url": "https://i.ytimg.com/vi/" + youtube[1] + "/hqdefault.jpg", "width": 1280, "height": 720, "title": "YouTube"};
+            return {"kind": "video", "url": "https://www.youtube.com/watch?v=" + youtube[1], "external_url": "https://www.youtube.com/watch?v=" + youtube[1], "thumbnail_url": "https://i.ytimg.com/vi/" + youtube[1] + "/hqdefault.jpg", "width": 1280, "height": 720, "title": Tr.t("YouTube")};
         if (/\.(png|jpe?g|gif|webp|avif)(\?|$)/.test(lower))
             return {"kind": "image", "url": url, "thumbnail_url": url, "width": 0, "height": 0};
         if (/\.(mp4|webm|mov|mkv|ogv|m3u8)(\?|$)/.test(lower))
@@ -154,10 +190,53 @@ Item {
         return {"body": display, "media": add, "urls": remove, "embedUrls": embedUrls, "plainUrls": plainUrls};
     }
 
-    implicitHeight: content.implicitHeight + Theme.dp(row.compact ? 8 : 14)
+    implicitHeight: content.implicitHeight + Theme.dp(row.continuation ? 1 : (row.compact ? 8 : 14))
     height: implicitHeight
-    x: Theme.dp(12)
-    width: parent ? parent.width - x - Theme.dp(12) : implicitWidth
+    x: 0
+    width: parent ? parent.width : implicitWidth
+
+    Item {
+        id: emojiButton
+
+        x: (Theme.dp(row.compact ? 24 : 28) - width) / 2
+        y: row.continuation ? 0 : row.avatarTop + row.avatarSize + Theme.dp(23)
+        width: Theme.dp(20)
+        height: Theme.dp(20)
+        z: 4
+        visible: row.hovered && !row.local
+            && row.comment.capabilities !== undefined
+            && row.comment.capabilities.react === true
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: Theme.surfaceHigh
+            border.width: 1
+            border.color: Theme.alpha(row.host ? row.host.ink : Theme.text, 0.12)
+        }
+
+        Icon {
+            anchors.centerIn: parent
+            name: "mood"
+            size: Theme.dp(14)
+            color: row.host ? row.host.inkDim : Theme.subtext
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                if (row.host && row.host.requestEmojiCatalog)
+                    row.host.requestEmojiCatalog();
+                reactionPickerLoader.active = true;
+                Qt.callLater(function () {
+                    if (reactionPickerLoader.item)
+                        reactionPickerLoader.item.open();
+                });
+            }
+        }
+
+    }
 
     // One continuous timeline against the avatar column; no per-depth indents.
     // The rail is split around the like control rather than painting an opaque
@@ -186,9 +265,9 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.leftMargin: Theme.dp(2)
-        anchors.rightMargin: Theme.dp(2)
-        anchors.topMargin: Theme.dp(row.compact ? 4 : 7)
+        anchors.leftMargin: 0
+        anchors.rightMargin: 0
+        anchors.topMargin: Theme.dp(row.continuation ? 0 : (row.compact ? 4 : 7))
         spacing: Theme.dp(2)
 
         RowLayout {
@@ -198,12 +277,16 @@ Item {
             Column {
                 Layout.alignment: Qt.AlignTop
                 Layout.preferredWidth: Theme.dp(row.compact ? 24 : 28)
+                visible: !row.continuation
                 spacing: Theme.dp(6)
 
                 SocialAvatar {
                     anchors.horizontalCenter: parent.horizontalCenter
                     author: row.comment.author || ({})
+                    source: row.host && row.host.detailPost ? String(row.host.detailPost.source || "") : ""
                     size: Theme.dp(row.compact ? 24 : 28)
+                    opacity: row.continuation ? 0 : 1
+                    visible: row.continuation || true
                 }
 
                 Item {
@@ -219,14 +302,6 @@ Item {
                         size: Theme.dp(15)
                         fill: row.liked ? 1 : 0
                         color: row.liked ? Theme.primary : (row.host ? row.host.inkDim : Theme.subtext)
-
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: Theme.durDefaultEffects
-                            }
-
-                        }
-
                     }
 
                     MouseArea {
@@ -235,28 +310,59 @@ Item {
                         onClicked: {
                             if (row.caps.like === true)
                                 row.likeClicked();
-
                         }
                     }
 
                 }
 
+
+
+
+
             }
 
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.leftMargin: row.continuation ? Theme.dp(row.compact ? 31 : 35) : 0
                 spacing: 0
 
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: !row.continuation
                     spacing: Theme.dp(6)
 
-                    LText {
-                        role: "labelLarge"
-                        text: (row.comment.author || {}).display_name || (row.comment.author || {}).handle || Tr.t("Someone")
-                        color: row.host ? row.host.ink : Theme.text
-                        elide: Text.ElideRight
+                    Item {
                         Layout.fillWidth: true
+                        implicitHeight: commentAuthorName.implicitHeight
+
+                        LText {
+                            id: commentAuthorName
+
+                            width: Math.min(parent.width, implicitWidth)
+                            role: "labelLarge"
+                            textFormat: Text.StyledText
+                            text: row.host && row.host.emojiLabel
+                                ? row.host.emojiLabel((row.comment.author || {}).display_name || (row.comment.author || {}).handle || Tr.t("Someone"),
+                                    Theme.typeSize("labelLarge") + 2)
+                                : ((row.comment.author || {}).display_name || (row.comment.author || {}).handle || "Someone")
+                            color: row.host ? row.host.ink : Theme.text
+                            elide: Text.ElideRight
+                        }
+
+                        MouseArea {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            width: Math.min(commentAuthorName.contentWidth, commentAuthorName.width)
+                            height: commentAuthorName.height
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (row.host && row.host.openProfile)
+                                    row.host.openProfile(row.comment.author || ({}),
+                                        row.host.detailPost ? row.host.detailPost.source : "", row.comment);
+                            }
+                        }
+
                     }
 
                     Rectangle {
@@ -276,11 +382,13 @@ Item {
 
                     }
 
+
+
                     Item {
                         Layout.alignment: Qt.AlignVCenter
                         width: Theme.dp(18)
                         height: Theme.dp(18)
-                        visible: !row.context && !row.local
+                        visible: !row.local
 
                         Icon {
                             anchors.centerIn: parent
@@ -301,7 +409,7 @@ Item {
                         Layout.alignment: Qt.AlignVCenter
                         width: Theme.dp(18)
                         height: Theme.dp(18)
-                        visible: !row.context && row.comment.pending !== true && row.comment.ref !== undefined && row.comment.ref.mine === true && !row.local
+                        visible: row.comment.pending !== true && row.comment.ref !== undefined && row.comment.ref.mine === true && !row.local
 
                         Icon {
                             anchors.centerIn: parent
@@ -329,8 +437,9 @@ Item {
 
                 Item {
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.dp(1)
-                    Layout.preferredHeight: bodyBox.implicitHeight + Theme.dp(row.compact ? 16 : 20)
+                    Layout.topMargin: row.hasBody ? Theme.dp(row.continuation ? 4 : 1) : 0
+                    Layout.preferredHeight: row.hasBody ? bodyBox.implicitHeight + Theme.dp(row.compact ? 16 : 20) : 0
+                    visible: row.hasBody
 
                     SquircleRect {
                         anchors.fill: parent
@@ -350,65 +459,47 @@ Item {
                         anchors.margins: Theme.dp(row.compact ? 8 : 10)
                         spacing: 0
 
-                        SocialBody {
-                            Layout.fillWidth: true
-                            segments: row.comment.body_segments || []
-                            fallback: row.comment.body || ""
-                            host: row.host
-                            role: row.compact ? "bodySmall" : "bodyLarge"
-                            stripUrls: row.embedded.urls
-                            maxLines: row.compact ? 3 : 1000
-                            ink: row.host ? row.host.inkDim : Theme.subtext
-                        }
+                        Repeater {
+                            model: row.segmentItems
 
-                    }
+                            ColumnLayout {
+                                required property var modelData
 
-                }
+                                Layout.fillWidth: true
+                                Layout.topMargin: Number(modelData.gap || 0)
+                                spacing: 0
 
-                Flow {
-                    id: reactionFlow
-
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.dp(4)
-                    spacing: Theme.dp(4)
-                    visible: (row.comment.reactions || []).length > 0
-
-                    Repeater {
-                        model: row.comment.reactions || []
-
-                        Rectangle {
-                            id: reactionChip
-
-                            required property var modelData
-
-                            width: reactionRow.implicitWidth + Theme.dp(10)
-                            height: Theme.dp(24)
-                            radius: Theme.dp(12)
-                            color: modelData.me === true ? Theme.primaryContainer : Theme.surfaceHigh
-                            border.width: 1
-                            border.color: Theme.alpha(row.host ? row.host.ink : Theme.text, 0.07)
-
-                            RowLayout {
-                                id: reactionRow
-
-                                anchors.centerIn: parent
-                                spacing: Theme.dp(3)
-
-                                Twemoji {
-                                    size: Theme.dp(14)
-                                    emoji: String(reactionChip.modelData.emoji || "")
-                                    imageSource: String(reactionChip.modelData.image || "")
-                                    animated: reactionChip.modelData.animated === true
-                                    fallbackColor: row.host ? row.host.ink : Theme.text
+                                SocialBody {
+                                    Layout.fillWidth: true
+                                    visible: String(modelData.text || "") !== ""
+                                    segments: String(modelData.text || "") !== "" ? [String(modelData.text)] : []
+                                    fallback: ""
+                                    host: row.host
+                                    linkify: true
+                                    role: row.compact ? "bodySmall" : "bodyLarge"
+                                    stripUrls: row.embedded.urls
+                                    maxLines: row.compact ? 3 : 1000
+                                    ink: row.host ? row.host.inkDim : Theme.subtext
+                                    onLinkActivated: (link) => row.host.openContentLink(link,
+                                        row.host.detailPost ? row.host.detailPost.source : "", row.comment)
                                 }
 
-                                LText {
-                                    visible: Number(reactionChip.modelData.count || 0) > 0
-                                    role: "labelSmall"
-                                    text: String(reactionChip.modelData.count || 0)
-                                    color: reactionChip.modelData.me === true
-                                        ? Theme.fgPrimaryContainer
-                                        : (row.host ? row.host.inkDim : Theme.subtext)
+                                Repeater {
+                                    model: modelData.media || []
+
+                                    SocialMedia {
+                                        required property var modelData
+
+                                        Layout.fillWidth: true
+                                        width: bodyBox.width
+                                        height: implicitHeight
+                                        value: modelData
+                                        host: row.host
+                                        maxHeight: Number.POSITIVE_INFINITY
+                                        ink: row.host ? row.host.ink : Theme.text
+                                        onExpandRequested: (value, from, previewSource, previewWidth, previewHeight) => row.host.openMediaViewer(value, from, previewSource, previewWidth, previewHeight)
+                                    }
+
                                 }
 
                             }
@@ -419,30 +510,13 @@ Item {
 
                 }
 
-            }
-
-        }
-
-        Column {
-            id: commentMedia
-
-            Layout.fillWidth: true
-            Layout.leftMargin: Theme.dp(row.compact ? 31 : 35)
-            spacing: Theme.dp(6)
-
-            Repeater {
-                model: row.allMedia
-
-                SocialMedia {
-                    required property var modelData
-
-                    width: commentMedia.width
-                    height: implicitHeight
-                    value: modelData
+                SocialReactions {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.dp(4)
+                    target: row.comment
                     host: row.host
-                    maxHeight: Theme.dp(260)
-                    ink: row.host ? row.host.ink : Theme.text
-                    onExpandRequested: (value, from, previewSource, previewWidth, previewHeight) => row.host.openMediaViewer(value, from, previewSource, previewWidth, previewHeight)
+                    compact: row.compact
+                    showAddButton: false
                 }
 
             }
@@ -450,6 +524,26 @@ Item {
         }
 
 
+
+
+    }
+
+
+    Loader {
+        id: reactionPickerLoader
+
+        active: false
+        sourceComponent: ReactionPicker {
+            parent: emojiButton
+            x: emojiButton.width + Theme.dp(4)
+            y: 0
+            catalog: row.host ? row.host.emojiCatalog : []
+            usage: row.host ? row.host.emojiUsageCounts : ({})
+            onPicked: (entry) => {
+                if (row.host && row.host.addReaction)
+                    row.host.addReaction(row.comment, entry);
+            }
+        }
     }
 
 }

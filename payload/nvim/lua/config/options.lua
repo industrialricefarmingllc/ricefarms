@@ -63,7 +63,9 @@ opt.ttimeoutlen = 20
 opt.confirm = true
 opt.wildmenu = true
 opt.wildmode = "longest:full,full"
-opt.path:append("**")
+-- NOTE: deliberately no `**` in 'path'.  Remote sessions start in $HOME, and
+-- on hosts with large monorepos every `:find` / `gf` / `:edit <Tab>` would walk
+-- the whole tree.  Set it per project when you actually want recursive finds.
 opt.wildignore:append({ "*/node_modules/*", "*/.git/*", "*/dist/*", "*/build/*", "*/.next/*" })
 opt.completeopt = "menuone,noinsert,noselect"
 opt.pumheight = 12

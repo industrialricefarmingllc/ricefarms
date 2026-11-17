@@ -1,0 +1,243 @@
+#!/bin/bash
+# lucid-gamemode — enter Lucid thrift mode (gt) while a game is running.
+#
+# Polls the process table for a game: either a known executable name from
+# ~/.config/lucid/gamemode/games, or a binary whose command line points under
+# steamapps/common (Steam/Proton games, including Skyrim launched through MO2).
+# After two consecutive sightings it runs `gt on`, which freezes the wallpaper,
+# turns off liquid glass / goo / depth and parks quickshell.service. Once the
+# game has been gone for two polls, `gt off` restores all of it.
+#
+# A gt that was already active before the game is left alone on exit.
+#
+# Usage: lucid-gamemode [run|--status]
+
+set -u
+
+GT="${GT:-/usr/local/bin/gt}"
+INTERVAL="${LUCID_GAMEMODE_INTERVAL:-5}"
+CONFIRM="${LUCID_GAMEMODE_CONFIRM:-2}"
+RELEASE_CONFIRM="${LUCID_GAMEMODE_RELEASE_CONFIRM:-2}"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+STATE_DIR="$STATE_HOME/lucid/gamemode"
+ENGAGED="$STATE_DIR/engaged"
+PREV="$STATE_DIR/prev"
+FAILED="$STATE_DIR/failed-at"
+GAME_PID="$STATE_DIR/game-pid"
+LAST_RELEASE="$STATE_DIR/last-release"
+GT_STATE="$STATE_HOME/lucid/gt.json"
+GAMES_FILE="${LUCID_GAMEMODE_GAMES:-$HOME/.config/lucid/gamemode/games}"
+MATCH_NAME=""
+MATCH_PID=""
+
+mkdir -p "$STATE_DIR" || exit 1
+
+log() { printf '%s lucid-gamemode: %s\n' "$(date +%H:%M:%S)" "$*"; }
+
+# --- games list ------------------------------------------------------------
+GAMES=()
+if [ -f "$GAMES_FILE" ]; then
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        [ -n "$line" ] && GAMES+=("$line")
+    done <"$GAMES_FILE"
+fi
+
+known_game() {
+    local c="$1" g
+    for g in "${GAMES[@]}"; do
+        [ "$c" = "$g" ] && return 0
+    done
+    return 1
+}
+
+game_running() {
+    local p pid comm cmd stat
+    local -a argv
+    MATCH_NAME=""
+    MATCH_PID=""
+    for p in /proc/[0-9]*; do
+        pid="${p#/proc/}"
+        [ "$pid" = "$$" ] && continue
+        # skip zombies/dead processes without forking; field 3 of /proc/pid/stat
+        # is the state, after the (possibly spaced/parenthesised) comm field
+        { stat=$(<"$p/stat"); } 2>/dev/null || continue
+        stat=${stat##*) }
+        stat=${stat%% *}
+        case "$stat" in Z*|X*) continue;; esac
+
+        { read -r comm <"$p/comm"; } 2>/dev/null || continue
+        if known_game "$comm"; then
+            MATCH_NAME="$comm (pid $pid)"
+            MATCH_PID="$pid"
+            [ -n "${GM_DEBUG:-}" ] && printf 'match: pid=%s comm=%s (games list)\n' "$pid" "$comm" >&2
+            return 0
+        fi
+
+        # NUL-separated; mapfile reads the Windows command line even when
+        # procfs reports a zero stat size (which it often does)
+        argv=()
+        { mapfile -d '' -t argv <"$p/cmdline"; } 2>/dev/null || continue
+        [ "${#argv[@]}" -gt 0 ] || continue
+        cmd="${argv[*]}"
+        case "${cmd,,}" in
+            *steamapps*common*) ;;
+            *) continue ;;
+        esac
+        # launchers, runtimes and Wine's own helper processes live there too
+        case "${cmd,,}" in
+            *steamlinuxruntime*|*steamwebhelper*|*steam-runtime*|*pressure-vessel*|\
+            *pv-adverb*|*pv-bwrap*|*reaper*|*proton*|*modorganizer*|*wineboot*|\
+            *winedevice*|*explorer.exe*|*services.exe*|*plugplay*|*rpcss*|\
+            *svchost*|*conhost*|*cmd.exe*|*start.exe*)
+                continue ;;
+        esac
+        MATCH_NAME="$comm (pid $pid)"
+        MATCH_PID="$pid"
+        [ -n "${GM_DEBUG:-}" ] && printf 'match: pid=%s cmd=%s (steamapps)\n' "$pid" "$cmd" >&2
+        return 0
+    done
+    return 1
+}
+
+# While engaged, keep following the game PID we found. A transient failed
+# /proc scan must not count as "game closed".
+is_running() {
+    local gp st
+    if [ -f "$ENGAGED" ] && [ -s "$GAME_PID" ]; then
+        gp=$(cat "$GAME_PID" 2>/dev/null)
+        if [ -n "$gp" ] && [ -d "/proc/$gp" ]; then
+            { st=$(<"/proc/$gp/stat"); } 2>/dev/null || st=""
+            st=${st##*) }
+            st=${st%% *}
+            case "$st" in Z*|X*) return 1;; *) return 0;; esac
+        fi
+        rm -f "$GAME_PID"
+    fi
+    game_running || return 1
+    if [ -f "$ENGAGED" ] && [ -n "$MATCH_PID" ]; then
+        printf '%s\n' "$MATCH_PID" >"$GAME_PID" 2>/dev/null || true
+    fi
+    return 0
+}
+
+gt_is_active() {
+    [ -f "$GT_STATE" ] || return 1
+    [ "$(jq -r '.active // false' "$GT_STATE" 2>/dev/null)" = "true" ]
+}
+
+# --- engage / release ------------------------------------------------------
+engage() {
+    local was=0
+    gt_is_active && was=1
+    if ! GT_FROM_GAMEMODE=1 "$GT" on; then
+        date +%s >"$FAILED"
+        log "gt on failed; retrying in ${INTERVAL}s"
+        return 1
+    fi
+    printf '%s\n' "$was" >"$PREV"
+    date +%s >"$ENGAGED"
+    [ -n "$MATCH_PID" ] && printf '%s\n' "$MATCH_PID" >"$GAME_PID" 2>/dev/null
+    rm -f "$FAILED"
+    if [ "$was" = "1" ]; then
+        log "thrift mode was already on before the game; leaving it alone"
+    else
+        log "game started: thrift mode on${MATCH_NAME:+ ($MATCH_NAME)}"
+    fi
+    return 0
+}
+
+release() {
+    local prev=0
+    [ -f "$PREV" ] && prev="$(cat "$PREV" 2>/dev/null)"
+    if [ "$prev" = "0" ]; then
+        if gt_is_active; then
+            if ! GT_FROM_GAMEMODE=1 "$GT" off; then
+                # gt off exits non-zero when its state file is gone, even
+                # though it has already brought the shell back. Only keep
+                # retrying while gt still says it is active.
+                if gt_is_active; then
+                    log "gt off failed; keeping the state for the next try"
+                    return 1
+                fi
+                log "gt off reported an error but gt is inactive; clearing"
+            else
+                log "game closed: thrift mode off"
+            fi
+        else
+            log "game closed: gt was already off"
+        fi
+    else
+        log "game closed: keeping the gt state it had before the game"
+    fi
+    rm -f "$ENGAGED" "$PREV" "$FAILED" "$GAME_PID"
+    date +%s >"$LAST_RELEASE" 2>/dev/null || true
+    return 0
+}
+
+cleanup() {
+    trap - TERM INT HUP
+    if [ -f "$ENGAGED" ]; then
+        release
+    fi
+    exit 0
+}
+trap cleanup TERM INT HUP
+
+# --- main ------------------------------------------------------------------
+if [ "${1:-run}" = "--status" ]; then
+    gp=$(cat "$GAME_PID" 2>/dev/null || true)
+    if [ -n "$gp" ] && [ -d "/proc/$gp" ]; then
+        echo "game: running"
+    elif game_running; then
+        echo "game: running"
+    else
+        echo "game: none"
+    fi
+    if [ -f "$ENGAGED" ]; then echo "thrift: engaged"; else echo "thrift: idle"; fi
+    exit 0
+fi
+
+# only one instance may poll and toggle
+exec 9>"$STATE_DIR/lock"
+if ! flock -n 9; then
+    log "another instance is already running"
+    exit 0
+fi
+
+# A previous run killed hard may have left thrift mode on with no game.
+# Do not release on a single startup scan: /proc reads can fail transiently,
+# and that would end game mode while the game is still running. The main loop's
+# miss counter releases a genuinely stale ENGAGED after RELEASE_CONFIRM polls.
+
+hits=0
+misses=0
+while :; do
+    if is_running; then
+        hits=$((hits + 1))
+        misses=0
+    else
+        misses=$((misses + 1))
+        hits=0
+    fi
+
+    if [ ! -f "$ENGAGED" ] && [ "$hits" -ge "$CONFIRM" ]; then
+        now=$(date +%s)
+        last="$(cat "$FAILED" 2>/dev/null || echo 0)"
+        last_rel="$(cat "$LAST_RELEASE" 2>/dev/null || echo 0)"
+        # 60 s after a failed gt on, and a short cooldown after a release, so a
+        # flapping detection cannot toggle glass/wallpaper every few seconds
+        if [ $((now - last)) -ge 60 ] && [ $((now - last_rel)) -ge 30 ]; then
+            engage
+        fi
+        hits=0
+    fi
+
+    if [ -f "$ENGAGED" ] && [ "$misses" -ge "$RELEASE_CONFIRM" ]; then
+        release
+        misses=0
+    fi
+
+    sleep "$INTERVAL"
+done

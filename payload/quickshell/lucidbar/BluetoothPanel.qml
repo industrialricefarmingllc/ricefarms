@@ -33,7 +33,7 @@ Item {
 
     readonly property string label: {
         if (!root.btEnabled)
-            return "Off";
+            return Tr.t("Off");
 
         if (root.connectedDevices.length === 1) {
             let d = root.connectedDevices[0];
@@ -41,15 +41,15 @@ Item {
             return d.name + (batt !== "" ? " (" + batt + ")" : "");
         }
         if (root.connectedDevices.length > 1)
-            return root.connectedDevices.length + " devices connected";
+            return root.connectedDevices.length + Tr.t(" devices connected");
 
         if (root.anyConnecting)
-            return "Connecting...";
+            return Tr.t("Connecting...");
 
         if (root.discovering)
-            return "Scanning...";
+            return Tr.t("Scanning...");
 
-        return "Not connected";
+        return Tr.t("Not connected");
     }
 
     function getBatteryText(dev) {
@@ -566,19 +566,19 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             text: {
                                 if (devItem.isPairing)
-                                    return "Pairing…";
+                                    return Tr.t("Pairing…");
 
                                 if (devItem.isConnecting)
-                                    return "Connecting…";
+                                    return Tr.t("Connecting…");
 
                                 if (devItem.isConnected) {
                                     let batt = root.getBatteryText(devItem.modelData);
-                                    return "Connected" + (batt !== "" ? " · " + batt : "");
+                                    return Tr.t("Connected") + (batt !== "" ? " · " + batt : "");
                                 }
                                 if (devItem.isPaired)
                                     return devItem.modelData.trusted ? "Paired · Trusted" : "Paired";
 
-                                return "Available";
+                                return Tr.t("Available");
                             }
                             color: devItem.isConnected ? Theme.accent : Theme.subtext
                             font.family: Theme.fontFamily
@@ -691,13 +691,13 @@ Item {
                             anchors.centerIn: parent
                             text: {
                                 if (devItem.isPairing)
-                                    return "Pairing…";
+                                    return Tr.t("Pairing…");
 
                                 if (devItem.isConnecting)
-                                    return "Connecting…";
+                                    return Tr.t("Connecting…");
 
                                 if (devItem.group === "nearby")
-                                    return "Pair";
+                                    return Tr.t("Pair");
 
                                 return devItem.isConnected ? "Disconnect" : "Connect";
                             }

@@ -1,0 +1,21 @@
+[Unit]
+Description=Lucid game mode (gt thrift mode while a game runs)
+After=graphical-session.target
+PartOf=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/stdbuf -oL -eL %h/.local/bin/lucid-gamemode run
+Restart=on-failure
+RestartSec=5
+# polling must never compete with the game
+Nice=10
+IOSchedulingClass=idle
+# gt off waits for skwd to hand back to the live renderer
+TimeoutStopSec=45
+LogRateLimitIntervalSec=30
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=graphical-session.target

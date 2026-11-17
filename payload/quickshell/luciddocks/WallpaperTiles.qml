@@ -414,8 +414,8 @@ Item {
             width: Math.min(Theme.dp(340), Math.max(Theme.dp(140), strip.width - Theme.dp(32)))
             visible: strip.filterText !== ""
             text: (RemoteWall.enabled && RemoteWall.query !== "" && RemoteWall.query === strip.filterText.toLowerCase())
-                ? "Nothing in your library, Wallhaven, or the Workshop matches \"" + strip.filterText + "\"."
-                : "No local wallpaper matches \"" + strip.filterText + "\"."
+                ? Tr.fmt("Nothing in your library, Wallhaven, or the Workshop matches \"%1\".", strip.filterText)
+                : Tr.fmt("No local wallpaper matches \"%1\".", strip.filterText)
             color: Theme.subtextDim
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap

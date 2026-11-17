@@ -620,7 +620,7 @@ Item {
     property string hiddenSsid: ""
     property string hiddenPsk: ""
     property bool hiddenFailed: false
-    readonly property string hiddenErrorDetail: root.hiddenFailed ? (hiddenStderr.text.trim().length > 0 ? hiddenStderr.text.trim() : "nmcli failed to connect (no further detail available).") : ""
+    readonly property string hiddenErrorDetail: root.hiddenFailed ? (hiddenStderr.text.trim().length > 0 ? hiddenStderr.text.trim() : Tr.t("nmcli failed to connect (no further detail available).")) : ""
     readonly property bool ethernetConnected: !!(root.wiredDevice && root.wiredDevice.connected)
     readonly property bool connecting: wifiDevice && wifiDevice.state === ConnectionState.Connecting
     readonly property bool wifiConnected: wifiDevice ? wifiDevice.connected : false
@@ -636,15 +636,15 @@ Item {
     }
     readonly property string statusText: {
         if (root.primaryIsEthernet)
-            return "Ethernet";
+            return Tr.t("Ethernet");
 
         if (root.connecting)
-            return "Connecting...";
+            return Tr.t("Connecting...");
 
         if (root.wifiConnected && root.activeNetwork)
             return root.activeNetwork.name;
 
-        return "Disconnected";
+        return Tr.t("Disconnected");
     }
     property real lastRx: -1
     property real lastTx: -1
@@ -679,15 +679,15 @@ Item {
     function failReasonText(reason) {
         switch (reason) {
         case ConnectionFailReason.NoSecrets:
-            return "No password saved for this network.";
+            return Tr.t("No password saved for this network.");
         case ConnectionFailReason.WifiAuthTimeout:
-            return "Authentication timed out.";
+            return Tr.t("Authentication timed out.");
         case ConnectionFailReason.WifiClientFailed:
-            return "The Wi-Fi client failed to connect.";
+            return Tr.t("The Wi-Fi client failed to connect.");
         case ConnectionFailReason.WifiClientDisconnected:
-            return "Disconnected during the connection attempt.";
+            return Tr.t("Disconnected during the connection attempt.");
         case ConnectionFailReason.WifiNetworkLost:
-            return "The network went out of range.";
+            return Tr.t("The network went out of range.");
         default:
             return ConnectionFailReason.toString(reason);
         }
@@ -773,12 +773,12 @@ Item {
 
     function strengthLabel(s) {
         if (s >= 66)
-            return "Strong";
+            return Tr.t("Strong");
 
         if (s >= 33)
-            return "Good";
+            return Tr.t("Good");
 
-        return "Weak";
+        return Tr.t("Weak");
     }
 
     function refreshActiveNetwork() {
@@ -825,11 +825,11 @@ Item {
     function connectivityLabel() {
         switch (Networking.connectivity) {
         case NetworkConnectivity.None:
-            return "No internet access";
+            return Tr.t("No internet access");
         case NetworkConnectivity.Portal:
-            return "Sign-in required";
+            return Tr.t("Sign-in required");
         case NetworkConnectivity.Limited:
-            return "Limited connectivity";
+            return Tr.t("Limited connectivity");
         default:
             return "";
         }
@@ -872,7 +872,7 @@ Item {
             root.pendingNetworkName = "";
             root.setUiState(targetNetwork.name, {
                 "connectFailed": true,
-                "failReason": "Timed out waiting for a response from the network.",
+                "failReason": Tr.t("Timed out waiting for a response from the network."),
                 "showPasswordInput": secured,
                 "isUntrustedAttempt": secured
             });
@@ -1067,15 +1067,15 @@ Item {
                 Text {
                     text: {
                         if (!root.wiredDevice)
-                            return "No cable connected";
+                            return Tr.t("No cable connected");
 
                         if (root.ethernetConnected)
-                            return "Connected" + (root.wiredDevice.linkSpeed > 0 ? " · " + root.wiredDevice.linkSpeed + " Mbps" : "");
+                            return Tr.t("Connected") + (root.wiredDevice.linkSpeed > 0 ? " · " + root.wiredDevice.linkSpeed + " Mbps" : "");
 
                         if (root.wiredDevice.hasLink)
-                            return "Cable connected · not configured";
+                            return Tr.t("Cable connected · not configured");
 
-                        return "No cable connected";
+                        return Tr.t("No cable connected");
                     }
                     color: root.ethernetConnected ? Theme.accent : Theme.subtext
                     font.family: Theme.fontFamily

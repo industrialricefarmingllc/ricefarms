@@ -20,6 +20,28 @@ Item {
     // decoded image. Otherwise a square picture is letterboxed inside a 16:9
     // card and looks much smaller than it is.
     property real loadedRatio: 0
+    // WebP is not decodable in this Qt build. A failed image asks the service
+    // for a converted local file once, then paints from that.
+    property string fallbackUrl: ""
+    property bool fallbackTried: false
+    property bool transcoding: false
+    readonly property string imageUrl: media.fallbackUrl !== "" ? media.fallbackUrl : String(media.m.url || "")
+    readonly property string imageThumb: media.fallbackUrl !== "" ? media.fallbackUrl : String(media.m.thumbnail_url || "")
+    // The URL this item last represented. List views recycle delegates, so a
+    // card that scrolls away from a playing recording must stop it.
+    property string boundAudioUrl: ""
+    property bool resolvingAudio: false
+    property bool audioResolveFailed: false
+    property string resolvedAudioUrl: ""
+    readonly property string audioUrl: media.resolvedAudioUrl !== "" ? media.resolvedAudioUrl : media.url
+    readonly property bool directAudio: {
+        var target = String(media.url || "").toLowerCase().split("?")[0];
+        var mime = String(media.m.mime || "").toLowerCase();
+        var page = target.includes("spotify.com") || target.includes("soundcloud.com")
+            || target.includes("bandcamp.com") || target.includes("mixcloud.com");
+        return target.startsWith("file://") || /\.(mp3|m4a|aac|ogg|oga|opus|flac|wav)(?:[?#]|$)/.test(target)
+            || (mime.startsWith("audio/") && !page);
+    }
 
     signal expandRequested(var value, rect from, string previewSource, real previewWidth, real previewHeight)
 
@@ -37,7 +59,9 @@ Item {
     }
     readonly property bool inlineVideo: {
         var target = media.url.toLowerCase().split("?")[0];
-        return target.startsWith("file://") || /\.(mp4|webm|m3u8|mov|mkv|ogv)$/.test(target);
+        var mime = String(media.m.mime || "").toLowerCase();
+        return target.startsWith("file://") || /\.(mp4|webm|m3u8|mov|mkv|ogv)$/.test(target)
+            || mime.startsWith("video/");
     }
     readonly property bool youtube: {
         var target = media.link.toLowerCase();
@@ -51,19 +75,33 @@ Item {
             || String(media.m.mime || "").toLowerCase() === "image/gif"
             || /\.gif(\?|$)/.test(media.url.toLowerCase());
     }
+    readonly property bool gifPoster: /\.gif(?:[?#]|$)/i.test(media.poster)
+        || String(media.m.mime || "").toLowerCase() === "image/gif"
     readonly property bool animatedImage: {
         if (media.kind !== "image")
             return false;
 
         var mime = String(media.m.mime || "").toLowerCase();
-        var imageUrl = String(media.m.url || "").toLowerCase();
-        var thumbUrl = String(media.m.thumbnail_url || "").toLowerCase();
+        var imageUrl = media.imageUrl.toLowerCase();
+        var thumbUrl = media.imageThumb.toLowerCase();
         return mime === "image/gif"
             || /\.gif(?:[?#]|$)/.test(imageUrl)
             || /\.gif(?:[?#]|$)/.test(thumbUrl);
     }
+    readonly property bool imageLoading: media.kind === "image" && (
+        media.transcoding
+        || image.status === Image.Loading
+        || (media.animatedImage && animatedImage.status === AnimatedImage.Loading))
+    readonly property bool imageFailed: media.kind === "image" && !media.transcoding && (image.status === Image.Error
+        || (media.animatedImage && animatedImage.status === AnimatedImage.Error))
+    readonly property bool richImage: media.kind === "image"
+        && String(media.m.filename || "") === ""
+        && !(Number(media.m.size_bytes || 0) > 0)
+    visible: !(media.richImage && media.imageFailed)
     readonly property bool canResolve: media.kind === "video" && !media.inlineVideo && media.host !== null && media.host.service !== undefined
-    readonly property real pictureHeight: Math.max(Theme.dp(96), Math.min(media.maxHeight, media.width * media.ratio))
+    readonly property real pictureHeight: {
+        return Math.max(Theme.dp(96), Math.min(media.maxHeight, media.width * media.ratio));
+    }
 
     implicitHeight: media.kind === "image" || media.kind === "video" ? media.pictureHeight : media.kind === "file" ? Theme.dp(68) : Theme.dp(84)
     implicitWidth: Theme.dp(240)
@@ -89,9 +127,37 @@ Item {
         videoPlayer.play();
     }
 
+    function tryImageFallback() {
+        if (media.kind !== "image" || media.fallbackTried || media.transcoding)
+            return ;
+        var target = String(media.m.url || media.m.thumbnail_url || "");
+        if (!/^https?:/i.test(target))
+            return ;
+        // Only the live card may spawn processes; a preview renders passive
+        // media and would double-fetch (and double-convert) the image.
+        if (!media.host || media.host.live !== true || media.host.service === undefined)
+            return ;
+        media.fallbackTried = true;
+        media.transcoding = true;
+        imageFallbackProc.command = [media.host.service, "resolve", "--json", "--image", "--url", target];
+        imageFallbackProc.running = true;
+    }
+
     Component.onCompleted: media.startGif()
     onMChanged: {
+        var previous = media.boundAudioUrl;
+        if (previous !== "" && previous !== media.url)
+            SocialAudio.stopIfCurrent(previous);
+        media.boundAudioUrl = media.kind === "audio" ? media.url : "";
+        if (previous !== "" && previous !== media.url) {
+            media.resolvingAudio = false;
+            media.audioResolveFailed = false;
+            media.resolvedAudioUrl = "";
+        }
         media.loadedRatio = 0;
+        media.fallbackUrl = "";
+        media.fallbackTried = false;
+        media.transcoding = false;
         Qt.callLater(media.startGif);
     }
 
@@ -140,8 +206,27 @@ Item {
         var bottomRight = media.mapToItem(board, insetX + pictureW, insetY + pictureH);
         // Hand the lightbox the exact texture the card already decoded, so it
         // can paint immediately while the original loads at viewer resolution.
-        media.expandRequested(media.m, Qt.rect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y),
-                              String(media.m.thumbnail_url || media.m.url || ""),
+        // A converted local file is the only decodable copy when WebP was the
+        // source, so open that instead of failing at full resolution.
+        var payload = media.m;
+        if (media.fallbackUrl !== "") {
+            payload = {
+                "kind": "image",
+                "url": media.fallbackUrl,
+                "external_url": media.m.external_url || media.fallbackUrl,
+                "thumbnail_url": media.fallbackUrl,
+                "mime": media.fallbackUrl.toLowerCase().endsWith(".gif") ? "image/gif" : "image/jpeg",
+                "width": media.m.width,
+                "height": media.m.height,
+                "alt": media.m.alt,
+                "title": media.m.title
+            };
+        }
+        var preview = media.fallbackUrl !== "" ? media.fallbackUrl : String(media.m.thumbnail_url || "");
+        if (preview === "" && media.kind !== "video")
+            preview = String(media.m.url || "");
+        media.expandRequested(payload, Qt.rect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y),
+                              preview,
                               Math.max(1, Math.round(media.width * 2)),
                               Math.max(1, Math.round(media.height * 2)));
     }
@@ -162,15 +247,15 @@ Item {
             return "";
 
         if (size >= 1073741824)
-            return (size / 1073741824).toFixed(1) + " GB";
+            return (size / 1073741824).toFixed(1) + Tr.t(" GB");
 
         if (size >= 1048576)
-            return (size / 1048576).toFixed(1) + " MB";
+            return (size / 1048576).toFixed(1) + Tr.t(" MB");
 
         if (size >= 1024)
-            return Math.round(size / 1024) + " KB";
+            return Math.round(size / 1024) + Tr.t(" KB");
 
-        return size + " B";
+        return size + Tr.t(" B");
     }
 
     function clock(ms) {
@@ -195,7 +280,7 @@ Item {
                 id: image
 
                 anchors.fill: parent
-                source: media.kind === "image" && !media.animatedImage ? (media.m.thumbnail_url || media.m.url) : ""
+                source: media.kind === "image" && !media.animatedImage ? (media.imageThumb || media.imageUrl) : ""
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 smooth: true
@@ -206,14 +291,19 @@ Item {
                 // embed has no dimensions and creates a binding loop.
                 sourceSize.height: 0
                 visible: status === Image.Ready
-                onStatusChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
+                onStatusChanged: {
+                    if (status === Image.Ready)
+                        media.noteSourceSize(implicitWidth, implicitHeight);
+                    else if (status === Image.Error)
+                        media.tryImageFallback();
+                }
                 onImplicitWidthChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
                 onImplicitHeightChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
             }
 
             AnimatedImage {
                 anchors.fill: parent
-                source: media.animatedImage ? (media.m.url || media.m.thumbnail_url) : ""
+                source: media.animatedImage ? (media.fallbackUrl || media.m.url || media.m.thumbnail_url) : ""
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 smooth: true
@@ -224,17 +314,67 @@ Item {
                 loops: AnimatedImage.Infinite
                 cache: true
                 visible: status === Image.Ready
-                onStatusChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
+                onStatusChanged: {
+                    if (status === Image.Ready)
+                        media.noteSourceSize(implicitWidth, implicitHeight);
+                    else if (status === Image.Error)
+                        media.tryImageFallback();
+                }
                 onImplicitWidthChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
                 onImplicitHeightChanged: if (status === Image.Ready) media.noteSourceSize(implicitWidth, implicitHeight)
             }
 
-            Icon {
+            Column {
                 anchors.centerIn: parent
-                visible: image.status !== Image.Ready
-                name: "image"
-                size: Theme.dp(28)
-                color: Theme.alpha(media.ink, 0.38)
+                spacing: Theme.dp(6)
+                visible: media.imageLoading || media.imageFailed
+
+                Item {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Theme.dp(58)
+                    height: width
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: Theme.alpha(Theme.surfaceContainer, 0.88)
+                    }
+
+                    Icon {
+                        anchors.centerIn: parent
+                        visible: media.imageLoading
+                        name: "image"
+                        size: Theme.dp(24)
+                        color: Theme.alpha(Theme.text, 0.35)
+                    }
+
+                    LoadingIndicator {
+                        anchors.centerIn: parent
+                        width: Theme.dp(40)
+                        height: width
+                        visible: running
+                        running: media.imageLoading
+                        color: Theme.primary
+                    }
+
+                    Icon {
+                        anchors.centerIn: parent
+                        visible: !media.imageLoading
+                        name: "broken_image"
+                        size: Theme.dp(27)
+                        color: Theme.error
+                    }
+
+                }
+
+                LText {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: media.imageFailed
+                    role: "labelSmall"
+                    text: Tr.t("Could not load media")
+                    color: Theme.error
+                }
+
             }
 
             Rectangle {
@@ -264,7 +404,7 @@ Item {
 
                 Icon {
                     anchors.centerIn: parent
-                    name: "open_in_full"
+                    name: "fullscreen"
                     size: Theme.dp(15)
                     color: Theme.text
                 }
@@ -292,6 +432,26 @@ Item {
         visible: media.kind === "video"
 
         readonly property bool failed: videoFailed
+        // Keep the poster visible until the player really has a frame. A
+        // GIF-like embed uses that time to animate its thumbnail instead of
+        // flashing an empty card while the mp4 loads.
+        readonly property bool frameReady: video.started && !video.videoFailed
+            && (videoPlayer.playbackState === MediaPlayer.PlayingState
+                || videoPlayer.playbackState === MediaPlayer.PausedState
+                || videoPlayer.mediaStatus === MediaPlayer.EndOfMedia)
+        readonly property bool showPoster: !video.frameReady && media.poster !== ""
+        // Only real loading work counts. A video that has not started has no
+        // poster to decode and nothing to buffer, so it should show its play
+        // button instead of a permanent spinner.
+        readonly property bool loading: media.kind === "video" && !video.frameReady && !video.videoFailed
+            && (media.resolving
+                || (video.started && (videoPlayer.playbackState !== MediaPlayer.PlayingState
+                    || videoPlayer.mediaStatus === MediaPlayer.LoadingMedia
+                    || videoPlayer.mediaStatus === MediaPlayer.BufferingMedia
+                    || videoPlayer.mediaStatus === MediaPlayer.StalledMedia))
+                || (video.showPoster && (videoPoster.status === Image.Loading
+                    || videoPoster.status === Image.Error
+                    || (media.gifPoster && videoPosterAnimation.status === Image.Error))))
 
         property bool started: false
         property bool videoFailed: false
@@ -306,10 +466,24 @@ Item {
                 id: videoPoster
 
                 anchors.fill: parent
-                source: media.gifLike ? "" : media.poster
+                source: video.showPoster && !media.gifPoster ? media.poster : ""
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
-                visible: !media.gifLike && media.poster !== "" && !video.started
+                visible: video.showPoster && !media.gifPoster
+            }
+
+            AnimatedImage {
+                id: videoPosterAnimation
+
+                anchors.fill: parent
+                source: video.showPoster && media.gifPoster ? media.poster : ""
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                smooth: true
+                playing: true
+                loops: AnimatedImage.Infinite
+                cache: true
+                visible: video.showPoster && media.gifPoster
             }
 
             VideoOutput {
@@ -317,7 +491,24 @@ Item {
 
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
-                visible: video.started
+                visible: video.frameReady
+            }
+
+            LoadingIndicator {
+                anchors.centerIn: parent
+                width: Theme.dp(48)
+                height: width
+                visible: running
+                running: video.loading
+                color: Theme.primary
+            }
+
+            Icon {
+                anchors.centerIn: parent
+                visible: media.kind === "video" && video.videoFailed && !video.frameReady
+                name: "broken_image"
+                size: Theme.dp(30)
+                color: Theme.error
             }
 
             // The poster is the interaction surface until playback starts.
@@ -325,7 +516,8 @@ Item {
                 anchors.centerIn: parent
                 width: Theme.dp(56)
                 height: Theme.dp(56)
-                visible: !video.started || videoPlayer.playbackState !== MediaPlayer.PlayingState
+                visible: !video.loading
+                    && (!video.started || videoPlayer.playbackState !== MediaPlayer.PlayingState)
 
                 Rectangle {
                     anchors.fill: parent
@@ -346,7 +538,7 @@ Item {
 
                 Icon {
                     anchors.centerIn: parent
-                    name: media.resolving ? "hourglass_top" : (video.started ? (videoPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play_arrow") : "play_arrow")
+                    name: video.started ? (videoPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play_arrow") : "play_arrow"
                     size: Theme.dp(26)
                     color: Theme.fgInverseSurface
                 }
@@ -408,7 +600,7 @@ Item {
             // error/unplayable fallback
             Rectangle {
                 anchors.fill: parent
-                visible: video.failed && !video.started
+                visible: video.failed && !video.frameReady && (!media.gifLike || media.poster === "")
                 color: Theme.surfaceHighest
 
                 Column {
@@ -424,7 +616,7 @@ Item {
 
                     LText {
                         role: "labelSmall"
-                        text: "Open video"
+                        text: Tr.t("Open video")
                         color: Theme.subtext
                     }
 
@@ -496,12 +688,21 @@ Item {
                     video.videoFailed = true;
 
             }
+            onPlaybackStateChanged: {
+                // A real video carries its own sound; mute the attachment player
+                // instead of letting both tracks run together. GIF-like mp4s
+                // are muted and should not interrupt a recording.
+                if (videoPlayer.playbackState === MediaPlayer.PlayingState && !media.gifLike)
+                    SocialAudio.pause();
+            }
         }
 
     }
 
     // ------------------------------------------------------------------ audio
     Rectangle {
+        id: audio
+
         anchors.fill: parent
         visible: media.kind === "audio"
         radius: Theme.rad(18)
@@ -509,62 +710,237 @@ Item {
         border.width: 1
         border.color: Theme.alpha(media.ink, 0.1)
 
+        readonly property bool current: media.kind === "audio" && SocialAudio.isCurrent(media.audioUrl)
+        readonly property bool playing: audio.current && SocialAudio.playing
+        readonly property bool failed: (audio.current && SocialAudio.failed) || media.audioResolveFailed
+        readonly property bool started: audio.current && SocialAudio.started
+        readonly property real progress: audio.current ? SocialAudio.progress : 0
+        readonly property int shownDuration: audio.current && SocialAudio.duration > 0
+            ? SocialAudio.duration
+            : Number(media.m.duration_ms || 0)
+
         RowLayout {
             anchors.fill: parent
             anchors.margins: Theme.dp(12)
             spacing: Theme.dp(10)
 
             Rectangle {
+                id: audioButton
+
                 Layout.preferredWidth: Theme.dp(38)
                 Layout.preferredHeight: Theme.dp(38)
                 radius: Theme.dp(19)
-                color: Theme.primaryContainer
+                color: audio.playing ? Theme.primary : Theme.primaryContainer
+                clip: true
 
-                Icon {
+                Image {
+                    anchors.fill: parent
+                    source: String(media.m.thumbnail_url || "")
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: true
+                    visible: source !== "" && !audio.playing
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: Theme.alpha(Theme.scrim, 0.35)
+                    visible: String(media.m.thumbnail_url || "") !== ""
+                }
+
+                LoadingIndicator {
                     anchors.centerIn: parent
-                    name: "music_note"
-                    size: Theme.dp(19)
+                    width: Theme.dp(20)
+                    height: width
+                    visible: running
+                    running: media.resolvingAudio
                     color: Theme.primary
                 }
 
+                Icon {
+                    anchors.centerIn: parent
+                    visible: !media.resolvingAudio
+                    name: audio.failed ? "open_in_new" : (audio.playing ? "pause" : "play_arrow")
+                    size: Theme.dp(19)
+                    color: audio.playing ? Theme.fgPrimary : Theme.primary
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (media.url === "" || media.audioResolveFailed) {
+                            media.openExternal();
+                            return ;
+                        }
+                        if (media.directAudio || media.resolvedAudioUrl !== "" || media.host === null || media.host.service === undefined) {
+                            SocialAudio.toggle(media.audioUrl, media.m.title || media.m.filename || Tr.t("Audio"));
+                            return ;
+                        }
+                        if (media.resolvingAudio)
+                            return ;
+                        media.resolvingAudio = true;
+                        media.audioResolveFailed = false;
+                        audioResolveProc.command = [media.host.service, "resolve", "--json", "--url", media.url];
+                        audioResolveProc.running = true;
+                    }
+                }
+
+                Behavior on color {
+                    ColorAnimation {
+                        duration: Theme.durFastEffects
+                    }
+                }
             }
 
-            Column {
+            ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 1
+                spacing: Theme.dp(4)
 
                 LText {
-                    width: parent.width
+                    Layout.fillWidth: true
                     role: "labelLarge"
-                    text: media.m.title || media.m.filename || "Audio"
+                    text: media.m.title || media.m.filename || Tr.t("Audio")
                     color: media.ink
                     elide: Text.ElideMiddle
                 }
 
                 LText {
-                    width: parent.width
+                    Layout.fillWidth: true
+                    role: "labelSmall"
+                    visible: text !== ""
+                    text: String(media.m.alt || media.m.external_url || "").replace(/^https?:\/\//, "").split("/")[0]
+                    color: Theme.alpha(media.ink, 0.58)
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.dp(3)
+                    radius: height / 2
+                    color: Theme.alpha(media.ink, 0.14)
+
+                    Rectangle {
+                        width: parent.width * audio.progress
+                        height: parent.height
+                        radius: parent.radius
+                        color: Theme.primary
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (audio.current)
+                                SocialAudio.seek(mouse.x / width);
+                        }
+                    }
+                }
+            }
+
+            Column {
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 1
+
+                LText {
+                    role: "labelSmall"
+                    tabular: true
+                    text: audio.shownDuration > 0
+                        ? (audio.started
+                            ? media.clock(SocialAudio.position) + " / " + media.clock(audio.shownDuration)
+                            : media.clock(audio.shownDuration))
+                        : "--:--"
+                    color: Theme.alpha(media.ink, 0.72)
+                }
+
+                LText {
                     role: "labelSmall"
                     text: media.formatBytes(media.m.size_bytes)
-                    color: Theme.alpha(media.ink, 0.62)
+                    color: Theme.alpha(media.ink, 0.52)
+                    visible: text !== ""
                 }
 
             }
 
-            Icon {
+            Item {
+                Layout.preferredWidth: Theme.dp(18)
+                Layout.preferredHeight: Theme.dp(18)
                 Layout.alignment: Qt.AlignVCenter
-                name: "open_in_new"
-                size: Theme.dp(18)
-                color: Theme.primary
+
+                Icon {
+                    anchors.centerIn: parent
+                    name: "open_in_new"
+                    size: Theme.dp(16)
+                    color: Theme.alpha(media.ink, 0.55)
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: media.openExternal()
+                }
             }
 
         }
 
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: media.openExternal()
+    }
+
+    Process {
+        id: imageFallbackProc
+
+        running: false
+        command: []
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                media.transcoding = false;
+                try {
+                    var value = JSON.parse(this.text);
+                    var target = String(value.url || "");
+                    if (value.ok === true && target !== ""
+                            && target !== String(media.m.url || "")
+                            && target !== String(media.m.thumbnail_url || ""))
+                        media.fallbackUrl = target;
+                } catch (error) {
+                }
+            }
         }
 
+        onExited: (code) => {
+            if (code !== 0)
+                media.transcoding = false;
+        }
+    }
+
+    Process {
+        id: audioResolveProc
+
+        running: false
+        command: []
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                media.resolvingAudio = false;
+                try {
+                    var value = JSON.parse(this.text);
+                    if (value.ok === true && String(value.url || "") !== "") {
+                        media.resolvedAudioUrl = String(value.url);
+                        SocialAudio.toggle(media.audioUrl, media.m.title || media.m.filename || Tr.t("Audio"));
+                    } else {
+                        media.audioResolveFailed = true;
+                    }
+                } catch (error) {
+                    media.audioResolveFailed = true;
+                }
+            }
+        }
+
+        onExited: (code) => {
+            if (code !== 0) {
+                media.resolvingAudio = false;
+                media.audioResolveFailed = true;
+            }
+        }
     }
 
     // ------------------------------------------------------------------- file
@@ -603,7 +979,7 @@ Item {
                 LText {
                     width: parent.width
                     role: "labelLarge"
-                    text: media.m.filename || media.m.title || "Attachment"
+                    text: media.m.filename || media.m.title || Tr.t("Attachment")
                     color: media.ink
                     elide: Text.ElideMiddle
                 }
@@ -656,13 +1032,25 @@ Item {
                 radius: Theme.rad(12)
                 smoothing: Prefs.squircleF
                 color: Theme.surfaceHighest
-                visible: media.poster !== ""
+                visible: media.poster !== "" && linkPoster.status !== Image.Error
 
                 Image {
+                    id: linkPoster
+
                     anchors.fill: parent
                     source: media.kind === "link" || media.kind === "embed" ? media.poster : ""
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
+                    visible: status !== Image.Error
+                }
+
+                LoadingIndicator {
+                    anchors.centerIn: parent
+                    width: Theme.dp(22)
+                    height: width
+                    visible: running
+                    running: linkPoster.status === Image.Loading
+                    color: Theme.primary
                 }
 
             }
@@ -705,6 +1093,25 @@ Item {
             onClicked: media.openExternal()
         }
 
+    }
+
+
+    // Copy/download for video, audio, files and embeds. Images keep their
+    // expand control; the lightbox has the same cluster in its top-right.
+    MediaActions {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: Theme.dp(8)
+        z: 20
+        visible: media.kind !== "image" && media.kind !== "link" && media.kind !== "embed"
+        copyUrl: media.kind === "link" || media.kind === "embed" ? media.link : media.url
+        downloadUrl: media.url
+        filename: String(media.m.filename || "")
+        mediaKind: media.kind
+        posterUrl: media.poster
+        buttonVariant: "filled"
+        buttonSize: "s"
+        compact: false
     }
 
 }

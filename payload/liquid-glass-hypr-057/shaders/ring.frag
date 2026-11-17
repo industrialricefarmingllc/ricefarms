@@ -75,6 +75,13 @@ uniform float uRimShade;    // inner rim shadow strength, 0..1
 // closes the half-pixel gap between a border rim and the content it outlines.
 uniform float uRimAtInner;
 uniform float uRimShift;
+// Window borders: sample the highlight from the backdrop OUTSIDE the content
+// (the border band) instead of from the content pixels under the line.
+uniform float uRimSampleShift;
+// 1 = draw ONLY the rim highlight (no tint/base band). Rim-only mode uses
+// this so the band geometry can sit on the content edge without painting an
+// opaque "thick border" over it.
+uniform float uRimOverlay;
 
 const float M_E = 2.718281828459045;
 
@@ -568,9 +575,18 @@ void main() {
         float veil = exp(-insidePx / max(rimW * 2.0, 1.0));
 
         // Backdrop-derived highlight: saturation pop + luminance lift, the
-        // same job as CoreAnimation's vibrantColorMatrix.
-        float lum = dot(refr, vec3(0.3, 0.59, 0.11));
-        vec3 vivid = clamp(vec3(lum) + (refr - vec3(lum)) * 2.2, 0.0, 1.0);
+        // same job as CoreAnimation's vibrantColorMatrix. Window border rims
+        // sit on the content edge, where the framebuffer holds the window
+        // itself; sample a little outward so the highlight still comes from
+        // the backdrop instead of going dark against the content.
+        vec3 rimRefr = refr;
+        if (uRimSampleShift > 0.01) {
+            vec2 rnS = normalize(glowN + vec2(1e-5));
+            vec2 ruv = clamp((p + rnS * uRimSampleShift) / uQuadSize, vec2(0.001), vec2(0.999));
+            rimRefr = texture(uBlur, ruv).rgb;
+        }
+        float lum = dot(rimRefr, vec3(0.3, 0.59, 0.11));
+        vec3 vivid = clamp(vec3(lum) + (rimRefr - vec3(lum)) * 2.2, 0.0, 1.0);
         // Keep a small white floor: on a dark terminal/wallpaper the backdrop
         // copy alone would leave the rim invisible, which reads as "no rim".
         vec3 hi = mix(vivid * 1.45 + vec3(0.05), vec3(0.96), 0.32);
@@ -588,10 +604,17 @@ void main() {
 
         // Keep a dark seam on the outside so the rim reads against light
         // wallpapers instead of dissolving into them.
-        col *= mix(0.94, 1.0, smoothstep(0.0, 0.45, d));
+        float seam = mix(0.94, 1.0, smoothstep(0.0, 0.45, d));
+
+        // Rim-only overlay: emit just the lit line, no tint/base band. This is
+        // what keeps "rim lighting alone" from reading as a thick border.
+        if (uRimOverlay > 0.5) {
+            fragColor = vec4(hi * (1.0 - shade) * seam, rim * band * uA);
+            return;
+        }
 
         // No rotated fade here: Apple's rim is uniform around the pane.
-        fragColor = vec4(col, band * uA);
+        fragColor = vec4(col * seam, band * uA);
         return;
     }
 

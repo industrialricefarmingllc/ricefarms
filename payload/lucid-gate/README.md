@@ -2,7 +2,7 @@
 
 A task tollbooth for [lucid shell](https://github.com/Sn3akyy1/lucid) (Quickshell +
 Hyprland).  A place asks to be opened; instead of a password you pay with a
-small task (a Duolingo lesson, five quiet minutes, a typing sprint), or with
+small task (a Duolingo lesson), or with
 Compute you earned by doing tasks when nothing was asking.
 
 Two surfaces share one state:
@@ -11,12 +11,14 @@ Two surfaces share one state:
   windows.  It shows Compute top-left, a swipeable task strip, and the reward.  Doing a task here
   unprompted pays Compute.
 - **the foreground gate** — a `WlrLayer.Overlay` surface on the monitor the
-  action came from.  It dims the screen, dims the active window again inside a
-  squircle, and puts the card over it.  While a browser task runs it collapses
+  action came from.  It dims the screen and puts the face exactly over the
+  window that asked — no margins, no recentring.  Compute sits top-left, and
+  the middle is a swipeable marquee of ways through: spend the balance first,
+  then every task that pays for it.  While a browser task runs it collapses
   into a small always-on-top pill in the corner so the task can actually be
   done.
 
-The card itself (`qml/GateSurface.qml`) is the same component in both hosts.
+The face (`qml/GateSurface.qml`) is shared by both hosts.
 The next "place" only needs a catalogue variant and a few pixels of layout, not
 a second implementation.
 
@@ -58,20 +60,22 @@ The economy is deliberately small:
 | task | minimum | reward |
 |---|---|---|
 | Duolingo lesson | completion | +160 |
-| Five quiet minutes | 5:00 | +50 |
-| Typing sprint | 1:00 | +20 |
-| Debug credit | instant | +160 |
 
 One lesson pays for a place.
-Everything is editable in `~/.config/lucid-gate/config.json`.
+After 10 tasks in a day, every place opens for free: the gate still appears,
+but its unlock card crosses out the usual price, shows 0 and says so, and
+tasks finished while the day is free pay their reward instead of the gate.
+The day rolls at 02:00; a reboot starts a fresh count, and a machine left on
+overnight carries the count over. Everything is editable in
+`~/.config/lucid-gate/config.json` (`free_after`, default 10).
 
 ## Trying it
 
 ```sh
 gate status
 qs ipc call -- gate request discord "Send message" 120   # overlay appears
-gate start typing                                        # pill appears
-gate complete typing                                     # unlocks the gate free
+gate start duolingo                                      # pill appears
+gate complete duolingo                                   # unlocks the gate free
 ```
 
 or from a shell:
@@ -97,6 +101,12 @@ Installed at `~/.config/opencode/plugins/lucid-gate.ts` (source of truth in
 `examples/opencode/lucid-gate.ts`).  It
 uses the `prompt` hook: the admission is refused (with a human-readable reason)
 and the text is kept in memory; after the gate opens, it is submitted again.
+If quickshell is not running, prompts are not gated at all: the plugin reads
+the shell's `~/.local/state/lucid-gate/shell-alive` heartbeat (written every two
+seconds), and a stale or missing file means there is no lock screen to show, so
+the prompt passes straight through. A gate that was already waiting when the
+shell went away is cancelled instead of hanging.
+
 `LUCID_GATE_DISABLE=1` turns it off. The gate covers the terminal window and
 keeps the prompt in memory; granting it resubmits the exact prompt.
 
@@ -187,11 +197,13 @@ shows the stored checkpoint, and `gate-progress state` shows the poller.
 `tasks` replaces/extends the built-ins by `id`; a minimal override:
 
 ```json
-{ "tasks": [{ "id": "focus", "min": 600, "reward": 80 }] }
+{ "tasks": [{ "id": "stretch", "name": "Stretch", "min": 120, "reward": 30 }] }
 ```
 
-Task kinds are `timer` and `browser`.  A browser task gets an "Open" button and
-launches its `url`; a timer task just counts.
+Task kinds are `timer`, `browser`, `duolingo` and `instant`.  Pressing a card in
+the gate, or starting the task from a card or the pill, begins it: a browser
+task launches its `url`, a Duolingo task mounts the embedded lesson, and an
+instant task is claimed immediately.
 
 ## CLI
 
@@ -227,11 +239,13 @@ duration, `--ref` dedupe, `gate run` replay, and cancellation.
 
 - `GateCore.qml` is a top-level singleton, like `Widgets.qml`, so both the
   widget body and the overlay can see the same state without a second process.
-- `GateSurface.qml` is the reusable face.  `compact` changes spacing, not
-  behaviour; the desktop card and the overlay are the same code at two sizes.
-- The overlay measures `Hyprland.activeToplevel.lastIpcObject` at the moment
-  the gate appears and freezes that rectangle.  If there is no active window
-  (or the information is unavailable) it dims the whole monitor instead.
+- `GateSurface.qml` is the reusable face.  `compact` is the running-task row
+  the pill mounts; the gate mounts the Compute + marquee layout.
+- The overlay freezes the asking window's rectangle when the gate appears and
+  the face covers it exactly.  `Hyprland.activeToplevel` can be empty on a
+  fresh shell, so it falls back to `hyprctl -j clients` and the most recent
+  `focusHistoryID`; the gate stays hidden until either answers, so it never
+  shows at a temporary position.
 - The pill is a separate small layer window, not a shrunken full-screen one:
   a full-screen surface would swallow clicks in the browser even while it is
   only showing a corner card.

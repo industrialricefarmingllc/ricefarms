@@ -1,11 +1,11 @@
 [Unit]
-Description=Bucklespring - IBM Model-M keyboard sound (kalih-box-white, stereo 25%)
+Description=Bucklespring - IBM Model-M keyboard sound (aula-f75-leobog-reaper, stereo 25%)
 PartOf=graphical-session.target
 After=graphical-session.target
 Wants=graphical-session.target
 
 [Service]
-ExecStart=/usr/local/bin/buckle -s 25 -g 50 -p /home/nicerice/.local/share/bucklespring/kalih-box-white
+ExecStart=/usr/local/bin/buckle -s 25 -g 50 -p /home/nicerice/.local/share/bucklespring/aula-f75-leobog-reaper
 Restart=always
 RestartSec=2
 

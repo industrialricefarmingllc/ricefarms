@@ -297,7 +297,7 @@ Item {
         var text = String(note || "").trim();
         messages.append({
             "kind": "user",
-            "text": text !== "" ? text : "Image",
+            "text": text !== "" ? text : Tr.t("Image"),
             "imageUrl": pane.attachmentUrl,
             "lang": "",
             "label": ""
@@ -515,7 +515,7 @@ Item {
 
         if (raw === "") {
             if (code !== 0 && detail === "")
-                detail = "opencode exited with code " + code;
+                detail = Tr.fmt("opencode exited with code %1", code);
             pane.clearPending();
             pane.appendError(detail);
             return;
@@ -601,7 +601,7 @@ Item {
                 "text": refined,
                 "imageUrl": "",
                 "lang": pane.lastTranslationLang,
-                "label": "Refined · " + pane.languageName(pane.lastTranslationLang)
+                "label": Tr.t("Refined") + " · " + pane.languageName(pane.lastTranslationLang)
             });
             var idx = pane.lastTranslationHistoryIndex;
             if (idx >= 0 && idx < pane.history.length) {
@@ -617,7 +617,7 @@ Item {
                 "text": answer,
                 "imageUrl": "",
                 "lang": "",
-                "label": "English"
+                "label": Tr.t("English")
             });
             pane.metaHistory = pane.metaHistory.concat([
                 { "role": "user", "text": "> " + meta },

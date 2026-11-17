@@ -94,6 +94,41 @@ class GateTest(unittest.TestCase):
         self.gate("complete", "focus")
         self.assertEqual(self.balance(), 50)
 
+    def test_free_unlocks_after_daily_goal(self):
+        cfg_path = pathlib.Path(self.env["XDG_CONFIG_HOME"]) / "lucid-gate" / "config.json"
+        cfg = json.loads(cfg_path.read_text())
+        cfg["free_after"] = 2
+        cfg_path.write_text(json.dumps(cfg))
+
+        self.gate("start", "focus")
+        self.gate("complete", "focus")
+        self.gate("start", "focus")
+        self.gate("complete", "focus")
+        balance = self.balance()
+        self.assertEqual(balance, 100)
+
+        state = self.state()["state"]
+        self.assertEqual(len(state["daily"]["log"]), 2)
+
+        # the unlock costs nothing once the daily goal is met
+        self.gate("request", "--place", "discord", "--label", "free")
+        state = self.state()["state"]
+        gate = next(g for g in state["gates"].values() if g["state"] == "pending")
+        self.gate("unlock", gate["id"])
+        self.assertEqual(self.balance(), balance)
+        state = self.state()["state"]
+        self.assertEqual(state["gates"][gate["id"]]["by"], "free")
+
+        # and a task finished while free pays its reward, not the gate
+        self.gate("request", "--place", "discord", "--label", "reward")
+        state = self.state()["state"]
+        gate = next(g for g in state["gates"].values() if g["state"] == "pending")
+        self.gate("start", "focus")
+        self.gate("complete", "focus")
+        self.assertEqual(self.balance(), balance + 50)
+        state = self.state()["state"]
+        self.assertEqual(state["gates"][gate["id"]]["state"], "granted")
+
     def test_credit_is_deduped_by_ref(self):
         self.gate("credit", "40", "--ref", "duolingo-xp-1")
         self.assertEqual(self.balance(), 40)

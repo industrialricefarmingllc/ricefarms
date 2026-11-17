@@ -65,6 +65,7 @@ Item {
         effectsAnim.stop();
         revealAnim.stop();
         active = true;
+        GateCore.lessonRevealed = false;
         landed = false;
         revealing = false;
         revealRadius = 0;
@@ -96,6 +97,7 @@ Item {
         if (effectsT < 0.999)
             return ;
 
+        GateCore.lessonRevealed = true;
         revealing = true;
         revealRadius = 0;
         revealAnim.restart();
@@ -135,7 +137,8 @@ Item {
             iconSource: GateCore.assetsPath + "/duolingo-owl.png"
             appName: "Duolingo"
             radius: launch.windowRadius
-            indicator: launch.active
+            opacity: launch.landed ? 1 : 0
+            indicator: launch.landed
             revealProgress: launch.revealing
                 ? Math.min(1, (launch.revealRadius / Math.max(1, launch.revealMax)) / 0.6)
                 : 0
@@ -153,7 +156,7 @@ Item {
             fillColor: launch.fill
             borderColor: launch.edge
             borderWidth: 1
-            opacity: 1 - launch.effectsT
+            opacity: launch.landed ? 0 : 1
         }
 
         Image {
@@ -168,7 +171,7 @@ Item {
             cache: true
             smooth: true
             mipmap: true
-            opacity: 1 - launch.effectsT
+            opacity: launch.landed ? 0 : 1
         }
 
     }
@@ -246,7 +249,11 @@ Item {
         easing.type: Easing.Bezier
         easing.bezierCurve: Theme.curveDefaultSpatial
 
-        onFinished: launch.landed = true
+        onFinished: {
+            launch.morphT = 1;
+            launch.effectsT = 1;
+            launch.landed = true;
+        }
     }
 
     NumberAnimation {

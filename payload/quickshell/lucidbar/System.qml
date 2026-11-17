@@ -234,9 +234,9 @@ BarPill {
         const h = Math.floor((root.uptimeSecs % 86400) / 3600);
         const m = Math.floor((root.uptimeSecs % 3600) / 60);
         if (d > 0)
-            return "up " + d + "d " + h + "h";
+            return Tr.t("up ") + d + Tr.t("d ") + h + Tr.t("h");
 
-        return h > 0 ? "up " + h + "h " + m + "m" : "up " + m + "m";
+        return h > 0 ? Tr.t("up ") + h + Tr.t("h ") + m + Tr.t("m") : Tr.t("up ") + m + Tr.t("m");
     }
 
     function pushSample(historyArr, v, max) {
@@ -388,15 +388,15 @@ BarPill {
     readonly property string tipOverline: {
         switch (root.tipViewKind) {
         case "wifi":
-            return wifiPanel.primaryIsEthernet ? "ETHERNET" : "WI-FI";
+            return wifiPanel.primaryIsEthernet ? Tr.t("ETHERNET") : Tr.t("WI-FI");
         case "bluetooth":
-            return "BLUETOOTH";
+            return Tr.t("BLUETOOTH");
         case "volume":
-            return "VOLUME";
+            return Tr.t("VOLUME");
         case "mic":
-            return "MICROPHONE";
+            return Tr.t("MICROPHONE");
         case "battery":
-            return "BATTERY";
+            return Tr.t("BATTERY");
         }
         return "";
     }
@@ -404,38 +404,38 @@ BarPill {
         switch (root.tipViewKind) {
         case "wifi":
             if (wifiPanel.primaryIsEthernet)
-                return "Wired connection";
+                return Tr.t("Wired connection");
 
             if (!Networking.wifiEnabled)
-                return "Wi-Fi off";
+                return Tr.t("Wi-Fi off");
 
             if (wifiPanel.connecting)
-                return "Connecting…";
+                return Tr.t("Connecting…");
 
             if (wifiPanel.wifiConnected && wifiPanel.activeNetwork)
                 return wifiPanel.activeNetwork.name;
 
-            return "Not connected";
+            return Tr.t("Not connected");
         case "bluetooth":
             if (!root.btEnabled)
-                return "Bluetooth off";
+                return Tr.t("Bluetooth off");
 
             if (btPanel.connectedDevices.length === 1)
                 return btPanel.connectedDevices[0].name;
 
             if (btPanel.connectedDevices.length > 1)
-                return btPanel.connectedDevices.length + " devices";
+                return btPanel.connectedDevices.length + Tr.t(" devices");
 
             if (btPanel.anyConnecting)
-                return "Connecting…";
+                return Tr.t("Connecting…");
 
-            return "Not connected";
+            return Tr.t("Not connected");
         case "volume":
-            return root.volMuted ? "Muted" : root.volumePercent + "%";
+            return root.volMuted ? Tr.t("Muted") : root.volumePercent + "%";
         case "mic":
-            return root.micMuted ? "Muted" : "Active";
+            return root.micMuted ? Tr.t("Muted") : Tr.t("Active");
         case "battery":
-            return root.batteryPresent ? root.batteryPercent + "%" : "No battery";
+            return root.batteryPresent ? root.batteryPercent + "%" : Tr.t("No battery");
         }
         return "";
     }
@@ -443,13 +443,13 @@ BarPill {
         switch (root.tipViewKind) {
         case "wifi":
             if (wifiPanel.primaryIsEthernet)
-                return wifiPanel.wiredDevice ? wifiPanel.wiredDevice.name : "Wired";
+                return wifiPanel.wiredDevice ? wifiPanel.wiredDevice.name : Tr.t("Wired");
 
             if (!Networking.wifiEnabled)
-                return "Radio disabled";
+                return Tr.t("Radio disabled");
 
             if (!wifiPanel.wifiConnected)
-                return wifiPanel.nearbyNetworks.length + " networks nearby";
+                return wifiPanel.nearbyNetworks.length + Tr.t(" networks nearby");
 
             const warn = wifiPanel.connectivityLabel();
             const sig = wifiPanel.strengthLabel(wifiPanel.signalStrength) + " · " + Math.round(wifiPanel.signalStrength) + "%";
@@ -460,7 +460,7 @@ BarPill {
 
             if (btPanel.connectedDevices.length === 1) {
                 const b = btPanel.getBatteryText(btPanel.connectedDevices[0]);
-                return b !== "" ? "Connected · " + b + " battery" : "Connected";
+                return b !== "" ? Tr.t("Connected · ") + b + Tr.t(" battery") : Tr.t("Connected");
             }
             if (btPanel.connectedDevices.length > 1)
                 return btPanel.connectedDevices.map((d) => {
@@ -468,9 +468,9 @@ BarPill {
                 }).join(", ");
 
             if (btPanel.discovering)
-                return "Scanning…";
+                return Tr.t("Scanning…");
 
-            return btPanel.pairedDevices.length + " paired";
+            return btPanel.pairedDevices.length + Tr.t(" paired");
         case "volume":
             return root.deviceLabel(root.sink);
         case "mic":
@@ -488,9 +488,9 @@ BarPill {
             return "";
 
         if (root.battery.state === UPowerDeviceState.FullyCharged)
-            return "Fully charged";
+            return Tr.t("Fully charged");
 
-        return root.batteryCharging ? "Charging" : "On battery";
+        return root.batteryCharging ? Tr.t("Charging") : Tr.t("On battery");
     }
     readonly property string tipBatteryTime: {
         if (!root.battery)
@@ -502,14 +502,14 @@ BarPill {
 
         const h = Math.floor(secs / 3600);
         const m = Math.round((secs % 3600) / 60);
-        const body = h > 0 ? h + "h " + m + "m" : m + "m";
-        return root.batteryCharging ? body + " to full" : body + " left";
+        const body = h > 0 ? h + Tr.t("h ") + m + Tr.t("m") : m + Tr.t("m");
+        return root.batteryCharging ? body + Tr.t(" to full") : body + Tr.t(" left");
     }
 
     // the stat card's second line: draw while discharging, else time
     readonly property string batteryDetail: {
         if (!root.batteryPresent)
-            return "no battery";
+            return Tr.t("no battery");
 
         const rate = root.battery ? root.battery.changeRate : 0;
         if (!root.batteryCharging && rate > 0.05)
@@ -518,7 +518,7 @@ BarPill {
         if (root.tipBatteryTime !== "")
             return root.tipBatteryTime;
 
-        return root.batteryCharging ? "charging" : "on battery";
+        return root.batteryCharging ? Tr.t("charging") : Tr.t("on battery");
     }
 
     onTipWantedChanged: {
@@ -1704,7 +1704,7 @@ BarPill {
 
                             QuickTile {
                                 icon: root.wifiGlyph
-                                name: wifiPanel.primaryIsEthernet ? "Ethernet" : "Wi-Fi"
+                                name: Tr.t(wifiPanel.primaryIsEthernet ? "Ethernet" : "Wi-Fi")
                                 sub: wifiPanel.statusText
                                 checked: Networking.wifiEnabled || wifiPanel.primaryIsEthernet
                                 onToggled: Networking.wifiEnabled = !Networking.wifiEnabled
@@ -1713,7 +1713,7 @@ BarPill {
 
                             QuickTile {
                                 icon: root.btGlyph
-                                name: "Bluetooth"
+                                name: Tr.t("Bluetooth")
                                 sub: btPanel.label
                                 checked: root.btEnabled
                                 onToggled: Bt.setEnabled(!root.btEnabled)
@@ -2046,19 +2046,19 @@ BarPill {
                         text: {
                             switch (root.view) {
                             case "wifi":
-                                return "Internet";
+                                return Tr.t("Internet");
                             case "bluetooth":
-                                return "Bluetooth";
+                                return Tr.t("Bluetooth");
                             case "output":
-                                return "Sound output";
+                                return Tr.t("Sound output");
                             case "power":
-                                return "Power";
+                                return Tr.t("Power");
                             case "tiles":
-                                return "Edit tiles";
+                                return Tr.t("Edit tiles");
                             case "profile":
-                                return "Power profile";
+                                return Tr.t("Power profile");
                             case "nightlight":
-                                return "Night light";
+                                return Tr.t("Night light");
                             }
                             return "";
                         }
@@ -2411,7 +2411,7 @@ BarPill {
                                             id: face
 
                                             icon: slot.spec ? slot.spec.icon : ""
-                                            label: slot.spec ? slot.spec.name : ""
+                                            label: slot.spec ? Tr.t(slot.spec.name) : ""
                                             held: slot.held
                                             hot: grab.containsMouse
                                             onBadgeClicked: root.tileRemove(slot.key)
@@ -2552,7 +2552,7 @@ BarPill {
                                         x: (spare.index % root.tileCols) * root.tileStepX
                                         y: Math.floor(spare.index / root.tileCols) * root.tileStepY
                                         icon: spare.spec ? spare.spec.icon : ""
-                                        label: spare.spec ? spare.spec.name : ""
+                                        label: spare.spec ? Tr.t(spare.spec.name) : ""
                                         adding: true
                                         onBadgeClicked: root.tileAdd(spare.key)
                                         Component.onCompleted: {

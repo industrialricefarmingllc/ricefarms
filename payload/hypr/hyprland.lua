@@ -140,9 +140,11 @@ hl.on("hyprland.start", function()
   -- guard on the process, not on the unit: a shell started outside systemd
   -- (manual `qs`, crash restart) makes `is-active` false while a full shell is
   -- already running, and the next reload then starts a second one (~11% CPU,
-  -- ~0.5 GB each). The live config is exactly `/usr/bin/qs` with no -p, so the
-  -- anchored match skips other `qs -p ...` instances.
-  hl.exec_cmd("pgrep -f '^/usr/bin/qs$' >/dev/null || systemctl --user start quickshell")
+  -- ~0.5 GB each). The service now runs qs-web -> /usr/local/bin/quickshell,
+  -- so match the process name instead of the old /usr/bin/qs path.
+  -- gt / lucid-gamemode park the shell on purpose during thrift mode; the
+  -- marker below keeps this guard from resurrecting it on a reload.
+  hl.exec_cmd("[ -f ~/.cache/lucid/gt/shell-paused ] || pgrep -x quickshell >/dev/null || pgrep -x qs >/dev/null || systemctl --user start quickshell")
   hl.exec_cmd("hypridle")
   -- Touchscreen: a held finger becomes a right click at that point (the
   -- panel has no right button). See ~/.local/bin/lucid-touch-rightclick.
@@ -216,7 +218,7 @@ hl.on("hyprland.start", function()
   -- the hypr-touch-gestures plugin, not liquid glass.
   -- 2026-11-13 (later): refreshes the screencopy mirror from the finished
   -- output, so a saved screenshot includes the screen shader and the wash.
-  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-perf-20261113.so; hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, hide_window_shadows=0, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1; hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0, rim_follow=1, rim_follow_strength=0.2, rim_follow_max=15.0, rim_follow_smoothing=0.3}}})' >/dev/null 2>&1; true")
+  hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q liquid-glass-hypr || hyprctl plugin load /home/nicerice/src/liquid-glass-hypr-057/liquidglass-rimfix3-20261114.so; hyprctl eval 'hl.config({plugin={liquidglass={capture_scale=1, ca=0.5, hide_window_shadows=0, detail_preserve=0, namespaces=\"quickshell,lucid-launcher,lucid-widgets\"}}})' >/dev/null 2>&1; hyprctl eval 'hl.config({plugin={liquidglass={window_borders=1, frame_enable=0, rim_light=1, rim_strength=1.0, rim_width=1.75, rim_angle=135, rim_splay=0.22, rim_shade=0.009, glass_rim=1, glass_rim_width=1.1, window_active_glow=0.0, rim_follow=1, rim_follow_strength=0.2, rim_follow_max=15.0, rim_follow_smoothing=0.3}}})' >/dev/null 2>&1; true")
   -- Standalone wash is intentionally not loaded; the integrated copy runs above.
   -- hl.exec_cmd("hyprctl plugin list 2>/dev/null | grep -q lucid-wash || hyprctl plugin load /home/nicerice/src/lucid-wash/lucid-wash-adv.so")
   -- Layer-wide overlay blending is intentionally not loaded; the wash is

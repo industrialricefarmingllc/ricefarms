@@ -41,8 +41,11 @@ WidgetBody {
         return w.home + "/src/lucid-social/bin/lucid-social";
     }
     readonly property string schemaFeed: "lucid.social/feed"
-    readonly property int schemaVersion: 1
+    readonly property int schemaVersion: 2
     readonly property int feedLimit: 20
+    // Search pages stay small so a deep X page only has to collect what the
+    // card will show instead of the whole profile tail.
+    readonly property int searchPageLimit: 60
 
     // Per-card selection.  Off-lists rather than on-lists, so a new stream that
     // appears later starts on, while every explicit choice is still remembered.
@@ -52,6 +55,7 @@ WidgetBody {
     readonly property var hiddenItems: w.listOpt("socialHidden")
 
     property var sources: []
+    property var streamErrors: []
     property var items: []
     property var feedErrors: []
     // loading | ready | empty | failed
@@ -77,9 +81,19 @@ WidgetBody {
     // the reader was looking at so closing the thread returns there instead
     // of to a position that the background model updates have moved.
     property var feedReturnAnchor: null
+    // Bumped when the feed model is replaced underneath an anchor restore
+    // (opening/closing a profile), so a stale callLater cannot move the list.
+    property int feedScrollEpoch: 0
     property bool pickerOpen: false
     property bool newPostOpen: false
     property var sendTargets: []
+    // Channel rows are checkboxes. The first one is also the primary target:
+    // it supplies the header label and the post that gets focused after send.
+    property var selectedSendTargets: []
+    property string sendCursorKey: ""
+    property var sendJobs: []
+    property var sendFailedTargets: []
+    property string sendBatchError: ""
     property bool sendTargetsLoading: false
     property string sendTargetId: ""
     property string sendTargetAccount: ""
@@ -100,6 +114,7 @@ WidgetBody {
     property bool contextLoading: false
     property bool contextHasMore: false
     property bool contextReady: false
+    property bool contextGrouped: false
     property int contextSeq: 0
     property int pendingContextSeq: 0
     property real contextHeightBefore: 0
@@ -111,21 +126,62 @@ WidgetBody {
     property bool threadLoaded: false
     property bool contextLoaded: false
     property bool threadAutoScrolling: false
-    property bool threadScrollRestarting: false
+    // Discord threads stay pinned to newest while opening (and as context and
+    // images arrive) until the reader scrolls or drags the conversation.
+    property bool threadBottomFollow: false
+    property bool threadUserScrolled: false
     property int threadLimit: 20
     property bool nestedFilled: false
+    property bool threadHoldPosition: false
+    property var threadAnchor: null
+    property real threadReloadOffset: -1
+    property real threadReloadUntil: 0
+    // The comment a send should reveal. The row can be a group whose height
+    // grows after the first layout, so a second alignment runs once it settles.
+    property var threadScrollTarget: null
     // Replies to a reply stay hidden until their parent is explicitly expanded.
     property int branchPreviewLimit: 0
     property var expandedBranches: ({})
-    readonly property var commentView: w.buildCommentView()
+    readonly property var groupedComments: {
+        if (w.detailPost === null || w.detailPost.source !== "discord")
+            return w.comments;
+        return w.groupComments(w.comments);
+    }
+    readonly property var commentView: w.buildCommentView(w.groupedComments)
     property string replyTo: ""
     property string replyName: ""
     property string composeError: ""
     // One entry per in-flight comment. Each send owns a row in `comments`
     // from the moment Enter is pressed, so several can be in flight at once.
     property var commentJobs: []
+    // Per source/account author cache. A single slot let one Discord account's
+    // avatar paint another account's optimistic comment.
+    property var cachedOwnAuthors: ({})
+    property var optimisticLikes: ({})
+    readonly property var cachedOwnAuthor: {
+        var context = w.ownAuthorContext();
+        var key = w.ownAuthorKey(context.source, context.account);
+        return key !== "" ? (w.cachedOwnAuthors[key] || null) : null;
+    }
+
+    // Decode the account's avatar at the comment-avatar size in the
+    // background, so the optimistic row can paint it from Qt's image cache
+    // instead of waiting for a network fetch.
+    Image {
+        id: ownAvatarPreload
+
+        visible: false
+        cache: true
+        asynchronous: true
+        source: (w.cachedOwnAuthor && String(w.cachedOwnAuthor.avatar_url || "") !== "")
+            ? String(w.cachedOwnAuthor.avatar_url)
+            : ""
+        sourceSize.width: Math.max(1, Math.round(Theme.dp(28) * 3))
+        sourceSize.height: Math.max(1, Math.round(Theme.dp(28) * 3))
+    }
     property int pendingSeq: 0
     property var likeQueue: []
+    property var reactionQueue: []
     property string authBusyKey: ""
     property string authError: ""
     property string authStatus: ""
@@ -144,6 +200,15 @@ WidgetBody {
     property rect mediaViewerClip: Qt.rect(0, 0, 0, 0)
     property string discordEventChannel: ""
     property string discordEventSlug: ""
+    // events.json is replaced atomically, so the file watcher can stop firing
+    // after the first write. Poll it too and dedupe by the gateway timestamp.
+    // The file keeps a short list so an unrelated channel cannot overwrite
+    // the event that should wake this card.
+    property string discordEventStamp: ""
+    property double discordLastEventAt: 0
+    // TYPING_START from the Discord gateway, keyed by account and channel.
+    property var typingState: ({})
+    property int typingTick: 0
     // A busy Discord gateway fires events every few seconds. The feed reacts
     // to them almost at once; the minute timer is only a fallback for sources
     // that have no websocket.
@@ -156,6 +221,39 @@ WidgetBody {
     property int feedSeq: 0
     property int clockTick: 0
     property string searchQuery: ""
+    property string threadSearchQuery: ""
+    // Profile view: a Twitter-style header over the author's own posts.
+    property var profileAuthor: null
+    property var profileMeta: ({})
+    property var profileTabs: []
+    property string profileSource: ""
+    property string profileQuery: ""
+    property string profileCacheKey: ""
+    property string profileTab: ""
+    property string profileFilter: ""
+    property string profileAccount: ""
+    property string profileChannel: ""
+    property string profileGuild: ""
+    property string profileUserId: ""
+    property bool profileBusy: false
+    property real profileHeaderHeight: 0
+    property bool profileFollowing: false
+    property bool profileFollowBusy: false
+    property string profileError: ""
+    property bool pendingProfileTarget: false
+    readonly property bool profileOpen: w.profileAuthor !== null
+    readonly property color profileTint: {
+        var value = String((w.profileMeta || {}).accent_color || "");
+        return value !== "" ? value : w.profileColor(w.profileSource);
+    }
+    readonly property var profileTabOptions: {
+        var out = [];
+        for (var i = 0; i < w.profileTabs.length; i++) {
+            var tab = w.profileTabs[i] || ({});
+            out.push({"key": String(tab.id || ""), "label": Tr.t(String(tab.title || ""))});
+        }
+        return out;
+    }
     property string channelQuery: ""
     // Service-side search: channels first, then a seven-day local index.
     property var searchResults: []
@@ -165,8 +263,20 @@ WidgetBody {
     property bool searchServed: false
     property bool searchLoading: false
     property bool searchDirty: false
+    // A cursor page keeps walking the matched channel or user, so scrolling a
+    // result list behaves like scrolling the feed.
+    property bool searchHasMore: false
+    property bool searchMoreLoading: false
+    property bool searchMorePending: false
+    property bool searchAppend: false
+    property bool searchPrefetching: false
+    property string searchMode: ""
+    property string searchNextBefore: ""
+    property string searchNextBeforeId: ""
 
     readonly property var sample: w.preview ? w.sampleItems() : []
+    readonly property bool initialLoading: !w.preview && w.shownItems.length === 0
+        && (w.phase === "loading" || w.searchLoading || w.feedLoadingMore)
     readonly property var shownItems: {
         var source = w.preview ? w.sample : w.items;
         var hidden = w.hiddenItems;
@@ -184,25 +294,32 @@ WidgetBody {
             var streamIds = item.stream_ids || [];
             if (streamIds.length > 0) {
                 var streamVisible = false;
+                var inSearchScope = false;
                 for (var s = 0; s < streamIds.length; s++) {
-                    if (w.streamOn(String(streamIds[s]))) {
+                    if (w.streamOn(String(streamIds[s])))
                         streamVisible = true;
-                        break;
-                    }
+                    if (w.searchScopeStreams.indexOf(String(streamIds[s])) >= 0)
+                        inSearchScope = true;
                 }
-                if (!streamVisible)
-                    continue;
+                if (!streamVisible) {
+                    // A search can name a channel or live user that is not one
+                    // of this card's streams; keep those hits on screen.
+                    if (!inSearchScope && w.searchQuery === "")
+                        continue;
+                }
             }
             if (w.sources.length > 0 && w.sourceInfo(String(item.source || "")) === null)
                 continue;
 
+            if (w.optimisticLikes[item.id])
+                item = Object.assign({}, item, w.optimisticLikes[item.id]);
             seen[item.id] = true;
             out.push(item);
         }
         // The service already merges by time; doing it again here keeps the
         // card correct if a source ever returns streams in a different order.
         out.sort((a, b) => {
-            var when = Date.parse(b.created_at) - Date.parse(a.created_at);
+            var when = w.feedTime(b) - w.feedTime(a);
             if (when !== 0)
                 return when;
             var aid = String(a.id), bid = String(b.id);
@@ -210,7 +327,7 @@ WidgetBody {
         });
         var query = w.searchQuery.trim();
         if (query === "")
-            return out;
+            return w.filterProfile(out);
 
         var matches = [];
         for (var j = 0; j < out.length; j++) {
@@ -223,7 +340,7 @@ WidgetBody {
             if (score >= 0)
                 matches.push({"score": score, "item": out[j]});
         }
-        matches.sort((a, b) => (b.score - a.score) || (Date.parse(b.item.created_at) - Date.parse(a.item.created_at)));
+        matches.sort((a, b) => (b.score - a.score) || (w.feedTime(b.item) - w.feedTime(a.item)));
         var local = [];
         for (var k = 0; k < matches.length; k++)
             local.push(matches[k].item);
@@ -232,7 +349,7 @@ WidgetBody {
         // feedback. Once it replies, combine its older hits with the local
         // ones (new posts may not be indexed yet).
         if (!w.searchServed || w.searchResultQuery !== query)
-            return local;
+            return w.filterProfile(local);
 
         if (w.searchScopeStreams.length > 0) {
             var scoped = [];
@@ -259,10 +376,14 @@ WidgetBody {
                 byId[local[p].id] = local[p];
         }
         var combined = [];
-        for (var id in byId)
-            combined.push(byId[id]);
+        for (var id in byId) {
+            var combinedItem = byId[id];
+            if (w.optimisticLikes[id])
+                combinedItem = Object.assign({}, combinedItem, w.optimisticLikes[id]);
+            combined.push(combinedItem);
+        }
         combined.sort((a, b) => {
-            var when = Date.parse(b.created_at) - Date.parse(a.created_at);
+            var when = w.feedTime(b) - w.feedTime(a);
             if (when !== 0)
                 return when;
             var aid = String(a.id), bid = String(b.id);
@@ -270,8 +391,75 @@ WidgetBody {
         });
         return combined;
     }
+    readonly property var feedValues: {
+        if (!w.profileOpen)
+            return w.shownItems;
+        return [{"id": "__profile_header__", "kind": "profile_header"}].concat(w.shownItems);
+    }
+    readonly property var typingEntries: {
+        // Reading the tick keeps the label honest as entries expire.
+        var tick = w.typingTick;
+        var post = w.detailPost;
+        if (!w.detailOpen || post === null)
+            return [];
+        var parts = String(post.id || "").split("/");
+        if (parts.length < 3 || parts[0] !== "discord")
+            return [];
+        var slug = "";
+        var ids = post.stream_ids || [];
+        for (var s = 0; s < ids.length; s++) {
+            var stream = w.streamById(String(ids[s]));
+            if (stream !== null) {
+                slug = String((stream.extra || {}).account || "");
+                break;
+            }
+        }
+        var accounts = (w.typingState || {}).accounts || ({});
+        var entries = ((accounts[slug] || ({}))[parts[1]]) || [];
+        var now = Date.now() / 1000;
+        var out = [];
+        for (var i = 0; i < entries.length; i++) {
+            var entry = entries[i] || ({});
+            if (Number(entry.until || 0) > now)
+                out.push(entry);
+        }
+        return out;
+    }
+    readonly property string typingLabel: {
+        var entries = w.typingEntries;
+        if (entries.length === 0)
+            return "";
+        var names = [];
+        for (var i = 0; i < entries.length; i++) {
+            var name = String(entries[i].name || "").trim();
+            if (name === "")
+                name = Tr.t("Someone");
+            if (names.indexOf(name) < 0)
+                names.push(name);
+        }
+        if (names.length === 1)
+            return Tr.fmt("%1 is typing…", names[0]);
+        if (names.length === 2)
+            return Tr.fmt("%1 and %2 are typing…", names[0], names[1]);
+        return Tr.t("Several people are typing…");
+    }
     readonly property var contextView: {
         var source = w.contextComments;
+        // The service pre-groups Discord context with the same rules the
+        // thread comments use. Do not regroup it in the UI after it lands.
+        if (w.contextGrouped) {
+            var preGrouped = [];
+            for (var p = 0; p < source.length; p++) {
+                var grouped = source[p];
+                if (!grouped)
+                    continue;
+                var groupedCopy = Object.assign({}, grouped);
+                groupedCopy.body_segments = (grouped.body_segments && grouped.body_segments.length ? grouped.body_segments.slice() : (grouped.body ? [String(grouped.body)] : []));
+                groupedCopy.media = (grouped.media || []).slice();
+                preGrouped.push(groupedCopy);
+            }
+            return preGrouped;
+        }
         var out = [];
         var last = null;
         var lastAuthor = "";
@@ -288,7 +476,10 @@ WidgetBody {
             // The grouping window is measured from the first message in the
             // block, not from its newest message. A long burst otherwise turns
             // into one block whose total span far exceeds the window.
-            if (last !== null && key !== "" && key === lastAuthor && groupStart > 0 && when > 0 && when - groupStart <= 7200000) {
+            var lastMedia = last !== null ? (last.media || []).length : 0;
+            var valueMedia = (value.media || []).length;
+            if (last !== null && key !== "" && key === lastAuthor && groupStart > 0 && when > 0
+                && when - groupStart <= 7200000 && lastMedia === 0 && valueMedia === 0) {
                 var text = String(value.body || "");
                 if (text !== "")
                     last.body = String(last.body || "") + (last.body ? "\n" : "") + text;
@@ -331,21 +522,15 @@ WidgetBody {
     readonly property int activeSources: w.countActiveSources()
     readonly property string statusLine: {
         if (w.fatal !== "")
-            return "Feed service unavailable";
-
-        if (w.phase === "loading")
-            return "Loading feeds…";
-
-        if (w.refreshing)
-            return "Refreshing…";
+            return Tr.t("Feed service unavailable");
 
         var count = w.activeStreams;
-        var label = count + (count === 1 ? " stream" : " streams");
+        var label = count + (count === 1 ? Tr.t(" stream") : Tr.t(" streams"));
         if (w.actionError !== "")
-            return label + " · action failed";
+            return label + Tr.t(" · action failed");
 
         if (w.feedErrors.length > 0)
-            return label + " · " + w.feedErrors.length + " stale";
+            return label + " · " + w.feedErrors.length + Tr.t(" stale");
 
         return label;
     }
@@ -409,6 +594,7 @@ WidgetBody {
                     "u": "server-" + String(entry.id || ""),
                     "hay": hay,
                     "hayCompact": hay.replace(/ /g, ""),
+                    "id": String(entry.id || ""),
                     "image": String(entry.image || ""),
                     "copy": String(entry.copy || ""),
                     "animated": entry.animated === true,
@@ -419,12 +605,6 @@ WidgetBody {
             w.rebuildEmojiCatalog();
         } catch (error) {
         }
-    }
-
-    FontLoader {
-        id: inputEmojiFont
-
-        source: Qt.resolvedUrl("../assets/fonts/TwemojiMozilla.ttf")
     }
 
     FileView {
@@ -470,33 +650,247 @@ WidgetBody {
         return SocialEmoji.emojiHtml(html, size, w.emojiBase);
     }
 
+    // Plain-text labels (author names) use StyledText so an emoji can be an
+    // inline SVG with an explicit width; RichText ignores elide.
+    function emojiLabel(value, size) {
+        return SocialEmoji.emojiHtml(SocialEmoji.escapeHtml(String(value || "")), size, w.emojiBase);
+    }
+
+    function cssColor(color, opacity) {
+        var alpha = Number(color.a === undefined ? 1 : color.a) * (opacity === undefined ? 1 : opacity);
+        return "rgba(" + Math.round(color.r * 255) + "," + Math.round(color.g * 255)
+            + "," + Math.round(color.b * 255) + "," + alpha.toFixed(3) + ")";
+    }
+
+    // Markdown is rendered with the same palette as the card it sits on.
+    // Keeping these as CSS colour strings lets the rich-text HTML use them
+    // directly. Quotes reuse the body ink at 60% opacity instead of a block
+    // background.
+    readonly property var markdownColors: ({
+        "quoteBar": Theme.toHex(Theme.primary),
+        "quoteText": w.cssColor(w.inkDim, 0.6),
+        "codeBg": Theme.toHex(Theme.surfaceContainer),
+        "codeText": Theme.toHex(Theme.text),
+        "rule": Theme.toHex(Theme.outline)
+    })
+
     function emojiRich(value, size) {
-        return SocialEmoji.rich(value, size, w.emojiBase);
+        return SocialEmoji.rich(value, size, w.emojiBase, w.markdownColors, Math.max(1, size - 2));
     }
 
     // Discord bodies: Twemoji for Unicode, the CDN image for <:name:id> tags,
     // and the CDN image for Vencord/Equicord FakeNitro links. `linkify` also
     // keeps ordinary URLs clickable in the post cards.
     function discordRich(value, size, linkify, linkColor) {
-        return SocialEmoji.discord(value, size, w.emojiBase, w.emojiTransparent, linkify, linkColor, true);
+        return SocialEmoji.discord(value, size, w.emojiBase, w.emojiTransparent, linkify, linkColor, true, w.markdownColors, Math.max(1, size - 2));
     }
 
     // Compact snippet text (comment previews): emoji images, but no jumbo.
     // Animated emoji use their first frame because there is no overlay here.
     function previewRich(value, size) {
-        return SocialEmoji.discord(value, size, w.emojiBase, "", false, "#000000", false);
+        return SocialEmoji.discord(value, size, w.emojiBase, "", false, "#000000", false, w.markdownColors, Math.max(1, size - 2));
     }
 
     // Like discordRich, but also reports every emitted image in document
     // order so SocialBody can overlay live GIFs on animated custom emoji.
     function discordParts(value, size, linkify, linkColor) {
-        return SocialEmoji.discordParts(value, size, w.emojiBase, w.emojiTransparent, linkify, linkColor, true);
+        return SocialEmoji.discordParts(value, size, w.emojiBase, w.emojiTransparent, linkify, linkColor, true, w.markdownColors, Math.max(1, size - 2));
     }
 
     // A FakeNitro emoji link is the emoji itself. Media parsers must leave it
     // in the body so the emoji renderer can paint it.
     function isEmojiLink(value) {
         return SocialEmoji.isEmojiCdn(value);
+    }
+
+    function emojiIds(value) {
+        var ids = [];
+        var text = String(value || "");
+        var pattern = /\/emojis\/(\d+)\./g;
+        var match;
+        while ((match = pattern.exec(text)) !== null)
+            ids.push(match[1]);
+        return ids;
+    }
+
+    function commentMessageIds(value) {
+        var ref = (value || {}).ref || ({});
+        var ids = [];
+        var list = ref.message_ids || [];
+        for (var i = 0; i < list.length; i++) {
+            var id = String(list[i] || "");
+            if (id !== "" && ids.indexOf(id) < 0)
+                ids.push(id);
+        }
+        if (ref.message_id) {
+            var primary = String(ref.message_id);
+            if (ids.indexOf(primary) < 0)
+                ids.push(primary);
+        }
+        return ids;
+    }
+
+    function firstMessageId(value) {
+        var ref = (value || {}).ref || ({});
+        var ids = ref.message_ids || [];
+        var first = String(ids.length > 0 ? ids[0] : (ref.message_id || ""));
+        var tail = first.split("/").pop();
+        return /^\d+$/.test(tail) ? tail : "";
+    }
+
+    // The feed decided which Discord messages belong to the post body. A
+    // thread response must not paint one of them again as a comment: the
+    // opened post keeps exactly the grouping the reader saw in the feed.
+    function postCoversComment(post, row) {
+        if (!post || post.source !== "discord" || !row)
+            return false;
+        var ref = post.ref || ({});
+        var group = [];
+        var list = ref.message_ids || [];
+        for (var i = 0; i < list.length; i++) {
+            if (String(list[i] || "") !== "")
+                group.push(String(list[i]));
+        }
+        if (ref.message_id && group.indexOf(String(ref.message_id)) < 0)
+            group.push(String(ref.message_id));
+        if (group.length === 0)
+            return false;
+        var ids = w.commentMessageIds(row);
+        for (var j = 0; j < ids.length; j++) {
+            if (group.indexOf(String(ids[j])) >= 0)
+                return true;
+        }
+        return false;
+    }
+
+    // A stale preview can hold a group and its own tail as separate rows.
+    // Keep the outermost row for each message set.
+    function dropCoveredComments(rows) {
+        var source = rows || [];
+        var out = [];
+        for (var i = 0; i < source.length; i++) {
+            var row = source[i];
+            if (!row)
+                continue;
+            var own = w.commentMessageIds(row);
+            var covered = false;
+            if (own.length > 0) {
+                for (var j = 0; j < source.length; j++) {
+                    if (j === i)
+                        continue;
+                    var other = w.commentMessageIds(source[j]);
+                    if (other.length <= own.length)
+                        continue;
+                    var all = true;
+                    for (var k = 0; k < own.length; k++) {
+                        if (other.indexOf(own[k]) < 0) {
+                            all = false;
+                            break;
+                        }
+                    }
+                    if (all) {
+                        covered = true;
+                        break;
+                    }
+                }
+            }
+            if (!covered)
+                out.push(row);
+        }
+        return out;
+    }
+
+    function threadMatches(row) {
+        var query = w.threadSearchQuery.trim().toLowerCase();
+        if (query === "")
+            return true;
+        var who = (row || {}).author || ({});
+        var text = [w.commentText(row), who.display_name, who.handle, row && row.title]
+            .map(function (value) { return String(value || "").toLowerCase(); })
+            .join(" ");
+        return text.indexOf(query) >= 0;
+    }
+
+    function commentText(row) {
+        var body = String((row || {}).body || "");
+        if (body !== "")
+            return body;
+        var segments = (row || {}).body_segments || [];
+        return segments.length > 0 ? segments.join("\n") : "";
+    }
+
+    function commentTextKey(value) {
+        var text = w.commentText(value);
+        text = text
+            .replace(/https?:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/emojis\/\d+\.(?:png|gif|webp)(?:\?[^\s]*)?/gi, ":emoji:")
+            .replace(/<a?:[A-Za-z0-9_]+:\d+>/g, ":emoji:");
+        return text.replace(/\s+/g, " ").trim();
+    }
+
+    function sameCommentContent(a, b) {
+        if (!a || !b)
+            return false;
+        if (w.commentTextKey(a) !== w.commentTextKey(b))
+            return false;
+        if (JSON.stringify(a.media || []) !== JSON.stringify(b.media || []))
+            return false;
+        if (Number(a.comment_count || 0) !== Number(b.comment_count || 0))
+            return false;
+        return true;
+    }
+
+    function emojiOnlyRest(value) {
+        return String(value || "")
+            .replace(/https?:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/emojis\/\d+\.(?:png|gif|webp)(?:\?[^\s]*)?/gi, "")
+            .replace(/<a?:[A-Za-z0-9_]+:\d+>/g, "")
+            .trim();
+    }
+
+    // Discord paints a custom emoji by putting its CDN link in a message of
+    // its own. If that message and the surrounding text end up as two rows,
+    // both carry the emoji. Keep the text row and drop the emoji-only one.
+    function dropSplitEmojiComments(rows) {
+        var out = [];
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!row)
+                continue;
+            var text = w.commentText(row);
+            var ids = w.emojiIds(text);
+            if (ids.length === 0 || w.emojiOnlyRest(text) !== "") {
+                out.push(row);
+                continue;
+            }
+            var author = String((row.author || {}).id || (row.author || {}).handle || "");
+            var when = Date.parse(row.created_at);
+            var duplicate = false;
+            for (var j = 0; j < rows.length && !duplicate; j++) {
+                if (j === i)
+                    continue;
+                var other = rows[j];
+                if (!other)
+                    continue;
+                if (String((other.author || {}).id || (other.author || {}).handle || "") !== author)
+                    continue;
+                var otherText = w.commentText(other);
+                if (w.emojiOnlyRest(otherText) === "")
+                    continue;
+                var away = Math.abs(Date.parse(other.created_at) - when);
+                if (!isFinite(away) || away > 120000)
+                    continue;
+                var otherIds = w.emojiIds(otherText);
+                var covered = otherIds.length > 0;
+                for (var k = 0; k < ids.length && covered; k++) {
+                    if (otherIds.indexOf(ids[k]) < 0)
+                        covered = false;
+                }
+                if (covered)
+                    duplicate = true;
+            }
+            if (!duplicate)
+                out.push(row);
+        }
+        return out;
     }
 
     // Strict subsequence search. Exact substrings win, then in-order matches
@@ -732,6 +1126,43 @@ WidgetBody {
         return total;
     }
 
+    function commentMessageCount(comment) {
+        var ref = (comment || {}).ref || ({});
+        var ids = ref.message_ids || [];
+        var seen = ({});
+        var total = 0;
+        for (var i = 0; i < ids.length; i++) {
+            var id = String(ids[i] || "");
+            if (id !== "" && seen[id] !== true) {
+                seen[id] = true;
+                total += 1;
+            }
+        }
+        return total > 0 ? total : 1;
+    }
+
+    function commentsMessageCount(values) {
+        var total = 0;
+        for (var i = 0; i < (values || []).length; i++)
+            total += w.commentMessageCount(values[i]);
+        return total;
+    }
+
+    // A Discord conversation is ordered by its newest message. Other sources
+    // keep their post time. The service uses the same value for pagination.
+    function feedTimeText(item) {
+        if (!item)
+            return "";
+        var extra = item.extra || {};
+        var latest = extra.latest || {};
+        return String(latest.created_at || item.created_at || "");
+    }
+
+    function feedTime(item) {
+        var value = Date.parse(w.feedTimeText(item));
+        return isFinite(value) ? value : 0;
+    }
+
     function count(value) {
         var number = Number(value);
         if (!isFinite(number) || number < 0)
@@ -879,7 +1310,10 @@ WidgetBody {
         // The New Post channel list is independent of the visible feed and can
         // start loading in parallel so the panel is ready before first use.
         w.loadSendTargets();
-        w.loadFeed(true, true);
+        // The first feed request waits for the stream list. The card's saved
+        // stream selection (Discord in particular) is read through the frame
+        // and may not be populated at Component.onCompleted; sending the feed
+        // before it settles leaves Discord out of the first page.
     }
 
     Component.onCompleted: w.boot()
@@ -888,7 +1322,19 @@ WidgetBody {
             w.boot();
 
     }
+    // Looking at the card is a request for what is current: refresh on entry
+    // and keep a three-second cache-read loop while the pointer is here.
+    onHoveredChanged: {
+        if (w.hovered && w.live && !w.preview && w.booted && !feedProc.running && !w.feedBusy())
+            w.loadFeed(true, false, true);
+    }
     onSearchQueryChanged: {
+        if (w.detailOpen) {
+            // The global feed is behind the thread; typing searches the open
+            // thread through threadSearchQuery instead.
+            searchInput.text = w.threadSearchQuery;
+            return ;
+        }
         feedWheel.stop();
         feedScroll.contentY = 0;
         w.clearSearch();
@@ -961,6 +1407,34 @@ WidgetBody {
     }
 
     Timer {
+        interval: 1000
+        repeat: true
+        // Only while a thread is open: this is what makes a typing entry
+        // disappear when the source never sends a stop event.
+        running: w.live && !w.preview && w.detailOpen
+        onTriggered: {
+            w.typingTick++;
+            // A cleaned cache deletes the file. Re-read while quiet so a
+            // recreated one is picked up even if the watch missed creation.
+            if (w.typingLabel === "")
+                discordTyping.reload();
+        }
+    }
+
+    Timer {
+        interval: 3000
+        repeat: true
+        // Keep what is on screen current. --refresh only touches the network
+        // when a source is past its own TTL, so this is a cache read most of
+        // the time; the UI still catches every change within three seconds.
+        running: w.live && !w.preview && w.booted && w.hovered && w.service !== ""
+        onTriggered: {
+            if (!feedProc.running && !w.feedBusy())
+                w.loadFeed(true, false, true);
+        }
+    }
+
+    Timer {
         interval: 60000
         repeat: true
         running: w.live && !w.preview
@@ -968,7 +1442,7 @@ WidgetBody {
             w.lastFeedRefresh = Date.now();
             // The feed refreshes in the background even while a post is open;
             // closing the thread should not reveal an hour-old page.
-            w.loadFeed(true);
+            w.loadFeed(true, false, true);
             if (w.detailOpen && w.detailPost !== null && w.detailPost.source === "discord") {
                 w.lastThreadRefresh = Date.now();
                 w.loadThread(w.detailId, w.threadLimit, true);
@@ -1018,19 +1492,6 @@ WidgetBody {
         interval: 220
         onTriggered: {
             var now = Date.now();
-            if (w.detailOpen) {
-                var ref = w.detailPost !== null ? (w.detailPost.ref || ({})) : ({});
-                var channel = String(ref.channel_id || "");
-                var account = String(ref.account || "");
-                var channelMatch = w.discordEventChannel === "" || channel === "" || channel === w.discordEventChannel;
-                var accountMatch = w.discordEventSlug === "" || account === "" || account === w.discordEventSlug;
-                // The open conversation updates at most every few seconds.
-                if (w.detailPost !== null && w.detailPost.source === "discord" && channelMatch && accountMatch
-                    && now - w.lastThreadRefresh >= 5000) {
-                    w.lastThreadRefresh = now;
-                    w.loadThread(w.detailId, w.threadLimit, true);
-                }
-            }
             if (!w.discordEventRelevant(w.discordEventSlug, w.discordEventChannel))
                 return ;
             if (now - w.lastFeedRefresh < w.discordFeedInterval) {
@@ -1055,19 +1516,80 @@ WidgetBody {
         printErrors: false
         onFileChanged: reload()
         onLoaded: {
+            var payload = ({});
+            try {
+                payload = JSON.parse(text() || "{}") || ({});
+            } catch (error) {
+                payload = ({});
+            }
+            var list = Array.isArray(payload.events) ? payload.events : [payload];
+            var maxAt = 0;
+            for (var i = 0; i < list.length; i++) {
+                var at = Number((list[i] || {}).at || 0);
+                if (at > maxAt)
+                    maxAt = at;
+            }
+            var stamp = String(maxAt) + "|" + String(list.length) + "|"
+                + String(payload.message_id || "");
             if (!w.discordEventsReady) {
                 w.discordEventsReady = true;
+                w.discordEventStamp = stamp;
+                w.discordLastEventAt = maxAt;
                 return ;
             }
-            try {
-                var event = JSON.parse(text() || "{}");
-                w.noteDiscordEvent(event.slug || "", event.channel_id || "");
-            } catch (error) {
-                w.noteDiscordEvent("", "");
+            // Polling reloads unchanged content; only a new gateway write may
+            // wake the feed.
+            if (stamp === w.discordEventStamp)
+                return ;
+            w.discordEventStamp = stamp;
+            var previousAt = w.discordLastEventAt;
+            if (maxAt > previousAt)
+                w.discordLastEventAt = maxAt;
+            // Pick the newest event that is both new and relevant to this
+            // card. The feed refresh covers every new item in one pass.
+            var chosen = null;
+            for (var j = 0; j < list.length; j++) {
+                var event = list[j] || ({});
+                var when = Number(event.at || 0);
+                if (when > 0 && when <= previousAt)
+                    continue;
+                if (!w.discordEventRelevant(event.slug || "", event.channel_id || ""))
+                    continue;
+                if (chosen === null || when >= Number(chosen.at || 0))
+                    chosen = event;
             }
-
+            if (chosen !== null)
+                w.noteDiscordEvent(chosen.slug || "", chosen.channel_id || "");
         }
         onLoadFailed: w.discordEventsReady = true
+    }
+
+    Timer {
+        interval: 1200
+        repeat: true
+        running: w.live && !w.preview
+        // Atomic replaces can leave the inotify watch pointing at the old
+        // inode. This cheap re-read is what makes a Discord message appear as
+        // soon as the gateway signals it.
+        onTriggered: discordEvents.reload()
+    }
+
+    FileView {
+        id: discordTyping
+
+        path: w.home + "/.cache/lucid-social/discord/typing.json"
+        blockLoading: true
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                w.typingState = JSON.parse(text() || "{}");
+            } catch (error) {
+                w.typingState = ({});
+            }
+        }
+        onLoadFailed: w.typingState = ({})
     }
 
     // Notifications write the post id here after choosing a workspace; this is
@@ -1111,6 +1633,7 @@ WidgetBody {
                 throw new Error("unexpected streams schema");
 
             w.sources = value.sources || [];
+            w.streamErrors = value.errors || [];
             w.pruneSelection();
             // Preload the channel picker in the background so the new-post
             // panel is instantly searchable when it opens.
@@ -1119,22 +1642,57 @@ WidgetBody {
                 w.actionError = value.errors[0].message || "a source could not be listed";
 
         } catch (error) {
-            w.fatal = "Could not read the source list from " + w.service + ".";
+            w.fatal = Tr.fmt("Could not read the source list from %1.", w.service);
+        }
+        // The saved stream selection is now available. Start the first feed
+        // only here, not in boot(), so Discord selections are included in the
+        // very first page instead of arriving on a later refresh.
+        if (w.booted) {
+            var firstFeed = w.items.length === 0;
+            Qt.callLater(function () { w.loadFeed(true, firstFeed); });
         }
     }
 
     function pruneSelection() {
         var sourceIds = ({});
         var streamIds = ({});
-        for (var i = 0; i < w.sources.length; i++) {
-            sourceIds[w.sources[i].id] = true;
-            var streams = w.sources[i].streams || [];
-            for (var j = 0; j < streams.length; j++)
-                streamIds[streams[j].id] = true;
+        var completeSources = ({});
+        var completeStreams = ({});
+        var failed = ({});
+        for (var e = 0; e < w.streamErrors.length; e++) {
+            var errorSource = String((w.streamErrors[e] || {}).source || "");
+            if (errorSource !== "")
+                failed[errorSource] = true;
         }
-        var offS = w.offSources.filter((id) => sourceIds[id] === true);
-        var offSt = w.offStreams.filter((id) => streamIds[id] === true);
-        var onSt = w.onStreams.filter((id) => streamIds[id] === true);
+        for (var i = 0; i < w.sources.length; i++) {
+            var source = w.sources[i];
+            var sourceId = String(source.id || "");
+            sourceIds[sourceId] = true;
+            var streams = source.streams || [];
+            var complete = streams.length > 0
+                && source.configured !== false
+                && failed[sourceId] !== true;
+            if (complete)
+                completeSources[sourceId] = true;
+            for (var j = 0; j < streams.length; j++) {
+                streamIds[streams[j].id] = true;
+                if (complete)
+                    completeStreams[streams[j].id] = true;
+            }
+        }
+        function keepSource(id) {
+            return sourceIds[id] === true;
+        }
+        function keepStream(id) {
+            var sourceId = String(id || "").split("/", 1)[0];
+            var sourceComplete = completeSources[sourceId] === true;
+            if (streamIds[id] === true)
+                return !sourceComplete || completeStreams[id] === true;
+            return sourceIds[sourceId] === true && !sourceComplete;
+        }
+        var offS = w.offSources.filter(keepSource);
+        var offSt = w.offStreams.filter(keepStream);
+        var onSt = w.onStreams.filter(keepStream);
         if (offS.length !== w.offSources.length || offSt.length !== w.offStreams.length || onSt.length !== w.onStreams.length)
             w.setOpts({
                 "socialSourcesOff": offS,
@@ -1175,11 +1733,12 @@ WidgetBody {
         w.pendingFeedText = "";
         w.feedScrolling = false;
         w.feedReturnAnchor = null;
+        w.feedScrollEpoch++;
         feedScrollQuiet.stop();
         w.phase = "loading";
     }
 
-    function loadFeed(refresh, force) {
+    function loadFeed(refresh, force, quiet) {
         if (w.preview || !w.live || w.service === "")
             return ;
 
@@ -1207,14 +1766,19 @@ WidgetBody {
         w.feedLoadingMore = false;
         w.feedMorePending = false;
         w.feedRequestLimit = want;
-        w.refreshing = true;
-        w.phase = w.items.length > 0 ? w.phase : "loading";
+        w.refreshing = quiet !== true;
+        if (quiet !== true)
+            w.phase = w.items.length > 0 ? w.phase : "loading";
         feedProc.command = w.feedArgs(want, "", "", refresh, force);
         feedProc.running = true;
     }
 
     function loadMoreFeed() {
         if (w.preview || !w.live || w.service === "" || w.detailOpen)
+            return ;
+        // While a search is open its own cursor walks the list; do not mix in
+        // an older feed page that the filter would hide anyway.
+        if (w.searchQuery !== "")
             return ;
         if (w.feedAtEnd || w.feedLoadingMore)
             return ;
@@ -1226,8 +1790,8 @@ WidgetBody {
         var oldest = "";
         var oldestId = "";
         for (var i = w.items.length - 1; i >= 0; i--) {
-            if (w.items[i] && w.items[i].created_at) {
-                oldest = String(w.items[i].created_at);
+            if (w.items[i] && w.feedTimeText(w.items[i]) !== "") {
+                oldest = w.feedTimeText(w.items[i]);
                 oldestId = String(w.items[i].id || "");
                 break;
             }
@@ -1243,12 +1807,403 @@ WidgetBody {
         feedProc.running = true;
     }
 
+    function filterProfile(list) {
+        if (!w.profileOpen)
+            return list;
+        var id = String((w.profileAuthor || {}).id || "");
+        var handle = String((w.profileAuthor || {}).handle || "").replace(/^@/, "").toLowerCase();
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            var author = (list[i] || {}).author || ({});
+            if ((id !== "" && String(author.id || "") === id)
+                || (handle !== "" && String(author.handle || "").toLowerCase().replace(/^@/, "") === handle))
+                out.push(list[i]);
+        }
+        return out;
+    }
+
+    function profileColor(source) {
+        switch (String(source || "")) {
+        case "twitter": return "#1d9bf0";
+        case "bluesky": return "#1185fe";
+        case "hackernews": return "#ff6600";
+        case "youtube": return "#ff0033";
+        case "discord": return "#5865f2";
+        case "nexusmods": return "#da8e35";
+        }
+        return Theme.primary;
+    }
+
+    function profileQueryFor(source, author, account, guild, channel) {
+        var handle = String((author || {}).handle || "").replace(/^@/, "");
+        var id = String((author || {}).id || "");
+        if (source === "twitter")
+            return handle !== "" ? "@" + handle : "";
+        if (source === "hackernews")
+            return handle !== "" ? "u/" + handle : "";
+        if (source === "bluesky")
+            return handle !== "" ? "bsky/" + handle : "";
+        if (source === "youtube")
+            return (id || handle) !== "" ? "yt/" + (id || handle) : "";
+        if (source === "discord" && id !== "" && account !== "") {
+            if (channel !== "")
+                return "dchannel/" + account + "/" + id + "/" + channel;
+            if (guild !== "")
+                return "dguild/" + account + "/" + id + "/" + guild;
+        }
+        return "";
+    }
+
+    function profileCacheKeyFor(source, author, account, channel, guild) {
+        var id = String((author || {}).id || (author || {}).handle || (author || {}).display_name || "");
+        return [String(source || ""), id.toLowerCase(), String(account || ""), String(channel || ""), String(guild || "")].join("|");
+    }
+
+    function readProfileCache(key) {
+        var cache = w.opt("socialProfileCache");
+        if (typeof cache === "string" && cache !== "") {
+            try {
+                cache = JSON.parse(cache);
+            } catch (error) {
+                cache = ({});
+            }
+        }
+        if (!cache || typeof cache !== "object")
+            return null;
+        return cache[key] || null;
+    }
+
+    function writeProfileCache(key, profile, tabs) {
+        if (key === "" || !profile)
+            return ;
+        var cache = w.opt("socialProfileCache");
+        if (typeof cache === "string" && cache !== "") {
+            try {
+                cache = JSON.parse(cache);
+            } catch (error) {
+                cache = ({});
+            }
+        }
+        if (!cache || typeof cache !== "object")
+            cache = ({});
+        var next = {};
+        var entries = [];
+        for (var oldKey in cache) {
+            var value = cache[oldKey];
+            if (!value || oldKey === key)
+                continue;
+            entries.push({"key": oldKey, "value": value, "saved": Number(value.saved_at || 0)});
+        }
+        entries.sort((a, b) => b.saved - a.saved);
+        for (var i = 0; i < entries.length && i < 24; i++)
+            next[entries[i].key] = entries[i].value;
+        next[key] = {
+            "profile": profile,
+            "tabs": tabs || [],
+            "saved_at": Date.now()
+        };
+        w.setOpt("socialProfileCache", next);
+    }
+
+    function openProfile(author, source, context) {
+        if (!author)
+            return ;
+        if (w.detailOpen)
+            w.closeDetail();
+        w.pickerOpen = false;
+        w.newPostOpen = false;
+        w.profileAuthor = author;
+        w.profileSource = String(source || "");
+        var ref = (context || {}).ref || (w.detailPost || {}).ref || ({});
+        w.profileAccount = String(ref.account || "");
+        w.profileChannel = String(ref.channel_id || "");
+        w.profileGuild = String(ref.guild_id || "");
+        w.profileUserId = String(author.id || ref.user_id || "");
+        w.profileMeta = {
+            "source": w.profileSource,
+            "handle": String(author.handle || "").replace(/^@/, ""),
+            "display_name": author.display_name || author.handle || "",
+            "bio": "",
+            "banner_url": "",
+            "avatar_url": author.avatar_url || "",
+            "accent_color": w.profileColor(w.profileSource),
+            "counts": {},
+            "can_follow": false,
+            "can_message": w.profileSource === "discord" || w.profileSource === "twitter" || w.profileSource === "bluesky",
+            "tabs": []
+        };
+        w.profileFollowing = false;
+        w.profileHeaderHeight = 0;
+        w.profileError = "";
+        w.profileTab = "";
+        w.profileFilter = "";
+        var query = w.profileQueryFor(w.profileSource, author, w.profileAccount, w.profileGuild, w.profileChannel);
+        w.profileTabs = query !== "" ? [{"id": "posts", "title": Tr.t("Posts"), "filter": "", "query": query}] : [];
+        w.profileTab = "posts";
+        w.profileQuery = query;
+        w.profileCacheKey = w.profileCacheKeyFor(w.profileSource, author, w.profileAccount, w.profileChannel, w.profileGuild);
+        var cached = w.readProfileCache(w.profileCacheKey);
+        if (cached && cached.profile) {
+            // Show the previous header immediately. The service request below
+            // still runs so an updated bio/banner/counts replaces it.
+            w.profileMeta = cached.profile;
+            w.profileFollowing = cached.profile.following === true;
+            if (Array.isArray(cached.tabs) && cached.tabs.length > 0) {
+                w.profileTabs = cached.tabs.slice();
+                var cachedTab = w.profileTabs[0];
+                for (var ct = 0; ct < w.profileTabs.length; ct++) {
+                    if (String(w.profileTabs[ct].id) === w.profileTab) {
+                        cachedTab = w.profileTabs[ct];
+                        break;
+                    }
+                }
+                w.profileTab = String(cachedTab.id || w.profileTab);
+                w.profileFilter = String(cachedTab.filter || "");
+                if (String(cachedTab.query || "") !== "")
+                    w.profileQuery = String(cachedTab.query);
+            }
+            if (cached.profile.display_name)
+                w.profileAuthor = Object.assign({}, w.profileAuthor || {}, {
+                    "display_name": cached.profile.display_name,
+                    "handle": String(cached.profile.handle || (w.profileAuthor || {}).handle || ""),
+                    "avatar_url": String(cached.profile.avatar_url || (w.profileAuthor || {}).avatar_url || "")
+                });
+        }
+        w.searchQuery = w.profileQuery;
+        w.loadProfileMeta();
+        // The profile prepends a header row to this same list. Any anchor
+        // captured for the previous model is meaningless now.
+        w.feedScrollEpoch++;
+        w.feedReturnAnchor = null;
+        feedWheel.stop();
+        feedScroll.contentY = 0;
+        Qt.callLater(function () { feedScroll.positionViewAtBeginning(); });
+    }
+
+    function loadProfileMeta() {
+        if (!w.profileOpen || w.service === "")
+            return ;
+        w.profileBusy = true;
+        var args = [w.service, "profile", "--json", "--source", w.profileSource,
+            "--handle", String((w.profileAuthor || {}).handle || "").replace(/^@/, ""),
+            "--user-id", w.profileUserId,
+            "--account", w.profileAccount,
+            "--guild", w.profileGuild,
+            "--channel", w.profileChannel,
+            "--display-name", String((w.profileAuthor || {}).display_name || "")];
+        profileProc.command = args;
+        profileProc.running = true;
+    }
+
+    function consumeProfile(text) {
+        w.profileBusy = false;
+        try {
+            var value = JSON.parse(text);
+            var profile = value.profile || ({});
+            w.profileMeta = profile;
+            w.profileFollowing = profile.following === true;
+            w.profileTabs = (profile.tabs || []).slice();
+            w.profileError = (value.errors || []).length > 0 ? Tr.t(value.errors[0].message || "") : "";
+            if (w.profileTabs.length > 0) {
+                var found = null;
+                for (var i = 0; i < w.profileTabs.length; i++) {
+                    if (String(w.profileTabs[i].id) === w.profileTab) {
+                        found = w.profileTabs[i];
+                        break;
+                    }
+                }
+                if (!found)
+                    found = w.profileTabs[0];
+                w.profileTab = String(found.id);
+                w.profileFilter = String(found.filter || "");
+                if (String(found.query || "") !== "" && String(found.query) !== w.profileQuery) {
+                    w.profileQuery = String(found.query);
+                    w.searchQuery = w.profileQuery;
+                }
+            }
+            if (profile.display_name)
+                w.profileAuthor = Object.assign({}, w.profileAuthor || {}, {
+                    "display_name": profile.display_name,
+                    "handle": String(profile.handle || (w.profileAuthor || {}).handle || ""),
+                    "avatar_url": String(profile.avatar_url || (w.profileAuthor || {}).avatar_url || "")
+                });
+            w.writeProfileCache(w.profileCacheKey, profile, w.profileTabs);
+        } catch (error) {
+            w.profileError = Tr.t("Could not load this profile.");
+        }
+    }
+
+    function selectProfileTab(id) {
+        var tab = null;
+        for (var i = 0; i < w.profileTabs.length; i++) {
+            if (String(w.profileTabs[i].id) === String(id)) {
+                tab = w.profileTabs[i];
+                break;
+            }
+        }
+        if (!tab)
+            return ;
+        w.profileTab = String(tab.id);
+        w.profileFilter = String(tab.filter || "");
+        var query = String(tab.query || w.profileQuery);
+        feedScroll.contentY = 0;
+        if (query !== w.profileQuery) {
+            w.profileQuery = query;
+            w.searchQuery = query;
+        } else {
+            w.clearSearch();
+            searchDebounce.restart();
+        }
+    }
+
+    function toggleProfileFollow() {
+        if (w.profileFollowBusy || !w.profileOpen)
+            return ;
+        if (!(w.profileMeta || {}).can_follow)
+            return ;
+        w.profileFollowBusy = true;
+        var handle = String((w.profileMeta || {}).handle || (w.profileAuthor || {}).handle || "").replace(/^@/, "");
+        followProc.command = [w.service, "follow", "--json", "--source", w.profileSource,
+            "--handle", handle, w.profileFollowing ? "--off" : "--on"];
+        followProc.running = true;
+    }
+
+    function consumeFollow(text) {
+        w.profileFollowBusy = false;
+        try {
+            var value = JSON.parse(text);
+            if (value.ok !== true) {
+                w.profileError = Tr.t(value.error || "Could not update the follow state.");
+                return ;
+            }
+            w.profileFollowing = value.following === true;
+            var meta = Object.assign({}, w.profileMeta || {});
+            meta.following = w.profileFollowing;
+            meta.follow_label = w.profileFollowing ? Tr.t("Following") : Tr.t("Follow");
+            w.profileMeta = meta;
+        } catch (error) {
+            w.profileError = Tr.t("The follow service returned an unexpected payload.");
+        }
+    }
+
+    function startProfileMessage() {
+        if (!w.profileOpen)
+            return ;
+        if (w.profileSource === "discord" && (w.profileChannel !== "" || w.profileGuild !== "")) {
+            w.pendingProfileTarget = true;
+            if (!w.newPostOpen)
+                w.toggleNewPost();
+            w.selectProfileSendTarget();
+            return ;
+        }
+        if (w.profileSource === "twitter") {
+            var id = String(w.profileUserId || (w.profileAuthor || {}).id || "");
+            var handle = String((w.profileAuthor || {}).handle || "").replace(/^@/, "");
+            w.openUrl(/^\d+$/.test(id) ? "https://x.com/messages/compose?recipient_id=" + id
+                : "https://x.com/" + handle, null, {});
+            return ;
+        }
+        if (w.profileSource === "bluesky")
+            w.openUrl("https://bsky.app/messages", null, {});
+    }
+
+    function selectProfileSendTarget() {
+        if (!w.pendingProfileTarget || !w.newPostOpen)
+            return ;
+        for (var i = 0; i < w.sendTargets.length; i++) {
+            var target = w.sendTargets[i];
+            if (w.profileChannel !== "" && String(target.channel_id || "") !== w.profileChannel)
+                continue;
+            if (w.profileChannel === "" && w.profileGuild !== "" && String(target.guild_id || "") !== w.profileGuild)
+                continue;
+            if (w.profileAccount !== "" && String(target.account || "") !== w.profileAccount)
+                continue;
+            w.resetSendSelection([target]);
+            w.sendCursorKey = w.sendTargetKey(target);
+            w.pendingProfileTarget = false;
+            return ;
+        }
+        if (!w.sendTargetsLoading)
+            w.pendingProfileTarget = false;
+    }
+
+    function compactCount(value) {
+        var number = Number(value);
+        if (!isFinite(number) || value === null || value === undefined)
+            return "";
+        if (number >= 1000000000)
+            return (number / 1000000000).toFixed(number >= 10000000000 ? 0 : 1) + "B";
+        if (number >= 1000000)
+            return (number / 1000000).toFixed(number >= 10000000 ? 0 : 1) + "M";
+        if (number >= 1000)
+            return (number / 1000).toFixed(number >= 10000 ? 0 : 1) + "K";
+        return String(number);
+    }
+
+    function closeProfile() {
+        var wasProfileSearch = w.profileQuery !== "" && w.searchQuery === w.profileQuery;
+        w.profileAuthor = null;
+        w.profileMeta = ({});
+        w.profileTabs = [];
+        w.profileSource = "";
+        w.profileQuery = "";
+        w.profileCacheKey = "";
+        w.profileTab = "";
+        w.profileFilter = "";
+        w.profileAccount = "";
+        w.profileChannel = "";
+        w.profileGuild = "";
+        w.profileUserId = "";
+        w.profileError = "";
+        w.profileFollowing = false;
+        w.profileHeaderHeight = 0;
+        w.pendingProfileTarget = false;
+        if (wasProfileSearch)
+            w.searchQuery = "";
+        // Removing the header row changes every delegate's y. Invalidate any
+        // pending anchor restore from the profile model and land on the first
+        // post once the list has rebuilt without the header.
+        w.feedScrollEpoch++;
+        w.feedReturnAnchor = null;
+        feedWheel.stop();
+        feedScroll.contentY = 0;
+        Qt.callLater(function () { feedScroll.positionViewAtBeginning(); });
+    }
+
     function clearSearch() {
         w.searchResults = [];
         w.searchChannels = [];
         w.searchScopeStreams = [];
         w.searchResultQuery = "";
         w.searchServed = false;
+        w.searchHasMore = false;
+        w.searchMoreLoading = false;
+        w.searchMorePending = false;
+        w.searchAppend = false;
+        w.searchPrefetching = false;
+        w.searchMode = "";
+        w.searchNextBefore = "";
+        w.searchNextBeforeId = "";
+    }
+
+    function searchArgs(limit, before, beforeId, mode) {
+        var args = [w.service, "search", "--json", "--query", w.searchQuery.trim(), "--limit", String(limit)];
+        if (before !== "") {
+            args.push("--before", before);
+            if (beforeId !== "")
+                args.push("--before-id", beforeId);
+            if (mode !== "")
+                args.push("--mode", mode);
+        }
+        for (var i = 0; i < w.offSources.length; i++)
+            args.push("--exclude-source", w.offSources[i]);
+        for (var j = 0; j < w.offStreams.length; j++)
+            args.push("--exclude-stream", w.offStreams[j]);
+        for (var k = 0; k < w.onStreams.length; k++)
+            args.push("--include-stream", w.onStreams[k]);
+        if (w.profileOpen && w.profileFilter !== "")
+            args.push("--profile-filter", w.profileFilter);
+        return args;
     }
 
     function runSearch() {
@@ -1262,19 +2217,71 @@ WidgetBody {
             return ;
         }
         w.searchLoading = true;
-        var args = [w.service, "search", "--json", "--query", query, "--limit", "200"];
-        for (var i = 0; i < w.offSources.length; i++)
-            args.push("--exclude-source", w.offSources[i]);
-        for (var j = 0; j < w.offStreams.length; j++)
-            args.push("--exclude-stream", w.offStreams[j]);
-        for (var k = 0; k < w.onStreams.length; k++)
-            args.push("--include-stream", w.onStreams[k]);
-        searchProc.command = args;
+        w.searchAppend = false;
+        w.searchMoreLoading = false;
+        searchProc.command = w.searchArgs(w.searchPageLimit, "", "", "");
+        searchProc.running = true;
+    }
+
+    // Scroll to the bottom of a search result list and the next page walks
+    // further back through the matched channel, or through the index.
+    function loadMoreSearch() {
+        if (w.preview || !w.live || w.service === "" || w.detailOpen)
+            return ;
+        if (w.searchQuery.trim() === "" || !w.searchHasMore || w.searchMoreLoading)
+            return ;
+        if (searchProc.running) {
+            w.searchMorePending = true;
+            return ;
+        }
+        if (w.searchNextBefore === "")
+            return ;
+        w.searchMoreLoading = true;
+        w.searchPrefetching = false;
+        w.searchAppend = true;
+        searchProc.command = w.searchArgs(w.searchPageLimit, w.searchNextBefore, w.searchNextBeforeId, w.searchMode);
+        searchProc.running = true;
+    }
+
+    function searchBufferBelow() {
+        return feedScroll.contentHeight - (feedScroll.contentY + feedScroll.height);
+    }
+
+    // Keep a couple of screens buffered. The X profile scrape takes several
+    // seconds, so fetching only when the reader hits the bottom still feels
+    // delayed; fetch while the buffer is short instead.
+    function maybePrefetchSearch() {
+        if (w.preview || !w.live || w.detailOpen)
+            return ;
+        if (w.searchQuery === "" || !w.searchHasMore || w.searchMoreLoading)
+            return ;
+        if (searchProc.running || w.searchNextBefore === "")
+            return ;
+        if (w.searchBufferBelow() > Theme.dp(2400))
+            return ;
+        w.prefetchSearch();
+    }
+
+    function prefetchSearch() {
+        if (w.preview || !w.live || w.service === "" || w.detailOpen)
+            return ;
+        if (w.searchQuery.trim() === "" || !w.searchHasMore || w.searchMoreLoading || w.searchPrefetching)
+            return ;
+        if (searchProc.running || w.searchNextBefore === "")
+            return ;
+        w.searchMoreLoading = true;
+        w.searchPrefetching = true;
+        w.searchAppend = true;
+        searchProc.command = w.searchArgs(w.searchPageLimit, w.searchNextBefore, w.searchNextBeforeId, w.searchMode);
         searchProc.running = true;
     }
 
     function consumeSearch(text) {
         w.searchLoading = false;
+        w.searchMoreLoading = false;
+        var appending = w.searchAppend;
+        w.searchAppend = false;
+        w.searchPrefetching = false;
         try {
             var value = JSON.parse(text);
             if (value.schema !== "lucid.social/search" || value.schema_version !== w.schemaVersion)
@@ -1288,11 +2295,53 @@ WidgetBody {
                 if (streamId !== "" && scope.indexOf(streamId) < 0)
                     scope.push(streamId);
             }
-            w.searchChannels = channels;
-            w.searchScopeStreams = scope;
-            w.searchResults = value.items || [];
+            var incoming = value.items || [];
+            if (appending && w.searchResultQuery === String(value.query || w.searchQuery.trim())) {
+                var seen = ({});
+                var merged = [];
+                for (var m = 0; m < w.searchResults.length; m++) {
+                    var prior = w.searchResults[m];
+                    if (prior && prior.id && seen[prior.id] !== true) {
+                        seen[prior.id] = true;
+                        merged.push(prior);
+                    }
+                }
+                for (var q = 0; q < incoming.length; q++) {
+                    var hit = incoming[q];
+                    if (hit && hit.id && seen[hit.id] !== true) {
+                        seen[hit.id] = true;
+                        merged.push(hit);
+                    }
+                }
+                w.searchResults = merged;
+                // If the cursor did not move the next page would be this same
+                // page again; stop even if the source still claims more.
+                var nextBefore = String(value.next_before || "");
+                var nextId = String(value.next_before_id || "");
+                var advanced = nextBefore !== "" && (nextBefore !== w.searchNextBefore || nextId !== w.searchNextBeforeId);
+                w.searchHasMore = value.has_more === true && advanced;
+            } else {
+                // A late/empty profile page must not wipe cards already shown.
+                // Profile pages can be slow and can return an empty cursor page
+                // while the source catches up.
+                var keepProfileRows = w.profileOpen && incoming.length === 0
+                    && w.searchResults.length > 0
+                    && w.searchResultQuery === String(value.query || w.searchQuery.trim());
+                w.searchChannels = channels;
+                w.searchScopeStreams = scope;
+                if (!keepProfileRows)
+                    w.searchResults = incoming;
+                w.searchHasMore = value.has_more === true;
+            }
+            w.searchMode = String(value.mode || w.searchMode || "");
+            w.searchNextBefore = String(value.next_before || "");
+            w.searchNextBeforeId = String(value.next_before_id || "");
             w.searchResultQuery = String(value.query || w.searchQuery.trim());
             w.searchServed = true;
+            // Fill the buffer below the viewport, but never chain pages while
+            // the reader is still far from the end of the list.
+            if (w.searchHasMore)
+                Qt.callLater(w.maybePrefetchSearch);
         } catch (error) {
             w.searchServed = false;
         }
@@ -1308,8 +2357,22 @@ WidgetBody {
     }
 
     function maybeLoadMoreFeed() {
-        if (w.searchQuery !== "")
+        if (w.searchQuery !== "") {
+            // Searching is still a list the reader scrolls; keep walking the
+            // matched channel or the index instead of stopping at page one.
+            if (!w.searchHasMore || w.searchMoreLoading || searchProc.running)
+                return ;
+            if (feedScroll.contentHeight <= feedScroll.height + Theme.dp(4)) {
+                w.loadMoreSearch();
+                return ;
+            }
+            // X takes several seconds to scrape, so start while the reader is
+            // still a couple of screens away rather than at the last pixel.
+            if (w.searchBufferBelow() > Theme.dp(2400))
+                return ;
+            w.loadMoreSearch();
             return ;
+        }
         if (!w.live || w.preview || w.detailOpen || w.feedAtEnd || w.feedLoadingMore || feedProc.running)
             return ;
         if (feedScroll.contentHeight <= feedScroll.height + Theme.dp(4)) {
@@ -1344,7 +2407,11 @@ WidgetBody {
             return null;
         return {
             "id": best.modelData.id,
-            "offset": feedScroll.contentY - best.y
+            "offset": feedScroll.contentY - best.y,
+            // Remember the old y so a restore shifts by the height inserted
+            // above the anchor instead of forcing an absolute position from a
+            // delegate whose layout may not have settled yet.
+            "y": best.y
         };
     }
 
@@ -1354,11 +2421,15 @@ WidgetBody {
     // up. This avoids the old behaviour where a late restore could drag the
     // viewport back down after the reader had already scrolled up.
     function restoreFeedAnchor(anchor) {
-        if (!anchor || !anchor.id || w.detailOpen || w.feedBusy())
+        if (!anchor || !anchor.id || w.detailOpen || w.profileOpen || w.feedBusy())
             return;
+        var epoch = w.feedScrollEpoch;
         var index = -1;
-        for (var i = 0; i < w.shownItems.length; i++) {
-            if (w.shownItems[i] && w.shownItems[i].id === anchor.id) {
+        // Index into the exact model the list is showing. Using shownItems
+        // while the profile header row is prepended selected the wrong
+        // delegate and shifted the feed by the header's height.
+        for (var i = 0; i < w.feedValues.length; i++) {
+            if (w.feedValues[i] && w.feedValues[i].id === anchor.id) {
                 index = i;
                 break;
             }
@@ -1368,7 +2439,7 @@ WidgetBody {
         var offset = anchor.offset;
         var attempt = 0;
         function apply() {
-            if (w.feedBusy())
+            if (w.feedBusy() || w.feedScrollEpoch !== epoch || w.profileOpen)
                 return;
             var item = feedScroll.itemAtIndex(index);
             if (item === null) {
@@ -1378,8 +2449,14 @@ WidgetBody {
                 }
                 return;
             }
-            var limit = Math.max(0, feedScroll.contentHeight - feedScroll.height);
-            feedScroll.contentY = Math.max(0, Math.min(limit, item.y + offset));
+            // Shift by the difference, never jump to an absolute position.
+            // A stale absolute y (delegate laid out before the insertion) was
+            // what pinned the feed down and made scrolling back up impossible.
+            var delta = item.y - Number(anchor.y || 0);
+            if (Math.abs(delta) >= 0.5) {
+                var limit = Math.max(0, feedScroll.contentHeight - feedScroll.height);
+                feedScroll.contentY = Math.max(0, Math.min(limit, feedScroll.contentY + delta));
+            }
         }
         Qt.callLater(apply);
     }
@@ -1421,7 +2498,7 @@ WidgetBody {
         w.lastFeedRefresh = Date.now();
         w.feedAppend = false;
         w.feedLoadingMore = false;
-        var anchor = (append || w.detailOpen || w.feedReturnAnchor !== null)
+        var anchor = (append || w.detailOpen || w.profileOpen || w.feedReturnAnchor !== null)
             ? null
             : w.captureFeedAnchor();
         try {
@@ -1448,7 +2525,7 @@ WidgetBody {
             for (var key in byId)
                 next.push(byId[key]);
             next.sort((a, b) => {
-                var when = Date.parse(b.created_at) - Date.parse(a.created_at);
+                var when = w.feedTime(b) - w.feedTime(a);
                 if (when !== 0)
                     return when;
                 var aid = String(a.id), bid = String(b.id);
@@ -1456,7 +2533,23 @@ WidgetBody {
             });
             if (next.length > 3000)
                 next = next.slice(0, 3000);
-            w.items = next;
+            var samePosts = next.length === w.items.length;
+            if (samePosts) {
+                for (var sp = 0; sp < next.length; sp++) {
+                    if (next[sp] !== w.items[sp]) {
+                        samePosts = false;
+                        break;
+                    }
+                }
+            }
+            if (!samePosts)
+                w.items = next;
+            else
+                // Nothing moved, so there is no anchor to restore. Touching
+                // contentY on an unchanged model is what made a silent
+                // refresh fight the reader.
+                anchor = null;
+            w.currentUserAuthor();
             if (append) {
                 if (incoming.length < w.feedRequestLimit)
                     w.feedAtEnd = true;
@@ -1477,7 +2570,7 @@ WidgetBody {
             if (append)
                 w.feedAtEnd = true;
             w.phase = w.items.length > 0 ? "ready" : "failed";
-            w.fatal = "lucid-social returned an unexpected payload.";
+            w.fatal = Tr.t("lucid-social returned an unexpected payload.");
         }
     }
 
@@ -1495,15 +2588,228 @@ WidgetBody {
         w.detailPost = null;
     }
 
+    // Older feed/thread caches can contain one row per Discord message.
+    // Group them before the first commentView layout so a thread never opens
+    // flat and then rearranges itself after a refresh.
+    function groupComments(values) {
+        var source = values || [];
+        var out = [];
+        var window = 7200000;
+
+        function messageIds(value) {
+            var ref = value.ref || ({});
+            var ids = (ref.message_ids || []).slice();
+            if (ids.length === 0 && ref.message_id)
+                ids = [String(ref.message_id)];
+            return ids;
+        }
+        function segments(value) {
+            var list = value.body_segments || [];
+            var ref = value.ref || ({});
+            if (Array.isArray(ref.segment_ids) && list.length > 0) {
+                // Media-only slots are empty strings. They must stay so the
+                // segment id/media arrays remain aligned and the thread can
+                // place each attachment between its surrounding messages.
+                return list.map(function (item) { return String(item || ""); });
+            }
+            var clean = [];
+            for (var i = 0; i < list.length; i++) {
+                if (String(list[i] || "").trim() !== "")
+                    clean.push(String(list[i]));
+            }
+            if (clean.length > 0)
+                return clean;
+            var body = String(value.body || "");
+            return body.trim() !== "" ? [body] : [];
+        }
+
+        for (var i = 0; i < source.length; i++) {
+            var raw = source[i];
+            if (!raw)
+                continue;
+            var value = Object.assign({}, raw);
+            var valueRef = Object.assign({}, raw.ref || ({}));
+            valueRef.message_ids = messageIds(raw);
+            value.ref = valueRef;
+            value.body_segments = segments(raw);
+            value.media = (raw.media || []).slice();
+            var last = out.length > 0 ? out[out.length - 1] : null;
+            var lastRef = last !== null ? (last.ref || ({})) : ({});
+            var lastAuthor = last !== null ? (last.author || ({})) : ({});
+            var valueAuthor = value.author || ({});
+            var lastKey = String(lastAuthor.id || lastAuthor.handle || lastAuthor.display_name || "");
+            var valueKey = String(valueAuthor.id || valueAuthor.handle || valueAuthor.display_name || "");
+            var started = last !== null ? Date.parse(last.created_at) : NaN;
+            var when = Date.parse(value.created_at);
+            // A newly sent comment has to join the latest author group even
+            // though that group was already folded by the service. Only an
+            // incoming grouped row is held back, so two existing groups are
+            // never merged by this second pass.
+            var canGroup = last !== null
+                && value.grouped !== true
+                && last.pending !== true && value.pending !== true
+                && String(last.parent_id || "") === String(value.parent_id || "")
+                && lastKey !== "" && lastKey === valueKey
+                && isFinite(started) && isFinite(when)
+                && when - started <= window;
+            if (!canGroup) {
+                out.push(value);
+                continue;
+            }
+            var lastBody = String(last.body || "");
+            var valueBody = String(value.body || "");
+            if (valueBody)
+                last.body = lastBody + (lastBody ? "\n" : "") + valueBody;
+            last.body_segments = segments(last).concat(value.body_segments);
+            last.media = (last.media || []).concat(value.media || []);
+            var ids = messageIds(last);
+            for (var idIndex = 0; idIndex < valueRef.message_ids.length; idIndex++) {
+                var messageId = String(valueRef.message_ids[idIndex] || "");
+                if (messageId !== "" && ids.indexOf(messageId) < 0)
+                    ids.push(messageId);
+            }
+            last.ref = Object.assign({}, lastRef, {
+                "message_id": lastRef.message_id || (ids.length > 0 ? ids[0] : ""),
+                "message_ids": ids
+            });
+            // Keep the newest local sequence on the folded group so the send
+            // that just happened can still find its row.
+            if (value._localSeq !== undefined)
+                last._localSeq = value._localSeq;
+            last.grouped = true;
+        }
+        return w.dropCoveredComments(out);
+    }
+
+    // Discord author groups are convenient in the feed, but reactions, media
+    // and the emoji button belong to individual messages. Expand a grouped
+    // comment into one row per message for the thread view.
+    function expandDiscordMessages(values) {
+        if (!w.detailPost || w.detailPost.source !== "discord")
+            return values;
+        var out = [];
+        for (var i = 0; i < values.length; i++) {
+            var comment = values[i];
+            var ref = comment.ref || ({});
+            var ids = ref.segment_ids;
+            var texts = comment.body_segments || [];
+            if (!Array.isArray(ids) || ids.length < 2 || ids.length !== texts.length) {
+                out.push(comment);
+                continue;
+            }
+            // Keep a normal Discord author group as one block. Only break it
+            // into individual messages when a message actually carries its
+            // own reactions (or the segment row would hide them).
+            var segmentReactions = ref.segment_reactions || [];
+            var hasReactions = false;
+            for (var ri = 0; ri < segmentReactions.length; ri++) {
+                var group = segmentReactions[ri] || [];
+                for (var rj = 0; rj < group.length; rj++) {
+                    if (Number(group[rj].count || 0) > 0) {
+                        hasReactions = true;
+                        break;
+                    }
+                }
+                if (hasReactions)
+                    break;
+            }
+            if (!hasReactions) {
+                out.push(comment);
+                continue;
+            }
+            var channel = String(ref.channel_id || (String(comment.id || "").split("/")[1] || ""));
+            var order = [];
+            var rows = ({});
+            for (var s = 0; s < ids.length; s++) {
+                var mid = String(ids[s] || "");
+                if (mid === "")
+                    continue;
+                var row = rows[mid];
+                if (row === undefined) {
+                    row = Object.assign({}, comment);
+                    row.id = channel !== "" ? "discord/" + channel + "/" + mid : comment.id + "#" + s;
+                    row.body = "";
+                    row.body_segments = [];
+                    row.media = [];
+                    row.reactions = [];
+                    row.created_at = (ref.segment_times && ref.segment_times[s]) || comment.created_at;
+                    row.ref = Object.assign({}, ref, {
+                        "message_id": mid,
+                        "message_ids": [mid],
+                        "reaction_users": ({}),
+                        // Keep the author grouping visible even though each
+                        // message owns its own row and reactions.
+                        "_group_index": order.length,
+                        "segment_ids": undefined,
+                        "segment_times": undefined,
+                        "segment_media": undefined,
+                        "segment_reactions": undefined,
+                        "segment_reaction_users": undefined
+                    });
+                    row.comment_count = 0;
+                    rows[mid] = row;
+                    order.push(mid);
+                }
+                var text = String(texts[s] || "");
+                if (text !== "") {
+                    row.body = row.body === "" ? text : row.body + "\n" + text;
+                    row.body_segments = row.body_segments.concat([text]);
+                }
+                var media = (ref.segment_media || [])[s];
+                if (Array.isArray(media) && media.length > 0)
+                    row.media = row.media.concat(media);
+                var reactions = (ref.segment_reactions || [])[s];
+                if (Array.isArray(reactions) && reactions.length > 0)
+                    row.reactions = row.reactions.concat(reactions);
+                var reactionUsers = (ref.segment_reaction_users || [])[s];
+                if (reactionUsers && typeof reactionUsers === "object") {
+                    var mergedUsers = Object.assign({}, row.ref.reaction_users || {});
+                    for (var uk in reactionUsers)
+                        mergedUsers[uk] = reactionUsers[uk];
+                    row.ref.reaction_users = mergedUsers;
+                }
+            }
+            for (var o = 0; o < order.length; o++)
+                out.push(rows[order[o]]);
+        }
+        return out;
+    }
+
     // Turn the flat, parent-linked comment list into a Bluesky/Twitter-style
     // timeline. Replies do not indent; each branch shows its first two
     // messages and then a text "Show N more replies" affordance.
-    function buildCommentView() {
+    function buildCommentView(source) {
+        source = w.expandDiscordMessages(source);
+        if (w.detailPost !== null && w.detailPost.source === "discord") {
+            // The expansion carries an explicit index, but preview rows and
+            // older caches may not. Derive the same author-run grouping here
+            // so a rebuild never shows every burst message as standalone.
+            var previousAuthor = "";
+            var previousTime = NaN;
+            var groupIndex = 0;
+            for (var gi = 0; gi < source.length; gi++) {
+                var entry = source[gi];
+                if (!entry)
+                    continue;
+                var who = String(((entry.author || {}).id || (entry.author || {}).handle || ""));
+                var when = Date.parse(entry.created_at);
+                if (who !== "" && who === previousAuthor && isFinite(when) && isFinite(previousTime) && when - previousTime <= 7200000)
+                    groupIndex++;
+                else
+                    groupIndex = 0;
+                if ((entry.ref || {})._group_index === undefined)
+                    entry._group_index = groupIndex;
+                previousAuthor = who;
+                previousTime = when;
+            }
+        }
+        if (w.threadSearchQuery.trim() !== "")
+            source = source.filter((row) => w.threadMatches(row));
         var byId = {};
         var children = {};
         var i;
-        for (i = 0; i < w.comments.length; i++) {
-            var item = w.comments[i];
+        for (i = 0; i < source.length; i++) {
+            var item = source[i];
             byId[item.id] = item;
         }
         // Discord is a flat channel conversation. A message that references
@@ -1511,8 +2817,8 @@ WidgetBody {
         // a nested "Show N replies" branch. Reply trees remain for sources
         // that actually model them (Bluesky, HN, ...).
         var flat = w.detailPost !== null && w.detailPost.source === "discord";
-        for (i = 0; i < w.comments.length; i++) {
-            var value = w.comments[i];
+        for (i = 0; i < source.length; i++) {
+            var value = source[i];
             var parent = !flat && value.parent_id && byId[value.parent_id] ? value.parent_id : "";
             if (!children[parent])
                 children[parent] = [];
@@ -1522,8 +2828,19 @@ WidgetBody {
             // Local sends are stamped in the order Enter was pressed. The
             // sequence tie-break keeps them ordered even when two rows land in
             // the same millisecond (or a refresh keeps their local time).
-            children[key].sort((a, b) => (Date.parse(a.created_at) - Date.parse(b.created_at))
-                || ((a._localSeq || 0) - (b._localSeq || 0)));
+            children[key].sort((a, b) => {
+                var at = Date.parse(a.created_at);
+                var bt = Date.parse(b.created_at);
+                if (isFinite(at) && isFinite(bt) && at !== bt)
+                    return at - bt;
+                // Cached timestamps are second precision, so equal values are
+                // common. Snowflakes are monotonic and break the tie exactly.
+                var aid = w.firstMessageId(a);
+                var bid = w.firstMessageId(b);
+                if (aid !== "" && bid !== "" && aid !== bid)
+                    return aid < bid ? -1 : 1;
+                return (a._localSeq || 0) - (b._localSeq || 0);
+            });
         }
         var out = [];
         var visited = {};
@@ -1575,7 +2892,119 @@ WidgetBody {
         return out;
     }
 
+    function captureThreadAnchor() {
+        if (!w.detailOpen || w.comments.length === 0 || w.threadBottomFollow || w.threadAutoScrolling)
+            return null;
+        var view = w.commentView || [];
+        for (var i = 0; i < view.length; i++) {
+            var entry = view[i];
+            if (!entry || entry.kind !== "comment" || !entry.comment)
+                continue;
+            var slot = commentRepeater.itemAt(i);
+            if (slot === null || slot.y + slot.height <= detailScroll.contentY)
+                continue;
+            return {"id": String(entry.comment.id), "y": slot.y, "offset": detailScroll.contentY - slot.y};
+        }
+        return null;
+    }
+
+    function restoreThreadAnchor(anchor, attempt) {
+        if (!anchor || !w.detailOpen || anchor.id === "")
+            return ;
+        attempt = Number(attempt || 0);
+        var view = w.commentView || [];
+        for (var i = 0; i < view.length; i++) {
+            var entry = view[i];
+            if (!entry || entry.kind !== "comment" || !entry.comment)
+                continue;
+            if (String(entry.comment.id) !== anchor.id)
+                continue;
+            var slot = commentRepeater.itemAt(i);
+            if (slot === null) {
+                if (attempt < 8)
+                    Qt.callLater(function () { w.restoreThreadAnchor(anchor, attempt + 1); });
+                return ;
+            }
+            var delta = slot.y - Number(anchor.y || 0);
+            if (Math.abs(delta) >= 0.5) {
+                var limit = Math.max(0, detailScroll.contentHeight - detailScroll.height);
+                detailScroll.contentY = Math.max(0, Math.min(limit, detailScroll.contentY + delta));
+            }
+            return ;
+        }
+    }
+
+    function scrollThreadToComment(id, attempt, fallback, bottom, settle) {
+        if (!w.detailOpen || id === "")
+            return ;
+        attempt = Number(attempt || 0);
+        // Own the viewport before anything moves. If the bottom-follow or a
+        // pending refresh stays armed, appending the row re-anchors to the
+        // bottom before the retry can find the comment.
+        w.threadBottomFollow = false;
+        w.threadAutoScrolling = false;
+        w.threadUserScrolled = true;
+        w.threadReloadOffset = -1;
+        w.threadReloadUntil = 0;
+        detailWheel.stop();
+        // A locally sent row can be folded into the latest same-author group.
+        // The group keeps the sequence number, so the row is still findable
+        // even though its id is not the pending one.
+        var localSeq = String(id).indexOf("pending/") === 0 ? String(id).split("/").pop() : "";
+        var view = w.commentView || [];
+        for (var i = 0; i < view.length; i++) {
+            var entry = view[i];
+            if (!entry || entry.kind !== "comment" || !entry.comment)
+                continue;
+            var comment = entry.comment;
+            var ref = comment.ref || ({});
+            var ids = ref.message_ids || [];
+            var match = String(comment.id) === String(id)
+                || ids.indexOf(String(id).split("/").pop()) >= 0
+                || String(id).indexOf(String(comment.id)) === 0
+                || (localSeq !== "" && String(comment._localSeq || "") === localSeq);
+            if (!match)
+                continue;
+            var slot = commentRepeater.itemAt(i);
+            if (slot === null || slot.height <= 0) {
+                if (attempt < 20)
+                    Qt.callLater(function () { w.scrollThreadToComment(id, attempt + 1, fallback, bottom, settle); });
+                return ;
+            }
+            var point = slot.mapToItem(detailColumn, 0, 0);
+            var limit = Math.max(0, detailScroll.contentHeight - detailScroll.height);
+            var target = point.y - Theme.dp(18);
+            if (bottom === true) {
+                // The new message is the tail of its group. If the group is
+                // taller than the viewport, align its end; otherwise the top
+                // already shows the whole block.
+                var room = detailScroll.height - Theme.dp(36);
+                if (slot.height > room)
+                    target = point.y + slot.height - detailScroll.height + Theme.dp(18);
+            }
+            target = Math.max(0, Math.min(limit, target));
+            detailScroll.contentY = target;
+            if (settle !== true) {
+                w.threadScrollTarget = {"id": id, "fallback": fallback, "bottom": bottom};
+                threadScrollSettle.restart();
+            }
+            return ;
+        }
+        if (attempt < 20) {
+            Qt.callLater(function () { w.scrollThreadToComment(id, attempt + 1, fallback, bottom, settle); });
+        } else if (fallback && String(fallback) !== String(id) && settle !== true) {
+            // The row itself is not on screen (for example, a source folded it
+            // into an existing group). Land on the comment we replied to.
+            Qt.callLater(function () { w.scrollThreadToComment(fallback, 0, "", false); });
+        }
+    }
+
     function expandBranch(id) {
+        // Expanding replies inserts content in place. Keep the current paint
+        // position instead of re-anchoring to the bottom while the new rows
+        // are laid out.
+        w.threadHoldPosition = true;
+        threadHoldRelease.restart();
         var next = Object.assign({}, w.expandedBranches);
         next[id] = true;
         w.expandedBranches = next;
@@ -1599,12 +3028,18 @@ WidgetBody {
     }
 
     function canLoadMoreComments() {
+        // Discord returns the whole grouped chain in one response, regardless
+        // of the requested limit. Asking again only replaced the visible rows
+        // a second later with the same data.
+        if (w.detailPost !== null && w.detailPost.source === "discord")
+            return false;
         if (w.threadLimit >= 60)
             return false;
 
         var total = w.detailPost && w.detailPost.comment_count !== null && w.detailPost.comment_count !== undefined ? Number(w.detailPost.comment_count) : -1;
+        var shown = w.detailPost && w.detailPost.source === "discord" ? w.commentsMessageCount(w.comments) : w.comments.length;
         if (total >= 0)
-            return w.comments.length < total;
+            return shown < total;
 
         return w.comments.length >= w.threadLimit;
     }
@@ -1618,6 +3053,11 @@ WidgetBody {
     }
 
     function loadThread(id, limit, refresh) {
+        if (w.detailOpen && w.comments.length > 0 && !w.threadOpening) {
+            w.threadAnchor = null;
+            w.threadReloadOffset = Math.max(0, detailScroll.contentHeight - detailScroll.height - detailScroll.contentY);
+            w.threadReloadUntil = Date.now() + 2000;
+        }
         w.threadSeq++;
         var seq = w.threadSeq;
         w.threadLimit = limit || w.threadLimit || 20;
@@ -1634,52 +3074,71 @@ WidgetBody {
     function noteDiscordEvent(slug, channelId) {
         w.discordEventSlug = String(slug || "");
         w.discordEventChannel = String(channelId || "");
-        if (w.live && !w.preview)
-            discordDebounce.restart();
+        if (!w.live || w.preview)
+            return ;
+        // events.json keeps a short list and the feed throttle can keep restarting
+        // the debounce. Start the open thread's refresh here so a newer event
+        // cannot strand it until the minute timer.
+        if (w.detailOpen && w.detailPost !== null && w.detailPost.source === "discord"
+            && Date.now() - w.lastThreadRefresh >= 5000) {
+            w.lastThreadRefresh = Date.now();
+            w.loadThread(w.detailId, w.threadLimit, true);
+        }
+        discordDebounce.restart();
     }
 
     function scrollThreadToBottom() {
         if (!w.detailOpen)
             return ;
 
-        // Start on the next layout pass, then follow any later height changes
-        // while the animation is running. No fixed 60 ms pause.
+        // Keep following the bottom until the reader takes over. Context,
+        // comments and images all arrive asynchronously and each one changes
+        // the content height; a single animation would stop short.
         w.threadAutoScrolling = true;
+        w.threadBottomFollow = true;
         w.contextAnchorPending = false;
+        detailWheel.stop();
+        // Land on the newest message in the same layout pass instead of
+        // animating down after the view is already visible.
+        detailScroll.contentY = Math.max(0, detailScroll.contentHeight - detailScroll.height);
         Qt.callLater(function () { w.threadScrollToBottomNow(); });
     }
 
     function threadScrollToBottomNow() {
-        if (!w.detailOpen || !w.threadAutoScrolling)
+        if (!w.detailOpen || !w.threadBottomFollow)
             return ;
 
         var target = Math.max(0, detailScroll.contentHeight - detailScroll.height);
-        if (Math.abs(target - detailScroll.contentY) < 1) {
-            // A zero height means the detail is still being laid out; wait for
-            // onContentHeightChanged instead of abandoning the scroll.
-            if (detailScroll.contentHeight > 0)
-                w.threadAutoScrolling = false;
-            return ;
-        }
+        // Jump, don't animate. Opening a Discord thread should already be at
+        // the newest message, and each later height change snaps to the new
+        // bottom while the follow is active.
+        if (Math.abs(target - detailScroll.contentY) >= 1)
+            detailScroll.contentY = target;
+        w.threadAutoScrolling = false;
+    }
 
+    function stopThreadBottomFollow() {
+        w.threadUserScrolled = true;
+        w.threadBottomFollow = false;
+        w.threadAutoScrolling = false;
+        w.contextAnchorPending = false;
+        // A manual scroll cancels the post-send settle alignment.
+        w.threadScrollTarget = null;
+        threadScrollSettle.stop();
         detailWheel.stop();
-        w.threadScrollRestarting = true;
-        threadAutoScroll.stop();
-        threadAutoScroll.from = detailScroll.contentY;
-        threadAutoScroll.to = target;
-        threadAutoScroll.restart();
-        w.threadScrollRestarting = false;
     }
 
     function consumeThread(text) {
-        w.commentsLoading = false;
         try {
             var value = JSON.parse(text);
             if (value.schema !== "lucid.social/thread" || value.schema_version !== w.schemaVersion)
                 throw new Error("unexpected thread schema");
 
+            // A stale response must not clear the loading flag for the newer
+            // request; doing so flashed the empty state and moved the scroll.
             if (value.item_id !== w.detailId || w.pendingThreadSeq !== w.threadSeq)
                 return ;
+            w.commentsLoading = false;
 
             if (value.item)
                 w.detailPost = value.item;
@@ -1693,6 +3152,8 @@ WidgetBody {
             }
 
             var fresh = value.comments || [];
+            if (w.detailPost && w.detailPost.source === "discord")
+                fresh = fresh.filter(function (row) { return !w.postCoversComment(w.detailPost, row); });
             // Never let an empty refresh wipe a chain already on screen.
             if (fresh.length > 0 || w.comments.length === 0) {
                 // A grouped Discord comment can represent several local sends.
@@ -1726,8 +3187,23 @@ WidgetBody {
                         }
                         if (candidateRef.mine !== true)
                             continue;
-                        var ids = candidateRef.message_ids || [];
-                        if (ids.indexOf(String(pending.id || "")) >= 0) {
+                        // message_ids are bare snowflakes; the local row id is
+                        // discord/<channel>/<message>. Compare the suffix, or
+                        // a grouped reply rooted on an earlier message never
+                        // matches and is appended as a second comment.
+                        var ids = (candidateRef.message_ids || []).map(String);
+                        var pendingRef = pending.ref || ({});
+                        var pendingIds = [String(pending.id || "").split("/").pop()];
+                        if (pendingRef.message_id)
+                            pendingIds.push(String(pendingRef.message_id));
+                        var nativeMatch = false;
+                        for (var pn = 0; pn < pendingIds.length; pn++) {
+                            if (pendingIds[pn] !== "" && ids.indexOf(pendingIds[pn]) >= 0) {
+                                nativeMatch = true;
+                                break;
+                            }
+                        }
+                        if (nativeMatch) {
                             index = m;
                             break;
                         }
@@ -1790,12 +3266,21 @@ WidgetBody {
                     merged.id = stillLocal ? String(survivor.id) : String(server.id || survivor.id);
                     merged.created_at = survivor.created_at;
                     merged._localSeq = survivor._localSeq || 0;
-                    if (!merged.body && survivor.body)
+                    if (survivor.body && w.commentTextKey(survivor) === w.commentTextKey(server)) {
+                        // The local echo already renders exactly what the
+                        // server grouped. Keep its strings so the rich text
+                        // (and any animated emoji) is not rebuilt.
                         merged.body = survivor.body;
-                    if (!merged.body_segments || merged.body_segments.length === 0)
                         merged.body_segments = survivor.body_segments || (survivor.body ? [survivor.body] : []);
-                    if (!merged.media || merged.media.length === 0)
                         merged.media = survivor.media;
+                    } else {
+                        if (!merged.body && survivor.body)
+                            merged.body = survivor.body;
+                        if (!merged.body_segments || merged.body_segments.length === 0)
+                            merged.body_segments = survivor.body_segments || (survivor.body ? [survivor.body] : []);
+                        if (!merged.media || merged.media.length === 0)
+                            merged.media = survivor.media;
+                    }
                     merged.ref = Object.assign({}, survivor.ref || {}, server.ref || {}, {
                         "mine": true,
                         "local": stillLocal
@@ -1841,26 +3326,72 @@ WidgetBody {
                 // server comments we already had so sending cannot erase the
                 // original conversation.
                 var earliestFresh = "";
+                var representedIds = ({});
                 for (var ef = 0; ef < fresh.length; ef++) {
-                    var freshTime = String((fresh[ef] || {}).created_at || "");
+                    var freshRow = fresh[ef] || ({});
+                    var freshRef = freshRow.ref || ({});
+                    if (freshRef.message_id)
+                        representedIds[String(freshRef.message_id)] = true;
+                    var freshIds = freshRef.message_ids || [];
+                    for (var fi = 0; fi < freshIds.length; fi++)
+                        representedIds[String(freshIds[fi])] = true;
+                    var freshTime = String(freshRow.created_at || "");
                     if (freshTime !== "" && (earliestFresh === "" || freshTime < earliestFresh))
                         earliestFresh = freshTime;
                 }
-                if (earliestFresh !== "") {
+                if (fresh.length > 0) {
                     for (var old = 0; old < w.comments.length; old++) {
                         var oldRow = w.comments[old];
                         if (!oldRow || !oldRow.id || usedIds[String(oldRow.id)] === true)
                             continue;
-                        if ((oldRow.ref || {}).local === true || String(oldRow.id).indexOf("pending/") === 0)
+                        if (w.postCoversComment(w.detailPost, oldRow))
                             continue;
-                        var oldTime = String(oldRow.created_at || "");
-                        if (oldTime !== "" && oldTime < earliestFresh) {
-                            usedIds[String(oldRow.id)] = true;
-                            out.push(oldRow);
+                        var oldRef = oldRow.ref || ({});
+                        if (oldRef.local === true || String(oldRow.id).indexOf("pending/") === 0)
+                            continue;
+                        // A refresh may regroup the same messages under a
+                        // different row id. The message ids are what prove the
+                        // row is already on screen.
+                        if (representedIds[String(oldRow.id)] === true)
+                            continue;
+                        var oldIds = oldRef.message_ids || [];
+                        var alreadyShown = false;
+                        for (var oi = 0; oi < oldIds.length; oi++) {
+                            if (representedIds[String(oldIds[oi])] === true) {
+                                alreadyShown = true;
+                                break;
+                            }
                         }
+                        if (alreadyShown)
+                            continue;
+                        // Keep every server row this response did not
+                        // mention, not just older ones. A refresh after a
+                        // regroup can return a different slice; replacing the
+                        // chain with it made existing comments vanish.
+                        usedIds[String(oldRow.id)] = true;
+                        out.push(oldRow);
                     }
                 }
-                w.comments = out;
+                out = w.dropSplitEmojiComments(out);
+                // Reuse the rows already on screen when their content did not
+                // change. A new object would rebuild every delegate, which is
+                // visible as animated emoji restarting.
+                var previousById = ({});
+                for (var pb = 0; pb < w.comments.length; pb++) {
+                    if (w.comments[pb] && w.comments[pb].id)
+                        previousById[String(w.comments[pb].id)] = w.comments[pb];
+                }
+                var sameRows = out.length === w.comments.length;
+                for (var ob = 0; ob < out.length; ob++) {
+                    var priorRow = previousById[String(out[ob].id)];
+                    if (priorRow && w.sameCommentContent(priorRow, out[ob]))
+                        out[ob] = priorRow;
+                    if (!sameRows || out[ob] !== w.comments[ob])
+                        sameRows = false;
+                }
+                if (!sameRows)
+                    w.comments = out;
+                w.currentUserAuthor();
                 var expandKeys = Object.keys(expandAfterMerge);
                 if (expandKeys.length > 0) {
                     var expanded = Object.assign({}, w.expandedBranches);
@@ -1870,10 +3401,24 @@ WidgetBody {
                 }
             }
             if ((value.errors || []).length > 0)
-                w.commentsError = value.errors[0].message || "comments could not refresh";
+                w.commentsError = Tr.t(value.errors[0].message || "comments could not refresh");
 
+            var openedAtTop = w.threadOpening && !w.threadOpensAtBottom(w.detailPost);
             w.threadLoaded = true;
             w.settleThreadOpen();
+            if (openedAtTop && !w.threadUserScrolled) {
+                w.threadBottomFollow = false;
+                w.threadAutoScrolling = false;
+                Qt.callLater(function () {
+                    if (w.detailOpen && !w.threadUserScrolled)
+                        detailScroll.contentY = 0;
+                });
+            }
+            if (w.threadAnchor !== null) {
+                var anchor = w.threadAnchor;
+                w.threadAnchor = null;
+                Qt.callLater(function () { w.restoreThreadAnchor(anchor); });
+            }
             // A nested chain is not infinite-scrolled: fill it to the source
             // limit once, then let branch collapse/expand do the controlling.
             if (!w.nestedFilled && w.hasNestedComments() && w.threadLimit < 60 && w.canLoadMoreComments()) {
@@ -1883,10 +3428,11 @@ WidgetBody {
             }
 
         } catch (error) {
+            w.commentsLoading = false;
             w.threadLoaded = true;
             w.settleThreadOpen();
             if (w.pendingThreadSeq === w.threadSeq)
-                w.commentsError = "Could not read this thread.";
+                w.commentsError = Tr.t("Could not read this thread.");
 
         }
     }
@@ -1905,12 +3451,15 @@ WidgetBody {
         // The list is preloaded at startup and after every selection change;
         // opening the panel must never wait for it. Only retry when it is
         // genuinely empty (a failed preload, or no Discord source yet).
-        if (w.sendTargets.length === 0)
+        if (w.sendTargets.length === 0) {
             w.loadSendTargets();
-        else if (w.sendTargetId === "")
-            w.selectSendTarget(w.sendTargets[0], false);
-        // The panel opens on the channel filter; the message field comes
-        // only after a channel is chosen.
+        } else {
+            w.resetSendSelection(w.sendTargets);
+            if (w.sendTargetIndex() < 0)
+                w.sendCursorKey = w.sendTargetKey(w.sendTargets[0]);
+        }
+        // The panel opens on the channel filter; click rows to build a
+        // multi-channel selection, then click the message field to write.
         Qt.callLater(function () { searchInput.forceActiveFocus(); });
     }
 
@@ -1947,55 +3496,94 @@ WidgetBody {
 
             w.sendTargets = value.channels || [];
             if (w.sendTargets.length === 0) {
-                w.sendTargetId = "";
-                w.sendTargetAccount = "";
-                w.sendTargetTitle = "";
-                w.sendTargetGuild = "";
-                w.newPostError = "No Discord channels are selected in the source sheet.";
+                w.selectedSendTargets = [];
+                w.sendCursorKey = "";
+                w.applyPrimarySendTarget();
+                w.newPostError = Tr.t("No Discord channels are selected in the source sheet.");
             } else {
-                // A selection change can remove the channel picked last time.
-                var valid = false;
-                for (var i = 0; i < w.sendTargets.length; i++) {
-                    if (String(w.sendTargets[i].channel_id || "") === w.sendTargetId
-                        && String(w.sendTargets[i].account || "") === w.sendTargetAccount) {
-                        valid = true;
-                        break;
-                    }
-                }
-                if (!valid) {
-                    w.sendTargetId = "";
-                    w.sendTargetAccount = "";
-                    w.sendTargetTitle = "";
-                    w.sendTargetGuild = "";
-                    w.selectSendTarget(w.sendTargets[0], false);
-                }
+                // A selection change can remove channels picked earlier. Keep
+                // every surviving selection and the first one as primary.
+                w.resetSendSelection(w.sendTargets);
+                if (w.sendTargetIndex() < 0)
+                    w.sendCursorKey = w.sendTargetKey(w.sendTargets[0]);
+                w.selectProfileSendTarget();
             }
         } catch (error) {
-            w.newPostError = "Could not read the channel list.";
+            w.newPostError = Tr.t("Could not read the channel list.");
         }
     }
 
-    function selectSendTarget(target, focusMessage) {
-        if (!target)
-            return ;
+    function sendTargetKey(target) {
+        return String((target || {}).account || "") + "\n" + String((target || {}).channel_id || "");
+    }
 
+    function sendTargetSelected(target) {
+        var key = w.sendTargetKey(target);
+        for (var i = 0; i < w.selectedSendTargets.length; i++) {
+            if (w.sendTargetKey(w.selectedSendTargets[i]) === key)
+                return true;
+        }
+        return false;
+    }
+
+    function applyPrimarySendTarget() {
+        var target = w.selectedSendTargets.length > 0 ? w.selectedSendTargets[0] : null;
+        if (!target) {
+            w.sendTargetId = "";
+            w.sendTargetAccount = "";
+            w.sendTargetTitle = "";
+            w.sendTargetGuild = "";
+            return ;
+        }
         w.sendTargetId = String(target.channel_id || "");
         w.sendTargetAccount = String(target.account || "");
         w.sendTargetTitle = String(target.title || "");
         w.sendTargetGuild = String(target.guild_id || "");
+    }
+
+    // Kept for the callers that only need to establish the primary target.
+    function selectSendTarget(target, focusMessage) {
+        if (!target)
+            return ;
+        w.toggleSendTarget(target, focusMessage);
+    }
+
+    function toggleSendTarget(target, focusMessage) {
+        if (!target)
+            return ;
+        var key = w.sendTargetKey(target);
+        var next = [];
+        var found = false;
+        for (var i = 0; i < w.selectedSendTargets.length; i++) {
+            var current = w.selectedSendTargets[i];
+            if (w.sendTargetKey(current) === key)
+                found = true;
+            else
+                next.push(current);
+        }
+        if (!found)
+            next.push(target);
+        w.selectedSendTargets = next;
+        w.sendCursorKey = key;
+        w.applyPrimarySendTarget();
         w.newPostError = "";
-        if (focusMessage !== false)
+        if (focusMessage === true)
             Qt.callLater(function () { newComposer.focusInput(); });
     }
 
     function sendTargetIndex() {
         var targets = w.shownSendTargets;
         for (var i = 0; i < targets.length; i++) {
-            if (String(targets[i].channel_id || "") === w.sendTargetId
-                && String(targets[i].account || "") === w.sendTargetAccount)
+            if (w.sendTargetKey(targets[i]) === w.sendCursorKey)
                 return i;
         }
-        return -1;
+        // The cursor can point at a filtered-out target; fall back to the
+        // first selected row, then the first visible row.
+        for (var s = 0; s < targets.length; s++) {
+            if (w.sendTargetSelected(targets[s]))
+                return s;
+        }
+        return targets.length > 0 ? 0 : -1;
     }
 
     function stepSendTarget(delta) {
@@ -2010,7 +3598,7 @@ WidgetBody {
         if (index < 0)
             index = delta > 0 ? -1 : 0;
         index = (index + delta + targets.length) % targets.length;
-        w.selectSendTarget(targets[index], false);
+        w.sendCursorKey = w.sendTargetKey(targets[index]);
         targetList.positionViewAtIndex(index, ListView.Contain);
     }
 
@@ -2023,8 +3611,30 @@ WidgetBody {
             return false;
 
         var index = Math.max(0, w.sendTargetIndex());
-        w.selectSendTarget(targets[index], true);
+        var target = targets[index];
+        if (!w.sendTargetSelected(target))
+            w.toggleSendTarget(target, false);
+        w.sendCursorKey = w.sendTargetKey(target);
+        Qt.callLater(function () { newComposer.focusInput(); });
         return true;
+    }
+
+    function resetSendSelection(targets) {
+        var source = targets || w.sendTargets || [];
+        var kept = [];
+        for (var i = 0; i < w.selectedSendTargets.length; i++) {
+            var key = w.sendTargetKey(w.selectedSendTargets[i]);
+            for (var j = 0; j < source.length; j++) {
+                if (w.sendTargetKey(source[j]) === key) {
+                    kept.push(source[j]);
+                    break;
+                }
+            }
+        }
+        w.selectedSendTargets = kept;
+        w.applyPrimarySendTarget();
+        if (w.sendTargetIndex() < 0 && w.shownSendTargets.length > 0)
+            w.sendCursorKey = w.sendTargetKey(w.shownSendTargets[0]);
     }
 
     function isMediaPath(path) {
@@ -2084,7 +3694,7 @@ WidgetBody {
 
     function sortFeedPosts(list) {
         list.sort((a, b) => {
-            var when = Date.parse(b.created_at) - Date.parse(a.created_at);
+            var when = w.feedTime(b) - w.feedTime(a);
             if (when !== 0)
                 return when;
             var aid = String(a.id), bid = String(b.id);
@@ -2161,8 +3771,9 @@ WidgetBody {
         if (w.sending)
             return ;
 
-        if (w.sendTargetId === "") {
-            w.newPostError = "Choose a channel first.";
+        var targets = w.selectedSendTargets.slice();
+        if (targets.length === 0) {
+            w.newPostError = Tr.t("Choose at least one channel first.");
             return ;
         }
         if (body === "" && images.length === 0)
@@ -2170,95 +3781,157 @@ WidgetBody {
 
         w.sending = true;
         w.newPostError = "";
+        w.sendBatchError = "";
+        w.sendFailedTargets = [];
         w.newPostBody = body;
         w.newPostImages = images;
         newComposer.clear();
         newComposer.clearAttachments();
-
-        // Put the post in the feed before the service answers; the response is
-        // merged into this same row, so it never disappears or jumps.
-        var localId = "pending/new/" + Date.now() + "/" + (++w.pendingSeq);
-        var optimistic = {
-            "id": localId,
-            "source": "discord",
-            "stream_ids": w.sendStreamIds(w.sendTargetId, w.sendTargetGuild, w.sendTargetAccount),
-            "kind": "post",
-            "author": {"id": "", "handle": "", "display_name": "You", "avatar_url": "", "profile_url": ""},
-            "title": "",
-            "body": body,
-            "body_format": "plain",
-            "body_segments": body !== "" ? [body] : [],
-            "created_at": new Date().toISOString(),
-            "url": "",
-            "media": w.localMediaObjects(images),
-            "stats": {"likes": null, "comments": 0, "reposts": null, "score": null},
-            "liked": null,
-            "capabilities": {"like": false, "comment": true, "share": false, "media": false, "grouping": true},
-            "comments_preview": [],
-            "comment_count": 0,
-            "ref": {
-                "mine": true,
-                "local": true,
-                "channel_id": w.sendTargetId,
-                "guild_id": w.sendTargetGuild,
-                "account": w.sendTargetAccount
-            },
-            "extra": {}
-        };
-        w.newPostLocalId = localId;
-        w.upsertFeedItem(optimistic, "");
         w.newPostOpen = false;
 
-        var args = [w.service, "send", "--json", "--channel", w.sendTargetId, "--account", w.sendTargetAccount];
-        if (w.sendTargetGuild !== "")
-            args.push("--guild", w.sendTargetGuild);
-        args.push("--body", body);
-        for (var i = 0; i < images.length; i++)
-            args.push("--image", images[i]);
-        sendProc.command = args;
-        sendProc.running = true;
+        var firstLocalId = "";
+        for (var t = 0; t < targets.length; t++) {
+            var target = targets[t];
+            var localId = "pending/new/" + Date.now() + "/" + (++w.pendingSeq);
+            if (t === 0)
+                firstLocalId = localId;
+
+            // Put every target in the feed before the service answers; each
+            // response is merged into its own row.
+            var optimistic = {
+                "id": localId,
+                "source": "discord",
+                "stream_ids": w.sendStreamIds(
+                    String(target.channel_id || ""),
+                    String(target.guild_id || ""),
+                    String(target.account || "")),
+                "kind": "post",
+                "author": w.currentUserAuthor() || {"id": "", "handle": "", "display_name": Tr.t("You"), "avatar_url": "", "profile_url": ""},
+                "title": "",
+                "body": body,
+                "body_format": "plain",
+                "body_segments": body !== "" ? [body] : [],
+                "created_at": new Date().toISOString(),
+                "url": "",
+                "media": w.localMediaObjects(images),
+                "stats": {"likes": null, "comments": 0, "reposts": null, "score": null},
+                "liked": null,
+                "capabilities": {"like": false, "comment": true, "share": false, "media": false, "grouping": true},
+                "comments_preview": [],
+                "comment_count": 0,
+                "ref": {
+                    "mine": true,
+                    "local": true,
+                    "channel_id": String(target.channel_id || ""),
+                    "guild_id": String(target.guild_id || ""),
+                    "account": String(target.account || "")
+                },
+                "extra": {}
+            };
+            w.upsertFeedItem(optimistic, "");
+
+            var job = {
+                "localId": localId,
+                "target": target,
+                "primary": t === 0,
+                "body": body,
+                "images": images
+            };
+            w.sendJobs = w.sendJobs.concat([job]);
+
+            var args = [w.service, "send", "--json",
+                "--channel", String(target.channel_id || ""),
+                "--account", String(target.account || "")];
+            if (String(target.guild_id || "") !== "")
+                args.push("--guild", String(target.guild_id || ""));
+            args.push("--body", body);
+            for (var i = 0; i < images.length; i++)
+                args.push("--image", images[i]);
+            w.startSendJob(job, args);
+        }
+        w.newPostLocalId = firstLocalId;
     }
 
-    function rollbackNewPost(message, localId) {
-        w.sending = false;
-        var targetId = localId !== undefined && localId !== "" ? localId : w.newPostLocalId;
-        if (targetId !== "") {
-            w.items = w.items.filter((post) => post.id !== targetId);
-            if (w.detailId === targetId)
-                w.closeDetail();
-            if (w.newPostLocalId === targetId)
-                w.newPostLocalId = "";
+    function startSendJob(job, args) {
+        var proc = sendJobComponent.createObject(w);
+        if (proc === null) {
+            w.completeSendJob(job, "", 1);
+            return ;
         }
-        w.newPostError = message;
-        w.newPostOpen = true;
-        newComposer.text = w.newPostBody;
-        newComposer.setAttachments(w.newPostImages);
+        proc.job = job;
+        proc.command = args;
+        proc.running = true;
+    }
+
+    function removeSendJob(job) {
+        var next = [];
+        for (var i = 0; i < w.sendJobs.length; i++) {
+            if (w.sendJobs[i] && w.sendJobs[i].localId !== job.localId)
+                next.push(w.sendJobs[i]);
+        }
+        w.sendJobs = next;
+    }
+
+    function failSendJob(job, message) {
+        w.removeSendJob(job);
+        w.items = w.items.filter((post) => post.id !== job.localId);
+        if (w.detailId === job.localId)
+            w.closeDetail();
+        w.sendFailedTargets = w.sendFailedTargets.concat([job.target]);
+        if (w.sendBatchError === "")
+            w.sendBatchError = String(message || "Message was not accepted.");
+    }
+
+    function finishSendBatch() {
+        if (w.sendJobs.length > 0)
+            return ;
+        w.sending = false;
+        if (w.sendFailedTargets.length > 0) {
+            // Retrying should target only the channels that failed.
+            w.selectedSendTargets = w.sendFailedTargets.slice();
+            w.sendFailedTargets = [];
+            w.applyPrimarySendTarget();
+            w.newPostError = w.sendBatchError !== ""
+                ? w.sendBatchError
+                : Tr.t("Some channels were not sent.");
+            w.sendBatchError = "";
+            w.newPostOpen = true;
+            newComposer.setText(w.newPostBody);
+            newComposer.setAttachments(w.newPostImages);
+            Qt.callLater(function () { newComposer.focusInput(); });
+            return ;
+        }
+        w.newPostError = "";
         w.newPostBody = "";
         w.newPostImages = [];
-        Qt.callLater(function () { newComposer.focusInput(); });
+        w.newPostLocalId = "";
+        w.sendBatchError = "";
+        w.sendFailedTargets = [];
     }
 
-    function consumeSend(text) {
-        w.sending = false;
-        var localId = w.newPostLocalId;
+    function completeSendJob(job, text, code) {
+        w.removeSendJob(job);
+        if (code !== 0 && String(text || "").trim() === "") {
+            w.failSendJob(job, Tr.t("Could not reach the message service."));
+            w.finishSendBatch();
+            return ;
+        }
         try {
             var value = JSON.parse(text);
             if (value.ok !== true) {
-                w.rollbackNewPost(value.error || "Message was not accepted.", localId);
+                w.failSendJob(job, value.error || "Message was not accepted.");
+                w.finishSendBatch();
                 return ;
             }
-            w.newPostError = "";
             var item = value.item;
             if (!item || String(item.id || "") === "") {
-                w.rollbackNewPost("The message service returned no post.", localId);
+                w.failSendJob(job, Tr.t("The message service returned no post."));
+                w.finishSendBatch();
                 return ;
             }
-            w.newPostBody = "";
-            w.newPostImages = [];
-            w.newPostLocalId = "";
             var row = null;
             for (var i = 0; i < w.items.length; i++) {
-                if (w.items[i] && w.items[i].id === localId) {
+                if (w.items[i] && w.items[i].id === job.localId) {
                     row = w.items[i];
                     break;
                 }
@@ -2271,16 +3944,16 @@ WidgetBody {
                 ? item.stream_ids
                 : ((row && row.stream_ids) || []);
             merged.ref = Object.assign({}, (row || {}).ref || {}, item.ref || {}, {"mine": true, "local": false});
-            w.upsertFeedItem(merged, localId);
-            if (w.detailId === "" || w.detailId === localId) {
+            w.upsertFeedItem(merged, job.localId);
+            if (job.primary) {
+                // The first selected channel is the one the writer lands on.
                 w.openPost(merged);
-                // The message created this thread; put the caret straight
-                // into its reply field so the conversation can continue.
                 Qt.callLater(function () { composer.focusInput(); });
             }
         } catch (error) {
-            w.rollbackNewPost("The message service returned an unexpected payload.", localId);
+            w.failSendJob(job, Tr.t("The message service returned an unexpected payload."));
         }
+        w.finishSendBatch();
     }
 
     // How each source's thread is positioned when it opens. Discord is a live
@@ -2309,8 +3982,14 @@ WidgetBody {
         w.threadOpening = false;
         // No remembered position and no in-between: bottom sources jump to the
         // newest message, every other source stays at the top.
-        if (w.threadOpensAtBottom(w.detailPost))
+        if (w.threadOpensAtBottom(w.detailPost) && !w.threadUserScrolled) {
             w.scrollThreadToBottom();
+        } else if (!w.threadUserScrolled) {
+            w.threadBottomFollow = false;
+            w.threadAutoScrolling = false;
+            w.threadReloadOffset = -1;
+            detailScroll.contentY = 0;
+        }
     }
 
     function openMediaViewer(value, from, previewSource, previewWidth, previewHeight) {
@@ -2381,6 +4060,8 @@ WidgetBody {
         return String((post.extra || {}).presence || "");
     }
 
+    readonly property bool threadPresenceOffline: String(w.threadPresence).toLowerCase() === "offline"
+
     function presenceColor(status) {
         switch (String(status || "").toLowerCase()) {
         case "online":
@@ -2435,18 +4116,55 @@ WidgetBody {
         return source;
     }
 
+    function postContainsAudio(post, url) {
+        var media = (post || {}).media || [];
+        for (var i = 0; i < media.length; i++) {
+            var item = media[i] || {};
+            if (String(item.kind || "") !== "audio")
+                continue;
+            if (String(item.url || "") === url || String(item.external_url || "") === url
+                || SocialAudio.sameMedia(item.url) || SocialAudio.sameMedia(item.external_url))
+                return true;
+        }
+        return false;
+    }
+
     function openPost(post, reply) {
         if (!post || !post.id)
             return ;
 
+        // Audio belongs to the open post, not to whatever card was clicked in
+        // the feed. Keep it only when the detail view shows the same file.
+        var playingAudio = String(SocialAudio.url || "");
+        if (playingAudio !== "" && !w.postContainsAudio(post, playingAudio))
+            SocialAudio.stop();
+
         w.pickerOpen = false;
+        // A settle alignment from the previous thread must not fire here.
+        w.threadScrollTarget = null;
+        threadScrollSettle.stop();
         if (w.detailId === "")
             w.feedReturnAnchor = w.captureFeedAnchor();
         w.detailId = post.id;
         w.detailPost = post;
-        w.comments = post.comments_preview || [];
+        // Discord previews are author-grouped before the full thread arrives,
+        // so the first frame is already in its final shape.
+        var previewRows = [];
+        var previewSeeds = post.comments_preview || [];
+        for (var pi = 0; pi < previewSeeds.length; pi++) {
+            var previewRow = Object.assign({}, previewSeeds[pi]);
+            previewRow.ref = Object.assign({}, previewRow.ref || {}, {"preview": true});
+            if (w.postCoversComment(post, previewRow))
+                continue;
+            previewRows.push(previewRow);
+        }
+        w.comments = post.source === "discord"
+            ? w.dropSplitEmojiComments(w.groupComments(previewRows))
+            : previewRows;
         w.threadLimit = 20;
         w.threadCommentTotal = -1;
+        w.threadSearchQuery = "";
+        searchInput.text = "";
         w.nestedFilled = false;
         w.expandedBranches = ({});
         w.replyTo = reply === true ? post.id : "";
@@ -2458,26 +4176,35 @@ WidgetBody {
         w.contextLoading = false;
         w.contextHasMore = false;
         w.contextReady = post.source !== "discord";
+        w.contextGrouped = false;
         w.contextSeq++;
         w.threadOpening = true;
         w.threadLoaded = false;
         w.contextLoaded = post.source !== "discord";
         w.threadAutoScrolling = false;
+        w.threadBottomFollow = false;
+        w.threadUserScrolled = false;
         w.contextAnchorPending = false;
-        threadAutoScroll.stop();
-        detailScroll.contentY = 0;
-        // Start toward the newest message from the preview already on screen;
-        // the thread response can re-target the same animation when it lands.
-        if (w.threadOpensAtBottom(post))
+        detailWheel.stop();
+        if (w.threadOpensAtBottom(post)) {
+            // Discord opens at the newest message with no scroll animation.
             w.scrollThreadToBottom();
+        } else {
+            detailScroll.contentY = 0;
+        }
         w.loadThread(post.id, 20);
         if (post.source === "discord") {
             if (w.sendTargets.length === 0 && !w.sendTargetsLoading)
                 w.loadSendTargets();
             w.loadContext("");
         }
-        if (reply === true)
-            Qt.callLater(function () { composer.focusInput(); });
+        // Warm the avatar cache for the optimistic comment row while the
+        // reader is still looking at the post.
+        w.currentUserAuthor();
+        // Opening a post is an invitation to write: focus the composer after
+        // the detail view becomes visible, whether this was a plain open or a
+        // reply.
+        Qt.callLater(function () { composer.focusInput(); });
     }
 
     function loadContext(before) {
@@ -2505,25 +4232,48 @@ WidgetBody {
                 throw new Error("unexpected context schema");
             if (value.item_id !== w.detailId)
                 return ;
+            w.contextGrouped = value.grouped === true;
 
             var incoming = value.comments || [];
+            var keepBottom = w.threadOpensAtBottom(w.detailPost) && !w.threadUserScrolled;
             if (!w.contextReady) {
-                w.contextAnchorY = detailScroll.contentY;
-                w.contextAnchorHeight = detailScroll.contentHeight;
-                w.contextAnchorPending = !w.threadAutoScrolling;
-                w.contextComments = incoming;
-                w.contextCursor = value.cursor || "";
-                w.contextHasMore = value.has_more === true;
-                w.contextReady = true;
-                w.contextLoaded = true;
-                w.settleThreadOpen();
+                if (keepBottom) {
+                    w.threadBottomFollow = true;
+                    w.contextAnchorPending = false;
+                    w.contextComments = incoming;
+                    w.contextCursor = value.cursor || "";
+                    w.contextHasMore = value.has_more === true;
+                    w.contextReady = true;
+                    w.contextLoaded = true;
+                    w.settleThreadOpen();
+                    Qt.callLater(function () { w.threadScrollToBottomNow(); });
+                } else {
+                    w.contextAnchorY = detailScroll.contentY;
+                    w.contextAnchorHeight = detailScroll.contentHeight;
+                    w.contextAnchorPending = !w.threadAutoScrolling;
+                    w.contextComments = incoming;
+                    w.contextCursor = value.cursor || "";
+                    w.contextHasMore = value.has_more === true;
+                    w.contextReady = true;
+                    w.contextLoaded = true;
+                    w.settleThreadOpen();
+                }
             } else if (incoming.length > 0) {
-                w.contextAnchorY = detailScroll.contentY;
-                w.contextAnchorHeight = detailScroll.contentHeight;
-                w.contextAnchorPending = !w.threadAutoScrolling;
-                w.contextComments = incoming.concat(w.contextComments);
-                w.contextCursor = value.cursor || w.contextCursor;
-                w.contextHasMore = value.has_more === true;
+                if (keepBottom) {
+                    w.threadBottomFollow = true;
+                    w.contextAnchorPending = false;
+                    w.contextComments = incoming.concat(w.contextComments);
+                    w.contextCursor = value.cursor || w.contextCursor;
+                    w.contextHasMore = value.has_more === true;
+                    Qt.callLater(function () { w.threadScrollToBottomNow(); });
+                } else {
+                    w.contextAnchorY = detailScroll.contentY;
+                    w.contextAnchorHeight = detailScroll.contentHeight;
+                    w.contextAnchorPending = !w.threadAutoScrolling;
+                    w.contextComments = incoming.concat(w.contextComments);
+                    w.contextCursor = value.cursor || w.contextCursor;
+                    w.contextHasMore = value.has_more === true;
+                }
             } else {
                 w.contextHasMore = false;
             }
@@ -2548,12 +4298,34 @@ WidgetBody {
     }
 
     function closeDetail() {
+        // Audio that belongs to the post still visible in the feed keeps
+        // playing when the thread closes; detail-only comment recordings stop
+        // with the card that owned them.
+        var playingAudio = String(SocialAudio.url || "");
+        var keepAudio = false;
+        if (playingAudio !== "" && w.detailPost !== null) {
+            for (var i = 0; i < w.items.length; i++) {
+                if (w.items[i].id === w.detailPost.id && w.postContainsAudio(w.items[i], playingAudio)) {
+                    keepAudio = true;
+                    break;
+                }
+            }
+        }
+        if (playingAudio !== "" && !keepAudio)
+            SocialAudio.stop();
+        w.threadBottomFollow = false;
+        w.threadUserScrolled = false;
+        w.threadAutoScrolling = false;
+        w.threadScrollTarget = null;
+        threadScrollSettle.stop();
         w.detailId = "";
         w.detailPost = null;
         w.comments = [];
         w.commentsLoading = false;
         w.commentsError = "";
         w.threadCommentTotal = -1;
+        w.threadSearchQuery = "";
+        searchInput.text = w.searchQuery;
         w.nestedFilled = false;
         w.expandedBranches = ({});
         w.replyTo = "";
@@ -2662,19 +4434,145 @@ WidgetBody {
 
         }
         w.items = next;
+        if (w.searchResults.length > 0) {
+            var hits = w.searchResults.slice();
+            for (var s = 0; s < hits.length; s++) {
+                if (hits[s] && hits[s].id === id)
+                    hits[s] = Object.assign({}, hits[s], patch);
+            }
+            w.searchResults = hits;
+        }
         if (w.detailPost !== null && w.detailPost.id === id)
             w.detailPost = Object.assign({}, w.detailPost, patch);
 
     }
 
+    // The thread view expands a Discord author group into one row per
+    // message, so a reaction or delete targets a synthetic id like
+    // discord/<channel>/<message> that is not a comment id. Find the group
+    // (and the segment) that owns the message.
+    function commentSegmentIndex(comment, id) {
+        var ref = (comment || {}).ref || ({});
+        var ids = ref.segment_ids;
+        if (!Array.isArray(ids))
+            return -1;
+        var mid = String(id || "");
+        var slash = mid.lastIndexOf("/");
+        if (slash >= 0)
+            mid = mid.slice(slash + 1);
+        for (var i = 0; i < ids.length; i++) {
+            if (String(ids[i] || "") === mid)
+                return i;
+        }
+        return -1;
+    }
+
+    function patchCommentSegment(comment, index, patch) {
+        var ref = Object.assign({}, comment.ref || ({}));
+        if (patch.reactions !== undefined) {
+            var segmentReactions = Array.isArray(ref.segment_reactions) ? ref.segment_reactions.slice() : [];
+            while (segmentReactions.length <= index)
+                segmentReactions.push([]);
+            segmentReactions[index] = patch.reactions;
+            ref.segment_reactions = segmentReactions;
+        }
+        if (patch.liked !== undefined) {
+            var segmentLiked = Array.isArray(ref.segment_liked) ? ref.segment_liked.slice() : [];
+            while (segmentLiked.length <= index)
+                segmentLiked.push(false);
+            segmentLiked[index] = patch.liked === true;
+            ref.segment_liked = segmentLiked;
+        }
+        return Object.assign({}, comment, {"ref": ref});
+    }
+
     function patchComment(id, patch) {
         var next = w.comments.slice();
         for (var i = 0; i < next.length; i++) {
-            if (next[i].id === id)
+            if (next[i].id === id) {
                 next[i] = Object.assign({}, next[i], patch);
-
+                continue;
+            }
+            var index = w.commentSegmentIndex(next[i], id);
+            if (index >= 0)
+                next[i] = w.patchCommentSegment(next[i], index, patch);
         }
         w.comments = next;
+        var context = w.contextComments.slice();
+        for (var c = 0; c < context.length; c++) {
+            if (context[c].id === id) {
+                context[c] = Object.assign({}, context[c], patch);
+                continue;
+            }
+            var contextIndex = w.commentSegmentIndex(context[c], id);
+            if (contextIndex >= 0)
+                context[c] = w.patchCommentSegment(context[c], contextIndex, patch);
+        }
+        w.contextComments = context;
+    }
+
+    // Drop one message out of a grouped comment, keeping the remaining
+    // segments (text, media, reactions, ids, times) aligned.
+    function removeCommentSegment(comment, index) {
+        var ref = Object.assign({}, comment.ref || ({}));
+        var texts = Array.isArray(comment.body_segments) ? comment.body_segments.slice() : [];
+        if (index < texts.length)
+            texts.splice(index, 1);
+        var keys = ["segment_ids", "segment_times", "segment_media", "segment_reactions",
+            "segment_reaction_users", "segment_liked"];
+        for (var k = 0; k < keys.length; k++) {
+            var key = keys[k];
+            var values = ref[key];
+            if (Array.isArray(values) && index < values.length) {
+                values = values.slice();
+                values.splice(index, 1);
+                ref[key] = values;
+            }
+        }
+        if (Array.isArray(ref.segment_media)) {
+            var media = [];
+            for (var m = 0; m < ref.segment_media.length; m++) {
+                if (Array.isArray(ref.segment_media[m]))
+                    media = media.concat(ref.segment_media[m]);
+            }
+            comment = Object.assign({}, comment, {"media": media});
+        }
+        var body = "";
+        for (var t = 0; t < texts.length; t++) {
+            var text = String(texts[t] || "");
+            if (text === "")
+                continue;
+            body = body === "" ? text : body + "\n" + text;
+        }
+        return Object.assign({}, comment, {"body": body, "body_segments": texts, "ref": ref});
+    }
+
+    function removeCommentById(id, context) {
+        var source = context ? w.contextComments : w.comments;
+        var next = [];
+        var removed = 0;
+        for (var i = 0; i < source.length; i++) {
+            var comment = source[i];
+            if (comment.id === id) {
+                removed += w.commentMessageCount(comment);
+                continue;
+            }
+            var index = w.commentSegmentIndex(comment, id);
+            if (index >= 0) {
+                var ids = ((comment.ref || {}).segment_ids || []);
+                var remaining = Array.isArray(ids) ? ids.length - 1 : 0;
+                removed += 1;
+                if (remaining > 0)
+                    next.push(w.removeCommentSegment(comment, index));
+                continue;
+            }
+            next.push(comment);
+        }
+        if (context)
+            w.contextComments = next;
+        else
+            w.comments = next;
+        return removed;
     }
 
     function likedPost(id) {
@@ -2691,6 +4589,10 @@ WidgetBody {
         for (var i = 0; i < w.comments.length; i++) {
             if (w.comments[i].id === id)
                 return w.comments[i];
+        }
+        for (var c = 0; c < w.contextComments.length; c++) {
+            if (w.contextComments[c].id === id)
+                return w.contextComments[c];
         }
         return null;
     }
@@ -2721,6 +4623,11 @@ WidgetBody {
         likeProc.running = false;
         if (!ok)
             w.revertLike();
+        var pending = Object.assign({}, w.optimisticLikes);
+        if (pending[likeProc.targetId] !== undefined) {
+            delete pending[likeProc.targetId];
+            w.optimisticLikes = pending;
+        }
         var queue = w.likeQueue.slice();
         if (queue.length > 0)
             queue.shift();
@@ -2743,6 +4650,9 @@ WidgetBody {
             stats.likes = Math.max(0, Number(stats.likes) + (next ? 1 : -1));
 
         w.patchPost(post.id, {"liked": next, "stats": stats});
+        var pendingLikes = Object.assign({}, w.optimisticLikes);
+        pendingLikes[post.id] = {"liked": next, "stats": stats};
+        w.optimisticLikes = pendingLikes;
         w.queueLike({
             "id": post.id,
             "kind": "post",
@@ -2763,6 +4673,9 @@ WidgetBody {
             stats.likes = Math.max(0, Number(stats.likes) + (next ? 1 : -1));
 
         w.patchComment(comment.id, {"liked": next, "stats": stats});
+        var pendingCommentLikes = Object.assign({}, w.optimisticLikes);
+        pendingCommentLikes[comment.id] = {"liked": next, "stats": stats};
+        w.optimisticLikes = pendingCommentLikes;
         w.queueLike({
             "id": comment.id,
             "kind": "comment",
@@ -2770,6 +4683,198 @@ WidgetBody {
             "revertTo": live.liked === true,
             "revertStats": live.stats || ({})
         });
+    }
+
+    function reactionTarget(target) {
+        if (!target || !target.id)
+            return null;
+        if (target.post_id !== undefined && target.post_id !== "") {
+            for (var i = 0; i < w.comments.length; i++) {
+                if (w.comments[i] && w.comments[i].id === target.id)
+                    return w.comments[i];
+            }
+            for (var c = 0; c < w.contextComments.length; c++) {
+                if (w.contextComments[c] && w.contextComments[c].id === target.id)
+                    return w.contextComments[c];
+            }
+            return target;
+        }
+        for (var j = 0; j < w.items.length; j++) {
+            if (w.items[j] && w.items[j].id === target.id)
+                return w.items[j];
+        }
+        return target;
+    }
+
+    function reactionKey(reaction) {
+        if (!reaction)
+            return "";
+        return String(reaction.id || reaction.emoji || reaction.name || "");
+    }
+
+    function reactionRequest(reaction) {
+        if (!reaction)
+            return "";
+        var id = String(reaction.id || "");
+        if (id !== "")
+            return String(reaction.name || "") + ":" + id;
+        return String(reaction.emoji || reaction.name || "");
+    }
+
+    function reactionsAfter(list, reaction, on) {
+        var key = w.reactionKey(reaction);
+        var out = [];
+        var found = false;
+        for (var i = 0; i < (list || []).length; i++) {
+            var current = Object.assign({}, list[i] || {});
+            if (w.reactionKey(current) === key) {
+                found = true;
+                if (on) {
+                    if (current.me !== true)
+                        current.count = Number(current.count || 0) + 1;
+                    current.me = true;
+                } else {
+                    if (current.me === true)
+                        current.count = Math.max(0, Number(current.count || 0) - 1);
+                    current.me = false;
+                }
+                if (Number(current.count || 0) > 0)
+                    out.push(current);
+            } else {
+                out.push(current);
+            }
+        }
+        if (on && !found) {
+            var added = Object.assign({}, reaction || {});
+            added.count = 1;
+            added.me = true;
+            out.push(added);
+        }
+        return out;
+    }
+
+    function patchReactionTarget(target, reactions) {
+        if (!target || !target.id)
+            return ;
+        if (target.post_id !== undefined && target.post_id !== "")
+            w.patchComment(target.id, {"reactions": reactions});
+        else
+            w.patchPost(target.id, {"reactions": reactions});
+    }
+
+    function toggleReaction(target, reaction) {
+        if (!target || !reaction || !(target.capabilities || {}).react)
+            return ;
+        var live = w.reactionTarget(target) || target;
+        var on = reaction.me !== true;
+        var previous = (live.reactions || []).slice();
+        w.patchReactionTarget(live, w.reactionsAfter(previous, reaction, on));
+        w.queueReaction({
+            "id": live.id,
+            "kind": live.post_id !== undefined && live.post_id !== "" ? "comment" : "post",
+            "account": String((live.ref || {}).account || ""),
+            "emoji": w.reactionRequest(reaction),
+            "on": on,
+            "revert": previous
+        });
+    }
+
+    function addReaction(target, entry) {
+        if (!target || !entry)
+            return ;
+        var live = w.reactionTarget(target) || target;
+        var key = entry.custom === true ? String(entry.id || "") : String(entry.e || "");
+        var list = live.reactions || [];
+        for (var i = 0; i < list.length; i++) {
+            var current = list[i];
+            if (w.reactionKey(current) === key) {
+                w.toggleReaction(live, current);
+                return ;
+            }
+        }
+        var reaction = entry.custom === true
+            ? {
+                "emoji": "",
+                "name": String(entry.n || ""),
+                "id": String(entry.id || ""),
+                "image": String(entry.image || ""),
+                "animated": entry.animated === true,
+                "count": 0,
+                "me": false
+            }
+            : {
+                "emoji": String(entry.e || ""),
+                "name": String(entry.n || entry.e || ""),
+                "id": "",
+                "image": "",
+                "animated": false,
+                "count": 0,
+                "me": false
+            };
+        w.toggleReaction(live, reaction);
+    }
+
+    function queueReaction(action) {
+        w.reactionQueue = w.reactionQueue.concat([action]);
+        w.runReactionQueue();
+    }
+
+    function runReactionQueue() {
+        if (reactionProc.running || w.reactionQueue.length === 0)
+            return ;
+        var action = w.reactionQueue[0];
+        reactionProc.targetId = action.id;
+        reactionProc.targetKind = action.kind;
+        reactionProc.revertReactions = action.revert || [];
+        reactionProc.resultOk = true;
+        reactionProc.errorText = "";
+        reactionProc.command = [
+            w.service, "react", "--json", "--item", action.id,
+            "--emoji", action.emoji, action.on ? "--on" : "--off"
+        ];
+        if (String(action.account || "") !== "") {
+            reactionProc.command.push("--account");
+            reactionProc.command.push(String(action.account));
+        }
+        reactionProc.running = true;
+    }
+
+    function consumeReaction(text) {
+        try {
+            var value = JSON.parse(text);
+            if (value.ok === true) {
+                w.patchReactionsById(reactionProc.targetId, reactionProc.targetKind, value.reactions || []);
+            } else {
+                reactionProc.errorText = Tr.t(value.error || "The source refused the reaction.");
+                reactionProc.resultOk = false;
+            }
+        } catch (error) {
+            reactionProc.errorText = Tr.t("The reaction service returned an unexpected payload.");
+            reactionProc.resultOk = false;
+        }
+    }
+
+    function patchReactionsById(id, kind, reactions) {
+        if (id === "")
+            return ;
+        if (kind === "comment")
+            w.patchComment(id, {"reactions": reactions});
+        else
+            w.patchPost(id, {"reactions": reactions});
+    }
+
+    function finishReaction(ok) {
+        reactionProc.running = false;
+        if (!ok) {
+            w.patchReactionsById(reactionProc.targetId, reactionProc.targetKind, reactionProc.revertReactions || []);
+            if (reactionProc.errorText !== "")
+                w.actionError = reactionProc.errorText;
+        }
+        var queue = w.reactionQueue.slice();
+        if (queue.length > 0)
+            queue.shift();
+        w.reactionQueue = queue;
+        Qt.callLater(w.runReactionQueue);
     }
 
     function deletePost(post) {
@@ -2789,6 +4894,10 @@ WidgetBody {
         deleteProc.targetId = comment.id;
         deleteProc.targetKind = "comment";
         deleteProc.command = [w.service, "delete", "--json", "--item", comment.id];
+        if (String((comment.ref || {}).account || "") !== "") {
+            deleteProc.command.push("--account");
+            deleteProc.command.push(String((comment.ref || {}).account || ""));
+        }
         deleteProc.running = true;
     }
 
@@ -2796,7 +4905,7 @@ WidgetBody {
         try {
             var value = JSON.parse(text);
             if (value.ok !== true) {
-                w.actionError = value.error || "Could not delete that message.";
+                w.actionError = Tr.t(value.error || "Could not delete that message.");
                 return ;
             }
             var id = deleteProc.targetId;
@@ -2805,15 +4914,34 @@ WidgetBody {
                 if (w.detailId === id)
                     w.closeDetail();
             } else {
-                w.comments = w.comments.filter((comment) => comment.id !== id);
-                if (w.detailPost && Number(w.detailPost.comment_count || 0) > 0) {
-                    var count = Number(w.detailPost.comment_count || 0) - 1;
-                    w.detailPost = Object.assign({}, w.detailPost, {"comment_count": count});
+                var inContext = false;
+                for (var xi = 0; xi < w.contextComments.length; xi++) {
+                    if (w.contextComments[xi] && w.contextComments[xi].id === id) {
+                        inContext = true;
+                        break;
+                    }
+                }
+                if (inContext) {
+                    // Messages above the root are channel context, not part of
+                    // the reply count.
+                    w.removeCommentById(id, true);
+                } else {
+                    var removed = w.removeCommentById(id, false);
+                    if (removed < 1)
+                        removed = 1;
+                    if (w.threadCommentTotal >= 0)
+                        w.threadCommentTotal = Math.max(0, w.threadCommentTotal - removed);
+                    if (w.detailPost && w.detailPost.id === w.detailId) {
+                        var count = Math.max(0, Number(w.detailPost.comment_count || 0) - removed);
+                        var stats = Object.assign({}, w.detailPost.stats || {});
+                        stats.comments = count;
+                        w.patchPost(w.detailPost.id, {"comment_count": count, "stats": stats});
+                    }
                 }
             }
             w.actionError = "";
         } catch (error) {
-            w.actionError = "The delete service returned an unexpected payload.";
+            w.actionError = Tr.t("The delete service returned an unexpected payload.");
         }
     }
 
@@ -2831,7 +4959,16 @@ WidgetBody {
             if (value.ok !== true) {
                 likeProc.resultOk = false;
                 likeProc.errorText = value.error || "";
+                return ;
             }
+            var returned = value.item || ({});
+            var patch = {"liked": value.liked === true};
+            if (returned.stats)
+                patch.stats = returned.stats;
+            if (likeProc.targetKind === "comment")
+                w.patchComment(likeProc.targetId, patch);
+            else
+                w.patchPost(likeProc.targetId, patch);
         } catch (error) {
             likeProc.resultOk = false;
         }
@@ -2857,6 +4994,18 @@ WidgetBody {
         w.authBusyKey = sourceId + "/" + key;
         authProc.pending = JSON.stringify({"source": sourceId, "key": key, "value": String(value || "")}) + "\n";
         authProc.command = [w.service, "auth", "--json", "--stdin"];
+        authProc.running = true;
+    }
+
+    function startOAuth(sourceId) {
+        if (w.authBusyKey !== "")
+            return ;
+
+        w.authError = "";
+        w.authStatus = "Waiting for browser sign-in…";
+        w.authBusyKey = sourceId + "/oauth";
+        authProc.pending = "";
+        authProc.command = [w.service, "auth", "--json", "--oauth", "--source", sourceId];
         authProc.running = true;
     }
 
@@ -2895,10 +5044,12 @@ WidgetBody {
         try {
             var value = JSON.parse(text);
             if (value.ok !== true) {
-                w.authError = value.error || "Could not save that credential.";
+                w.authError = Tr.t(value.error || "Could not save that credential.");
                 return ;
             }
-            w.authStatus = value.cleared === true ? "Cleared" : "Saved";
+            w.authStatus = value.cleared === true
+                ? Tr.t("Cleared")
+                : (value.oauth === true ? Tr.t(value.message || "Signed in") : Tr.t("Saved"));
             w.authError = "";
             sourcePicker.newAccountName = "";
             sourcePicker.newAccountToken = "";
@@ -2906,8 +5057,160 @@ WidgetBody {
             w.loadSendTargets();
             w.loadFeed(true);
         } catch (error) {
-            w.authError = "The credential service returned an unexpected payload.";
+            w.authError = Tr.t("The credential service returned an unexpected payload.");
         }
+    }
+
+    function ownAuthorKey(source, account) {
+        source = String(source || "");
+        account = String(account || "");
+        if (source === "" && account === "")
+            return "";
+        return source + "|" + account;
+    }
+
+    function ownAuthorContext() {
+        // The new-post sheet owns its target account; a detail thread owns the
+        // account that posted it. Do not let either borrow the other's avatar.
+        if (w.newPostOpen)
+            return {"source": "discord", "account": String(w.sendTargetAccount || "")};
+        var post = w.detailPost;
+        if (post !== null) {
+            var source = String(post.source || "");
+            if (source !== "") {
+                return {
+                    "source": source,
+                    "account": String((post.ref || {}).account || "")
+                };
+            }
+        }
+        return {"source": "discord", "account": String(w.sendTargetAccount || "")};
+    }
+
+    function authorForAccount(value, account, source) {
+        var ref = (value || {}).ref || {};
+        if (ref.mine !== true)
+            return null;
+        var valueAccount = String(ref.account || "");
+        if (String(account || "") !== "" && valueAccount !== "" && valueAccount !== String(account))
+            return null;
+        var valueSource = String((value || {}).source || source || "");
+        if (String(source || "") !== "" && valueSource !== "" && valueSource !== String(source))
+            return null;
+        var author = (value || {}).author || {};
+        if (String(author.id || author.handle || author.display_name || "") === "")
+            return null;
+        return Object.assign({}, author);
+    }
+
+    function rememberOwnAuthor(author, account, source) {
+        if (!author || String(author.avatar_url || "") === "")
+            return ;
+        if (String(author.id || author.handle || author.display_name || "") === "")
+            return ;
+        var key = w.ownAuthorKey(source, account);
+        if (key === "")
+            return ;
+        var cached = w.cachedOwnAuthors[key];
+        if (cached && String(cached.avatar_url || "") === String(author.avatar_url)
+            && String(cached.id || "") === String(author.id || ""))
+            return ;
+        var next = Object.assign({}, w.cachedOwnAuthors);
+        next[key] = Object.assign({}, author);
+        w.cachedOwnAuthors = next;
+    }
+
+    function currentUserAuthor() {
+        var context = w.ownAuthorContext();
+        var account = context.account;
+        var source = context.source;
+        var fallback = null;
+        var found = null;
+
+        function consider(value) {
+            var author = w.authorForAccount(value, account, source);
+            if (!author)
+                return false;
+            if (String(author.avatar_url || "") !== "") {
+                var ref = (value || {}).ref || {};
+                w.rememberOwnAuthor(
+                    author,
+                    String(ref.account || account || ""),
+                    String((value || {}).source || source || ""));
+                found = author;
+                return true;
+            }
+            if (fallback === null)
+                fallback = author;
+            return false;
+        }
+
+        // The newest own message in the open thread is the best match. Fall
+        // back to context, the root post, then anything already in the feed;
+        // the same avatar URL is reused from the QML image cache.
+        for (var i = w.comments.length - 1; i >= 0; i--) {
+            if (consider(w.comments[i]))
+                return Object.assign({}, found);
+        }
+        for (var c = w.contextComments.length - 1; c >= 0; c--) {
+            if (consider(w.contextComments[c]))
+                return Object.assign({}, found);
+        }
+        if (consider(w.detailPost))
+            return Object.assign({}, found);
+        for (var itemIndex = 0; itemIndex < w.items.length; itemIndex++) {
+            var item = w.items[itemIndex];
+            if (consider(item))
+                return Object.assign({}, found);
+            var preview = (item || {}).comments_preview || [];
+            for (var p = preview.length - 1; p >= 0; p--) {
+                if (consider(preview[p]))
+                    return Object.assign({}, found);
+            }
+        }
+        var cached = w.cachedOwnAuthors[w.ownAuthorKey(source, account)];
+        if (cached)
+            return Object.assign({}, cached);
+        return fallback;
+    }
+
+    function replyQuote(id, name) {
+        var found = null;
+        for (var i = 0; i < w.comments.length; i++) {
+            if (w.comments[i] && w.comments[i].id === id) {
+                found = w.comments[i];
+                break;
+            }
+        }
+        if (found === null) {
+            for (var c = 0; c < w.contextComments.length; c++) {
+                if (w.contextComments[c] && w.contextComments[c].id === id) {
+                    found = w.contextComments[c];
+                    break;
+                }
+            }
+        }
+        if (found === null)
+            return "";
+        var author = (found.author || {}).display_name || (found.author || {}).handle || name || "message";
+        var text = String(found.body || "").replace(/\s+/g, " ").trim();
+        if (text.length > 220)
+            text = text.slice(0, 217).replace(/\s+$/, "") + "…";
+        if (text === "")
+            text = (found.media || []).length > 0 ? Tr.t("Attachment") : Tr.t("Replying to an earlier message");
+        var quote = "> **" + author + "** · " + text;
+        var media = found.media || [];
+        for (var m = 0; m < media.length; m++) {
+            var entry = media[m] || {};
+            var image = String(entry.thumbnail_url || "");
+            if (image === "" && String(entry.kind || "") === "image")
+                image = String(entry.url || "");
+            if (/^(https?|file):\/\//.test(image)) {
+                quote += "\n> ![media](" + image + ")";
+                break;
+            }
+        }
+        return quote;
     }
 
     function postComment(body, images) {
@@ -2923,6 +5226,14 @@ WidgetBody {
         var targetName = w.replyName;
         var seq = ++w.pendingSeq;
         var localId = "pending/" + Date.now() + "/" + seq;
+        // Reuse the account's own author so the row can join the latest
+        // author group and paint its avatar on the first frame, before the
+        // service round-trip replaces it with the server copy.
+        var ownAuthor = w.currentUserAuthor();
+        var ownContext = w.ownAuthorContext();
+        var quoteSource = w.detailPost ? String(w.detailPost.source || "") : "";
+        var quote = target !== "" && target !== itemId && quoteSource === "discord"
+            ? w.replyQuote(target, targetName) : "";
         // This row is shown immediately and stays the same object when the
         // service confirms; it is not a "pending" placeholder.
         var pending = {
@@ -2930,14 +5241,21 @@ WidgetBody {
             "post_id": itemId,
             "parent_id": target !== "" ? target : itemId,
             "depth": target !== "" ? 1 : 0,
-            "author": {"id": "", "handle": "", "display_name": "You", "avatar_url": "", "profile_url": ""},
+            "author": ownAuthor || {"id": "", "handle": "", "display_name": Tr.t("You"), "avatar_url": "", "profile_url": ""},
             "body": body,
-            "body_segments": body !== "" ? [body] : [],
+            "body_segments": quote !== ""
+                ? (body !== "" ? [quote, body] : [quote])
+                : (body !== "" ? [body] : []),
             "created_at": new Date().toISOString(),
             "media": w.localMediaObjects(images),
             "stats": {"likes": null, "comments": null, "reposts": null, "score": null},
             "capabilities": {"like": false, "comment": true, "share": false, "media": false, "grouping": false},
-            "ref": {"mine": true, "local": true},
+            "ref": {
+                "mine": true,
+                "local": true,
+                "account": String(ownContext.account || ""),
+                "source": String(ownContext.source || "")
+            },
             "_localSeq": seq,
             "pending": false
         };
@@ -2973,13 +5291,24 @@ WidgetBody {
             w.expandedBranches = expanded;
         }
         w.comments = w.comments.concat([pending]);
-        // The sent row is the reason for the action: always reveal it.
-        w.scrollThreadToBottom();
+        // Reveal the row we just sent, including when it is a reply deep in
+        // an already-open chain. bottom=true aligns the tail of the group the
+        // new message may have joined.
+        w.scrollThreadToComment(localId, 0, target !== "" ? target : itemId, true);
         if (w.threadCommentTotal >= 0)
             w.threadCommentTotal += 1;
         if (w.detailPost && w.detailPost.id === itemId) {
             var count = Number(w.detailPost.comment_count || 0) + 1;
-            w.detailPost = Object.assign({}, w.detailPost, {"comment_count": count});
+            var stats = Object.assign({}, w.detailPost.stats || {});
+            stats.comments = count;
+            var rootExtra = Object.assign({}, w.detailPost.extra || {});
+            rootExtra.latest = {
+                "id": pending.id,
+                "author": pending.author,
+                "body": String(pending.body || "").slice(0, 240),
+                "created_at": pending.created_at
+            };
+            w.patchPost(itemId, {"comment_count": count, "stats": stats, "extra": rootExtra});
         }
 
         // The composer is local state: clear it now so the next message can be
@@ -3000,7 +5329,7 @@ WidgetBody {
     function startCommentJob(job, args) {
         var proc = commentJobComponent.createObject(w);
         if (proc === null) {
-            w.failCommentJob(job, "Could not start the comment service.");
+            w.failCommentJob(job, Tr.t("Could not start the comment service."));
             return ;
         }
         proc.job = job;
@@ -3032,14 +5361,18 @@ WidgetBody {
             w.comments = next;
             if (w.threadCommentTotal > 0)
                 w.threadCommentTotal -= 1;
-            if (w.detailPost && w.detailPost.id === job.itemId && Number(w.detailPost.comment_count || 0) > 0)
-                w.detailPost = Object.assign({}, w.detailPost, {"comment_count": Number(w.detailPost.comment_count || 0) - 1});
+            if (w.detailPost && w.detailPost.id === job.itemId && Number(w.detailPost.comment_count || 0) > 0) {
+                var count = Number(w.detailPost.comment_count || 0) - 1;
+                var stats = Object.assign({}, w.detailPost.stats || {});
+                stats.comments = count;
+                w.patchPost(job.itemId, {"comment_count": count, "stats": stats});
+            }
         }
         if (w.detailId === job.itemId) {
             if (message !== "")
                 w.composeError = message;
             if (String(composer.text || "") === "" && (composer.attachments || []).length === 0) {
-                composer.text = job.body;
+                composer.setText(job.body);
                 composer.setAttachments(job.images);
                 w.replyTo = job.replyTo;
                 w.replyName = job.replyName;
@@ -3050,13 +5383,13 @@ WidgetBody {
     function completeCommentJob(job, text, code) {
         w.removeCommentJob(job.localId);
         if (code !== 0 && String(text || "").trim() === "") {
-            w.failCommentJob(job, "Could not reach the comment service.");
+            w.failCommentJob(job, Tr.t("Could not reach the comment service."));
             return ;
         }
         try {
             var value = JSON.parse(text);
             if (value.ok !== true) {
-                w.failCommentJob(job, value.error || "Comment was not accepted.");
+                w.failCommentJob(job, Tr.t(value.error || "Comment was not accepted."));
                 return ;
             }
             var comment = value.comment;
@@ -3076,6 +5409,15 @@ WidgetBody {
                     var row = next[localIndex];
                     var merged = Object.assign({}, row, comment);
                     merged.id = String(comment.id || row.id);
+                    // The browser reply response may only know the handle; keep
+                    // the avatar/display name already shown on the optimistic row.
+                    var mergedAuthor = Object.assign({}, (comment.author || {}));
+                    var rowAuthor = row.author || {};
+                    for (var authorKey in rowAuthor) {
+                        if (!mergedAuthor[authorKey])
+                            mergedAuthor[authorKey] = rowAuthor[authorKey];
+                    }
+                    merged.author = mergedAuthor;
                     merged.created_at = row.created_at;
                     merged.pending = false;
                     if (!String(merged.body || "").trim() && row.body)
@@ -3092,6 +5434,12 @@ WidgetBody {
                         "landed": value.pending !== true
                     });
                     merged._localSeq = row._localSeq || job.seq;
+                    var fallbackContext = w.ownAuthorContext();
+                    var mergedRef = merged.ref || {};
+                    w.rememberOwnAuthor(
+                        merged.author,
+                        String(mergedRef.account || fallbackContext.account || ""),
+                        String(mergedRef.source || fallbackContext.source || ""));
                     if (serverIndex >= 0 && serverIndex !== localIndex) {
                         next.splice(localIndex, 1);
                         // Removing the local row shifts a later server row.
@@ -3101,12 +5449,15 @@ WidgetBody {
                         next[localIndex] = merged;
                     }
                     w.comments = next;
+                    // The server copy can move into a group or change the row
+                    // id. Keep the viewport on the message that was sent.
+                    w.scrollThreadToComment(merged.id, 0, "", true);
                 }
             }
             if (value.pending === true)
-                w.actionError = "Queued for the comment relay";
+                w.actionError = Tr.t("Queued for the comment relay");
         } catch (error) {
-            w.failCommentJob(job, "The comment service returned an unexpected payload.");
+            w.failCommentJob(job, Tr.t("The comment service returned an unexpected payload."));
         }
     }
 
@@ -3136,9 +5487,6 @@ WidgetBody {
         if (!target || !anim)
             return false;
 
-        if (target === detailScroll)
-            threadAutoScroll.stop();
-
         // Mouse wheels report a 120-unit notch in angleDelta; some Wayland
         // stacks also fill pixelDelta with a smaller value. Prefer the notch so
         // the 3x applies to the real wheel distance; touchpads fall back to
@@ -3148,6 +5496,16 @@ WidgetBody {
 
         var maxY = Math.max(0, target.contentHeight - target.height);
         var from = target.contentY;
+        if (dy > 0 && from <= 0.5) {
+            anim.stop();
+            target.contentY = 0;
+            return true;
+        }
+        if (dy < 0 && from >= maxY - 0.5) {
+            anim.stop();
+            target.contentY = maxY;
+            return true;
+        }
         // Accumulate onto a pending animation in the same direction, but if
         // the wheel reverses, start from where the list actually is. Using
         // the old target after a reversal moves the wrong way and makes the
@@ -3171,8 +5529,8 @@ WidgetBody {
             return sourcePicker.scrollKey(event.key);
 
         var target = w.detailOpen ? detailScroll : feedScroll;
-        if (target === detailScroll && w.threadAutoScrolling)
-            return true;
+        if (target === detailScroll && (w.threadBottomFollow || w.threadAutoScrolling))
+            w.stopThreadBottomFollow();
 
         if (target === feedScroll)
             w.markFeedScrolling();
@@ -3211,6 +5569,16 @@ WidgetBody {
     // Hand the URL to the default browser, then raise the browser window that
     // was already open. When none is running, xdg-open starts one normally.
     // The placeholder grows out of `item`, the element that was pressed.
+    function openContentLink(value, source, item) {
+        var target = String(value || "");
+        if (target.indexOf("profile:") === 0) {
+            var handle = target.slice(8).replace(/^@/, "");
+            w.openProfile({"handle": handle, "display_name": "@" + handle}, String(source || ""), item);
+            return ;
+        }
+        w.openUrl(target, null, {});
+    }
+
     function openUrl(value, item, opts) {
         var target = String(value || "");
         if (target === "")
@@ -3265,7 +5633,11 @@ WidgetBody {
         onExited: (code) => {
             if (code !== 0) {
                 w.streamsLoading = false;
-                w.fatal = "Could not reach " + w.service + ". Is the lucid-social repo in ~/src?";
+                w.fatal = Tr.fmt("Could not reach %1. Is the lucid-social repo in ~/src?", w.service);
+                // Do not leave the card empty if stream discovery fails; the
+                // feed request can still use the service-side defaults.
+                if (w.booted && w.items.length === 0 && !w.preview && w.live)
+                    Qt.callLater(function () { w.loadFeed(true, true); });
             }
         }
     }
@@ -3284,7 +5656,7 @@ WidgetBody {
             w.refreshing = false;
             if (code !== 0 && w.items.length === 0) {
                 w.phase = "failed";
-                w.fatal = "Could not reach " + w.service + ". Is the lucid-social repo in ~/src?";
+                w.fatal = Tr.fmt("Could not reach %1. Is the lucid-social repo in ~/src?", w.service);
             }
             if (code !== 0 && w.feedAppend)
                 w.feedAtEnd = true;
@@ -3319,12 +5691,87 @@ WidgetBody {
 
         onExited: (code) => {
             w.searchLoading = false;
+            w.searchMoreLoading = false;
+            w.searchPrefetching = false;
             if (code !== 0)
                 w.searchServed = false;
             if (w.searchDirty) {
                 w.searchDirty = false;
+                w.searchMorePending = false;
                 searchDebounce.restart();
+            } else if (w.searchMorePending) {
+                w.searchMorePending = false;
+                Qt.callLater(w.loadMoreSearch);
             }
+        }
+    }
+
+    Process {
+        id: profileProc
+
+        running: false
+        command: []
+
+        stdout: StdioCollector {
+            onStreamFinished: w.consumeProfile(this.text)
+        }
+
+        onExited: (code) => {
+            w.profileBusy = false;
+        }
+    }
+
+    Process {
+        id: followProc
+
+        running: false
+        command: []
+
+        stdout: StdioCollector {
+            onStreamFinished: w.consumeFollow(this.text)
+        }
+
+        onExited: (code) => {
+            if (code !== 0)
+                w.profileFollowBusy = false;
+        }
+    }
+
+    Timer {
+        id: threadRefreshTimer
+
+        // Discord threads are live; other sources are polled more gently.
+        interval: w.detailPost === null ? 30000
+            : (w.detailPost.source === "discord" ? 9000
+            : (w.detailPost.source === "twitter" ? 10000 : 30000))
+        repeat: true
+        running: w.detailOpen && w.live && !w.preview && !w.commentsLoading && !w.threadOpening
+        onTriggered: {
+            if (w.detailOpen && w.detailId !== "" && !w.commentsLoading && !w.threadOpening)
+                w.loadThread(w.detailId, w.threadLimit, true);
+        }
+    }
+
+    Timer {
+        id: threadHoldRelease
+
+        interval: 120
+        onTriggered: w.threadHoldPosition = false
+    }
+
+    Timer {
+        id: threadScrollSettle
+
+        // The optimistic row (or the group it joins) can grow after the first
+        // layout pass. Re-align once it has settled, unless the reader has
+        // taken the viewport back in the meantime.
+        interval: 80
+        onTriggered: {
+            var target = w.threadScrollTarget;
+            w.threadScrollTarget = null;
+            if (target && w.detailOpen && !detailScroll.moving && !detailScroll.flicking
+                    && !detailWheel.running)
+                w.scrollThreadToComment(target.id, 10, target.fallback, target.bottom, true);
         }
     }
 
@@ -3348,7 +5795,7 @@ WidgetBody {
         onExited: (code) => {
             if (code !== 0) {
                 w.commentsLoading = false;
-                w.commentsError = "Could not load this thread.";
+                w.commentsError = Tr.t("Could not load this thread.");
             }
         }
     }
@@ -3389,7 +5836,7 @@ WidgetBody {
 
         onExited: (code) => {
             if (code !== 0)
-                w.actionError = "Could not delete that message.";
+                w.actionError = Tr.t("Could not delete that message.");
         }
     }
 
@@ -3411,8 +5858,30 @@ WidgetBody {
 
         onExited: (code) => Qt.callLater(function () {
             if (code !== 0 && likeProc.errorText === "")
-                likeProc.errorText = "The source refused the like.";
+                likeProc.errorText = Tr.t("The source refused the like.");
             w.finishLike(code === 0 && likeProc.resultOk);
+        })
+    }
+
+    Process {
+        id: reactionProc
+
+        property string targetId: ""
+        property string targetKind: "post"
+        property var revertReactions: []
+        property bool resultOk: true
+        property string errorText: ""
+        running: false
+        command: []
+
+        stdout: StdioCollector {
+            onStreamFinished: w.consumeReaction(this.text)
+        }
+
+        onExited: (code) => Qt.callLater(function () {
+            if (code !== 0 && reactionProc.errorText === "")
+                reactionProc.errorText = Tr.t("The source refused the reaction.");
+            w.finishReaction(code === 0 && reactionProc.resultOk);
         })
     }
 
@@ -3495,6 +5964,33 @@ WidgetBody {
         }
     }
 
+    // One process per selected channel: multi-channel posts go out together
+    // and each response merges into its own optimistic feed row.
+    Component {
+        id: sendJobComponent
+
+        Process {
+            id: sendJobProc
+
+            property var job: null
+            property string output: ""
+            running: false
+            command: []
+
+            stdout: StdioCollector {
+                onStreamFinished: sendJobProc.output = this.text
+            }
+
+            onExited: (code) => {
+                var current = sendJobProc.job;
+                sendJobProc.job = null;
+                if (current)
+                    w.completeSendJob(current, sendJobProc.output, code);
+                sendJobProc.destroy();
+            }
+        }
+    }
+
     Process {
         id: channelsProc
 
@@ -3508,7 +6004,7 @@ WidgetBody {
         onExited: (code) => {
             if (code !== 0) {
                 w.sendTargetsLoading = false;
-                w.newPostError = "Could not load the channel list.";
+                w.newPostError = Tr.t("Could not load the channel list.");
             }
         }
     }
@@ -3524,43 +6020,279 @@ WidgetBody {
         }
     }
 
-    Process {
-        id: sendProc
 
-        running: false
-        command: []
+    Component {
+        id: profileHeaderComponent
 
-        stdout: StdioCollector {
-            onStreamFinished: w.consumeSend(this.text)
-        }
+                Item {
+                    id: profileHeader
 
-        onExited: (code) => {
-            if (code !== 0 && w.sending)
-                w.rollbackNewPost("Could not reach the message service.");
-        }
-    }
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: w.profileOpen ? Math.max(Theme.dp(260), profileTabsBar.y + profileTabsBar.height) : 0
+                    visible: w.profileOpen
+                    clip: true
+                    z: 2
 
-    NumberAnimation {
-        id: threadAutoScroll
+                    Rectangle {
+                        id: profileBanner
 
-        target: detailScroll
-        property: "contentY"
-        duration: Theme.durQuick
-        easing.type: Easing.OutCubic
-        onFinished: {
-            if (!w.threadScrollRestarting)
-                w.threadAutoScrolling = false;
-        }
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: Theme.dp(136)
+                        color: w.profileTint
+                        clip: true
+
+                        Image {
+                            anchors.fill: parent
+                            source: String((w.profileMeta || {}).banner_url || "")
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            visible: source !== ""
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            gradient: Gradient {
+                                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.18) }
+                                GradientStop { position: 0.45; color: Qt.rgba(0, 0, 0, 0.0) }
+                                GradientStop { position: 1.0; color: Theme.bgOpaque }
+                            }
+                        }
+
+                    }
+
+
+
+                    SocialAvatar {
+                        id: profileAvatarFrame
+
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.dp(16)
+                        anchors.top: profileBanner.bottom
+                        anchors.topMargin: -Theme.dp(38)
+                        author: w.profileAuthor || ({})
+                        source: w.profileSource
+                        size: Theme.dp(78)
+                        z: 3
+                    }
+
+                    Row {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.dp(16)
+                        anchors.top: profileBanner.bottom
+                        anchors.topMargin: Theme.dp(12)
+                        spacing: Theme.dp(8)
+                        z: 3
+
+                        Button {
+                            visible: (w.profileMeta || {}).can_follow === true
+                            enabled: !w.profileFollowBusy
+                            variant: w.profileFollowing ? "outlined" : "filled"
+                            size: "s"
+                            text: w.profileFollowing ? Tr.t("Following") : Tr.t("Follow")
+                            onClicked: w.toggleProfileFollow()
+                        }
+
+                        Button {
+                            visible: (w.profileMeta || {}).can_message !== false
+                            variant: "filled"
+                            size: "s"
+                            text: Tr.t("Message")
+                            onClicked: w.startProfileMessage()
+                        }
+
+                    }
+
+                    ColumnLayout {
+                        id: profileInfo
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: profileAvatarFrame.bottom
+                        anchors.leftMargin: Theme.dp(16)
+                        anchors.rightMargin: Theme.dp(16)
+                        anchors.topMargin: Theme.dp(7)
+                        spacing: Theme.dp(1)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.dp(7)
+
+                            LText {
+                                Layout.fillWidth: true
+                                role: "titleLarge"
+                                text: (w.profileMeta || {}).display_name || (w.profileAuthor || {}).display_name || (w.profileAuthor || {}).handle || Tr.t("Someone")
+                                color: w.ink
+                                elide: Text.ElideRight
+                            }
+
+                        }
+
+                        LText {
+                            Layout.fillWidth: true
+                            role: "labelMedium"
+                            text: {
+                                var handle = String((w.profileMeta || {}).handle || (w.profileAuthor || {}).handle || "").replace(/^@/, "");
+                                if (w.profileSource === "hackernews")
+                                    return handle !== "" ? "u/" + handle : "";
+                                if (w.profileSource === "youtube")
+                                    return "youtube.com";
+                                return handle !== "" ? "@" + handle : "";
+                            }
+                            color: w.inkDim
+                            elide: Text.ElideRight
+                        }
+
+                        LText {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.dp(3)
+                            visible: text !== ""
+                            role: "bodyMedium"
+                            text: String((w.profileMeta || {}).bio || "")
+                            color: w.inkDim
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 3
+                            elide: Text.ElideRight
+                        }
+
+                        LText {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.dp(3)
+                            visible: text !== ""
+                            role: "labelSmall"
+                            textFormat: Text.StyledText
+                            text: {
+                                var meta = w.profileMeta || {};
+                                var parts = [];
+                                if (meta.location)
+                                    parts.push(String(meta.location));
+                                if (meta.website) {
+                                    var site = String(meta.website).replace(/^https?:\/\//, "").replace(/\/$/, "");
+                                    parts.push('<a href="' + meta.website + '" style="color:' + Theme.primary + '">' + site + '</a>');
+                                }
+                                if (meta.joined)
+                                    parts.push(String(meta.joined));
+                                if (meta.pronouns)
+                                    parts.push(String(meta.pronouns));
+                                return parts.join(" · ");
+                            }
+                            color: w.inkFaint
+                            onLinkActivated: (link) => w.openUrl(link, null, {})
+                        }
+
+                        Row {
+                            Layout.topMargin: Theme.dp(5)
+                            spacing: Theme.dp(14)
+
+                            Row {
+                                spacing: Theme.dp(4)
+                                visible: w.compactCount(((w.profileMeta || {}).counts || {}).posts) !== ""
+
+                                LText {
+                                    role: "labelLarge"
+                                    text: w.compactCount(((w.profileMeta || {}).counts || {}).posts)
+                                    color: w.ink
+                                }
+
+                                LText {
+                                    role: "labelSmall"
+                                    text: Tr.t("posts")
+                                    color: w.inkFaint
+                                }
+
+                            }
+
+                            Row {
+                                spacing: Theme.dp(4)
+                                visible: w.compactCount(((w.profileMeta || {}).counts || {}).followers) !== ""
+
+                                LText {
+                                    role: "labelLarge"
+                                    text: w.compactCount(((w.profileMeta || {}).counts || {}).followers)
+                                    color: w.ink
+                                }
+
+                                LText {
+                                    role: "labelSmall"
+                                    text: Tr.t("followers")
+                                    color: w.inkFaint
+                                }
+
+                            }
+
+                            Row {
+                                spacing: Theme.dp(4)
+                                visible: w.compactCount(((w.profileMeta || {}).counts || {}).following) !== ""
+
+                                LText {
+                                    role: "labelLarge"
+                                    text: w.compactCount(((w.profileMeta || {}).counts || {}).following)
+                                    color: w.ink
+                                }
+
+                                LText {
+                                    role: "labelSmall"
+                                    text: Tr.t("following")
+                                    color: w.inkFaint
+                                }
+
+                            }
+
+                            Row {
+                                spacing: Theme.dp(4)
+                                visible: w.compactCount(((w.profileMeta || {}).counts || {}).karma) !== ""
+
+                                LText {
+                                    role: "labelLarge"
+                                    text: w.compactCount(((w.profileMeta || {}).counts || {}).karma)
+                                    color: w.ink
+                                }
+
+                                LText {
+                                    role: "labelSmall"
+                                    text: Tr.t("karma")
+                                    color: w.inkFaint
+                                }
+
+                            }
+
+                        }
+
+                    }
+
+                    Tabs {
+                        id: profileTabsBar
+
+                        focus: false
+                        activeFocusOnTab: false
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: profileInfo.bottom
+                        anchors.topMargin: Theme.dp(6)
+                        height: w.profileTabOptions.length > 0 ? Theme.dp(46) : 0
+                        visible: w.profileTabOptions.length > 0
+                        options: w.profileTabOptions
+                        current: w.profileTab
+                        onPicked: (key) => w.selectProfileTab(key)
+                    }
+
+                }
+
     }
 
     // ------------------------------------------------------------------ header
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.dp(14)
-        spacing: Theme.dp(6)
+        anchors.margins: Theme.dp(7)
+        spacing: w.profileOpen ? 0 : Theme.dp(6)
 
         RowLayout {
             Layout.fillWidth: true
+            Layout.preferredHeight: w.profileOpen ? 0 : Theme.dp(36)
+            visible: !w.profileOpen
             spacing: Theme.dp(9)
 
             Rectangle {
@@ -3628,13 +6360,17 @@ WidgetBody {
                     color: Theme.text
                     selectionColor: Theme.alpha(Theme.primary, 0.35)
                     selectedTextColor: Theme.text
-                    font.family: inputEmojiFont.status === FontLoader.Ready ? inputEmojiFont.name : Theme.fontFamily
+                    font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeSize("bodyMedium")
                     font.variableAxes: Theme.axes(Theme.typeSize("bodyMedium"), 420, 0)
+                    verticalAlignment: TextInput.AlignVCenter
                     onTextEdited: {
                         if (w.newPostOpen) {
                             if (w.channelQuery !== text)
                                 w.channelQuery = text;
+                        } else if (w.detailOpen) {
+                            if (w.threadSearchQuery !== text)
+                                w.threadSearchQuery = text;
                         } else if (w.searchQuery !== text) {
                             w.searchQuery = text;
                         }
@@ -3672,6 +6408,11 @@ WidgetBody {
                             w.endEdit();
                             focus = false;
                             w.closeNewPost();
+                        } else if (w.detailOpen) {
+                            w.threadSearchQuery = "";
+                            text = "";
+                            w.endEdit();
+                            focus = false;
                         } else {
                             w.searchQuery = "";
                             text = "";
@@ -3684,7 +6425,7 @@ WidgetBody {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: searchInput.text === ""
                         role: "bodyMedium"
-                        text: w.newPostOpen ? "Search channels…" : "Search…"
+                        text: w.newPostOpen ? Tr.t("Search channels…") : (w.detailOpen ? Tr.t("Search this thread…") : Tr.t("Search…"))
                         color: Theme.subtextDim
                         opacity: 0.8
                     }
@@ -3704,6 +6445,8 @@ WidgetBody {
                     onClicked: {
                         if (w.newPostOpen)
                             w.channelQuery = "";
+                        else if (w.detailOpen)
+                            w.threadSearchQuery = "";
                         else
                             w.searchQuery = "";
 
@@ -3714,25 +6457,11 @@ WidgetBody {
 
             }
 
-            Item {
-                Layout.preferredWidth: Theme.dp(30)
-                Layout.preferredHeight: Theme.dp(30)
-                Layout.alignment: Qt.AlignVCenter
-                visible: w.refreshing
-
-                LoadingIndicator {
-                    anchors.fill: parent
-                    running: w.refreshing
-                    color: Theme.primary
-                }
-
-            }
-
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 icon: w.newPostOpen ? "close" : "send"
                 size: "s"
-                tooltip: w.newPostOpen ? "Cancel New Post" : "New Post"
+                tooltip: w.newPostOpen ? Tr.t("Cancel New Post") : Tr.t("New Post")
                 tintOverride: w.newPostOpen ? Theme.fgPrimary : w.inkDim
                 onClicked: w.toggleNewPost()
             }
@@ -3742,10 +6471,10 @@ WidgetBody {
         // Refresh failures stay quiet but available; the header says "stale".
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.dp(30)
+            Layout.preferredHeight: visible ? Theme.dp(30) : 0
             radius: Theme.dp(10)
             color: Theme.surfaceHigh
-            visible: w.actionError !== "" || w.feedErrors.length > 0
+            visible: !w.profileOpen && (w.actionError !== "" || w.feedErrors.length > 0)
 
             RowLayout {
                 anchors.fill: parent
@@ -3762,7 +6491,7 @@ WidgetBody {
                 LText {
                     Layout.fillWidth: true
                     role: "labelSmall"
-                    text: w.actionError !== "" ? w.actionError : (w.feedErrors.length > 0 ? (w.feedErrors[0].message || "A stream could not refresh") : "")
+                    text: w.actionError !== "" ? w.actionError : (w.feedErrors.length > 0 ? Tr.t(w.feedErrors[0].message || "A stream could not refresh") : "")
                     color: w.inkDim
                     elide: Text.ElideRight
                 }
@@ -3815,7 +6544,11 @@ WidgetBody {
                 ListView {
                     id: feedScroll
 
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.top: parent.top
+                    anchors.topMargin: w.profileOpen ? -Theme.dp(7) : 0
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
                     interactive: contentHeight > height
@@ -3826,10 +6559,14 @@ WidgetBody {
                     cacheBuffer: Theme.dp(3000)
                     displayMarginBeginning: Theme.dp(600)
                     displayMarginEnd: Theme.dp(600)
+                    anchors.leftMargin: w.profileOpen ? -Theme.dp(7) : 0
+                    anchors.rightMargin: w.profileOpen ? -Theme.dp(7) : 0
+
+
                     model: ScriptModel {
                         id: feedModel
 
-                        values: w.shownItems
+                        values: w.feedValues
                         // Feed objects are stable by id. Structure comparison
                         // is both expensive and needless here, and identity
                         // keeps the anchored delegate alive across refreshes.
@@ -3837,19 +6574,62 @@ WidgetBody {
                         comparisonMode: ObjectComparison.Identity
                     }
 
-                    delegate: SocialPostCard {
+                    footer: Item {
+                        width: feedScroll.width
+                        height: (w.feedLoadingMore || w.searchMoreLoading || w.searchPrefetching || w.searchMorePending) ? Theme.dp(44) : 0
+
+                        LoadingIndicator {
+                            anchors.centerIn: parent
+                            width: Theme.dp(28)
+                            height: width
+                            visible: running
+                            running: w.feedLoadingMore || w.searchMoreLoading || w.searchPrefetching || w.searchMorePending
+                            color: Theme.primary
+                        }
+
+                    }
+
+                    delegate: Item {
+                        id: feedSlot
+
                         required property var modelData
+                        readonly property bool profileHeaderRow: modelData.kind === "profile_header"
 
                         width: feedScroll.width
-                        post: modelData
-                        host: w
-                        onActivated: w.openPost(modelData)
-                        onLikeClicked: w.toggleLike(modelData)
-                        onCommentsClicked: w.openPost(modelData)
-                        onReplyClicked: w.openPost(modelData, true)
-                        onExternalClicked: w.openExternal(modelData)
-                        onDeleteClicked: w.deletePost(modelData)
-                        onDismissed: w.hidePost(modelData.id)
+                        height: profileHeaderRow ? headerLoader.height : postCard.height
+
+                        Loader {
+                            id: headerLoader
+
+                            active: feedSlot.profileHeaderRow
+                            width: parent.width
+                            height: item ? item.height : 0
+                            sourceComponent: profileHeaderComponent
+                            onHeightChanged: {
+                                if (feedSlot.profileHeaderRow)
+                                    w.profileHeaderHeight = height;
+                            }
+                        }
+
+                        SocialPostCard {
+                            id: postCard
+
+                            visible: !feedSlot.profileHeaderRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: w.profileOpen ? Theme.dp(7) : 0
+                            anchors.rightMargin: w.profileOpen ? Theme.dp(7) : 0
+                            post: feedSlot.modelData
+                            host: w
+                            onActivated: w.openPost(feedSlot.modelData)
+                            onLikeClicked: w.toggleLike(feedSlot.modelData)
+                            onCommentsClicked: w.openPost(feedSlot.modelData)
+                            onReplyClicked: w.openPost(feedSlot.modelData, true)
+                            onExternalClicked: w.openExternal(feedSlot.modelData)
+                            onDeleteClicked: w.deletePost(feedSlot.modelData)
+                            onDismissed: w.hidePost(feedSlot.modelData.id)
+                        }
+
                     }
 
                     WheelHandler {
@@ -3861,9 +6641,10 @@ WidgetBody {
                         }
                     }
 
-                    // Removing one post slides the rest up instead of
-                    // rebuilding (and re-fading) the whole feed.
-                    displaced: Transition {
+                    // Only a removed post gets a slide. Animated reordering
+                    // made live feed bumps look like cards were pushed down
+                    // under one another and left temporary holes.
+                    removeDisplaced: Transition {
                         NumberAnimation {
                             properties: "y"
                             duration: Theme.durMedium
@@ -3884,25 +6665,78 @@ WidgetBody {
                     onMovementStarted: w.markFeedScrolling()
                 }
 
+                LoadingIndicator {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.dp(14)
+                    anchors.top: parent.top
+                    anchors.topMargin: Math.max(Theme.dp(8), w.profileHeaderHeight + Theme.dp(6))
+                    width: Theme.dp(16)
+                    height: width
+                    z: 6
+                    visible: running
+                    running: w.profileOpen
+                        && (w.searchLoading || w.searchMoreLoading || w.searchPrefetching || w.searchMorePending)
+                    color: Theme.primary
+                }
+
+                Rectangle {
+                    id: profileBack
+
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: Theme.dp(12)
+                    width: Theme.dp(34)
+                    height: width
+                    radius: width / 2
+                    color: Theme.alpha(Theme.scrim, 0.55)
+                    visible: w.profileOpen
+                    z: 20
+
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "arrow_back"
+                        size: Theme.dp(18)
+                        color: "#ffffff"
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: w.closeProfile()
+                    }
+
+                }
+
                 // scroll affordance: a restrained material rail, not a full bar
                 Rectangle {
                     anchors.right: parent.right
-                    anchors.rightMargin: Theme.dp(1)
+                    anchors.rightMargin: -Theme.dp(5)
                     width: Theme.dp(3)
                     radius: Theme.dp(2)
                     height: Math.max(Theme.dp(22), feedScroll.height * feedScroll.height / Math.max(1, feedScroll.contentHeight))
                     y: (feedScroll.height - height) * Math.max(0, Math.min(1, feedScroll.contentY / Math.max(1, feedScroll.contentHeight - feedScroll.height)))
-                    color: Theme.alpha(w.ink, 0.2)
+                    color: w.ink
+                    z: 5
                     visible: feedScroll.contentHeight > feedScroll.height + Theme.dp(4)
                 }
 
                 // loading / empty / error
                 ColumnLayout {
                     anchors.centerIn: parent
+                    anchors.verticalCenterOffset: w.profileOpen ? Math.min(w.profileHeaderHeight, parent.height) / 2 : 0
                     width: Math.min(parent.width - Theme.dp(24), Theme.dp(300))
                     spacing: Theme.dp(8)
                     opacity: w.shownItems.length === 0 ? 1 : 0
                     visible: opacity > 0.01
+
+                    LoadingIndicator {
+                        Layout.alignment: Qt.AlignHCenter
+                        width: Theme.dp(40)
+                        height: width
+                        visible: running
+                        running: w.initialLoading
+                        color: Theme.primary
+                    }
 
                     Behavior on opacity {
                         NumberAnimation {
@@ -3913,20 +6747,13 @@ WidgetBody {
 
                     }
 
-                    LoadingIndicator {
-                        Layout.alignment: Qt.AlignHCenter
-                        visible: w.phase === "loading" && !w.preview
-                        running: visible
-                        color: Theme.primary
-                    }
-
                     Rectangle {
                         Layout.alignment: Qt.AlignHCenter
                         width: Theme.dp(44)
                         height: Theme.dp(44)
                         radius: width / 2
                         color: Theme.surfaceHigh
-                        visible: w.phase !== "loading" || w.preview
+                        visible: !w.initialLoading
 
                         Icon {
                             anchors.centerIn: parent
@@ -3941,29 +6768,29 @@ WidgetBody {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         role: "titleSmall"
-                        text: w.fatal !== "" ? "The feed is not reachable" : (w.phase === "loading" ? "Gathering streams…" : (w.searchQuery !== "" && w.items.length > 0 ? "No matching posts" : (w.items.length > 0 ? "You're all caught up" : "Nothing selected yet")))
+                        text: w.fatal !== "" ? Tr.t("The feed is not reachable") : (w.phase === "loading" ? Tr.t("Gathering streams…") : (w.searchQuery !== "" && w.items.length > 0 ? Tr.t("No matching posts") : (w.items.length > 0 ? Tr.t("You're all caught up") : Tr.t("Nothing selected yet"))))
                         color: w.ink
                         wrapMode: Text.Wrap
-                        visible: w.phase !== "loading" || w.preview || w.fatal !== ""
+                        visible: !w.initialLoading || w.fatal !== ""
                     }
 
                     LText {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         role: "bodySmall"
-                        text: w.fatal !== "" ? w.fatal : (w.phase === "loading" ? "The first fetch can take a few seconds." : (w.searchQuery !== "" && w.items.length > 0 ? "Try a shorter or earlier part of the words you remember." : (w.items.length > 0 ? "Swipe left or right on a post to hide it." : "Choose sources from the hub button, or add a source in ~/.config/lucid-social/config.toml.")))
+                        text: w.fatal !== "" ? w.fatal : (w.phase === "loading" ? Tr.t("The first fetch can take a few seconds.") : (w.searchQuery !== "" && w.items.length > 0 ? Tr.t("Try a shorter or earlier part of the words you remember.") : (w.items.length > 0 ? Tr.t("Swipe left or right on a post to hide it.") : Tr.t("Choose sources from the hub button, or add a source in ~/.config/lucid-social/config.toml."))))
                         color: w.inkFaint
                         wrapMode: Text.Wrap
-                        visible: w.phase !== "loading" || w.preview || w.fatal !== ""
+                        visible: !w.initialLoading || w.fatal !== ""
                     }
 
                     Button {
                         Layout.alignment: Qt.AlignHCenter
-                        visible: w.phase !== "loading" || w.fatal !== ""
+                        visible: !w.initialLoading || w.fatal !== ""
                         variant: "tonal"
                         size: "xs"
                         icon: w.fatal !== "" ? "refresh" : "hub"
-                        text: w.fatal !== "" ? "Retry" : "Choose sources"
+                        text: w.fatal !== "" ? Tr.t("Retry") : Tr.t("Choose sources")
                         onClicked: {
                             if (w.fatal !== "")
                                 w.retry();
@@ -4045,7 +6872,14 @@ WidgetBody {
                                 width: Theme.dp(9)
                                 height: width
                                 radius: width / 2
-                                color: w.presenceColor(w.threadPresence)
+                                antialiasing: true
+                                // Offline is a hollow ring, so it reads as an
+                                // absence rather than a dim "online" dot.
+                                color: w.threadPresenceOffline
+                                    ? "transparent"
+                                    : w.presenceColor(w.threadPresence)
+                                border.width: w.threadPresenceOffline ? Math.max(2, Theme.dp(2)) : 0
+                                border.color: w.presenceColor(w.threadPresence)
                                 visible: w.threadPresence !== ""
                             }
 
@@ -4060,14 +6894,30 @@ WidgetBody {
                     Flickable {
                         id: detailScroll
 
+                        // Height before the latest content change, so the
+                        // viewport can keep its distance from the bottom.
+                        property real lastContentHeight: 0
+
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         contentWidth: width
                         contentHeight: detailColumn.height
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
-                        interactive: contentHeight > height && !w.threadAutoScrolling
-                        onMovementStarted: w.contextAnchorPending = false
+                        interactive: contentHeight > height
+                        // Only an actual drag/flick takes the thread away from
+                        // the bottom. movementStarted also fires for the
+                        // programmatic bottom animation in this view.
+                        onDragStarted: {
+                            w.threadReloadOffset = -1;
+                            w.threadReloadUntil = 0;
+                            w.stopThreadBottomFollow();
+                        }
+                        onFlickStarted: {
+                            w.threadReloadOffset = -1;
+                            w.threadReloadUntil = 0;
+                            w.stopThreadBottomFollow();
+                        }
                         onContentYChanged: {
                             if (contentY + height >= contentHeight - Theme.dp(80))
                                 w.maybeAutoLoadComments();
@@ -4079,25 +6929,69 @@ WidgetBody {
 
                         }
                         onContentHeightChanged: {
+                            var previous = lastContentHeight;
+                            var nextHeight = contentHeight;
+                            lastContentHeight = nextHeight;
+                            if (w.threadHoldPosition)
+                                return ;
+                            // At the top, never translate with a content-height
+                            // change. Background refreshes and late image loads
+                            // used to nudge an idle reader downward here.
+                            if (!w.threadBottomFollow && contentY <= 1) {
+                                if (contentY !== 0)
+                                    contentY = 0;
+                                w.maybeAutoLoadComments();
+                                return ;
+                            }
+                            if (w.threadReloadOffset >= 0 && Date.now() < w.threadReloadUntil) {
+                                // Only a reader near the bottom gets re-anchored
+                                // to the bottom. Mid-thread refreshes must not
+                                // move the viewport at all.
+                                if (w.threadReloadOffset <= Theme.dp(120)) {
+                                    var reloadTarget = Math.max(0, nextHeight - height - w.threadReloadOffset);
+                                    if (Math.abs(reloadTarget - contentY) >= 1)
+                                        contentY = reloadTarget;
+                                }
+                                w.maybeAutoLoadComments();
+                                return ;
+                            }
                             w.maybeAutoLoadComments();
-                            if (w.contextAnchorPending && !w.threadAutoScrolling) {
-                                var delta = contentHeight - w.contextAnchorHeight;
-                                if (delta > 0) {
-                                    contentY = Math.max(0, w.contextAnchorY + delta);
-                                    w.contextAnchorPending = false;
+                            if (w.threadBottomFollow && w.detailOpen) {
+                                w.threadScrollToBottomNow();
+                                return ;
+                            }
+                            if (previous > height + 1 && !moving && !flicking && !w.threadAutoScrolling) {
+                                var offset = Math.max(0, previous - height - contentY);
+                                if (w.contextAnchorPending) {
+                                    // Older context inserted above: keep the
+                                    // reading row instead of its bottom gap.
+                                    var delta = nextHeight - w.contextAnchorHeight;
+                                    if (delta > 0)
+                                        contentY = Math.max(0, w.contextAnchorY + delta);
+                                } else if (offset <= Theme.dp(120)) {
+                                    // Near the bottom: keep the same distance
+                                    // from it. A reader in the middle keeps the
+                                    // absolute content position when media or a
+                                    // background refresh changes the height.
+                                    var target = Math.max(0, nextHeight - height - offset);
+                                    if (Math.abs(target - contentY) >= 1)
+                                        contentY = target;
                                 }
                             }
-                            if (w.threadAutoScrolling && w.detailOpen)
-                                Qt.callLater(function () { w.threadScrollToBottomNow(); });
+                            w.contextAnchorPending = false;
+                        }
+                        onHeightChanged: {
+                            if (w.threadBottomFollow && w.detailOpen)
+                                w.threadScrollToBottomNow();
                         }
 
                         WheelHandler {
                             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                             onWheel: (event) => {
-                                if (w.threadAutoScrolling) {
-                                    event.accepted = true;
-                                    return ;
-                                }
+                                if (w.threadBottomFollow || w.threadAutoScrolling)
+                                    w.stopThreadBottomFollow();
+                                w.threadReloadOffset = -1;
+                                w.threadReloadUntil = 0;
                                 w.contextAnchorPending = false;
                                 w.wheelBy(detailScroll, event, detailWheel);
                                 event.accepted = true;
@@ -4119,7 +7013,7 @@ WidgetBody {
                                     visible: w.contextLoading
                                     horizontalAlignment: Text.AlignHCenter
                                     role: "labelSmall"
-                                    text: "Loading earlier messages…"
+                                    text: Tr.t("Loading earlier messages…")
                                     color: w.inkFaint
                                     topPadding: Theme.dp(8)
                                     bottomPadding: Theme.dp(4)
@@ -4165,21 +7059,45 @@ WidgetBody {
                                     Layout.leftMargin: Theme.dp(14)
                                     Layout.fillWidth: true
                                     role: "labelLarge"
-                                    text: (w.threadCommentTotal >= 0 ? w.threadCommentTotal : (w.detailPost && w.detailPost.comment_count !== null && w.detailPost.comment_count !== undefined ? w.detailPost.comment_count : w.comments.length)) + " comments"
-                                    color: w.ink
+                                    text: {
+                                        var empty = w.comments.length === 0 && w.threadLoaded && !w.commentsLoading && !w.threadOpening;
+                                        if (empty)
+                                            return w.commentsError !== "" ? w.commentsError : Tr.t("No comments yet. Start the thread.");
+                                        var count = w.threadCommentTotal >= 0 ? w.threadCommentTotal : (w.detailPost && w.detailPost.comment_count !== null && w.detailPost.comment_count !== undefined ? w.detailPost.comment_count : w.comments.length);
+                                        return count + Tr.n(" comment", " comments", count);
+                                    }
+                                    color: w.commentsError !== "" && w.comments.length === 0 ? Theme.error : w.ink
                                 }
 
                                 LoadingIndicator {
-                                    Layout.preferredWidth: Theme.dp(20)
-                                    Layout.preferredHeight: Theme.dp(20)
-                                    visible: w.commentsLoading
-                                    running: w.commentsLoading
+                                    Layout.alignment: Qt.AlignVCenter
+                                    Layout.rightMargin: Theme.dp(10)
+                                    Layout.preferredWidth: Theme.dp(13)
+                                    Layout.preferredHeight: Theme.dp(13)
+                                    width: Theme.dp(13)
+                                    height: width
+                                    visible: w.commentsLoading && w.comments.length === 0
+                                    running: w.commentsLoading && w.comments.length === 0
                                     color: Theme.primary
+                                }
+
+                                IconButton {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    Layout.rightMargin: Theme.dp(8)
+                                    visible: w.commentsError !== "" && w.comments.length === 0 && !w.commentsLoading
+                                    icon: "refresh"
+                                    size: "xs"
+                                    tooltip: Tr.t("Retry")
+                                    onClicked: w.loadThread(w.detailId)
                                 }
 
                             }
 
+
+
                             Repeater {
+                                id: commentRepeater
+
                                 model: w.commentView
 
                                 Item {
@@ -4226,7 +7144,7 @@ WidgetBody {
                                             anchors.leftMargin: Theme.dp(47)
                                             anchors.verticalCenter: parent.verticalCenter
                                             role: "labelLarge"
-                                            text: "Show " + commentSlot.modelData.hidden + " " + (commentSlot.modelData.hidden === 1 ? "reply" : "replies")
+                                            text: Tr.fmt(Tr.n("Show %1 reply", "Show %1 replies", commentSlot.modelData.hidden), commentSlot.modelData.hidden)
                                             color: Theme.primary
                                         }
 
@@ -4243,31 +7161,7 @@ WidgetBody {
 
                             }
 
-                            ColumnLayout {
-                                width: detailColumn.width
-                                spacing: Theme.dp(6)
-                                visible: !w.commentsLoading && w.comments.length === 0
 
-                                LText {
-                                    Layout.fillWidth: true
-                                    Layout.topMargin: Theme.dp(8)
-                                    horizontalAlignment: Text.AlignHCenter
-                                    role: "bodySmall"
-                                    text: w.commentsError !== "" ? w.commentsError : "No comments yet. Start the thread."
-                                    color: w.commentsError !== "" ? Theme.error : w.inkFaint
-                                    wrapMode: Text.Wrap
-                                }
-
-                                Button {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    visible: w.commentsError !== ""
-                                    variant: "text"
-                                    size: "xs"
-                                    text: "Retry"
-                                    onClicked: w.loadThread(w.detailId)
-                                }
-
-                            }
 
                             Item {
                                 width: detailColumn.width
@@ -4276,6 +7170,15 @@ WidgetBody {
 
                         }
 
+                    }
+
+                    LText {
+                        Layout.fillWidth: true
+                        visible: w.typingLabel !== ""
+                        role: "labelSmall"
+                        text: w.typingLabel
+                        color: Theme.subtext
+                        elide: Text.ElideRight
                     }
 
                     LText {
@@ -4297,7 +7200,7 @@ WidgetBody {
                         emojiUsage: w.emojiUsageCounts
                         replyName: w.replyName
                         busy: false
-                        placeholder: "Reply..."
+                        placeholder: Tr.t("Reply...")
                         onSend: (body, images) => w.postComment(body, images)
                         onCancelReply: w.cancelReply()
                     }
@@ -4334,25 +7237,29 @@ WidgetBody {
                         IconButton {
                             icon: "close"
                             size: "xs"
-                            tooltip: "Cancel New Post"
+                            tooltip: Tr.t("Cancel New Post")
                             onClicked: w.closeNewPost()
                         }
 
                         LText {
                             Layout.fillWidth: true
                             role: "titleMedium"
-                            text: "New Post"
+                            text: Tr.t("New Post")
                             color: w.ink
                         }
 
-                        LText {
-                            role: "labelSmall"
-                            text: w.sendTargetTitle
-                            color: w.inkFaint
-                            visible: text !== ""
-                            elide: Text.ElideRight
-                        }
+                    }
 
+                    LText {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.dp(38)
+                        role: "labelSmall"
+                        text: w.sendTargetTitle + (w.selectedSendTargets.length > 1
+                            ? " +" + (w.selectedSendTargets.length - 1)
+                            : "")
+                        color: w.inkFaint
+                        visible: text !== ""
+                        elide: Text.ElideRight
                     }
 
                     ListView {
@@ -4371,11 +7278,14 @@ WidgetBody {
                             id: targetRow
 
                             required property var modelData
-                            readonly property bool selected: w.sendTargetId === String(modelData.channel_id || "") && w.sendTargetAccount === String(modelData.account || "")
+                            readonly property bool selected: w.sendTargetSelected(modelData)
+                            readonly property bool cursor: w.sendTargetKey(modelData) === w.sendCursorKey
 
                             width: targetList.width
                             height: Theme.dp(46)
                             radius: Theme.rad(10)
+                            border.width: cursor && !selected ? 1 : 0
+                            border.color: Theme.outline
                             color: selected ? Theme.primaryContainer : (targetArea.containsMouse ? Theme.surfaceHigh : "transparent")
 
                             RowLayout {
@@ -4421,7 +7331,7 @@ WidgetBody {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: w.selectSendTarget(targetRow.modelData)
+                                onClicked: w.toggleSendTarget(targetRow.modelData, false)
                             }
 
                         }
@@ -4432,7 +7342,7 @@ WidgetBody {
                         Layout.fillWidth: true
                         visible: w.sendTargetsLoading
                         role: "bodySmall"
-                        text: "Loading channels…"
+                        text: Tr.t("Loading channels…")
                         color: w.inkFaint
                     }
 
@@ -4440,7 +7350,7 @@ WidgetBody {
                         Layout.fillWidth: true
                         visible: w.shownSendTargets.length === 0 && !w.sendTargetsLoading
                         role: "bodySmall"
-                        text: w.newPostError !== "" ? w.newPostError : (w.channelQuery !== "" ? "No matching channels." : "No channels available.")
+                        text: w.newPostError !== "" ? w.newPostError : (w.channelQuery !== "" ? Tr.t("No matching channels.") : Tr.t("No channels available."))
                         color: w.newPostError !== "" ? Theme.error : w.inkFaint
                         wrapMode: Text.Wrap
                     }
@@ -4462,8 +7372,8 @@ WidgetBody {
                         ink: w.ink
                         emojiCatalog: w.emojiCatalog
                         emojiUsage: w.emojiUsageCounts
-                        busy: w.sending || w.sendTargetId === ""
-                        placeholder: "Write a post..."
+                        busy: w.sending || w.selectedSendTargets.length === 0
+                        placeholder: Tr.t("Write a post...")
                         onSend: (body, images) => w.sendNewPost(body, images)
                     }
 
@@ -4491,6 +7401,7 @@ WidgetBody {
                 onToggleSource: (id) => w.toggleSource(id)
                 onToggleStream: (id) => w.toggleStream(id)
                 onSaveCredential: (sourceId, key, value) => w.saveCredential(sourceId, key, value)
+                onStartOAuth: (sourceId) => w.startOAuth(sourceId)
                 onSaveAccount: (sourceId, accountId, name, value) => w.saveAccount(sourceId, accountId, name, value)
                 onRemoveAccount: (sourceId, accountId) => w.removeAccount(sourceId, accountId)
                 onCloseRequested: w.pickerOpen = false

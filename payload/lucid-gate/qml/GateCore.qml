@@ -14,6 +14,9 @@ Singleton {
     readonly property string home: Quickshell.env("HOME")
     readonly property string binPath: Quickshell.env("LUCID_GATE_BIN") || (root.home + "/.local/bin/gate")
     readonly property string statePath: root.home + "/.local/state/lucid-gate/state.json"
+    // written every couple of seconds; the OpenCode plugin reads its mtime and
+    // auto-passes prompts while the shell is down
+    readonly property string alivePath: root.home + "/.local/state/lucid-gate/shell-alive"
     readonly property string browserPath: Quickshell.env("LUCID_GATE_BROWSER") || "helium-browser"
     readonly property string assetsPath: Quickshell.env("LUCID_GATE_ASSETS") || (root.home + "/src/lucid-gate/qml/assets")
     readonly property string lessonUrlPath: root.home + "/.local/state/lucid-gate/duolingo-url"
@@ -24,6 +27,7 @@ Singleton {
     // false when the CLI or the daemon could not be reached; the UI shows it
     property bool available: true
     property string lastError: ""
+    property string lastRaw: ""
     // bumped once a second while a task runs, so the countdowns stay live
     property int tick: 0
     // the card asked for the small foreground pill (a task started by hand)
@@ -33,6 +37,10 @@ Singleton {
     // after the lesson completes, keep the surface up long enough to read the
     // summary (Duolingo only; the task itself is already done)
     property bool lessonLinger: false
+    // a lesson opened on its own (the desktop card) keeps its window after the
+    // summary; only a gate lesson closes itself once the place is open
+    property bool lessonKeepOpen: false
+    property bool lessonVoluntary: false
     // the page to open; restored from disk when the shell restarts mid-lesson
     property string lessonUrl: "https://www.duolingo.com/learn"
     property string savedDuolingoUrl: ""
@@ -45,6 +53,8 @@ Singleton {
     property string lessonTargetScreen: ""
     // the active view has finished loading; the launch tile waits for this
     property bool lessonPageReady: false
+    // the launch iris has started; until then the page stays hidden behind it
+    property bool lessonRevealed: false
     // Duolingo account XP, polled in the background. The first value seen is
     // the baseline: nothing before it is credited.
     property int duoLastXp: -1
@@ -59,6 +69,23 @@ Singleton {
     readonly property var gates: root.state.gates || ({})
     readonly property var sessions: root.state.sessions || ({})
     readonly property int balance: Number(root.state.balance || 0)
+    // tasks in the rolling quota day (02:00 boundary, a boot starts fresh);
+    // the daemon owns the log, the view re-filters the 24 h window as it ages
+    readonly property var daily: root.state.daily || ({})
+    readonly property int freeAfter: Number(root.state.free_after || 10)
+    readonly property int dailyDone: {
+        root.tick;
+        const log = root.daily.log || [];
+        const cutoff = Date.now() / 1000 - 24 * 60 * 60;
+        let total = 0;
+        for (let i = 0; i < log.length; i++) {
+            if (Number(log[i]) > cutoff)
+                total++;
+
+        }
+        return total;
+    }
+    readonly property bool freeUnlock: root.freeAfter > 0 && root.dailyDone >= root.freeAfter
 
     readonly property var pendingGates: {
         const out = [];
@@ -141,6 +168,12 @@ Singleton {
     }
 
     function absorb(raw) {
+        // reloads are also polled as a watch fallback; do not churn every
+        // binding when the ledger has not actually changed
+        if (raw === root.lastRaw)
+            return ;
+
+        root.lastRaw = raw;
         const first = !root.loaded;
         try {
             const parsed = JSON.parse(raw);
@@ -149,13 +182,22 @@ Singleton {
                 root.available = true;
                 root.lastError = "";
                 if (first) {
+                    // the shell came back with a task still open: finish it
+                    // now, exactly as the user would have, so a restart can
+                    // never swallow the reward it was about to pay
                     const sessions = parsed.sessions || ({});
+                    const seen = ({});
                     for (const key in sessions) {
                         const session = sessions[key];
-                        if (session && session.state === "running" && session.task === "duolingo") {
-                            resumeTimer.restart();
-                            break;
-                        }
+                        if (!session || session.state !== "running")
+                            continue;
+
+                        const task = String(session.task || "");
+                        if (task === "" || seen[task])
+                            continue;
+
+                        seen[task] = true;
+                        root.run([root.binPath, "complete", task]);
                     }
                 }
             }
@@ -168,7 +210,7 @@ Singleton {
     onRunningChanged: {
         if (root.running === null) {
             root.pillWanted = false;
-            if (!root.lessonLinger)
+            if (!root.lessonLinger && !root.lessonKeepOpen)
                 root.lessonOpen = false;
         }
 
@@ -197,7 +239,11 @@ Singleton {
     function startTask(taskId, origin) {
         const task = root.taskFor(taskId);
         const existing = root.sessionFor(taskId);
+        // a new lesson cancels the post-completion linger, otherwise its timer
+        // would close the fresh lesson two seconds in
         root.lessonLinger = false;
+        root.lessonKeepOpen = false;
+        lessonLingerTimer.stop();
         root.launchRect = (origin !== undefined && origin !== null) ? origin : null;
         if (task !== null && task.kind === "duolingo") {
             root.lessonUrl = (existing !== null && root.savedDuolingoUrl !== "")
@@ -205,7 +251,7 @@ Singleton {
                 : ((task.url && task.url !== "") ? task.url : "https://www.duolingo.com/learn");
         }
         if (task !== null && task.kind === "instant") {
-            // a debug/instant task: start and immediately claim it
+            // an instant task: start and immediately claim it
             root.run([root.binPath, "start", taskId]);
             root.run([root.binPath, "complete", taskId]);
             refreshTimer.restart();
@@ -216,8 +262,14 @@ Singleton {
             root.openBrowser(task);
 
         if (task !== null && task.kind === "duolingo") {
+            // opened for its own sake rather than to pay for a waiting place
+            root.lessonVoluntary = root.gate === null;
+            // name the output before the request, so only that warm view opens
+            if (origin !== undefined && origin !== null && origin.screen)
+                root.lessonTargetScreen = String(origin.screen);
             root.lessonOpen = true;
             root.lessonPageReady = false;
+            root.lessonRevealed = false;
             root.lessonRequest++;
             root.pillWanted = false;
         } else {
@@ -286,8 +338,11 @@ Singleton {
 
         const delta = xp - root.duoLastXp;
         if (!internal) {
-            // one reward per lesson-shaped XP step; a poll usually spans one
-            const lessons = Math.max(1, Math.round(delta / 20));
+            // A 60 s poll cannot really span a pile of lessons, and totalXp
+            // also counts quests, boosts and everything else on the account.
+            // A large jump means the shell was away: pay at most a few
+            // lessons for it instead of minting one per 20 XP.
+            const lessons = Math.min(3, Math.max(1, Math.round(delta / 20)));
             for (let i = 0; i < lessons; i++) {
                 root.run([root.binPath, "credit", "160",
                     "--ref", "duolingo-xp-" + xp + "-" + i,
@@ -319,6 +374,7 @@ Singleton {
     }
 
     function closeLesson() {
+        root.lessonKeepOpen = false;
         const session = root.sessionFor("duolingo");
         console.log("lucid-gate: closeLesson", session ? session.id : "no session");
         if (session !== null)
@@ -329,6 +385,7 @@ Singleton {
     }
 
     function lingerLesson(ms) {
+        root.lessonKeepOpen = false;
         root.lessonLinger = true;
         lessonLingerTimer.interval = Math.max(0, Number(ms) || 0);
         lessonLingerTimer.restart();
@@ -416,6 +473,31 @@ Singleton {
         onLoadFailed: root.savedDuolingoUrl = ""
     }
 
+    Timer {
+        interval: 2000
+        repeat: true
+        running: true
+        triggeredOnStart: true
+        onTriggered: aliveFile.setText(String(Date.now()) + "\n")
+    }
+
+    FileView {
+        id: aliveFile
+
+        path: root.alivePath
+        blockLoading: true
+        printErrors: false
+    }
+
+    // inotify normally delivers the gate at once; polling is the fallback for
+    // the rare missed write, and absorb ignores repeats
+    Timer {
+        interval: 500
+        repeat: true
+        running: true
+        onTriggered: stateFile.reload()
+    }
+
     FileView {
         id: stateFile
 
@@ -445,26 +527,13 @@ Singleton {
     }
 
     Timer {
-        id: resumeTimer
-
-        interval: 300
-        onTriggered: {
-            if (root.running !== null && root.running.task === "duolingo" && !root.lessonOpen) {
-                root.lessonUrl = root.savedDuolingoUrl !== ""
-                    ? root.savedDuolingoUrl
-                    : "https://www.duolingo.com/learn";
-                root.lessonOpen = true;
-                root.lessonPageReady = false;
-                root.lessonRequest++;
-            }
-        }
-    }
-
-    Timer {
         id: lessonLingerTimer
 
         interval: 2000
         onTriggered: {
+            if (!root.lessonLinger)
+                return ;
+
             root.lessonLinger = false;
             root.lessonOpen = false;
         }

@@ -20,6 +20,13 @@ VAC_SOURCE = "VST_Mic"
 VAC_MONITOR_OWNER = "VST_OUT"
 RAW_MIC = "alsa_input.usb-RODE_Microphones_RODE_NT-USB-00.analog-stereo"
 
+# Wine's pulse driver opens a short-lived capture stream on the current input
+# device purely to refresh its device list.  Its name is the literal
+# "winepulse device refresh".  Moving that stream makes winepulse open another
+# one on the next refresh, which flaps the graph every few seconds (and makes
+# the shell announce it as a new app every time), so leave it alone.
+INTERNAL_REFRESH = re.compile(r"winepulse\s+device\s+refresh", re.I)
+
 def sh(cmd, timeout=5):
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -97,6 +104,9 @@ def enforce_once(whitelist, verbose=False):
     moved, logs = 0, []
     for s in list_source_outputs():
         idx, src, aid = s["index"], s["source"], s["app_id"]
+        if INTERNAL_REFRESH.search(aid) or INTERNAL_REFRESH.search(s.get("media", "")):
+            # winepulse's own device-refresh probe: not an application recording
+            continue
         # also match by binary basename for robustness
         keys = {aid, s["binary"], s["binary"].split("/")[-1], s["app_name"]}
         allowed = bool(keys & whitelist) or aid in whitelist
@@ -120,7 +130,7 @@ def enforce_once(whitelist, verbose=False):
     # We only do this if pw-link exists; failures are ignored (Pulse covers 95%).
     return moved, logs
 
-def enforce_loop(stop_evt, get_whitelist, log_fn, interval=0.5):
+def enforce_loop(stop_evt, get_whitelist, log_fn, interval=1.0):
     while not stop_evt.is_set():
         try:
             wl = get_whitelist()

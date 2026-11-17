@@ -47,7 +47,7 @@ WidgetBody {
             var mins = Math.round((next[0].at - w.now) / 60000);
             return {
                 "icon": "event",
-                "text": next[0].item.name + " · " + (mins < 60 ? "in " + Math.max(1, mins) + " min" : Agenda.timeText(next[0].item))
+                "text": next[0].item.name + " · " + (mins < 60 ? Tr.t("in ") + Math.max(1, mins) + Tr.t(" min") : Agenda.timeText(next[0].item))
             };
         }
         if (w.playing)

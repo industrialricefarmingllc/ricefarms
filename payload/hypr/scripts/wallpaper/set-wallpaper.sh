@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # set-wallpaper.sh <path-to-image> [dark|light]
 #
+# A picture's <stem>.json sidecar can pin its mode with {"themeMode":"dark"}
+# (or {"mode":"dark"}); the explicit argument above still wins.
+#
 # Sets the wallpaper, then regenerates the palette if the active theme derives
 # it from the image. ~/.cache/current_theme decides:
 #   matugen  — one scheme computed from the image, every template rendered
@@ -302,7 +305,11 @@ reveal_heartbeat_stop() {
 }
 wait_reveal_ready() {
     local i
-    for i in {1..150}; do
+    # The ready marker is announced when the drawing has finished, so this
+    # also covers the whole animation. Everything that follows (mode detect,
+    # palette, depth, wallpaper) runs on the drawing's last frame instead of
+    # competing with it.
+    for i in {1..500}; do
         [ -f "$REVEAL_READY" ] && return 0
         sleep 0.02
     done
@@ -310,7 +317,10 @@ wait_reveal_ready() {
 }
 wait_reveal_covered() {
     local i
-    for i in {1..200}; do
+    # The drawing now holds the "covered" marker until it has played out, so
+    # the palette/depth work starts on its finished frame instead of stalling
+    # the animation. Allow the full drawing plus a few stalled frames.
+    for i in {1..500}; do
         [ -f "$REVEAL_COVERED" ] && return 0
         sleep 0.02
     done
@@ -391,20 +401,46 @@ EOF2
 CURRENT_THEME="$(cat "$CURRENT_THEME_FILE" 2>/dev/null || echo matugen)"
 
 # ── mode ────────────────────────────────────────────────────────────────────
-# A wallpaper is dark when more than this share of a 64×64 sample sits below
-# luma 100. The value is the measured dark share of the current wallpaper
-# (1738/4096 = 42.431640625%), so that picture lands just on the light side.
-DARK_THRESHOLD=0.42431640625
+# A picture's sidecar (<stem>.json, the Wallhaven metadata file) can pin the
+# mode instead of measuring the image: {"themeMode": "dark"} (or "mode").
+# An explicit [dark|light] argument still wins over the sidecar.
+#
+# Otherwise a wallpaper is dark when either more than half of a 64×64 sample
+# sits below luma 100, or at least a fifth sits below luma 32 (a large true-black
+# region). The two wallpapers this was tuned against:
+#   wallhaven-ogwgmp.png  2460/4096 = 60.06% below 100 -> dark
+#   wallhaven-gwmyk7.jpg   1153/4096 = 28.15% below 32  -> dark
+DARK_LUMA=100
+DARK_THRESHOLD=0.5
+BLACK_LUMA=32
+BLACK_THRESHOLD=0.2
+
+wallpaper_mode_override() { # $1 = image, prints dark|light when pinned
+    local image="$1" sidecar mode
+    [[ -n "$image" && -f "$image" ]] || return 1
+    sidecar="${image%.*}.json"
+    [[ -f "$sidecar" ]] || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    mode=$(jq -r '(.themeMode // .mode // "") | tostring | ascii_downcase' "$sidecar" 2>/dev/null || true)
+    case "$mode" in
+        dark | light) printf '%s' "$mode" ;;
+        *) return 1 ;;
+    esac
+}
+CONFIG_MODE="$(wallpaper_mode_override "$TARGET_LABEL" || true)"
+[[ -n "$CONFIG_MODE" ]] || CONFIG_MODE="$(wallpaper_mode_override "$WALLPAPER" || true)"
 
 # A wallpaper's brightness does not change while its mtime/size are unchanged,
 # so cache the answer. This removes an ffmpeg decode from every re-select and
-# from every mode toggle. The threshold is part of the key, so retuning it
-# never resurrects answers measured against the old one.
+# from every mode toggle. Both thresholds are part of the key, so retuning
+# either never resurrects answers measured against the old one.
 MODE=""
-MODE_KEY=$(printf '%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" "$DARK_THRESHOLD" | sha1sum | cut -d' ' -f1)
+MODE_KEY=$(printf '%s|%s|%s|%s|%s|%s' "$WALLPAPER" "$(stat_key "$WALLPAPER")" "$DARK_LUMA" "$DARK_THRESHOLD" "$BLACK_LUMA" "$BLACK_THRESHOLD" | sha1sum | cut -d' ' -f1)
 MODE_CACHE="$CACHE_DIR/lucid/wallpaper-mode/$MODE_KEY"
 if [[ -n "$EXPLICIT_MODE" ]]; then
     MODE="$EXPLICIT_MODE"
+elif [[ -n "$CONFIG_MODE" ]]; then
+    MODE="$CONFIG_MODE"
 elif [[ -f "$MODE_CACHE" ]]; then
     MODE="$(cat "$MODE_CACHE")"
 fi
@@ -417,7 +453,8 @@ detect_mode() {
     local mode="dark"
     if command -v ffmpeg >/dev/null 2>&1; then
         ffmpeg -y -i "$WALLPAPER" -vf "scale=64:64:flags=area" -f rawvideo -pix_fmt rgb24 "$CACHE_DIR/lucid/.wallgrid.rgb" 2>/dev/null || true
-        mode=$(DARK_THRESHOLD="$DARK_THRESHOLD" "$PYTHON" - << 'PY' 2>/dev/null || echo dark
+        mode=$(DARK_LUMA="$DARK_LUMA" DARK_THRESHOLD="$DARK_THRESHOLD" \
+            BLACK_LUMA="$BLACK_LUMA" BLACK_THRESHOLD="$BLACK_THRESHOLD" "$PYTHON" - << 'PY' 2>/dev/null || echo dark
 import os
 p=os.path.expanduser('~/.cache/lucid/.wallgrid.rgb')
 try:
@@ -425,8 +462,16 @@ try:
     if n==0:
         print('dark')
     else:
-        dark=sum(1 for i in range(n) if 0.2126*d[3*i]+0.7152*d[3*i+1]+0.0722*d[3*i+2] < 100)
-        print('dark' if dark/n > float(os.environ.get('DARK_THRESHOLD', '0.25')) else 'light')
+        dark_luma=float(os.environ.get('DARK_LUMA', '100'))
+        black_luma=float(os.environ.get('BLACK_LUMA', '32'))
+        dark=black=0
+        for i in range(n):
+            v=0.2126*d[3*i]+0.7152*d[3*i+1]+0.0722*d[3*i+2]
+            if v < dark_luma: dark+=1
+            if v < black_luma: black+=1
+        is_dark = dark/n > float(os.environ.get('DARK_THRESHOLD', '0.5')) \
+            or black/n > float(os.environ.get('BLACK_THRESHOLD', '0.2'))
+        print('dark' if is_dark else 'light')
 except Exception:
     print('dark')
 PY
@@ -466,7 +511,7 @@ wallpaper_is_current() {
 SIG=$(printf '%s|%s|%s|%s|%s|%s|%s|%s' \
     "$WALLPAPER" "$(stat_key "$WALLPAPER")" "$MODE" "$CURRENT_THEME" \
     "$(stat_key "$MATUGEN_CFG")" "$PREF_SIG" "$SKWD_TARGET" "$SKWD_LIVE_LABEL")
-if [[ "${FORCE:-0}" != "1" && "$CURRENT_THEME" == "matugen" \
+if [[ "${FORCE:-0}" != "1" && -n "$MODE" && "$CURRENT_THEME" == "matugen" \
         && "$(cat "$SIG_FILE" 2>/dev/null || true)" == "$SIG" \
         && -s "$CACHE_DIR/quickshell/matugen.json" \
         && -s "$HOME/.config/hypr/colors.conf" \
@@ -793,7 +838,9 @@ if command -v gsettings >/dev/null 2>&1 && [[ "$OLD_MODE" != "$MODE" ]]; then
         gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
     fi
 fi
-if [[ -z "$EXPLICIT_MODE" ]]; then
+if [[ -n "$CONFIG_MODE" && -z "$EXPLICIT_MODE" ]]; then
+    echo "→ wallpaper config for $TARGET_LABEL → $MODE"
+elif [[ -z "$EXPLICIT_MODE" ]]; then
     echo "→ measured dark-area for $TARGET_LABEL → $MODE"
 fi
 

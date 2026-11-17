@@ -19,12 +19,17 @@ import qs.squircle
 Scope {
     id: root
 
-    readonly property bool lessonUp: GateCore.lessonOpen && (GateCore.running !== null || GateCore.lessonLinger)
+    readonly property bool lessonUp: GateCore.lessonOpen
+        && (GateCore.running !== null || GateCore.lessonLinger || GateCore.lessonKeepOpen)
     readonly property bool pillMode: GateCore.pillWanted && GateCore.running !== null && !root.lessonUp
-    readonly property bool gateUp: GateCore.loaded && GateCore.gate !== null && !root.pillMode && !root.lessonUp
+    readonly property bool gatePending: GateCore.loaded && GateCore.gate !== null && !root.pillMode && !root.lessonUp
+    // nothing is drawn until the window geometry is known, so the card never
+    // appears somewhere else first
+    readonly property bool gateUp: root.gatePending && root.geometryReady
     readonly property bool pillUp: GateCore.loaded && root.pillMode
     readonly property bool overlayUp: root.gateUp || root.lessonUp
     property string targetName: ""
+    property bool geometryReady: false
     property var frozen: null
     // the WebEngine view is expensive and QtWebEngine does not like being torn
     // down while a JavaScript callback is in flight: once created, keep it
@@ -36,15 +41,17 @@ Scope {
     property string lessonScreen: ""
     property int lessonSerial: 0
 
-    function measure() {
-        const toplevel = Hyprland.activeToplevel;
-        if (!toplevel || !toplevel.lastIpcObject)
+    function rectFromIpc(info) {
+        if (!info || !info.at || !info.size)
             return null;
 
-        const info = toplevel.lastIpcObject;
         const at = info.at;
         const size = info.size;
-        if (!at || !size)
+        const ax = at.x !== undefined ? at.x : at[0];
+        const ay = at.y !== undefined ? at.y : at[1];
+        const aw = size.x !== undefined ? size.x : size[0];
+        const ah = size.y !== undefined ? size.y : size[1];
+        if (!(aw > 0 && ah > 0))
             return null;
 
         const monitors = Hyprland.monitors ? Hyprland.monitors.values : [];
@@ -56,13 +63,6 @@ Scope {
         if (monitor === null)
             return null;
 
-        const ax = at.x !== undefined ? at.x : at[0];
-        const ay = at.y !== undefined ? at.y : at[1];
-        const aw = size.x !== undefined ? size.x : size[0];
-        const ah = size.y !== undefined ? size.y : size[1];
-        if (!(aw > 0 && ah > 0))
-            return null;
-
         return {
             "screen": monitor.name,
             "x": ax - monitor.x,
@@ -72,21 +72,85 @@ Scope {
         };
     }
 
+    function measure() {
+        const toplevel = Hyprland.activeToplevel;
+        if (!toplevel || !toplevel.lastIpcObject)
+            return null;
+
+        return root.rectFromIpc(toplevel.lastIpcObject);
+    }
+
+    function applyRect(rect) {
+        root.frozen = rect;
+        if (rect !== null && rect.screen !== "")
+            root.targetName = rect.screen;
+        root.geometryReady = true;
+    }
+
+    // Quickshell knows the focused toplevel only after it has seen a focus
+    // event, which is not guaranteed on a fresh shell. Ask Hyprland for its
+    // focus history in that case; the gate stays hidden until an answer
+    // arrives, so the card never shows at a temporary position.
+    function absorbClients(raw) {
+        let list = null;
+        try {
+            list = JSON.parse(raw);
+        } catch (e) {
+            list = null;
+        }
+        if (!Array.isArray(list)) {
+            root.applyRect(null);
+            return ;
+        }
+        let best = null;
+        let bestRank = 1e9;
+        for (let i = 0; i < list.length; i++) {
+            const client = list[i];
+            if (!client || client.mapped === false || client.hidden === true)
+                continue;
+
+            const rank = client.focusHistoryID !== undefined ? Number(client.focusHistoryID) : 1e9;
+            if (rank < bestRank) {
+                bestRank = rank;
+                best = client;
+            }
+        }
+        root.applyRect(root.rectFromIpc(best));
+    }
+
     function begin() {
         const monitor = Hyprland.focusedMonitor;
         root.targetName = monitor ? monitor.name : (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : "");
-        root.frozen = root.measure();
+        root.geometryReady = false;
+        const rect = root.measure();
+        if (rect !== null)
+            root.applyRect(rect);
+        else
+            activeWindow.running = true;
     }
 
-    onGateUpChanged: {
-        if (root.gateUp)
+    onGatePendingChanged: {
+        if (root.gatePending)
             root.begin();
-
     }
     onPillUpChanged: {
         if (root.pillUp)
             root.begin();
 
+    }
+
+    Process {
+        id: activeWindow
+
+        command: ["hyprctl", "-j", "clients"]
+        onExited: {
+            if (!root.geometryReady)
+                root.applyRect(null);
+        }
+        stdout: StdioCollector {
+            onStreamFinished: root.absorbClients(this.text)
+        }
+        stderr: StdioCollector {}
     }
     onLessonUpChanged: {
         if (!root.lessonUp)
@@ -151,7 +215,9 @@ Scope {
                 "lessonWarm": root.lessonWarm,
                 "lessonScreen": root.lessonScreen,
                 "targetName": root.targetName,
-                "lessonUp": root.lessonUp
+                "lessonUp": root.lessonUp,
+                "gateUp": root.gateUp,
+                "target": root.frozen
             });
         }
 
@@ -231,8 +297,11 @@ Scope {
                 // swallow everything that is not the card
                 Rectangle {
                     anchors.fill: parent
-                    visible: root.overlayUp
                     color: Qt.rgba(0, 0, 0, 0.30)
+                    // the dim is there on the first frame: a fade here reads as
+                    // a delay between Enter and the lock
+                    opacity: root.overlayUp ? 1 : 0
+                    visible: opacity > 0.001
                 }
 
                 MouseArea {
@@ -240,51 +309,38 @@ Scope {
                     enabled: root.overlayUp
                 }
 
-                // the window that asked, dimmed again so the card has a subject
-                SquircleRect {
-                    visible: root.gateUp && win.target !== null
-                    x: win.target ? win.target.x : 0
-                    y: win.target ? win.target.y : 0
-                    width: win.target ? win.target.w : 0
-                    height: win.target ? win.target.h : 0
-                    radius: Theme.windowRadius
-                    fillColor: Qt.rgba(0, 0, 0, 0.42)
-                    borderWidth: 1
-                    borderColor: Theme.alpha(Theme.accent, 0.34)
-                }
-
                 SquircleRect {
                     id: card
 
-                    visible: root.gateUp
-                    readonly property real margin: Theme.dp(44)
+                    readonly property var box: win.target
+                    readonly property bool up: win.live && root.gateUp
 
-                    width: Math.min(Theme.dp(540), win.width - card.margin * 2)
-                    height: Math.min(content.implicitHeight, win.height - card.margin * 2)
-                    radius: Theme.rad(26)
+                    // the card *is* the window that asked: its exact rect, no
+                    // margins and no recentring, so the gate never floats away
+                    // from what it covers
+                    x: card.box !== null ? card.box.x : Math.round((win.width - card.width) / 2)
+                    y: card.box !== null ? card.box.y : Math.round((win.height - card.height) / 2)
+                    width: card.box !== null ? card.box.w : Math.min(Theme.dp(560), win.width - Theme.dp(88))
+                    height: card.box !== null ? card.box.h
+                        : Math.min(content.implicitHeight, win.height - Theme.dp(88))
+                    radius: card.box !== null ? Theme.windowRadius : Theme.rad(26)
                     fillColor: Theme.bgOpaque
                     borderWidth: 1
                     borderColor: Theme.alpha(Theme.accent, 0.30)
-                    x: {
-                        if (win.target === null)
-                            return (win.width - card.width) / 2;
 
-                        return Math.max(card.margin, Math.min(win.width - card.width - card.margin,
-                            win.target.x + (win.target.w - card.width) / 2));
-                    }
-                    y: {
-                        if (win.target === null)
-                            return (win.height - card.height) / 2;
+                    // geometry stays exact and unmoving; only the transform
+                    // runs, so no mask or blur has to chase a growing card
+                    opacity: card.up ? 1 : 0
+                    visible: card.opacity > 0.001
+                    scale: card.up ? 1 : 0.965
+                    transformOrigin: Item.Center
 
-                        return Math.max(card.margin, Math.min(win.height - card.height - card.margin,
-                            win.target.y + (win.target.h - card.height) / 2));
-                    }
-                    scale: win.live ? 1 : 0.97
-
+                    // visible on the first frame; only the subtle scale settles
                     Behavior on scale {
                         NumberAnimation {
-                            duration: Theme.durMedium
-                            easing.type: Easing.OutCubic
+                            duration: Theme.durFastSpatial
+                            easing.type: Easing.Bezier
+                            easing.bezierCurve: Theme.curveDefaultSpatial
                         }
 
                     }
@@ -294,7 +350,12 @@ Scope {
 
                         anchors.fill: parent
                         inset: Theme.dp(22)
+                        shown: card.up
+                        screenName: String(unit.modelData.name)
                     }
+
+
+
 
                 }
 
@@ -308,6 +369,17 @@ Scope {
                     }
                 }
 
+                // the gate owns the keyboard while it is up; these live on a
+                // focused item so they do not depend on Shortcut matching
+                Item {
+                    anchors.fill: parent
+                    focus: win.live && root.gateUp
+                    Keys.onLeftPressed: content.step(-1)
+                    Keys.onRightPressed: content.step(1)
+                    Keys.onReturnPressed: content.activateSelected()
+                    Keys.onEnterPressed: content.activateSelected()
+                }
+
                 // the lesson card is at its final rect from the start; the
                 // GateLaunch inside GateLesson holds the placeholder tile and
                 // performs the same morph/iris a normal app launch does
@@ -318,7 +390,7 @@ Scope {
                     readonly property real finalW: Math.min(Theme.dp(1180), win.width - margin * 2)
                     readonly property real finalH: Math.min(Theme.dp(820), win.height - margin * 2)
 
-                    visible: root.lessonUp
+                    visible: root.lessonUp && win.live
                     clip: false
                     width: finalW
                     height: finalH
@@ -328,14 +400,7 @@ Scope {
                     fillColor: "transparent"
                     borderWidth: 0
                     borderColor: "transparent"
-                    opacity: root.lessonUp ? 1 : 0
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Theme.durFastSpatial
-                            easing.type: Easing.OutCubic
-                        }
-                    }
+                    opacity: (root.lessonUp && win.live) ? 1 : 0
 
                     GateLaunch {
                         id: cardLauncher
@@ -357,13 +422,19 @@ Scope {
                         target: root
 
                         function onLessonSerialChanged() {
-                            if (!root.lessonUp || !win.live)
+                            // root.overlayUp (and so win.live) is still stale in
+                            // the same turn lessonUp flips; compare the target
+                            // screen directly so the launch really starts
+                            if (!root.lessonUp || root.targetName !== String(unit.modelData.name))
                                 return ;
 
-                            if (cardLauncher.hasOrigin)
+                            if (cardLauncher.hasOrigin) {
+                                GateCore.lessonRevealed = false;
                                 cardLauncher.start();
-                            else
+                            } else {
+                                GateCore.lessonRevealed = true;
                                 cardLauncher.reset();
+                            }
                         }
                     }
 
@@ -374,12 +445,12 @@ Scope {
                         anchors.topMargin: Theme.dp(8)
                         anchors.rightMargin: Theme.dp(10)
                         spacing: Theme.dp(2)
-                        visible: root.lessonUp
+                        visible: root.lessonUp && win.live && GateCore.lessonRevealed
 
                         IconButton {
                             icon: "home"
                             size: "s"
-                            tooltip: "Duolingo home"
+                            tooltip: Tr.t("Duolingo home")
                             onClicked: {
                                 if (lessonLoader.item)
                                     lessonLoader.item.goHome();
@@ -390,7 +461,7 @@ Scope {
                         IconButton {
                             icon: "person"
                             size: "s"
-                            tooltip: "Log in to Duolingo"
+                            tooltip: Tr.t("Log in to Duolingo")
                             onClicked: {
                                 if (lessonLoader.item)
                                     lessonLoader.item.goLogin();
@@ -401,7 +472,7 @@ Scope {
                         IconButton {
                             icon: "refresh"
                             size: "s"
-                            tooltip: "Reload"
+                            tooltip: Tr.t("Reload")
                             onClicked: {
                                 if (lessonLoader.item)
                                     lessonLoader.item.reloadView();
@@ -412,7 +483,7 @@ Scope {
                         IconButton {
                             icon: "close"
                             size: "s"
-                            tooltip: "Give up on this lesson"
+                            tooltip: Tr.t("Give up on this lesson")
                             onClicked: GateCore.closeLesson()
                         }
 
@@ -443,7 +514,7 @@ Scope {
                     LText {
                         anchors.centerIn: parent
                         visible: lessonLoader.status === Loader.Error
-                        text: "Duolingo needs a Quickshell built with QtWebEngine."
+                        text: Tr.t("Duolingo needs a Quickshell built with QtWebEngine.")
                         role: "bodyMedium"
                         color: Theme.error
                     }
@@ -501,6 +572,7 @@ Scope {
                 GateSurface {
                     anchors.fill: parent
                     compact: true
+                    screenName: String(pillUnit.modelData.name)
                     inset: Theme.dp(14)
                     showGate: false
                     showTasks: true

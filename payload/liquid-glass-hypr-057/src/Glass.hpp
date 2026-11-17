@@ -66,6 +66,13 @@ void damageEdgeBands(PHLMONITOR monitor, const CBox& fbBox, double padFb);
 // a window below the layer could have changed underneath the pill.
 bool windowOverlapsRegion(MONITORID mon, const CBox& fbRegion);
 
+// Hash of the geometry of every main-pass window box intersecting `fbRegion`.
+// A pill capture is valid across frames only while this hash is unchanged; a
+// window move/resize changes the backdrop under the pill even when the damage
+// itself is small. Content-only changes in a stationary window still reuse the
+// capture (bounded separately by the damage-area threshold in Glass.cpp).
+uint64_t windowRegionKey(MONITORID mon, const CBox& fbRegion);
+
 // Per-pill capture cache: identical blurred backdrop reused across frames
 // whose damage is confined to the pill's own content (typing, progress bars,
 // clocks). The capture itself must be full-pill (see damageCovers), so one
@@ -85,9 +92,10 @@ struct SPillCapture {
     float bokeh = 0, effR = 0;
     uint64_t tuneGen = 0;
     int  srcW = 0, srcH = 0;
-    // Consecutive reuses since the last full capture. Bounds staleness when
-    // a lower window changes a small area under the pill (see Glass.cpp).
-    int  reuseCount = 0;
+    // Geometry hash of the overlapping main-pass windows when this capture
+    // was taken. A move/resize invalidates the cache; a stationary window
+    // with content-only damage does not.
+    uint64_t winKey = 0;
 };
 
 // Pick the working-resolution divisor from the blur the user actually asked
@@ -166,6 +174,8 @@ struct SLayerRingU {
     // borders defaulted to the legacy bevel before rim-only widgets needed it.
     GLint rimLight = -1, rimStrength = -1, rimWidth = -1, rimAngle = -1, rimSplay = -1, rimShade = -1;
     GLint rimAtInner = -1, rimShift = -1;
+    GLint rimSampleShift = -1;
+    GLint rimOverlay = -1;
 };
 
 class CGlassLayer {

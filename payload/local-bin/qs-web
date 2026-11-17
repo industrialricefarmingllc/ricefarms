@@ -3,6 +3,24 @@
 # Blink's preferredColorScheme drives prefers-color-scheme for the embedded
 # Duolingo page: 0 = dark, 1 = light. Read the XDG appearance portal (the same
 # setting the rest of the desktop uses) once per shell start.
+
+# A crashed shell leaves its GPU allocations behind until the next driver
+# reset. Refuse to start when the card has no headroom, so a crash loop cannot
+# burn through the last few hundred MB. 75 is EX_TEMPFAIL; the unit turns that
+# into "do not restart" so the leak does not get worse.
+if command -v nvidia-smi >/dev/null 2>&1; then
+  free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -d ' ')
+  case "$free" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "$free" -lt 1024 ]; then
+        echo "quickshell: only ${free} MiB VRAM free; refusing to start (reboot to reclaim leaked GPU memory)" >&2
+        exit 75
+      fi
+      ;;
+  esac
+fi
+
 scheme=$(timeout 2 gdbus call --session --dest org.freedesktop.portal.Desktop \
   --object-path /org/freedesktop/portal/desktop \
   --method org.freedesktop.portal.Settings.Read \

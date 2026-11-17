@@ -50,22 +50,22 @@ Singleton {
 
     function name(p) {
         if (p === PowerProfile.Performance)
-            return "Performance";
+            return Tr.t("Performance");
 
         if (p === PowerProfile.PowerSaver)
-            return "Power saver";
+            return Tr.t("Power saver");
 
-        return "Balanced";
+        return Tr.t("Balanced");
     }
 
     function description(p) {
         if (p === PowerProfile.Performance)
-            return "Full speed, for more heat and less battery";
+            return Tr.t("Full speed, for more heat and less battery");
 
         if (p === PowerProfile.PowerSaver)
-            return "Cooler and quieter, and the battery lasts longer";
+            return Tr.t("Cooler and quieter, and the battery lasts longer");
 
-        return "Speed and battery life kept in step";
+        return Tr.t("Speed and battery life kept in step");
     }
 
     // a bolt, a leaf and a gauge, as material symbol names

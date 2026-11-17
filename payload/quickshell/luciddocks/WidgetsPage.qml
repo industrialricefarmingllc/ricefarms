@@ -25,14 +25,14 @@ Item {
 
             for (var j = 0; j < type.variants.length; j++) {
                 var v = type.variants[j];
-                var hay = (type.name + " " + v.name + " " + (v.blurb || "")).toLowerCase();
+                var hay = (type.name + " " + v.name + " " + (v.blurb || "") + " " + Tr.t(type.name) + " " + Tr.t(v.name)).toLowerCase();
                 if (q !== "" && hay.indexOf(q) === -1)
                     continue;
                 out.push({
                     "wtype": type.id,
-                    "typeName": type.name,
+                    "typeName": Tr.t(type.name),
                     "variantId": v.id,
-                    "name": v.name,
+                    "name": Tr.t(v.name),
                     "blurb": v.blurb || "",
                     "w": v.w || 0,
                     "h": v.h || 0
@@ -109,7 +109,7 @@ Item {
                     required property var modelData
 
                     kind: "filter"
-                    text: modelData.name
+                    text: Tr.t(modelData.name)
                     selected: root.category === modelData.id
                     onClicked: root.category = (root.category === modelData.id && modelData.id !== "all") ? "all" : modelData.id
                 }

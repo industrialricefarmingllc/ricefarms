@@ -317,6 +317,8 @@ Singleton {
     // players appended to the live group after it started; they are not part
     // of the group script's own child list, so keep their count separately
     property int activeExtra: 0
+    // an unexpected stop is retried a few times with a growing pause
+    property int recoverAttempts: 0
     // library row -> the group's socket index for that player. Removing a row
     // shifts the library but leaves the other players on their own sockets.
     property var liveOrder: []
@@ -351,6 +353,8 @@ Singleton {
         root.groupCount = 0;
         root.modesPending = false;
         root.activeExtra = 0;
+        root.recoverAttempts = 0;
+        recoverTimer.stop();
         root.cleaned = false;
         cleanupPlayers.running = true;
         root.retune();
@@ -692,6 +696,7 @@ Singleton {
         root.groupCount = list.length;
         root.modesPending = false;
         root.activeExtra = 0;
+        recoverTimer.stop();
 
         var command = ["sh", root.playerScript, root.cacheDir, root.settledGain().toFixed(4)];
         for (var i = 0; i < list.length; i++) {
@@ -710,6 +715,8 @@ Singleton {
         root.playing = true;
         root.audible = Math.min(root.count, count + root.activeExtra);
         root.error = "";
+        root.recoverAttempts = 0;
+        recoverTimer.stop();
         root.activeGroup = slot.group;
         root.startVolumeControl();
         root.modesPending = root.modesPending || root.modesDiffer();
@@ -761,12 +768,28 @@ Singleton {
             else if (wasPlaying)
                 root.error = "Playback stopped";
 
+            // a stream can die from a transient YouTube or network failure;
+            // bring the whole group back, backing off between attempts
+            if (root.enabled && root.count > 0 && root.activeSig !== "" && root.recoverAttempts < 3) {
+                root.recoverAttempts += 1;
+                recoverTimer.interval = root.recoverAttempts * 2500;
+                recoverTimer.restart();
+            }
+
             root.tryStart();
             return ;
         }
 
         // a slot that stop() already released
         root.tryStart();
+    }
+
+    function replay() {
+        if (!root.loaded || !root.enabled || root.count === 0)
+            return ;
+
+        root.activeSig = "";
+        root.retune();
     }
 
     function stop(clearSig) {
@@ -785,6 +808,7 @@ Singleton {
         root.error = "";
         root.stopVolumeControl();
         volumeSettle.stop();
+        recoverTimer.stop();
         root.launchedModes = [];
         root.liveOrder = [];
         root.groupCount = 0;
@@ -1427,6 +1451,13 @@ Singleton {
     }
 
     Timer {
+        id: recoverTimer
+
+        interval: 3000
+        onTriggered: root.replay()
+    }
+
+    Timer {
         id: removeStop
 
         interval: 500
@@ -1728,6 +1759,17 @@ Singleton {
             return root.modes.map((m) => {
                 return m.id + " (" + m.label + ")";
             }).join(", ");
+        }
+
+        function replay(): string {
+            if (!root.enabled)
+                return "ambience is off";
+            if (root.count === 0)
+                return "nothing queued";
+
+            root.recoverAttempts = 0;
+            root.replay();
+            return "";
         }
 
         function duck(): string {

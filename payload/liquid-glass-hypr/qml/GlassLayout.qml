@@ -210,8 +210,13 @@ Item {
     }
 
     function doWrite() {
+        if (root._writing) {
+            root._pending = true;
+            return;
+        }
         root.remember();
         root._lastWriteMs = Date.now();
+        root._writeStart = root._lastWriteMs;
         json.monitor = root.monitorName;
         json.ns = root.surfaceNamespace;
         json.surface = {
@@ -226,6 +231,7 @@ Item {
         root._writes++;
         if (root._writes % 300 === 0)
             console.log("GLASS " + root.name + " writes=" + root._writes + " elapsedMs=" + Math.round(root._lastWriteMs - root._tFirst) + " lastPills=" + root._lastPills.length);
+        root._writing = true;
         file.writeAdapter();
     }
 
@@ -239,6 +245,63 @@ Item {
 
     property int _writes: 0
     property double _tFirst: 0
+    // A FileView write can block the caller ("Blocking on write" in the log)
+    // when another write is still in flight. The launcher used to publish
+    // every frame, so a slow disk turned into a frozen launcher while the rest
+    // of the shell looked idle. Never issue a second write while one is in
+    // flight; keep only the latest geometry and flush it when the write ends.
+    property bool _writing: false
+    property bool _pending: false
+    property double _writeStart: 0
+    // Bumped only on a successful write; the launcher uses this to start its
+    // fill/rim crossfade after the plugin actually has the settled shape.
+    property int saveGeneration: 0
+
+    Connections {
+        target: file
+
+        function onSaved() {
+            root.saveGeneration++;
+            root.finishWrite();
+        }
+
+        function onSaveFailed() {
+            root.finishWrite();
+        }
+    }
+
+    Timer {
+        id: flushTimer
+
+        interval: 4
+        repeat: false
+        onTriggered: root.flushPending()
+    }
+
+    Timer {
+        id: writeWatchdog
+
+        interval: 2000
+        repeat: true
+        running: root._writing
+        onTriggered: {
+            // A canceled write may never emit saved/saveFailed. Drop the
+            // guard once it is clearly stale, then publish the latest state.
+            if (Date.now() - root._writeStart < 1500)
+                return;
+            root._writing = false;
+            if (root._pending)
+                root.flushPending();
+        }
+    }
+
+    function finishWrite() {
+        root._writing = false;
+        if (root._pending) {
+            root._pending = false;
+            flushTimer.restart();
+        }
+    }
 
     function sync(force) {
         if (root.name === "" || file.path === "")

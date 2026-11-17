@@ -14,6 +14,17 @@
 ?? liquidglass-perf-20261106.so
 ?? liquidglass-perf-20261112.so.pre-end-hook-broken
 ?? liquidglass-perf-20261113.so
+?? liquidglass-perf-20261113b.so
+?? liquidglass-perf-20261113c.so
+?? liquidglass-perf-20261113d.so
+?? liquidglass-perf-20261113e.so
+?? liquidglass-perf-20261113f.so
+?? liquidglass-perf-20261114.so
+?? liquidglass-perf-washpass-20261114.so
+?? liquidglass-perf-washpass-dark5-20261114.so
+?? liquidglass-rimfix-20261114.so
+?? liquidglass-rimfix2-20261114.so
+?? liquidglass-rimfix3-20261114.so
 ?? liquidglass-rimlight-20261111.so
 ?? liquidglass-rimlight-20261112.so
 ?? liquidglass-rimwidgets-20261112.so

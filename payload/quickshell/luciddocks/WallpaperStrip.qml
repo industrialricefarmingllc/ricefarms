@@ -654,9 +654,9 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             text: strip.filterText !== ""
                 ? ((RemoteWall.enabled && RemoteWall.query !== "" && RemoteWall.query === strip.filterText.toLowerCase())
-                    ? "Nothing in your library, Wallhaven, or the Workshop matches \"" + strip.filterText + "\"."
-                    : "No local wallpaper matches \"" + strip.filterText + "\".")
-                : (strip.live ? "Drop mp4, webm or mkv files into the theme's wallpaper folder and they show up here." : "Drop images into the theme's wallpaper folder and they show up here.")
+                    ? Tr.fmt("Nothing in your library, Wallhaven, or the Workshop matches \"%1\".", strip.filterText)
+                    : Tr.fmt("No local wallpaper matches \"%1\".", strip.filterText))
+                : (strip.live ? Tr.t("Drop mp4, webm or mkv files into the theme's wallpaper folder and they show up here.") : Tr.t("Drop images into the theme's wallpaper folder and they show up here."))
             role: "bodyMedium"
             color: Theme.subtextDim
         }
